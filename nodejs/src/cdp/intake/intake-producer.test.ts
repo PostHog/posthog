@@ -149,17 +149,35 @@ describe('IntakeProducer', () => {
     it.each([
         ['a subclass with its own track', (): PublishSettlement => new ThrowingSettlement()],
         ['a proxy', (): PublishSettlement => new Proxy(new PublishSettlement(), {})],
-    ])('answers from the broker even when the settlement is %s', async (_, makeSettlement) => {
+    ])('holds the settlement open past the ack deadline even when it is %s', async (_, makeSettlement) => {
+        jest.useFakeTimers()
+        let ack!: () => void
+        produce = () => new Promise<void>((resolve) => (ack = resolve))
         const settlement = makeSettlement()
+        let drained = false
 
-        const outcome = await new IntakeProducer(outputs()).produce(
+        const outcome = new IntakeProducer(outputs()).produce(
             { kind: 'transactional-email', invocation: invocation() },
             'async',
             settlement
         )
+        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
+        await expect(outcome).resolves.toBe('unacked')
+        void settlement.settled().then(() => (drained = true))
+        await jest.advanceTimersByTimeAsync(0)
+        expect(drained).toBe(false)
 
-        expect(outcome).toBe('acked')
-        await expect(settlement.settled()).resolves.toBeUndefined()
+        ack()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(drained).toBe(true)
+    })
+
+    it('takes only a settlement the class built', () => {
+        // @ts-expect-error a plain object's own settled() would ignore the publishes the producer tracks
+        const plain: PublishSettlement = { settled: () => Promise.resolve() }
+
+        expect(plain).not.toBeInstanceOf(PublishSettlement)
     })
 
     it('records the wait for the ack in milliseconds', async () => {

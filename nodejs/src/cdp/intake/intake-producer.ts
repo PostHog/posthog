@@ -50,6 +50,10 @@ export const intakeModeOf = (
 // A produce outlives its ack deadline. A caller that bounds its work in flight passes one of these to its produces and
 // waits on `settled()` before it frees that work's share.
 export class PublishSettlement {
+    // A type-only brand: a plain object with its own `settled()` would ignore the tracked publishes. It emits no field,
+    // so a proxy still reaches the same entry in `trackedPublishes`.
+    declare private readonly brand: never
+
     static track(settlement: PublishSettlement, publish: Promise<unknown>): void {
         const publishes = trackedPublishes.get(settlement)
         if (publishes) {
