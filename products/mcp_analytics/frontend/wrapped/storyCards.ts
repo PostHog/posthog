@@ -84,9 +84,24 @@ export function formatCompact(value: number): string {
     return COMPACT.format(value)
 }
 
-/** Text size for a headline number, so the longest totals still fit on one line. */
-export function headlineNumberSize(formatted: string): string {
-    return formatted.length <= 7 ? 'text-6xl' : formatted.length <= 10 ? 'text-5xl' : 'text-4xl'
+/** Exact below a million, where every digit still fits on the card; short form above it. */
+export function formatCallCount(calls: number): string {
+    return calls < 1_000_000 ? calls.toLocaleString('en-US') : formatCompact(calls)
+}
+
+const CALL_MILESTONES: [number, string][] = [
+    [1_000_000_000, '1 billion'],
+    [100_000_000, '100 million'],
+    [10_000_000, '10 million'],
+    [1_000_000, '1 million'],
+    [100_000, '100,000'],
+    [10_000, '10,000'],
+]
+
+/** The largest round number the total passed, or null below the first one. */
+export function callMilestone(calls: number): string | null {
+    const milestone = CALL_MILESTONES.find(([threshold]) => calls >= threshold)
+    return milestone ? `Over ${milestone[1]} tool calls` : null
 }
 
 export function formatPercent(share: number): string {

@@ -2,19 +2,31 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { MCPWrappedToolCallsCardApi } from '../../generated/api.schemas'
-import { chartMonths, formatCompact, formatMonth, headlineNumberSize } from '../storyCards'
+import { callMilestone, chartMonths, formatCallCount, formatCompact, formatMonth } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 
 export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): JSX.Element {
     const months = chartMonths(card.months)
     const busiest = Math.max(...months.map((month) => month.calls))
-    const total = card.total_calls.toLocaleString('en-US')
+    const busiestMonth = months.find((month) => month.calls === busiest)
+    const milestone = callMilestone(card.total_calls)
     return (
-        <WrappedCard cardKey="tool_calls" kicker="This year, AI agents called your tools">
+        <WrappedCard cardKey="tool_calls" kicker="Agents called your tools">
             <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
-                <span className={cn('font-bold leading-none tabular-nums', headlineNumberSize(total))}>{total}</span>
+                <span
+                    className="text-6xl font-bold leading-none tabular-nums"
+                    title={`${card.total_calls.toLocaleString('en-US')} calls`}
+                >
+                    {formatCallCount(card.total_calls)}
+                </span>
                 <span className="text-2xl font-semibold">times</span>
             </div>
+            {busiestMonth && (
+                <p className="MCPWrapped__rise m-0 text-base">
+                    {formatMonth(busiestMonth.month)} was your busiest month, with{' '}
+                    {humanFriendlyNumber(busiestMonth.calls)} calls.
+                </p>
+            )}
             <ol className="m-0 mt-2 flex list-none flex-col gap-2 p-0" aria-label="Tool calls by month">
                 {months.map((month, index) => (
                     <li
@@ -40,11 +52,18 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                     </li>
                 ))}
             </ol>
-            {card.growth_multiple !== null && (
-                <div className="MCPWrapped__rise flex">
-                    <span className="rounded-full bg-white/20 px-2 py-0.5 font-mono text-xs font-semibold">
-                        {card.growth_multiple}× since {formatMonth(card.months[1]?.month ?? card.months[0].month)}
-                    </span>
+            {(milestone || card.growth_multiple !== null) && (
+                <div className="MCPWrapped__rise flex flex-wrap gap-1.5">
+                    {milestone && (
+                        <span className="rounded-full bg-white/20 px-2 py-0.5 font-mono text-xs font-semibold">
+                            {milestone}
+                        </span>
+                    )}
+                    {card.growth_multiple !== null && (
+                        <span className="rounded-full bg-white/20 px-2 py-0.5 font-mono text-xs font-semibold">
+                            {card.growth_multiple}× since {formatMonth(card.months[1]?.month ?? card.months[0].month)}
+                        </span>
+                    )}
                 </div>
             )}
         </WrappedCard>
