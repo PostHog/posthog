@@ -307,6 +307,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             for case, statuses, shown_as, timeline in (
                 ("waiting", [], "queued", ["queued"]),
                 ("sent", [("sent", 3600, "")], "sent", ["queued", "sent"]),
+                ("rescheduled", [("scheduled", 60, ""), ("scheduled", 120, "")], "queued", ["queued"]),
             )
             for name in ("default_list", "recipient_search", "workflow_filter", "status_filter")
         ]

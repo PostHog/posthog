@@ -329,6 +329,9 @@ def get_transactional_email(
         # A failed email step also fails its run, and the run writes a second, vaguer failure. Show the first only.
         if kind == EmailLogEventKind.FAILED and timeline and timeline[-1].kind == EmailLogEventKind.FAILED:
             continue
+        # Each reschedule writes another scheduled row, but the send was queued once.
+        if kind == EmailLogEventKind.QUEUED and any(event.kind == EmailLogEventKind.QUEUED for event in timeline):
+            continue
         timeline.append(TransactionalEmailLogEvent(kind=EmailLogEventKind(kind), at=at, reason=reason or None))
 
     assets = fetch_message_assets_for_invocations(team_id, [entry.message_id], after=queued - _CLOCK_SKEW)
