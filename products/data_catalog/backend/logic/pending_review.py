@@ -12,7 +12,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 from ..facade.contracts import MetricListFilters
 from ..facade.enums import CertificationStatus, MetricStatus, RelationshipStatus
-from ..models import RelationshipProposal, TableCertification
+from ..models import Metric, RelationshipProposal, TableCertification
 from .analytics import certification_target_name
 from .certifications import certifications_for_team
 from .metrics import cached_denied_tables, metrics_for_team, metrics_visible_to_user
@@ -55,13 +55,30 @@ class TeamPendingReview:
 
 
 def _metrics_group(team: Team, sample_size: int) -> PendingGroup:
-    proposed = metrics_for_team(team).filter(status=MetricStatus.PROPOSED)
+    proposed = _proposed_metrics(team)
     oldest_first = proposed.order_by("created_at")[:sample_size]
     return PendingGroup(
         kind=PendingKind.METRICS,
         noun="metric",
         count=proposed.count(),
         sample_names=[metric.display_name or metric.name for metric in oldest_first],
+    )
+
+
+def _proposed_metrics(team: Team) -> QuerySet[Metric]:
+    return metrics_for_team(team).filter(status=MetricStatus.PROPOSED)
+
+
+def _denied_tables_for_proposed_metrics(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
+    proposed_table_readers = _proposed_metrics(team).exclude(referenced_table_names=[])
+    return cached_denied_tables(
+        team,
+        user,
+        user_access_control,
+        referenced_tables_by_metric={
+            str(metric_id): sorted(table_names)
+            for metric_id, table_names in proposed_table_readers.values_list("id", "referenced_table_names")
+        },
     )
 
 
@@ -126,7 +143,7 @@ def pending_review_counts(team: Team, user: User, user_access_control: UserAcces
         user,
         user_access_control,
         MetricListFilters(status=MetricStatus.PROPOSED),
-        load_denied_tables=cached_denied_tables,
+        load_denied_tables=_denied_tables_for_proposed_metrics,
     )
     return PendingReviewCounts(
         metrics=proposed_metrics.count(),
