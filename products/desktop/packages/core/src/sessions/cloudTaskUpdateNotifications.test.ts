@@ -255,7 +255,6 @@ function createHarness(
     1,
     undefined,
     undefined,
-    undefined,
     "claude",
     undefined,
     undefined,

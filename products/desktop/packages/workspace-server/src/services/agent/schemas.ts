@@ -220,7 +220,6 @@ export const reconnectSessionInput = z.object({
   repoPath: z.string(),
   apiHost: z.string(),
   projectId: z.number(),
-  logUrl: z.string().optional(),
   sessionId: z.string().optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
   codexModelAccess: modelAccessSchema.optional(),

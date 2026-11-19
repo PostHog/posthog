@@ -48,10 +48,10 @@ function makeService(readTail?: unknown) {
 }
 
 type Painter = {
-  paintTailFirst(r: string, t: string, ti: string, u: string): Promise<void>;
+  paintTailFirst(r: string, t: string, ti: string): Promise<void>;
 };
 const paint = (svc: SessionService) =>
-  (svc as unknown as Painter).paintTailFirst(RUN, TASK, "Title", "log-url");
+  (svc as unknown as Painter).paintTailFirst(RUN, TASK, "Title");
 
 const events = () => sessionStore.getState().sessions[RUN]?.events ?? [];
 
@@ -70,7 +70,6 @@ describe("paintTailFirst", () => {
       maxBytes: 1_500_000,
     });
     expect(events().length).toBeGreaterThan(0);
-    expect(sessionStore.getState().sessions[RUN]?.logUrl).toBe("log-url");
   });
 
   it("is a no-op when the host doesn't expose the tail read", async () => {

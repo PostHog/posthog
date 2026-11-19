@@ -299,7 +299,6 @@ interface SessionConfig {
   taskRunId: string;
   repoPath: string;
   credentials: Credentials;
-  logUrl?: string;
   /** The agent's session ID (for resume - SDK session ID for Claude, Codex's session ID for Codex) */
   sessionId?: string;
   adapter?: Adapter;
@@ -1010,7 +1009,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       taskRunId,
       repoPath: rawRepoPath,
       credentials,
-      logUrl,
       adapter,
       permissionMode,
       customInstructions,
@@ -1302,9 +1300,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             cwd: repoPath,
             mcpServers,
             _meta: {
-              ...(logUrl && {
-                persistence: { taskId, runId: taskRunId, logUrl },
-              }),
               taskRunId,
               environment: "local",
               sessionId: importedSessionId,
@@ -1390,9 +1385,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
           cwd: repoPath,
           mcpServers,
           _meta: {
-            ...(logUrl && {
-              persistence: { taskId, runId: taskRunId, logUrl },
-            }),
             ...(!isPreview && { taskId }),
             taskRunId,
             environment: "local",
@@ -2444,7 +2436,6 @@ For git operations while detached:
         apiHost: params.apiHost,
         projectId: params.projectId,
       },
-      logUrl: "logUrl" in params ? params.logUrl : undefined,
       sessionId: "sessionId" in params ? params.sessionId : undefined,
       adapter: "adapter" in params ? params.adapter : undefined,
       codexModelAccess:

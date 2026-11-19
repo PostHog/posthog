@@ -11,22 +11,14 @@ describe("routeLocalConnect", () => {
       routeLocalConnect({
         hasAuth: false,
         latestRunId: "run-1",
-        latestRunLogUrl: "https://logs/run-1",
       }),
     ).toEqual({ kind: "no-auth" });
   });
 
-  it("routes to resume-existing when run id and log url are present", () => {
-    expect(
-      routeLocalConnect({
-        hasAuth: true,
-        latestRunId: "run-1",
-        latestRunLogUrl: "https://logs/run-1",
-      }),
-    ).toEqual({
+  it("routes to resume-existing when there is a prior run", () => {
+    expect(routeLocalConnect({ hasAuth: true, latestRunId: "run-1" })).toEqual({
       kind: "resume-existing",
       taskRunId: "run-1",
-      logUrl: "https://logs/run-1",
     });
   });
 
@@ -34,23 +26,6 @@ describe("routeLocalConnect", () => {
     expect(routeLocalConnect({ hasAuth: true })).toEqual({
       kind: "create-new",
     });
-  });
-
-  it("routes to resume-existing when run id exists but log url is missing", () => {
-    expect(routeLocalConnect({ hasAuth: true, latestRunId: "run-1" })).toEqual({
-      kind: "resume-existing",
-      taskRunId: "run-1",
-      logUrl: undefined,
-    });
-  });
-
-  it("routes to create-new when log url exists but run id is missing", () => {
-    expect(
-      routeLocalConnect({
-        hasAuth: true,
-        latestRunLogUrl: "https://logs/run-1",
-      }),
-    ).toEqual({ kind: "create-new" });
   });
 });
 

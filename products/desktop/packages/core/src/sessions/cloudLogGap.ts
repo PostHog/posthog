@@ -13,7 +13,6 @@ export interface CloudLogGapReconcileRequest {
   expectedCount: number;
   currentCount: number;
   entryBatches: CloudLogGapEntryBatch[];
-  logUrl?: string;
 }
 
 export interface CloudLogGapEntryBatch {
@@ -46,7 +45,6 @@ export function mergeCloudLogGapRequests(
     currentCount: Math.min(current.currentCount, next.currentCount),
     expectedCount: Math.max(current.expectedCount, next.expectedCount),
     entryBatches: [...current.entryBatches, ...next.entryBatches],
-    logUrl: next.logUrl ?? current.logUrl,
   };
 }
 
