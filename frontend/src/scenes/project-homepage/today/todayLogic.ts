@@ -96,6 +96,7 @@ export interface TodayReportOpenContext {
 export type TodayAskSource = 'walk_through' | 'report_page'
 
 export type TodayList = 'for_you' | 'recents'
+export type TodayJumpBackPinSource = 'picker' | 'card'
 
 export interface TodayReports {
     results: SignalReport[]
@@ -364,10 +365,12 @@ export interface todayLogicActions {
     }
     toggleJumpBackPin: (
         scope: string,
-        entry: FileSystemEntry
+        entry: FileSystemEntry,
+        source: TodayJumpBackPinSource
     ) => {
         entry: FileSystemEntry
         scope: string
+        source: TodayJumpBackPinSource
     }
     toggleReportRow: (
         rowKey: string,
@@ -506,7 +509,11 @@ export const todayLogic = kea<todayLogicType>([
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
         setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
-        toggleJumpBackPin: (scope: string, entry: FileSystemEntry) => ({ scope, entry }),
+        toggleJumpBackPin: (scope: string, entry: FileSystemEntry, source: TodayJumpBackPinSource) => ({
+            scope,
+            entry,
+            source,
+        }),
         jumpBackOpened: (entry: FileSystemEntry, position: number, frequent: boolean) => ({
             entry,
             position,
@@ -942,10 +949,11 @@ export const todayLogic = kea<todayLogicType>([
         }
         return {
             loadCurrentTeamSuccess: () => actions.loadFrequentObjects(),
-            toggleJumpBackPin: ({ scope, entry }) => {
+            toggleJumpBackPin: ({ scope, entry, source }) => {
                 if (!values.useSampleData) {
                     posthog.capture('today jump back pin toggled', {
                         object_type: entry.type,
+                        source,
                         pinned: (values.jumpBackPins[scope] ?? []).some((pin) => objectKey(pin) === objectKey(entry)),
                         pin_count: (values.jumpBackPins[scope] ?? []).length,
                     })
