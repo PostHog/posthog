@@ -111,6 +111,9 @@ pub struct Config {
     )]
     pub metrics_label_cardinality_max_tracked_metrics_per_token: usize,
 
+    #[envconfig(from = "METRICS_LABEL_CARDINALITY_RULE_TTL_SECS", default = "7200")]
+    pub metrics_label_cardinality_rule_ttl_secs: u64,
+
     #[envconfig(
         from = "METRICS_LABEL_CARDINALITY_PROTECTED_KEYS",
         default = "le,quantile"
@@ -133,6 +136,7 @@ impl Config {
             max_tracked_metrics: self.metrics_label_cardinality_max_tracked_metrics,
             max_tracked_metrics_per_token: self
                 .metrics_label_cardinality_max_tracked_metrics_per_token,
+            rule_ttl: Duration::from_secs(self.metrics_label_cardinality_rule_ttl_secs),
             protected_keys: self
                 .metrics_label_cardinality_protected_keys
                 .split(',')

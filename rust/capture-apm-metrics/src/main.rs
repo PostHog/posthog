@@ -19,6 +19,7 @@ use capture_logs::authorizer::Authorizer;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::options_handler;
+use capture_logs::unknown_tokens::UnknownTokens;
 use common_metrics::setup_metrics_routes;
 use common_redis::{Client, CompressionConfig, RedisClient, RedisValueFormat};
 use std::future::ready;
@@ -149,13 +150,16 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
     gate
 }
 
-fn start_label_cardinality(config: &Config) -> Arc<LabelCardinality> {
+fn start_label_cardinality(
+    config: &Config,
+    unknown_tokens: UnknownTokens,
+) -> Arc<LabelCardinality> {
     let settings = config.label_cardinality_settings();
     info!(
         "Label cardinality detector in {:?} mode (limit {} values, share {}, new-series share {})",
         settings.mode, settings.value_limit, settings.min_share, settings.min_new_share
     );
-    let detector = LabelCardinality::new(settings);
+    let detector = LabelCardinality::new(settings, unknown_tokens);
     detector.spawn_pruner();
     detector
 }
@@ -252,10 +256,11 @@ async fn run(
     let management_router = setup_metrics_routes(management_router);
 
     let series_label_gate = start_series_label_gate(&config).await;
-    let label_cardinality = start_label_cardinality(&config);
+    let unknown_tokens = UnknownTokens::from_config(&config.base);
+    let label_cardinality = start_label_cardinality(&config, unknown_tokens.clone());
     let token_dropper =
         TokenDropper::new(&config.base.drop_events_by_token.clone().unwrap_or_default());
-    let authorizer = Authorizer::new(Arc::new(token_dropper));
+    let authorizer = Authorizer::new(Arc::new(token_dropper)).with_unknown_tokens(unknown_tokens);
     let metrics_service = MetricsService::new(
         kafka_sink,
         authorizer,

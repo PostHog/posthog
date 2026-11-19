@@ -158,8 +158,9 @@ pub async fn export_prometheus_remote_write_http(
     service.k8s_resource_attributes.apply(&token, &mut rows);
     let mut rows = fold_classic_histograms(rows, &write_request.metadata);
     let source = Source::remote_write(&write_request.metadata);
-    let detector = &service.label_cardinality;
     let records_bytes = sum_kafka_metric_row_bytes(&rows);
+    let detector = &service.label_cardinality;
+    detector.strip_reserved(&mut rows, &source);
     let gate = &service.series_label_gate;
     let labelled = gate.classify(&token, &rows);
     // A full cache reports every uncached series as new, which would look like one-off series.
@@ -169,6 +170,11 @@ pub async fn export_prometheus_remote_write_http(
         detector.observe(&token, &rows, labelled.new_series_rows(), &source);
         detector.note_new_series(&token, &rows, labelled.new_series_rows(), &source);
     }
+    let labelled = if detector.apply(&token, &mut rows, &source) {
+        gate.classify(&token, &rows)
+    } else {
+        labelled
+    };
     gate.strip_repeats(&mut rows, &labelled);
     let row_count = rows.len();
 

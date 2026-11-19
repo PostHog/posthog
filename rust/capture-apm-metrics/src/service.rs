@@ -181,8 +181,9 @@ pub async fn export_metrics_http(
     }
 
     let source = Source::otlp();
-    let detector = &service.label_cardinality;
     let records_bytes = sum_kafka_metric_row_bytes(&rows);
+    let detector = &service.label_cardinality;
+    detector.strip_reserved(&mut rows, &source);
     let gate = &service.series_label_gate;
     let labelled = gate.classify(token, &rows);
     // A full cache reports every uncached series as new, which would look like one-off series.
@@ -192,6 +193,11 @@ pub async fn export_metrics_http(
         detector.observe(token, &rows, labelled.new_series_rows(), &source);
         detector.note_new_series(token, &rows, labelled.new_series_rows(), &source);
     }
+    let labelled = if detector.apply(token, &mut rows, &source) {
+        gate.classify(token, &rows)
+    } else {
+        labelled
+    };
     gate.strip_repeats(&mut rows, &labelled);
 
     let row_count = rows.len();

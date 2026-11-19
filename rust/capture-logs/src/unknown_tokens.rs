@@ -15,6 +15,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use common_redis::{Client as RedisClient, CustomRedisError};
+
+use crate::config::Config;
 use metrics::{counter, gauge};
 use tracing::{error, info, warn};
 
@@ -30,6 +32,8 @@ pub const UNKNOWN_TOKEN_WINDOW: Duration = Duration::from_secs(60 * 60);
 pub const MAX_SNAPSHOT_TOKENS: usize = 200_000;
 
 const SHADOW_LOG_INTERVAL_SECS: u64 = 60;
+
+const REDIS_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnknownTokenMode {
@@ -95,6 +99,58 @@ impl UnknownTokens {
 
     pub fn disabled() -> Self {
         Self::new(UnknownTokenMode::Off, Duration::ZERO)
+    }
+
+    /// Off unless a mode and a Redis URL are both set. The refresh task connects lazily, so Redis being
+    /// down at startup (or later) never blocks or fails the service.
+    pub fn from_config(config: &Config) -> Self {
+        let mode = UnknownTokenMode::parse(&config.unknown_token_mode).unwrap_or_else(|| {
+            error!(
+                "Unrecognised UNKNOWN_TOKEN_MODE {:?}, using off",
+                config.unknown_token_mode
+            );
+            UnknownTokenMode::Off
+        });
+        let Some(redis_url) = config
+            .unknown_token_redis_url
+            .clone()
+            .filter(|u| !u.is_empty())
+        else {
+            if mode != UnknownTokenMode::Off {
+                error!(
+                    "UNKNOWN_TOKEN_MODE is {mode:?} but UNKNOWN_TOKEN_REDIS_URL is not set, using off"
+                );
+            }
+            return Self::disabled();
+        };
+        if mode == UnknownTokenMode::Off {
+            return Self::disabled();
+        }
+
+        let unknown_tokens = Self::new(
+            mode,
+            Duration::from_secs(config.unknown_token_fail_open_after_secs),
+        );
+        unknown_tokens.spawn_refresher(
+            move || {
+                let url = redis_url.clone();
+                async move {
+                    let client = common_redis::RedisClient::with_config(
+                        url,
+                        common_redis::CompressionConfig::disabled(),
+                        common_redis::RedisValueFormat::Utf8,
+                        Some(REDIS_TIMEOUT),
+                        Some(REDIS_TIMEOUT),
+                    )
+                    .await?;
+                    let client: Arc<dyn RedisClient + Send + Sync> = Arc::new(client);
+                    Ok(client)
+                }
+            },
+            Duration::from_secs(config.unknown_token_refresh_interval_secs.max(1)),
+        );
+        info!("Unknown project token handling: {mode:?}");
+        unknown_tokens
     }
 
     pub fn mode(&self) -> UnknownTokenMode {

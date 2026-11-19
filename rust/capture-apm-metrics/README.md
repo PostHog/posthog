@@ -22,17 +22,18 @@ This binary is the metrics half of [`capture-logs`](../capture-logs/README.md). 
 | METRICS_SERIES_REDIS_PULL_INTERVAL_SECS | 60 | How often the local cache pulls new series from Redis |
 | METRICS_SERIES_CACHE_MAX_ENTRIES | 20000000 | Most series one pod remembers, across all tokens |
 | METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN | 2000000 | Most series one pod remembers for one token |
-| METRICS_LABEL_CARDINALITY_MODE | shadow | `off` or `shadow`. Shadow reports flagged keys but changes no row |
-| METRICS_LABEL_CARDINALITY_VALUE_LIMIT | 10000 | Distinct values per key per window before the key is flagged |
-| METRICS_LABEL_CARDINALITY_MIN_SHARE | 0.5 | Smallest ratio of a key's values, or of the series that removing it saves, to the metric's series, for a flag |
-| METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE | 0.5 | Smallest share of a key's rows that start a new series, for a flag |
+| METRICS_LABEL_CARDINALITY_MODE | shadow | `off`, `shadow` or `enforce`. Shadow finds rules but changes no row |
+| METRICS_LABEL_CARDINALITY_VALUE_LIMIT | 10000 | Distinct values per key per window before the key is dropped |
+| METRICS_LABEL_CARDINALITY_MIN_SHARE | 0.5 | Smallest ratio of a key's values, or of the series that removing it saves, to the metric's series, for a drop |
+| METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE | 0.5 | Smallest share of a key's rows that start a new series, for a drop |
 | METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES | 500 | New series per window before a metric's labels are measured |
 | METRICS_LABEL_CARDINALITY_MAX_CANDIDATES | 2000 | Most metrics one pod measures |
 | METRICS_LABEL_CARDINALITY_MAX_CANDIDATES_PER_TOKEN | 200 | Most metrics one pod measures for one token |
 | METRICS_LABEL_CARDINALITY_MAX_KEYS_PER_METRIC | 32 | Most label keys one pod measures for one metric |
 | METRICS_LABEL_CARDINALITY_MAX_TRACKED_METRICS | 500000 | Most metrics one pod counts new series for |
 | METRICS_LABEL_CARDINALITY_MAX_TRACKED_METRICS_PER_TOKEN | 50000 | Most metrics one pod counts new series for, per token |
-| METRICS_LABEL_CARDINALITY_PROTECTED_KEYS | le,quantile | Label keys that are never flagged |
+| METRICS_LABEL_CARDINALITY_RULE_TTL_SECS | 7200 | Rule lifetime after its key was last over half the limit |
+| METRICS_LABEL_CARDINALITY_PROTECTED_KEYS | le,quantile | Label keys that are never dropped |
 
 ### Metric series label gate
 
@@ -48,11 +49,15 @@ The cache is bounded. When the global or the per-token cap is full, a new series
 
 ### High cardinality label drop
 
-The service finds a label key that splits one metric into many series. The `_bucket`, `_count` and `_sum` series of a remote-write histogram or summary count as one metric, unless the request's metadata declares them as other types.
+The service finds a label key that splits one metric into many series, removes it, and computes the fingerprint without it, so those series become one. The `_bucket`, `_count` and `_sum` series of a remote-write histogram or summary share one rule, unless the request's metadata declares them as other types.
 
-A metric with `METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES` new series in a gate window gets HyperLogLog sketches of its series and of each label key. Each key also counts its rows and the rows that start a new series, as the gate decides across all pods. At the end of each window, a key is flagged when it has `METRICS_LABEL_CARDINALITY_VALUE_LIMIT` distinct values, its values or the series that removing it saves reach `METRICS_LABEL_CARDINALITY_MIN_SHARE` of the series, and at least `METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE` of its rows on a new series. A request ID passes all three. A pod name fails the last, because each series repeats in a window. A user ID that only appears with a request ID fails the second. A token whose gate cache is full is not measured, so its labels are kept.
+A metric with `METRICS_LABEL_CARDINALITY_CANDIDATE_MIN_NEW_SERIES` new series in a gate window gets HyperLogLog sketches of its series and of each label key. Each key also counts its rows and the rows that start a new series, as the gate decides across all pods. At the end of each window, a key is flagged when it has `METRICS_LABEL_CARDINALITY_VALUE_LIMIT` distinct values, its values or the series that removing it saves reach `METRICS_LABEL_CARDINALITY_MIN_SHARE` of the series, and at least `METRICS_LABEL_CARDINALITY_MIN_NEW_SHARE` of its rows on a new series. A request ID passes all three. A pod name fails the last, because each series repeats in a window. A user ID that only appears with a request ID fails the second. A token whose gate cache is full is not measured, so its labels are kept. A rule expires `METRICS_LABEL_CARDINALITY_RULE_TTL_SECS` after its key drops under half the limit or half the new-series share.
 
-Each flagged key is logged at warn level once per window. Metrics start with `capture_metrics_label_cardinality_`.
+Every table has a cap, and a full table fails open: metrics that are not yet watched keep their labels, as without this feature. A watched metric keeps its slot while it has a rule, so existing drops stay in place. Rules apply only to the token that produced them. Capture cannot resolve a token to a team, so any sender can fill the caps. With `UNKNOWN_TOKEN_MODE` and `UNKNOWN_TOKEN_REDIS_URL` set, detection skips the tokens the consumer has found with no team.
+
+In `enforce` mode each changed row gets a `posthog.dropped_labels` attribute that lists the dropped keys. The fingerprint leaves it out, and billing counts the labels as sent. Enforcement applies to delta sums, delta histograms and gauges: they get the fingerprint without the key, and changed rows with one fingerprint in one second merge into one row, where sums and histograms add up and a gauge keeps one value. Cumulative series are left unchanged, because combining them needs reset-aware aggregation. A sender's own `posthog.dropped_labels` attribute is removed.
+
+Each new rule is logged at warn level. Metrics start with `capture_metrics_label_cardinality_`.
 
 ## Classic Prometheus histograms on remote write
 
