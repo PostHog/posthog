@@ -287,7 +287,13 @@ async fn the_order_guard_keeps_a_stored_row_newer_than_the_source_row() {
     };
     upsert_with(&mut handle, &keys("old", 0..10), 5, guarded()).await;
 
+    let version = handle.version();
     let older = upsert_with(&mut handle, &keys("old", 0..5), 4, guarded()).await;
+    assert_eq!(
+        handle.version(),
+        version,
+        "a batch of only older rows makes no commit"
+    );
     let equal = upsert_with(&mut handle, &keys("old", 5..8), 5, guarded()).await;
     let mixed = upsert_with(
         &mut handle,

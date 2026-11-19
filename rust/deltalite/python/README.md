@@ -178,9 +178,13 @@ A re-run of the same input is a no-op: every row is a redelivery or a re-read.
 
 With either argument, the call also reads, for each key that needs them, the month partitions from the month of its oldest source `valid_from_column` to the month of its open row's `valid_from_column`, pruned by key statistics as in the current partition.
 That holds every closed version a late row or a redelivery can touch, because such a version ends at or after the source row's `valid_from_column`.
+A key whose only rows at or before its open row's `valid_from_column` redeliver the open row reads no month.
+Month files are pruned by the key statistics of only the keys that read them.
 Of those versions the call keeps only the ones that cover a source `valid_from_column` value, plus the first version after each value, so its memory does not grow with the key's history.
 The versions it keeps count against `max_source_bytes` with the source, and a call over the ceiling raises `DeltaLiteSourceTooLargeError`; split it with `key_buckets`.
-It requires `valid_from_column` not to decrease as the order value grows, as when the first order column is the change time; a row that breaks this raises `DeltaLiteError` and nothing is written.
+Without either argument the call probes only the current partition and holds one order value per key, as before, and the versions it reads do not count against `max_source_bytes`.
+It requires `valid_from_column` not to decrease as the order value grows, as when the first order column is the change time; a source row whose `valid_from_column` does not sit between its neighbours' in order is dropped and counted in `rows_order_mismatch`, and the rest of the call goes on.
+This happens, for example, when the stored versions were seeded with a `valid_from_column` later than an event's own time.
 A late row or a redelivery rewrites the month files that hold the versions it touches.
 
 A webhook history calls it as `history_upsert(data, ["id"], ["event_time", "event_rank", "arrival"], "event_time", ..., late_rows="insert", dedupe_column="event_id")`, and writes the main table with `upsert(..., order_column=["event_time", "event_rank", "arrival"])` so a late event never replaces a newer row there.
@@ -191,7 +195,7 @@ The knobs are the `upsert` ones that apply: `commit_metadata`, `max_parallel_fil
 `max_parallel_partitions` is accepted and has no effect.
 A commit that finds a newer table version is never rebased onto it, since delta-rs does not check a concurrent commit that only adds files: the call plans again against the new version, up to five times, then raises `DeltaLiteCommitConflictError`.
 
-`HistoryUpsertStats` counts `rows_in`, `rows_deduped`, `rows_reread`, `rows_backwards`, `rows_late` (late rows inserted into the past), `rows_redelivered`, `versions_opened`, `versions_closed` (open rows closed), `versions_split` (closed versions a late row shortened), `chain_rows_closed` (kept rows newer than the open row written closed), `rows_copied`, `files_added`, `files_removed`, `files_carried_over`, `files_probed`, `bytes_read` (stored size of the rewritten files) and `bytes_written`, with `version`, `committed` and the `upsert` timings.
+`HistoryUpsertStats` counts `rows_in`, `rows_deduped`, `rows_reread`, `rows_backwards`, `rows_late` (late rows inserted into the past), `rows_redelivered`, `rows_order_mismatch`, `versions_opened`, `versions_closed` (open rows closed), `versions_split` (closed versions a late row shortened), `chain_rows_closed` (kept rows newer than the open row written closed), `rows_copied`, `files_added`, `files_removed`, `files_carried_over`, `files_probed`, `bytes_read` (stored size of the rewritten files) and `bytes_written`, with `version`, `committed` and the `upsert` timings.
 
 `DeltaLiteTable.key_buckets(data, key_columns, n)` returns a `pyarrow.UInt32Array` with a bucket id in `0..n` for every row, for splitting a source that is too large for one call into calls on disjoint keys.
 The key columns are first cast to the table's types, as `history_upsert` casts them before it matches keys, so source values that become one table key always share a bucket.
@@ -271,7 +275,7 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 | `commit_max_retries` | `15` | Conditional-put commit retry budget. |
 | `commit_metadata` | `None` | Extra key/values recorded in the Delta commit. |
 | `use_probe_cache` | `True` | Use the process-wide probe cache (see below). `False` reads every candidate file from storage. |
-| `order_column` | `None` | A column name, or a list of them compared as a tuple. A batch row replaces a matched row only when its order value is greater than or equal to the stored one. An older batch row is not written, the stored row stays, and `rows_older_than_main` counts it. The order columns must not be null in the batch. A stored null order value is older than any batch value. |
+| `order_column` | `None` | A column name, or a list of them compared as a tuple. A batch row replaces a matched row only when its order value is greater than or equal to the stored one. An older batch row is not written, the stored row stays, and `rows_older_than_main` counts it. The order columns must not be null in the batch. A stored null order value is older than any batch value. A batch whose every row is older makes no commit. |
 
 **Process-global** — environment variables, enforced *on top of* the per-call
 knobs so that many concurrent upsert threads in one process cannot multiply the

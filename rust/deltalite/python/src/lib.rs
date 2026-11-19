@@ -60,6 +60,18 @@ fn runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
+/// A column name, or a sequence of them, as a list.
+fn column_names(obj: &Bound<'_, PyAny>, arg: &str) -> PyResult<Vec<String>> {
+    if let Ok(name) = obj.extract::<String>() {
+        return Ok(vec![name]);
+    }
+    obj.extract::<Vec<String>>().map_err(|_| {
+        pyo3::exceptions::PyTypeError::new_err(format!(
+            "{arg} must be a column name or a list of column names"
+        ))
+    })
+}
+
 /// Ingest a pyarrow object (`pa.Table`, `pa.RecordBatch`, `pa.RecordBatchReader`).
 ///
 /// Deliberately imported **column by column as `ArrayData`** rather than straight to a
@@ -75,18 +87,6 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 /// source into fresh contiguous buffers, and upsert consumes multiple batches natively.
 /// `to_batches()` re-chunks to aligned boundaries by zero-copy slicing, so this import
 /// shares the caller's buffers instead of duplicating them.
-/// A column name, or a sequence of them, as a list.
-fn column_names(obj: &Bound<'_, PyAny>, arg: &str) -> PyResult<Vec<String>> {
-    if let Ok(name) = obj.extract::<String>() {
-        return Ok(vec![name]);
-    }
-    obj.extract::<Vec<String>>().map_err(|_| {
-        pyo3::exceptions::PyTypeError::new_err(format!(
-            "{arg} must be a column name or a list of column names"
-        ))
-    })
-}
-
 fn read_pyarrow(obj: &Bound<'_, PyAny>) -> PyResult<(SchemaRef, Vec<RecordBatch>)> {
     let py = obj.py();
     let err = |e: PyErr| DeltaLiteError::new_err(format!("pyarrow ingest: {e}"));
@@ -277,6 +277,8 @@ pub struct HistoryUpsertStats {
     #[pyo3(get)]
     pub rows_redelivered: usize,
     #[pyo3(get)]
+    pub rows_order_mismatch: usize,
+    #[pyo3(get)]
     pub versions_opened: usize,
     #[pyo3(get)]
     pub versions_closed: usize,
@@ -356,6 +358,7 @@ impl From<deltalite_core::history::HistoryUpsertStats> for HistoryUpsertStats {
             rows_late: s.rows_late,
             versions_split: s.versions_split,
             rows_redelivered: s.rows_redelivered,
+            rows_order_mismatch: s.rows_order_mismatch,
             versions_opened: s.versions_opened,
             versions_closed: s.versions_closed,
             chain_rows_closed: s.chain_rows_closed,

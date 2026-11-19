@@ -1191,6 +1191,17 @@ async fn upsert_inner(
 
     let rewrite_ms = rewrite_started.elapsed().as_millis() as u64;
 
+    // Every row was older than its stored row, so the rewritten files hold what the live
+    // ones hold. Their writes stay unreferenced, like those of a failed commit.
+    if !opts.order_columns.is_empty() && stats.rows_updated + stats.rows_inserted == 0 {
+        stats.files_added = 0;
+        stats.files_removed = 0;
+        stats.plan_ms = plan_ms;
+        stats.rewrite_ms = rewrite_ms;
+        stats.version = snapshot.version() as i64;
+        return Ok((stats, snapshot.clone()));
+    }
+
     // --- Commit ----------------------------------------------------------------------
     let committed = commit_partition_overwrite(
         table,

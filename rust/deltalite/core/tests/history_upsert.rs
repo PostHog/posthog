@@ -1218,7 +1218,7 @@ async fn a_late_row_splits_the_covering_version_and_moves_it_to_its_new_month() 
 }
 
 #[tokio::test]
-async fn a_late_row_needs_valid_from_to_grow_with_the_order_value() {
+async fn a_row_whose_valid_from_breaks_the_order_is_dropped_and_counted() {
     let dir = tempfile::tempdir().unwrap();
     let mut h = create(dir.path(), &["p"]).await;
     apply_with(
@@ -1231,20 +1231,25 @@ async fn a_late_row_needs_valid_from_to_grow_with_the_order_value() {
     )
     .await
     .unwrap();
-    let before = read(&h).await;
+    let (before, version) = (read(&h).await, h.version());
 
-    let err = apply_with(
+    let stats = apply_with(
         &mut h,
-        &[(Some("k"), 2, "2027-01-01T00:00:00Z", "k2", 3)],
+        &[
+            (Some("k"), 2, "2027-01-01T00:00:00Z", "k2", 3),
+            (Some("k"), 4, "2026-11-01T00:00:00Z", "k4", 4),
+        ],
         late(),
     )
     .await
-    .unwrap_err();
+    .unwrap();
 
-    assert!(
-        err.to_string().contains("valid_from must not decrease"),
-        "{err}"
+    assert_eq!(
+        (stats.rows_order_mismatch, stats.committed),
+        (2, false),
+        "{stats:?}"
     );
+    assert_eq!(h.version(), version);
     assert_eq!(read(&h).await, before);
 }
 
@@ -1331,4 +1336,66 @@ async fn existing_versions_read_for_a_replay_count_against_the_source_guard() {
         (false, 1),
         "{again:?}"
     );
+}
+
+#[tokio::test]
+async fn month_files_are_pruned_by_the_keys_that_need_closed_versions() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    for rows in [
+        vec![
+            (Some("a"), 1, "2026-01-10T00:00:00Z", "a1", 1),
+            (Some("x"), 1, "2026-01-10T00:00:00Z", "x1", 2),
+            (Some("z"), 1, "2026-01-10T00:00:00Z", "z1", 3),
+        ],
+        vec![(Some("x"), 3, "2026-03-10T00:00:00Z", "x3", 4)],
+        vec![(Some("a"), 3, "2026-03-12T00:00:00Z", "a3", 5)],
+    ] {
+        apply_with(&mut h, &rows, late()).await.unwrap();
+    }
+    let current_files = |h: &TableHandle| {
+        h.files()
+            .unwrap()
+            .iter()
+            .filter(|f| f.partition_values["p"].as_deref() == Some("current"))
+            .count()
+    };
+    let current = current_files(&h);
+
+    let stats = apply_with(
+        &mut h,
+        &[
+            (Some("a"), 2, "2026-02-10T00:00:00Z", "a2", 6),
+            (Some("z"), 5, "2026-05-10T00:00:00Z", "z5", 7),
+        ],
+        late(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((stats.rows_late, stats.versions_split), (1, 1), "{stats:?}");
+    assert_eq!(
+        stats.files_probed,
+        current + 1,
+        "a's 2026-03 file, not x's, although x sits between a and z: {stats:?}"
+    );
+
+    let version = h.version();
+    let redelivery = apply_with(
+        &mut h,
+        &[(Some("z"), 5, "2026-05-10T00:00:00Z", "z5", 8)],
+        late(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (
+            redelivery.rows_redelivered,
+            redelivery.committed,
+            redelivery.files_probed
+        ),
+        (1, false, current_files(&h)),
+        "a redelivery of the open row reads no month: {redelivery:?}"
+    );
+    assert_eq!(h.version(), version);
 }

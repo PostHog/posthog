@@ -35,8 +35,8 @@
 //! and the month of its open row's `valid_from`: a version that ends at or after an
 //! instant lives in that instant's month or a later one. A closed version whose
 //! `valid_to` changes is rewritten into the month of its new `valid_to`, in the same
-//! commit. This needs `valid_from` not to decrease as the order value grows, which is
-//! checked.
+//! commit. This needs `valid_from` not to decrease as the order value grows: a source
+//! row that breaks it against its neighbours is dropped and counted.
 //!
 //! The machinery is the upsert's (see [`crate::upsert`]): the same listing, stats pruning,
 //! budgets, writer and commit. Two things differ. The probe reads the order column next to
@@ -208,7 +208,8 @@ pub struct HistoryUpsertStats {
     /// Source rows dropped because another row had the same (key, order value) and a
     /// higher tie-break value.
     pub rows_deduped: usize,
-    /// Source rows whose order value equals the key's open row.
+    /// Source rows whose order value equals the key's open row, or, with `late_rows =
+    /// Insert` and no `dedupe_column`, any stored version of the key.
     pub rows_reread: usize,
     /// Source rows whose order value is lower than the key's open row, dropped.
     pub rows_backwards: usize,
@@ -220,11 +221,15 @@ pub struct HistoryUpsertStats {
     /// Source rows dropped because the key already holds their `dedupe_column` value, in
     /// the table or earlier in the source.
     pub rows_redelivered: usize,
+    /// Source rows dropped because their `valid_from` falls outside their neighbours' in
+    /// order value, so they cannot join the chain. Only when closed versions take part.
+    pub rows_order_mismatch: usize,
     /// Open versions written (one per key that kept a row).
     pub versions_opened: usize,
     /// Existing open rows closed and moved to their month partition.
     pub versions_closed: usize,
-    /// Kept source rows written already closed (every kept row but the newest of a key).
+    /// Kept source rows newer than the key's open row written already closed (every
+    /// such row but the newest of a key). Late rows count in `rows_late`.
     pub chain_rows_closed: usize,
     /// Open rows copied unchanged into new files of the current partition.
     pub rows_copied: usize,
@@ -562,6 +567,29 @@ enum FirstKeyRange {
     Unknown,
 }
 
+/// The values of the first key column of a set of keys, for pruning files by stats.
+struct KeyRange {
+    range: FirstKeyRange,
+    has_null: bool,
+}
+
+impl KeyRange {
+    fn of(first_key: &dyn Array) -> Self {
+        let range = if first_key.null_count() == first_key.len() {
+            FirstKeyRange::NoValues
+        } else {
+            match min_max_json(first_key) {
+                Some((min, max)) => FirstKeyRange::Range(min, max),
+                None => FirstKeyRange::Unknown,
+            }
+        };
+        Self {
+            range,
+            has_null: first_key.null_count() > 0,
+        }
+    }
+}
+
 /// The source, encoded and deduped. Shared read-only by every probe and reader task.
 struct SourcePlan {
     /// Source batches cast to the table schema, with `valid_to` and the partition column
@@ -574,8 +602,9 @@ struct SourcePlan {
     orders: Rows,
     /// Converter of the table's `valid_to` type, which `valid_from` is cast to.
     time_converter: RowConverter,
-    /// Every source row's `valid_from`, as order-preserving bytes.
-    valid_from_rows: Rows,
+    /// Every source row's `valid_from`, as order-preserving bytes. Only when closed
+    /// versions take part.
+    valid_from_rows: Option<Rows>,
     dedupe_converter: Option<RowConverter>,
     /// Every source row's `dedupe_column` value, as bytes.
     dedupe: Option<Rows>,
@@ -587,8 +616,7 @@ struct SourcePlan {
     /// Range of `deduped` that holds each key, in key order. A key's index here is its id.
     groups: Vec<(u32, u32)>,
     by_key: HashMap<Box<[u8]>, u32>,
-    first_key: FirstKeyRange,
-    first_key_has_null: bool,
+    first_key: KeyRange,
     rows_in: usize,
     /// Source rows dropped because an earlier source row of the key has their
     /// `dedupe_column` value.
@@ -629,7 +657,8 @@ impl SourcePlan {
         }
 
         // Guard before the narrow columns are copied out, and count those copies: the
-        // key, order, tie-break, `valid_from` and dedupe arrays plus their encodings.
+        // key, order, tie-break and `valid_from` arrays plus the key encodings, and with
+        // closed versions the `valid_from` and dedupe encodings.
         let column_bytes = |idx: usize| -> usize {
             batches
                 .iter()
@@ -643,8 +672,13 @@ impl SourcePlan {
                 .iter()
                 .map(|i| column_bytes(*i))
                 .sum::<usize>()
-            + column_bytes(cols.valid_from_idx) * 2
-            + cols.dedupe_idx.map_or(0, |i| column_bytes(i) * 2)
+            + column_bytes(cols.valid_from_idx)
+            + if opts.reads_closed_versions() {
+                column_bytes(cols.valid_from_idx)
+                    + cols.dedupe_idx.map_or(0, |i| column_bytes(i) * 2)
+            } else {
+                0
+            }
             + tie_bytes;
         let footprint = SourceFootprint {
             source_bytes: batches
@@ -699,7 +733,11 @@ impl SourcePlan {
         let key_rows = key_converter.convert_columns(&keys)?;
         let orders = order_converter.convert_columns(&order)?;
         let tie_rows = tie_converter.convert_columns(std::slice::from_ref(&tie))?;
-        let valid_from_rows = time_converter.convert_columns(std::slice::from_ref(&valid_from))?;
+        let valid_from_rows = if opts.reads_closed_versions() {
+            Some(time_converter.convert_columns(std::slice::from_ref(&valid_from))?)
+        } else {
+            None
+        };
         drop(order);
         let (dedupe_converter, dedupe) = match cols.dedupe_idx {
             Some(idx) => {
@@ -712,15 +750,7 @@ impl SourcePlan {
             None => (None, None),
         };
 
-        let first_key_has_null = keys[0].null_count() > 0;
-        let first_key = if keys[0].null_count() == keys[0].len() {
-            FirstKeyRange::NoValues
-        } else {
-            match min_max_json(keys[0].as_ref()) {
-                Some((min, max)) => FirstKeyRange::Range(min, max),
-                None => FirstKeyRange::Unknown,
-            }
-        };
+        let first_key = KeyRange::of(keys[0].as_ref());
         drop(keys);
 
         // A stable sort keeps input order among rows equal on all three, so the last
@@ -794,7 +824,6 @@ impl SourcePlan {
             groups,
             by_key,
             first_key,
-            first_key_has_null,
             rows_in,
             rows_redelivered,
             footprint_bytes: footprint.total(),
@@ -806,7 +835,9 @@ impl SourcePlan {
     }
 
     fn valid_from_bytes(&self, row: u32) -> &[u8] {
-        self.valid_from_rows.row(row as usize).data()
+        self.valid_from_rows
+            .as_ref()
+            .map_or(&[], |rows| rows.row(row as usize).data())
     }
 
     fn newest_order(&self, group: u32) -> &[u8] {
@@ -829,6 +860,25 @@ impl SourcePlan {
         arrays
             .pop()
             .ok_or_else(|| Error::Generic("time decode returned no column".into()))
+    }
+
+    /// The first-key range of the keys whose `times` entry is set.
+    fn key_range_of(&self, times: &[SourceTimes]) -> Result<KeyRange> {
+        let mut keys: Vec<&[u8]> = self
+            .by_key
+            .iter()
+            .filter(|(_, group)| times[**group as usize].is_some())
+            .map(|(key, _)| key.as_ref())
+            .collect();
+        keys.sort_unstable();
+        let parser = self.key_converter.parser();
+        let columns = self
+            .key_converter
+            .convert_rows(keys.into_iter().map(|k| parser.parse(k)))?;
+        let first = columns
+            .first()
+            .ok_or_else(|| Error::Generic("key decode returned no column".into()))?;
+        Ok(KeyRange::of(first.as_ref()))
     }
 
     /// Choose the kept rows of every key against the open order values the probe found.
@@ -869,11 +919,7 @@ impl SourcePlan {
     /// The month partitions whose closed versions can take part, and per key the sorted
     /// source `valid_from` values the probe keeps versions for. `existing` holds the open
     /// rows the current-partition probe found.
-    fn closed_months(
-        &self,
-        existing: &[Existing],
-        opts: &HistoryUpsertOptions,
-    ) -> Result<(Vec<String>, Vec<SourceTimes>)> {
+    fn closed_months(&self, existing: &[Existing]) -> Result<(Vec<String>, Vec<SourceTimes>)> {
         let mut open: Vec<Option<&Existing>> = vec![None; self.groups.len()];
         for e in existing.iter().filter(|e| e.valid_to.is_none()) {
             let slot = &mut open[e.group as usize];
@@ -887,9 +933,14 @@ impl SourcePlan {
             let Some(open) = open[group] else { continue };
             let rows = &self.deduped[start as usize..end as usize];
             // Without a dedupe column only a late row reaches a closed version; with one, a
-            // redelivery of any version can.
-            let reaches_closed = opts.dedupe_column.is_some()
-                || rows.iter().any(|r| self.order(*r) < open.order.as_ref());
+            // redelivery of a closed version can, but not one of the open row.
+            let reaches_closed = match &self.dedupe {
+                Some(dedupe) => rows.iter().any(|r| {
+                    self.valid_from_bytes(*r) <= open.valid_from.as_ref()
+                        && open.dedupe.as_deref() != Some(dedupe.row(*r as usize).data())
+                }),
+                None => rows.iter().any(|r| self.order(*r) < open.order.as_ref()),
+            };
             let Some(min) = rows.iter().map(|r| self.valid_from_bytes(*r)).min() else {
                 continue;
             };
@@ -993,16 +1044,32 @@ impl SourcePlan {
                 }
             };
             let mut new = Vec::with_capacity(candidates.len());
+            let mut newest_from: Option<&[u8]> = None;
             for row in candidates {
                 let late = open.is_some_and(|o| self.order(row) < o.order.as_ref());
-                if !late {
-                    new.push(Elem::New { row, late });
-                } else if insert {
-                    d.rows_late += 1;
-                    new.push(Elem::New { row, late });
-                } else {
+                if late && !insert {
                     d.rows_backwards += 1;
+                    continue;
                 }
+                // A row whose `valid_from` does not sit between its neighbours' in order
+                // cannot join the chain without overlapping a version.
+                let from = self.valid_from_bytes(row);
+                let after =
+                    old.partition_point(|i| *existing[*i as usize].order <= *self.order(row));
+                let fits = after
+                    .checked_sub(1)
+                    .is_none_or(|p| *existing[old[p] as usize].valid_from <= *from)
+                    && old
+                        .get(after)
+                        .is_none_or(|n| *from <= *existing[*n as usize].valid_from)
+                    && newest_from.is_none_or(|n| n <= from);
+                if !fits {
+                    d.rows_order_mismatch += 1;
+                    continue;
+                }
+                newest_from = Some(from);
+                d.rows_late += usize::from(late);
+                new.push(Elem::New { row, late });
             }
             if new.is_empty() {
                 continue;
@@ -1030,17 +1097,6 @@ impl SourcePlan {
                     Elem::New { row, .. } => *row,
                 }
             };
-            for pair in elems.windows(2) {
-                let touches_new =
-                    matches!(pair[0], Elem::New { .. }) || matches!(pair[1], Elem::New { .. });
-                if touches_new && valid_from(&pair[0]) > valid_from(&pair[1]) {
-                    return Err(Error::Generic(
-                        "valid_from must not decrease as the order value grows, but a key has a \
-                         version with a later valid_from and a lower order value"
-                            .into(),
-                    ));
-                }
-            }
             for (i, elem) in elems.iter().enumerate() {
                 let next = elems.get(i + 1);
                 match *elem {
@@ -1109,6 +1165,7 @@ struct Decision {
     rows_backwards: usize,
     rows_late: usize,
     rows_redelivered: usize,
+    rows_order_mismatch: usize,
     versions_opened: usize,
     versions_closed: usize,
     versions_split: usize,
@@ -1125,6 +1182,7 @@ impl Decision {
             rows_backwards: 0,
             rows_late: 0,
             rows_redelivered: 0,
+            rows_order_mismatch: 0,
             versions_opened: 0,
             versions_closed: 0,
             versions_split: 0,
@@ -1282,7 +1340,7 @@ fn stamp_validity(
 
 /// Whether Add-action stats prove that `f` holds no source key. Null key parts match, so
 /// a file is safe from a null source key only when its first key column has no nulls.
-fn file_cannot_hold_source_key(f: &TargetFile, first_key: &str, plan: &SourcePlan) -> bool {
+fn file_cannot_hold_source_key(f: &TargetFile, first_key: &str, keys: &KeyRange) -> bool {
     let Some(stats) = &f.stats else { return false };
     let Ok(parsed) = serde_json::from_str::<Value>(stats) else {
         return false;
@@ -1295,13 +1353,13 @@ fn file_cannot_hold_source_key(f: &TargetFile, first_key: &str, plan: &SourcePla
         .get("nullCount")
         .and_then(|n| n.get(first_key))
         .and_then(Value::as_i64);
-    if plan.first_key_has_null && nulls != Some(0) {
+    if keys.has_null && nulls != Some(0) {
         return false;
     }
     if records.is_some() && nulls == records {
         return true;
     }
-    match &plan.first_key {
+    match &keys.range {
         FirstKeyRange::NoValues => true,
         FirstKeyRange::Unknown => false,
         FirstKeyRange::Range(src_min, src_max) => {
@@ -1437,8 +1495,9 @@ impl<'a> ProbeSpec<'a> {
     }
 }
 
-/// Read the key and order columns of `f` and record every version whose key the source
-/// holds. Reads the whole file: the open order of every such key is needed later.
+/// Read the key and order columns of `f`, and with closed versions also `valid_from`,
+/// `valid_to` and the dedupe column, and record every version of a source key that
+/// `spec` keeps. Reads the whole file: the open order of every such key is needed later.
 async fn probe_file(
     store: &Arc<dyn ObjectStore>,
     f: TargetFile,
@@ -1595,6 +1654,9 @@ struct ProbedFile {
 #[derive(Default)]
 struct Probed {
     files: Vec<ProbedFile>,
+    /// Without closed versions: the open order value of each key, folded per file.
+    open: Vec<Option<Box<[u8]>>>,
+    /// With closed versions: every version the decision needs.
     existing: Vec<Existing>,
     /// Index in `existing` of the lowest-order candidate per (key, source value).
     next_after: HashMap<(u32, u32), usize>,
@@ -1648,6 +1710,16 @@ async fn probe_files(
         for (at, mut e) in probe.seen.into_iter().enumerate() {
             e.file = index;
             groups.push(e.group);
+            if !spec.closed {
+                if probed.open.is_empty() {
+                    probed.open = vec![None; plan.groups.len()];
+                }
+                let slot = &mut probed.open[e.group as usize];
+                if slot.as_ref().is_none_or(|o| e.order > *o) {
+                    *slot = Some(e.order);
+                }
+                continue;
+            }
             match slot_of.remove(&at) {
                 None => {
                     probed.bytes += e.resident_bytes();
@@ -1667,6 +1739,9 @@ async fn probe_files(
             partition: partition.to_string(),
             groups,
         });
+        if !spec.closed {
+            continue;
+        }
         if let Some(max) = resolve_max_source_bytes(opts.max_source_bytes) {
             let total = plan.footprint_bytes.saturating_add(probed.bytes);
             if total > max {
@@ -1946,7 +2021,7 @@ async fn history_inner(
     .unwrap_or_default();
     let (candidates, pruned): (Vec<TargetFile>, Vec<TargetFile>) = files
         .into_iter()
-        .partition(|f| !file_cannot_hold_source_key(f, &opts.key_columns[0], &plan));
+        .partition(|f| !file_cannot_hold_source_key(f, &opts.key_columns[0], &plan.first_key));
     stats.files_carried_over = pruned.len();
     stats.plan_ms = plan_started.elapsed().as_millis() as u64;
 
@@ -1976,7 +2051,8 @@ async fn history_inner(
     .await?;
     let current_files = probed.files.len();
     if opts.reads_closed_versions() {
-        let (months, times) = plan.closed_months(&probed.existing, opts)?;
+        let (months, times) = plan.closed_months(&probed.existing)?;
+        let month_keys = plan.key_range_of(&times)?;
         if !months.is_empty() {
             let values: Vec<&str> = months.iter().map(String::as_str).collect();
             let listed =
@@ -1985,7 +2061,7 @@ async fn history_inner(
             for (month, files) in months.iter().zip(listed) {
                 let candidates: Vec<TargetFile> = files
                     .into_iter()
-                    .filter(|f| !file_cannot_hold_source_key(f, &opts.key_columns[0], &plan))
+                    .filter(|f| !file_cannot_hold_source_key(f, &opts.key_columns[0], &month_keys))
                     .collect();
                 stats.files_probed += candidates.len();
                 probe_files(
@@ -2005,7 +2081,8 @@ async fn history_inner(
     stats.probe_ms = probe_started.elapsed().as_millis() as u64;
     let Probed {
         files: probed,
-        mut existing,
+        mut open,
+        existing,
         ..
     } = probed;
 
@@ -2015,21 +2092,15 @@ async fn history_inner(
         let pool = concat(&[plan.valid_from.as_ref(), existing_from.as_ref()])?;
         (decision, pool)
     } else {
-        let mut open: Vec<Option<Box<[u8]>>> = vec![None; plan.groups.len()];
-        for e in existing.drain(..) {
-            let slot = &mut open[e.group as usize];
-            if slot.as_ref().is_none_or(|o| e.order > *o) {
-                *slot = Some(e.order);
-            }
-        }
+        open.resize(plan.groups.len(), None);
         (plan.decide(&open), plan.valid_from.clone())
     };
     drop(existing);
     stats.rows_reread = decision.rows_reread;
     stats.rows_backwards = decision.rows_backwards;
     stats.rows_late = decision.rows_late;
-    stats.rows_redelivered = plan.rows_redelivered + decision.rows_redelivered;
-    stats.rows_deduped = plan.rows_in - plan.deduped.len() - plan.rows_redelivered;
+    stats.rows_order_mismatch = decision.rows_order_mismatch;
+    stats.rows_redelivered += decision.rows_redelivered;
     stats.versions_opened = decision.versions_opened;
     stats.versions_split = decision.versions_split;
     stats.chain_rows_closed = decision.chain_rows_closed;
@@ -2308,7 +2379,7 @@ pub fn key_buckets(
 mod tests {
     use super::*;
     use arrow_array::Int64Array;
-    use deltalake::kernel::{DataType as KernelType, StructField};
+    use deltalake::kernel::{DataType as KernelType, PrimitiveType, StructField};
     use deltalake::operations::create::CreateBuilder;
 
     #[tokio::test]
@@ -2345,6 +2416,89 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(err, Error::Unsupported(_)), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_drop_path_plans_as_before_late_rows_existed() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = CreateBuilder::new()
+            .with_location(dir.path().to_str().unwrap())
+            .with_columns(vec![
+                StructField::new("id", KernelType::STRING, true),
+                StructField::new("v", KernelType::LONG, true),
+                StructField::new("f", KernelType::Primitive(PrimitiveType::Timestamp), true),
+                StructField::new("t", KernelType::Primitive(PrimitiveType::Timestamp), true),
+                StructField::new("e", KernelType::STRING, true),
+                StructField::new("p", KernelType::STRING, false),
+            ])
+            .with_partition_columns(vec!["p".to_string()])
+            .await
+            .unwrap();
+        let table_schema = RecordBatchWriter::for_table(&table).unwrap().arrow_schema();
+        let source = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, true),
+            Field::new("v", DataType::Int64, true),
+            Field::new(
+                "f",
+                DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
+                true,
+            ),
+            Field::new("e", DataType::Utf8, true),
+            Field::new("seq", DataType::Int64, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            source.clone(),
+            vec![
+                Arc::new(StringArray::from(vec!["a", "b", "c"])),
+                Arc::new(Int64Array::from(vec![1, 2, 3])),
+                Arc::new(
+                    arrow_array::TimestampMicrosecondArray::from(vec![10, 20, 30])
+                        .with_timezone("UTC"),
+                ),
+                Arc::new(StringArray::from(vec!["e1", "e2", "e3"])),
+                Arc::new(Int64Array::from(vec![1, 2, 3])),
+            ],
+        )
+        .unwrap();
+        let drop_opts = HistoryUpsertOptions {
+            key_columns: vec!["id".into()],
+            order_columns: vec!["v".into()],
+            valid_from_column: "f".into(),
+            valid_to_column: "t".into(),
+            partition_column: "p".into(),
+            current_partition: "current".into(),
+            tie_break_column: "seq".into(),
+            ..Default::default()
+        };
+        let insert_opts = HistoryUpsertOptions {
+            late_rows: LateRows::Insert,
+            dedupe_column: Some("e".into()),
+            ..drop_opts.clone()
+        };
+        let plan = |opts: &HistoryUpsertOptions| {
+            let cols = Columns::resolve(&table_schema, &source, opts).unwrap();
+            SourcePlan::build(vec![batch.clone()], &table_schema, &cols, opts).unwrap()
+        };
+        let (dropping, inserting) = (plan(&drop_opts), plan(&insert_opts));
+
+        let bytes = |name: &str| {
+            dropping.batches[0]
+                .column(table_schema.index_of(name).unwrap())
+                .get_array_memory_size()
+        };
+        let tie = batch.column(4).get_array_memory_size();
+        let before_late_rows = dropping.batches[0].get_array_memory_size()
+            + tie
+            + estimate_pk_set_bytes(bytes("id") * 2 + bytes("v") + bytes("f") + tie, 3)
+            + 3 * 2 * size_of::<u32>();
+        assert_eq!(dropping.footprint_bytes, before_late_rows);
+        assert!(dropping.valid_from_rows.is_none());
+        assert_eq!(
+            inserting.footprint_bytes - dropping.footprint_bytes,
+            bytes("f") + bytes("e") * 2,
+            "only closed versions encode valid_from and the dedupe column"
+        );
+        assert!(inserting.valid_from_rows.is_some());
     }
 
     #[test]
