@@ -3748,6 +3748,10 @@ snapshots:
         hash: v1.k794b7964.e8e554b9ea9b5821be4434ce02def6d01297dbf2ad7b649ee03972b7bb3a68e1.WCXI0-68HMyUCcBkDUV4nHfGzHMhblTOvtkh72CcQrY
     exporter-other--event-table-insight-no-results--light:
         hash: v1.k794b7964.e641f5fa9938fc4d21d77ec62a4ed97ffa1804caef547d24409734346ba08f52.f90nZs5fPEvbcbofTQ84U25cCU9xtVFQ8SohmN9lrBU
+    exporter-other--metrics-insight-image-export--dark:
+        hash: v1.k794b7964.0acdd027765cf3395df720f7a9cabca73d9d15b45b819a2409705179c06b3089.U5xM2AT6bR94mnf6tedumlCczyz85MU6-L0ffriHku8
+    exporter-other--metrics-insight-image-export--light:
+        hash: v1.k794b7964.e09e0fff8838816ab61d85e0863bc7400b3945cc666c616013e2ba9fa6898b51.u4CjKwu4NWXhL7n5y-yV2xB7tsp2-35jpXoNXbzntMM
     exporter-other--retention-insight--dark:
         hash: v1.k794b7964.d3ccb2e952ee2db44e25470aa197050828e7da884e7a765b3ea7052017fd8b36.hJzwBbTO7A-no_ho39v7MUsPSOZbmXWhK_3n3wLCXas
     exporter-other--retention-insight--light:
