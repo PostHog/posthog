@@ -48,6 +48,10 @@ Support checks that the requester is a member of the organization that owns the 
 ## Example
 
 ````text
+Staging test events to delete from our live project
+
+---
+
 Request:
 
 Our staging build sent test checkout events to our live project in the first week of October 2026. Please delete the 3,817 events the query below returns.

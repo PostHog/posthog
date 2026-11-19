@@ -1357,6 +1357,11 @@ export const FilingReasonEnumApi = {
 
 export interface PostHogSupportDraftCreateApi {
     /**
+     * A short title that names the problem, such as 'Experiment exposures split 90/10 instead of 50/50'. It opens the ticket, and ticket lists show it, so don't start it with 'Request'.
+     * @maxLength 100
+     */
+    title: string
+    /**
      * The whole ask, in the person's voice. Open with what happened in one sentence, with the numbers and dates. Then add the action they need in one sentence, or list every question the docs did not answer, numbered in the person's order, with every part of each question. When they heard your answer and still want a human, give your answer in one sentence, as yours.
      * @maxLength 2000
      */

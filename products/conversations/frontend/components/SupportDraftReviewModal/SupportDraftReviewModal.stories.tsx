@@ -16,6 +16,7 @@ import { SupportDraftReviewModal } from './SupportDraftReviewModal'
 const DRAFT: PostHogSupportDraftApi = {
     id: 'draft-1',
     message: [
+        'Staging test events to delete from our live project',
         'Request:\n\nOur staging build sent test checkout events to our live project. Please delete the 3,817 events the query below returns.',
         'Details:\n- Project: Web app (ID 12345), US Cloud\n- Events: `checkout_started` from `staging.example.com`',
         'Already checked:\n- Claude Code checked: the query returns 3,817 events',

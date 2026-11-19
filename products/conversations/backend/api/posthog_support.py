@@ -53,6 +53,13 @@ class PostHogSupportErrorSerializer(serializers.Serializer):
 # The field caps add up to well under the support widget's 10,000-character message limit, with room
 # for the headings and the ticket context the web app appends, so a valid draft always sends.
 class PostHogSupportDraftCreateSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=100,
+        help_text=(
+            "A short title that names the problem, such as 'Experiment exposures split 90/10 instead of 50/50'. "
+            "It opens the ticket, and ticket lists show it, so don't start it with 'Request'."
+        ),
+    )
     request = serializers.CharField(
         max_length=2000,
         help_text=(
@@ -109,6 +116,7 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         data["message"] = compose_ticket_message(
+            title=data["title"],
             request=data["request"],
             details=data.get("details"),
             already_checked=data.get("already_checked"),

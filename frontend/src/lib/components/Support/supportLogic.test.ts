@@ -432,8 +432,9 @@ describe('supportLogic', () => {
         it.each([
             {
                 name: 'puts the first attachment between Request and Details',
-                message: ['Request:\n\nIt broke.', 'Details:\n- Project: Web app'].join(separator),
+                message: ['A title', 'Request:\n\nIt broke.', 'Details:\n- Project: Web app'].join(separator),
                 expected: [
+                    'A title',
                     'Request:\n\nIt broke.',
                     'Attachments:\n![a.png](https://x/a)',
                     'Details:\n- Project: Web app',
@@ -441,10 +442,14 @@ describe('supportLogic', () => {
             },
             {
                 name: 'adds a later attachment to the same Attachments section',
-                message: ['Request:\n\nIt broke.', 'Attachments:\n![a.png](https://x/a)', 'Details:\n- One'].join(
-                    separator
-                ),
+                message: [
+                    'A title',
+                    'Request:\n\nIt broke.',
+                    'Attachments:\n![a.png](https://x/a)',
+                    'Details:\n- One',
+                ].join(separator),
                 expected: [
+                    'A title',
                     'Request:\n\nIt broke.',
                     'Attachments:\n![a.png](https://x/a)\n![a.png](https://x/a)',
                     'Details:\n- One',
@@ -452,8 +457,8 @@ describe('supportLogic', () => {
             },
             {
                 name: 'adds an Attachments section after a draft that is only a Request',
-                message: 'Request:\n\nIt broke.',
-                expected: ['Request:\n\nIt broke.', 'Attachments:\n![a.png](https://x/a)'].join(separator),
+                message: ['A title', 'Request:\n\nIt broke.'].join(separator),
+                expected: ['A title', 'Request:\n\nIt broke.', 'Attachments:\n![a.png](https://x/a)'].join(separator),
             },
         ])('$name', ({ message, expected }) => {
             expect(addAttachmentToDraftMessage(message, 'a.png', 'https://x/a')).toEqual(expected)

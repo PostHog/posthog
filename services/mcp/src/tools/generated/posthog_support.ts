@@ -19,6 +19,9 @@ const posthogSupportDraftCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof PosthogSupportDraftCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
         if (params.request !== undefined) {
             body['request'] = params.request
         }

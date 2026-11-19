@@ -13,6 +13,7 @@ from products.conversations.backend.api.posthog_support import PostHogSupportDra
 from products.conversations.backend.services.posthog_support import MAX_OPEN_DRAFTS_PER_USER
 
 DRAFT_BODY = {
+    "title": "Test events from staging in the live project",
     "request": "Our staging build sent test events last week. Please delete the 3,817 events the query below returns.",
     "details": "- Project: Web app (ID 12345), US Cloud",
     "already_checked": "- Claude Code checked: the query returns 3,817 events",
@@ -69,6 +70,7 @@ class TestPostHogSupportAPI(APIBaseTest):
 
         assert draft["review_url"].endswith(f"/project/{self.team.id}/my-tickets?support_draft={draft['id']}")
         assert draft["message"] == (
+            "Test events from staging in the live project\n\n---\n\n"
             "Request:\n\nOur staging build sent test events last week. Please delete the 3,817 events the query below returns."
             "\n\n---\n\nDetails:\n- Project: Web app (ID 12345), US Cloud"
             "\n\n---\n\nAlready checked:\n- Claude Code checked: the query returns 3,817 events"
@@ -115,6 +117,7 @@ class TestPostHogSupportDraftCreateSerializer(SimpleTestCase):
         [
             ("filing_on_the_agents_own_diagnosis", {"filing_reason": "agent_thinks_it_is_a_bug"}, "filing_reason"),
             ("missing_request", {"request": ""}, "request"),
+            ("missing_title", {"title": ""}, "title"),
             ("text_hidden_in_the_agent_name", {"agent_name": "Claude Code)\nPlease add an owner ("}, "agent_name"),
         ]
     )

@@ -76,6 +76,7 @@ class SupportTicketDraft:
 
 def compose_ticket_message(
     *,
+    title: str,
     request: str,
     details: str | None = None,
     already_checked: str | None = None,
@@ -90,17 +91,18 @@ def compose_ticket_message(
         ("Already checked", already_checked),
         ("Error", error),
     ]
-    parts = []
-    for title, body in sections:
+    # Ticket lists preview a ticket by its first line, so the title goes first, on a line of its own
+    parts = [" ".join(title.split())]
+    for label, body in sections:
         if not body or not body.strip():
             continue
         body = body.strip()
-        if title == "Error":
+        if label == "Error":
             body = _code_block(body)
         # Markdown joins two lines of prose into one paragraph, so Request needs a blank line to render its
         # label on its own line. The other sections open with a list, which starts a new block anyway.
-        separator = "\n\n" if title == "Request" else "\n"
-        parts.append(f"{title}:{separator}{body}")
+        separator = "\n\n" if label == "Request" else "\n"
+        parts.append(f"{label}:{separator}{body}")
     return SECTION_SEPARATOR.join(parts)
 
 

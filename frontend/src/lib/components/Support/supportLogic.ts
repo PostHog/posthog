@@ -221,7 +221,9 @@ export function addAttachmentToDraftMessage(message: string, fileName: string, u
     const sections = message.split(DRAFT_SECTION_SEPARATOR)
     const attachmentsIndex = sections.findIndex((section) => section.startsWith(`${DRAFT_ATTACHMENTS_LABEL}\n`))
     if (attachmentsIndex === -1) {
-        sections.splice(1, 0, `${DRAFT_ATTACHMENTS_LABEL}\n${attachmentLine}`)
+        // A draft opens with its title and then Request. Without a Request section, the attachments follow the title.
+        const requestIndex = sections.findIndex((section) => section.startsWith('Request:'))
+        sections.splice(requestIndex === -1 ? 1 : requestIndex + 1, 0, `${DRAFT_ATTACHMENTS_LABEL}\n${attachmentLine}`)
     } else {
         sections[attachmentsIndex] = `${sections[attachmentsIndex]}\n${attachmentLine}`
     }

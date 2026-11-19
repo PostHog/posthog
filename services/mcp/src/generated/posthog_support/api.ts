@@ -20,6 +20,8 @@ export const PosthogSupportDraftsCreateParams = () => zod.object({
         ),
 })
 
+export const posthogSupportDraftsCreateBodyTitleMax = 100
+
 export const posthogSupportDraftsCreateBodyRequestMax = 2000
 
 export const posthogSupportDraftsCreateBodyDetailsMax = 3000
@@ -32,6 +34,12 @@ export const posthogSupportDraftsCreateBodyAgentNameOneRegExp = new RegExp('^[\\
 export const posthogSupportDraftsCreateBodyAgentNameTwoMax = 0
 
 export const PosthogSupportDraftsCreateBody = () => zod.object({
+    title: zod
+        .string()
+        .max(posthogSupportDraftsCreateBodyTitleMax)
+        .describe(
+            "A short title that names the problem, such as 'Experiment exposures split 90\/10 instead of 50\/50'. It opens the ticket, and ticket lists show it, so don't start it with 'Request'."
+        ),
     request: zod
         .string()
         .max(posthogSupportDraftsCreateBodyRequestMax)

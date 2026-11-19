@@ -55,6 +55,10 @@ Use this shape, and leave out any part you have nothing real for.
 Keep the labels plain, without Markdown bold, because the person reviews the ticket in a plain text box.
 
 ```text
+<title>
+
+---
+
 Request:
 
 <what happened, in one sentence, with the numbers and dates> <the action they need, if any>
@@ -80,6 +84,7 @@ Error:
 <exact text, top frames only>
 ```
 
+- **The title** names the problem in under 100 characters, with the object it's about, such as "Experiment exposures split 90/10 instead of 50/50". Ticket lists show it, so don't start it with "Request", a greeting or the product name alone.
 - **Request** is the whole ask, so support knows what to do from this one section.
   - Open with what happened, or what they plan to do, in one sentence, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day".
   - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns". When their question only asks for the action, such as "Can you raise our rate limit?", this sentence covers it.
@@ -113,7 +118,7 @@ Never say that a ticket was filed, and do not promise a response time.
 
 When `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it:
 
-- Each part of the ticket is one field, without its heading: `request`, `details`, `already_checked` and `error`.
+- Each part of the ticket is one field, without its heading: `title`, `request`, `details`, `already_checked` and `error`.
 - Set `filing_reason` to the first that fits. Only `billing_question` changes what happens. The others tell support why the ticket exists.
   - `billing_question` when the ticket is about billing or usage, such as a charge, an invoice, a credit, or usage against a limit. It lets the person send the ticket on any plan, so don't use it for a billing question asked in passing in a ticket about something else, such as whether a limit could explain events that stopped arriving.
   - `user_disagrees_with_agent` when you answered what they asked and they think your answer is wrong.
