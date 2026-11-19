@@ -5,6 +5,8 @@ import type { ReactElement, ReactNode } from 'react'
 import { setAuthProvider } from '@/api/client'
 import type { ProjectScope } from '@/api/reports'
 
+import { useFeedSettings } from './feed/feedSettingsStore'
+import { useFeed } from './feed/useFeed'
 import { useSessionList } from './hooks'
 
 let mockScope: ProjectScope = { host: 'https://app.example.com', projectId: 2 }
@@ -138,6 +140,29 @@ test('pages by cursor, keeps rows on failure, deduplicates, stops at the end and
         expect(requests[3]?.searchParams.has('after')).toBe(false)
     } finally {
         unmount()
+        client.clear()
+    }
+})
+
+test('loads the next feed page when the only available recording is hidden', async () => {
+    globalThis.fetch = jest.fn(async (url: string) => {
+        const request = new URL(url)
+        if (!request.pathname.endsWith('/session_recordings/')) {
+            return response({ results: [] })
+        }
+        return request.searchParams.get('after')
+            ? response({ results: [{ id: 'second' }], has_next: false })
+            : response({ results: [{ id: 'first' }], has_next: true, next_cursor: 'next' })
+    }) as typeof fetch
+    const { client, wrapper } = setup()
+    const { result, unmount } = renderHook(() => useFeed('newest'), { wrapper })
+    try {
+        await waitFor(() => expect(result.current.items?.map((item) => item.recording.sessionId)).toEqual(['first']))
+        act(() => useFeedSettings.getState().hide('first'))
+        await waitFor(() => expect(result.current.items?.map((item) => item.recording.sessionId)).toEqual(['second']))
+    } finally {
+        unmount()
+        useFeedSettings.getState().set({ hidden: [] })
         client.clear()
     }
 })

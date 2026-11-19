@@ -163,10 +163,7 @@ function FeedContent(): ReactElement {
         [speed, autoplayNext, skipInactivity]
     )
     const feed = useFeed(source)
-    const items = useMemo(() => {
-        const hiddenIds = new Set(hidden)
-        return feed.items?.filter((item) => !hiddenIds.has(item.recording.sessionId))
-    }, [feed.items, hidden])
+    const items = feed.items
     const holding = useFeedHold((state) => state.hold !== null)
     const lock = useFeedHold((state) => state.lock)
     // The lock lasts while the feed is open: it survives swipes, and leaving the feed ends it.
@@ -928,8 +925,12 @@ function FeedContent(): ReactElement {
                 playing={source}
                 playingSession={currentCard?.item.recording.sessionId ?? null}
                 onPlay={(next, sessionId) => {
-                    closeSessions(false)
+                    if (sessionId !== null && hidden.includes(sessionId)) {
+                        closeSessions(true)
+                        return
+                    }
                     if (next !== source) {
+                        closeSessions(false)
                         changeSource(next)
                         setStartWith(sessionId)
                         return
@@ -938,9 +939,16 @@ function FeedContent(): ReactElement {
                         sessionId === null
                             ? cards?.[0]
                             : cards?.find((card) => card.first && card.item.recording.sessionId === sessionId)
-                    if (target && target.key === currentCard?.key) {
-                        handles.current.get(target.key)?.playSelection(sessionId === null)
-                    } else if (target) {
+                    if (!target) {
+                        closeSessions(true)
+                        return
+                    }
+                    const handle = handles.current.get(target.key)
+                    if (target.key === currentCard?.key) {
+                        closeSessions(!handle)
+                        handle?.playSelection(sessionId === null)
+                    } else {
+                        closeSessions(false)
                         setCurrentKey(target.key)
                     }
                 }}

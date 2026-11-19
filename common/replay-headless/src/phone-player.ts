@@ -87,6 +87,7 @@ class PhonePlayer {
     private skipInactivity = true
     private active: ActiveReplayer | null = null
     private segments: RecordingSegment[] = []
+    private inactivitySegments: RecordingSegment[] = []
     private segmentSnapshots: RecordingSnapshot[] = []
     private windowEnds = new Map<number, number>()
     private checkpoint: { index: number; timestamp: number } | null = null
@@ -570,23 +571,58 @@ class PhonePlayer {
                 events[events.length - 1]?.timestamp ?? -Infinity,
             ])
         )
-        this.segments = mergeInactiveSegments(
-            createSegments(
-                snapshots,
-                snapshots[0]?.timestamp ?? null,
-                snapshots[snapshots.length - 1]?.timestamp ?? null,
-                null,
-                windows
-            )
+        this.segments = createSegments(
+            snapshots,
+            snapshots[0]?.timestamp ?? null,
+            snapshots[snapshots.length - 1]?.timestamp ?? null,
+            null,
+            windows
         )
+        this.inactivitySegments = mergeInactiveSegments(this.segments)
     }
 
     private windowAt(ts: number): number | null {
-        return (
-            this.segments.find(
-                (segment) => segment.isActive && segment.startTimestamp <= ts && ts <= segment.endTimestamp
-            )?.windowId ?? null
-        )
+        let gapOwner: number | null = null
+        for (const segment of this.segments) {
+            if (segment.startTimestamp > ts) {
+                break
+            }
+            const { windowId } = segment
+            if (windowId == null || segment.endTimestamp < ts) {
+                continue
+            }
+            if (segment.isActive) {
+                return windowId
+            }
+            if (!this.skipInactivity && segment.kind === 'gap' && ts <= (this.windowEnds.get(windowId) ?? -Infinity)) {
+                gapOwner ??= windowId
+            }
+        }
+        return gapOwner
+    }
+
+    private mergeSegmentSnapshots(snapshots: readonly RecordingSnapshot[]): void {
+        const first = snapshots[0]
+        if (!first) {
+            return
+        }
+        // Blocks can overlap. Merge only the tail that can contain events from the new batch.
+        const timeline = this.segmentSnapshots
+        let start = timeline.length
+        while (start > 0 && timeline[start - 1].timestamp > first.timestamp) {
+            start--
+        }
+        const overlap = timeline.splice(start)
+        let index = 0
+        for (const snapshot of snapshots) {
+            while (index < overlap.length && overlap[index].timestamp <= snapshot.timestamp) {
+                timeline.push(overlap[index++])
+            }
+            timeline.push(snapshot)
+        }
+        while (index < overlap.length) {
+            timeline.push(overlap[index++])
+        }
     }
 
     private trimHistory(from: number, through: number): void {
@@ -637,8 +673,8 @@ class PhonePlayer {
         try {
             const firstNewBlock = active.throughIndex + 1
             const snapshots = await this.processed(firstNewBlock, through)
+            this.mergeSegmentSnapshots(snapshots)
             for (const snapshot of snapshots) {
-                this.segmentSnapshots.push(snapshot)
                 if (snapshot.windowId === active.windowId && snapshot.timestamp >= active.lastTs) {
                     active.replayer.addEvent(snapshot)
                 }
@@ -779,7 +815,7 @@ class PhonePlayer {
             }
         }
         if (this.skipInactivity) {
-            const gap = this.segments.find(
+            const gap = this.inactivitySegments.find(
                 (segment) =>
                     !segment.isActive &&
                     segment.kind !== 'buffer' &&

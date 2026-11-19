@@ -52,4 +52,4 @@ hog/test/parity/golden/** linguist-generated
 hog/test/parity/native/bin/** binary linguist-generated
 hog/test/parity/real/** -text linguist-generated
 
-products/mobile/src/features/replay/web/phonePlayer.generated.replay linguist-generated -diff
+products/mobile/src/features/replay/web/phonePlayer.generated.replay linguist-generated diff whitespace=-blank-at-eol

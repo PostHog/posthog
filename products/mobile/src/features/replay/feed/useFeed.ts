@@ -22,6 +22,7 @@ import { feedTimeline, hasReadyVideo } from './feedAdapters'
 import { FEED_PAGE_SIZE, fetchFeedEvents, fetchFeedRecordings, fetchFeedSignals, type SignalWindow } from './feedApi'
 import type { FeedItem, FeedSource, FeedTimeline } from './feedModel'
 import { FEED_PLAYER_KIND } from './feedPlayerKind'
+import { useFeedSettings } from './feedSettingsStore'
 import { parseSignals, type SessionSignals } from './sessionRows'
 
 async function scoped<T>(load: () => Promise<T>): Promise<T> {
@@ -55,12 +56,13 @@ function keepsOngoing(source: FeedSource): boolean {
     return source === 'rage' || source === 'errors'
 }
 
-/** A page can hold only recordings still in progress. The feed reads this many pages before it says it is empty. */
+/** The feed looks through this many pages for a visible, playable recording before it shows an empty state. */
 const EMPTY_PAGE_LIMIT = 5
 
 export function useFeed(source: FeedSource): Feed {
     const { scope, ready } = useReplayContext()
     const queryClient = useQueryClient()
+    const hidden = useFeedSettings((state) => state.hidden)
     const generation = sessionGeneration()
     const base = useMemo(() => ['replayFeed', generation, ...scopeKey(scope)] as const, [generation, scope])
     const recordingsKey = useMemo(() => [...base, 'recordings', source] as const, [base, source])
@@ -100,7 +102,7 @@ export function useFeed(source: FeedSource): Feed {
     const frozen = useRef(new Map<string, { order: string[]; ready: Set<string> }>())
     const exportsKnown = !VIDEO_PLAYER || exports.isSuccess || exports.isError
     // biome-ignore lint/correctness/useExhaustiveDependencies: observation pages change when their version does.
-    const items = useMemo((): FeedItem[] | undefined => {
+    const allItems = useMemo((): FeedItem[] | undefined => {
         if (!recordings.data || !exportsKnown) {
             return undefined
         }
@@ -148,6 +150,11 @@ export function useFeed(source: FeedSource): Feed {
         })
         return result
     }, [recordings.data, exportsKnown, exports.data, source, observationsVersion])
+
+    const items = useMemo(() => {
+        const hiddenIds = new Set(hidden)
+        return allItems?.filter((item) => !hiddenIds.has(item.recording.sessionId))
+    }, [allItems, hidden])
 
     const stillRecording = keepsOngoing(source)
         ? 0
