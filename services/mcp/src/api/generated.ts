@@ -425,6 +425,21 @@ export namespace Schemas {
       error?: string;
     }
 
+    export interface AEOPageMover {
+      /** The cited URL on one of the project's own domains, as the engine returned it. */
+      url: string;
+      /** Answered checks in the current window that cite this URL. */
+      answers_citing: number;
+      /** Share (0-1) of the response's 'answers' that cite this URL. */
+      citation_rate: number;
+      /** Answered checks in the window before that cite this URL. */
+      previous_answers_citing: number;
+      /** Share (0-1) of the response's 'previous_answers' that cite this URL. */
+      previous_citation_rate: number;
+      /** The current rate minus the previous rate, on the same 0-1 scale: 0.25 is a gain of 25 percentage points and -0.25 a loss of 25. */
+      change: number;
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. 'claude-no-search' and 'openai-no-search' answer from training data alone, without web search. */
       engine: string;
@@ -765,6 +780,29 @@ export namespace Schemas {
       skipped: number;
     }
 
+    export interface AEOPromptMover {
+      /** Id of the prompt. Pass it to the prompt endpoints for its stats and checks. */
+      prompt_id: string;
+      /** The prompt's current text. */
+      prompt: string;
+      /** The prompt's current topic. Empty when it has none. */
+      topic: string;
+      /** Answered checks of the prompt in the current window. */
+      answers: number;
+      /** Of 'answers', the ones that name the brand. An answer that cites the site counts as a mention. */
+      mentioned: number;
+      /** Share (0-1) of 'answers' that name the brand. */
+      mention_rate: number;
+      /** Answered checks of the prompt in the window before. */
+      previous_answers: number;
+      /** Of 'previous_answers', the ones that name the brand. */
+      previous_mentioned: number;
+      /** Share (0-1) of 'previous_answers' that name the brand. */
+      previous_mention_rate: number;
+      /** The current rate minus the previous rate, on the same 0-1 scale: 0.25 is a gain of 25 percentage points and -0.25 a loss of 25. */
+      change: number;
+    }
+
     export interface AEOPromptSearchWord {
       /** A word from the web searches, lower-cased, common English words left out. */
       word: string;
@@ -845,6 +883,59 @@ export namespace Schemas {
       engine: string;
     }
 
+    /**
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     */
+    export type BrandedSegmentEnum = typeof BrandedSegmentEnum[keyof typeof BrandedSegmentEnum];
+
+
+    export const BrandedSegmentEnum = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
+    export interface AEOPromptSetMovers {
+      /** Up to 5 prompts whose mention rate rose the most against the window before, largest gain first. */
+      prompt_gainers: AEOPromptMover[];
+      /** Up to 5 prompts whose mention rate fell the most against the window before, largest loss first. */
+      prompt_losers: AEOPromptMover[];
+      /** Up to 5 pages on the project's own domains whose citation rate rose the most, largest gain first. */
+      page_gainers: AEOPageMover[];
+      /** Up to 5 pages on the project's own domains whose citation rate fell the most, largest loss first. */
+      page_losers: AEOPageMover[];
+      /** Length of each window in days. */
+      days: number;
+      /** First day of the current window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the current window, in the project's timezone. */
+      window_to: string;
+      /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+       *
+       * * `all` - All
+       * * `branded` - Branded
+       * * `non_branded` - Non-branded */
+      branded: BrandedSegmentEnum;
+      /**
+         * The answer engine every count covers, as requested. Null when every engine counts.
+         * @nullable
+         */
+      engine: string | null;
+      /**
+         * The prompt topic every count covers, as requested. Empty for prompts with no topic, null when every topic counts.
+         * @nullable
+         */
+      topic: string | null;
+      /** Answered checks in the current window: the denominator of every page's 'citation_rate'. */
+      answers: number;
+      /** Answered checks in the window before: the denominator of every page's 'previous_citation_rate'. */
+      previous_answers: number;
+      /** The fewest answers a prompt needs in each window to be listed. The page lists are empty when either window has fewer answers in total. */
+      min_answers: number;
+    }
+
     export interface AEOPromptSetTopicCounts {
       /**
          * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
@@ -900,20 +991,6 @@ export namespace Schemas {
       /** Answer engines that ran this search, ordered by engine. */
       engines: string[];
     }
-
-    /**
-     * * `all` - All
-     * * `branded` - Branded
-     * * `non_branded` - Non-branded
-     */
-    export type BrandedSegmentEnum = typeof BrandedSegmentEnum[keyof typeof BrandedSegmentEnum];
-
-
-    export const BrandedSegmentEnum = {
-      All: 'all',
-      Branded: 'branded',
-      NonBranded: 'non_branded',
-    } as const;
 
     export interface AEOPromptSetOverview {
       /** Checks across the prompt set from 'window_from' to 'window_to'. */
@@ -137497,6 +137574,51 @@ export namespace Schemas {
 
 
     export const AeoPromptsCitationsBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
+    export type AeoPromptsMoversParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsMoversBranded;
+    /**
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
+     */
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
+    };
+
+    export type AeoPromptsMoversBranded = typeof AeoPromptsMoversBranded[keyof typeof AeoPromptsMoversBranded];
+
+
+    export const AeoPromptsMoversBranded = {
       All: 'all',
       Branded: 'branded',
       NonBranded: 'non_branded',
