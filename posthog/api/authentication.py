@@ -85,6 +85,7 @@ from posthog.helpers.sso import (
 from posthog.helpers.two_factor_session import (
     CODE_BASED_VERIFICATION_SSO_SESSION_KEY,
     CODE_MAX_ATTEMPTS,
+    CODE_TTL_SECONDS,
     LOGIN_CODE_VERIFICATION_COUNTER,
     clear_two_factor_session_flags,
     code_based_verifier,
