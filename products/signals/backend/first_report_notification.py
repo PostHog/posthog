@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import operator
 from datetime import datetime, timedelta
+from functools import reduce
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ImproperlyConfigured
@@ -57,21 +59,20 @@ def _eligible_recipient(user: User | None, team: Team) -> bool:
     )
 
 
-def _visible_report_states(team_id: int) -> tuple[Q, Q]:
-    return (
+def _visible_report_states(team_id: int) -> list[Q]:
+    return [
         Q(status=SignalReport.Status.READY, latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value),
         Q(
             status=SignalReport.Status.PENDING_INPUT,
             latest_actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
             scout_idempotency_key=f"first-report:{team_id}",
         ),
-    )
+    ]
 
 
 def _visible_reports(team_id: int, state: Q | None = None) -> QuerySet[SignalReport]:
     if state is None:
-        ready, needs_input = _visible_report_states(team_id)
-        state = ready | needs_input
+        state = reduce(operator.or_, _visible_report_states(team_id))
     return (
         SignalReport.objects.filter(state, team_id=team_id, latest_already_addressed=False)
         .exclude(title="")
