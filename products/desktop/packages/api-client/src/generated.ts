@@ -9398,6 +9398,10 @@ export namespace Schemas {
         | "clickhouse"
         | "motherduck"
         | "trino";
+    /**
+     * * `issue_summaries` - Issue Summaries
+     */
+    export type ErrorTrackingAIFeatureEnum = "issue_summaries";
     export type ErrorTrackingExternalReferenceIntegrationResult = {
         /**
          * ID of the integration backing this external reference.
@@ -17795,6 +17799,10 @@ export namespace Schemas {
          * Realtime cohorts as the request's user sees them in this project.
          */
         realtime_cohorts: TeamRealtimeCohorts & unknown;
+        /**
+         * Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none.
+         */
+        available_error_tracking_ai_features: Array<ErrorTrackingAIFeatureEnum>;
         /**
          * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
          */
