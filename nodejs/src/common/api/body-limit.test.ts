@@ -89,10 +89,13 @@ describe('setupExpressApp JSON body limit', () => {
         'answers a %s JSON body that fails its check after earlier chunks decoded with 400, without routing it',
         async (encoding, compress) => {
             const largeApp = setupExpressApp({})
-            const routedPadLengths: number[] = []
+            let routedBodies = 0
             largeApp.post('/body', (req: Request, res: Response) => {
-                routedPadLengths.push(req.body.pad.length)
-                res.status(200).json({ ok: true })
+                routedBodies++
+                res.status(200).json({ padLength: req.body.pad.length })
+            })
+            largeApp.get('/routed', (req: Request, res: Response) => {
+                res.status(200).json({ routedBodies })
             })
             const largeServer = largeApp.listen(0, () => {})
             const pad = randomBytes(512 * 1024).toString('base64')
@@ -112,19 +115,17 @@ describe('setupExpressApp JSON body limit', () => {
 
             try {
                 const failed = await post(checkFailed)
-                const routedAfterFailure = [...routedPadLengths]
+                const routedAfterFailure = await supertest(largeApp).get('/routed')
                 const passed = await post(valid)
 
                 expect({
                     failed: [failed.status, failed.body],
-                    routedAfterFailure,
-                    passed: passed.status,
-                    routedPadLengths,
+                    routedAfterFailure: routedAfterFailure.body,
+                    passed: [passed.status, passed.body],
                 }).toEqual({
                     failed: [400, { status: 'error', error: 'Malformed compressed body' }],
-                    routedAfterFailure: [],
-                    passed: 200,
-                    routedPadLengths: [pad.length],
+                    routedAfterFailure: { routedBodies: 0 },
+                    passed: [200, { padLength: pad.length }],
                 })
             } finally {
                 largeServer.close()
