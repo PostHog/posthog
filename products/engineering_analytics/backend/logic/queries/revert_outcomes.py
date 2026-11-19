@@ -15,6 +15,8 @@ from products.engineering_analytics.backend.logic.views.reviews import APPROVED_
 
 REVERTED_PULL_REQUEST_LIMIT = 200
 
+CohortRow = tuple[str, str, int, int]
+
 _APPROVED_BEFORE_MERGE = f"r.state = '{APPROVED_STATE}' AND r.submitted_at <= pr.merged_at"
 
 _APPROVAL_FROM_REVIEWS = f"""multiIf(
@@ -35,12 +37,16 @@ _APPROVALS_JOIN = f"""LEFT JOIN (
 _OUTCOMES_CTES = f"""
     WITH reverted AS (
         SELECT
-            reverted_pr_number AS target_number,
-            min(merged_at) AS reverted_at,
-            argMin(number, merged_at) AS reverting_pr_number
-        FROM __PR_SOURCE__
-        WHERE merged_at IS NOT NULL AND reverted_pr_number IS NOT NULL AND merged_at >= {{date_from}}
-        GROUP BY reverted_pr_number
+            rp.reverted_pr_number AS target_number,
+            min(rp.merged_at) AS reverted_at,
+            argMin(rp.number, rp.merged_at) AS reverting_pr_number
+        FROM __PR_SOURCE__ AS rp
+        INNER JOIN (
+            SELECT number, merged_at FROM __PR_SOURCE__
+            WHERE merged_at IS NOT NULL AND merged_at >= {{date_from}} AND NOT is_revert
+        ) AS target ON target.number = rp.reverted_pr_number
+        WHERE rp.merged_at IS NOT NULL AND rp.reverted_pr_number IS NOT NULL AND rp.merged_at >= target.merged_at
+        GROUP BY rp.reverted_pr_number
     ),
     merged AS (
         SELECT
@@ -60,7 +66,7 @@ _OUTCOMES_CTES = f"""
     )
 """
 
-_WAS_REVERTED = "rv.reverting_pr_number > 0 AND rv.reverted_at >= m.merged_at"
+_WAS_REVERTED = "rv.reverting_pr_number > 0"
 
 _COHORTS_SELECT = f"""
     SELECT m.authorship AS authorship, m.approval AS approval, count() AS merged, countIf({_WAS_REVERTED}) AS reverted
@@ -81,6 +87,39 @@ _REVERTED_SELECT = f"""
 
 def _share(part: int, whole: int) -> float | None:
     return part / whole if whole else None
+
+
+def _cohort_totals(cohorts: list[CohortRow], *, column: int, value: str) -> tuple[int, int]:
+    rows = [row for row in cohorts if row[column] == value]
+    return sum(row[2] for row in rows), sum(row[3] for row in rows)
+
+
+def fold_cohorts(
+    cohorts: list[CohortRow], *, reviews_available: bool
+) -> tuple[list[AuthorshipRevertOutcome], list[ApprovalRevertOutcome]]:
+    by_authorship = []
+    for authorship in PullRequestAuthorship:
+        merged, reverted = _cohort_totals(cohorts, column=0, value=authorship.value)
+        by_authorship.append(
+            AuthorshipRevertOutcome(
+                authorship=authorship,
+                merged_pr_count=merged,
+                reverted_pr_count=reverted,
+                reverted_share=_share(reverted, merged),
+            )
+        )
+    by_approval = []
+    for approval in PullRequestApproval if reviews_available else ():
+        merged, reverted = _cohort_totals(cohorts, column=1, value=approval.value)
+        by_approval.append(
+            ApprovalRevertOutcome(
+                approval=approval,
+                merged_pr_count=merged,
+                reverted_pr_count=reverted,
+                reverted_share=_share(reverted, merged),
+            )
+        )
+    return by_authorship, by_approval
 
 
 def query_revert_outcomes(
@@ -130,30 +169,7 @@ def query_revert_outcomes(
     )
     reverted_rows = reverted_response.results or []
     reverted_pr_count = sum(reverted for _, _, _, reverted in cohorts)
-    by_authorship: list[AuthorshipRevertOutcome] = []
-    for authorship in PullRequestAuthorship:
-        merged = sum(row[2] for row in cohorts if row[0] == authorship.value)
-        reverted = sum(row[3] for row in cohorts if row[0] == authorship.value)
-        by_authorship.append(
-            AuthorshipRevertOutcome(
-                authorship=authorship,
-                merged_pr_count=merged,
-                reverted_pr_count=reverted,
-                reverted_share=_share(reverted, merged),
-            )
-        )
-    by_approval: list[ApprovalRevertOutcome] = []
-    for approval in PullRequestApproval if reviews else ():
-        merged = sum(row[2] for row in cohorts if row[1] == approval.value)
-        reverted = sum(row[3] for row in cohorts if row[1] == approval.value)
-        by_approval.append(
-            ApprovalRevertOutcome(
-                approval=approval,
-                merged_pr_count=merged,
-                reverted_pr_count=reverted,
-                reverted_share=_share(reverted, merged),
-            )
-        )
+    by_authorship, by_approval = fold_cohorts(cohorts, reviews_available=reviews is not None)
     return RevertOutcomes(
         merged_pr_count=merged_pr_count,
         reverted_pr_count=reverted_pr_count,

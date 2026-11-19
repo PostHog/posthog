@@ -14,7 +14,9 @@ _AUTHORSHIP_HELP = (
 )
 _APPROVAL_HELP = (
     "Who approved the pull request before it merged: 'human' when at least one person approved, 'automated_only' "
-    "when every approval came from a bot account, 'none' when no approval was recorded."
+    "when every approval came from a bot account, 'none' when no approval was recorded. An approval bot may approve "
+    "only the pull requests its risk policy allows, so the 'automated_only' share reflects that selection as well as "
+    "the effect of the approval."
 )
 _MERGED_HELP = "Pull requests merged in the window, excluding pull requests that are themselves reverts."
 _REVERTED_HELP = (

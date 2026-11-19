@@ -3,7 +3,7 @@
 ``state`` is uppercased because the webhook path can land a lowercase verdict.
 """
 
-from products.engineering_analytics.backend.logic.views.pull_requests import bot_handle_expr
+from products.engineering_analytics.backend.logic.bots import bot_handle_expr
 
 APPROVED_STATE = "APPROVED"
 CHANGES_REQUESTED_STATE = "CHANGES_REQUESTED"

@@ -68,6 +68,9 @@ class TestRevertOutcomes(_WarehouseMixin, APIBaseTest):
                     body="No longer reverts #103\nThis reverts #102.\n\nBroke the gate.",
                 ),
                 _merged(112, "bob", merged_days_ago=1, title='Revert "PR 103"', body="Reverts other-org/other#103"),
+                _merged(107, "bob", merged_days_ago=4),
+                _merged(113, "carol", merged_days_ago=6, title='Revert "PR 99"', body="Reverts #107"),
+                _merged(114, "carol", merged_days_ago=3, title='Revert "PR 107"', body="Reverts #107"),
             ],
         )
         self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
@@ -87,17 +90,17 @@ class TestRevertOutcomes(_WarehouseMixin, APIBaseTest):
 
         outcomes = self._get()
 
-        assert (outcomes["merged_pr_count"], outcomes["reverted_pr_count"]) == (7, 2)
-        assert outcomes["reverted_share"] == 2 / 7
+        assert (outcomes["merged_pr_count"], outcomes["reverted_pr_count"]) == (8, 3)
+        assert outcomes["reverted_share"] == 3 / 8
         assert _counts(outcomes["by_authorship"], "authorship") == {
             "bot": (1, 0),
             "agent_context": (2, 1),
-            "no_agent_context": (4, 1),
+            "no_agent_context": (5, 2),
         }
         assert _counts(outcomes["by_approval"], "approval") == {
             "human": (3, 1),
             "automated_only": (1, 1),
-            "none": (3, 0),
+            "none": (4, 1),
         }
         assert [
             (pr["number"], pr["reverting_pr_number"], pr["authorship"], pr["approval"], pr["merge_to_revert_seconds"])
@@ -105,6 +108,7 @@ class TestRevertOutcomes(_WarehouseMixin, APIBaseTest):
         ] == [
             (102, 111, "no_agent_context", "human", 4 * 86400),
             (100, 110, "agent_context", "automated_only", 3 * 86400),
+            (107, 114, "no_agent_context", "none", 1 * 86400),
         ]
         assert outcomes["truncated"] is False
 

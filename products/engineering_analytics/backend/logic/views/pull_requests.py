@@ -5,27 +5,9 @@ Bots and drafts stay in, because bot-impact analysis reads them.
 """
 
 from products.engineering_analytics.backend.logic.agent_context import has_agent_context_expr
+from products.engineering_analytics.backend.logic.bots import bot_handle_expr
 from products.engineering_analytics.backend.logic.merge_queue import merge_queue_branch_expr
 from products.engineering_analytics.backend.logic.reverts import revert_title_expr, reverted_pr_number_expr
-
-# Bots whose handle does not carry GitHub's automatic ``[bot]`` suffix.
-KNOWN_BOT_HANDLES: frozenset[str] = frozenset(
-    {
-        "posthog-bot",
-        "dependabot",
-        "renovate",
-        "github-actions",
-    }
-)
-
-
-def _bot_handle_in_list() -> str:
-    # The handles are inlined as SQL literals, so this set must never hold user input.
-    return ", ".join(f"'{handle}'" for handle in sorted(KNOWN_BOT_HANDLES))
-
-
-def bot_handle_expr(handle_column: str) -> str:
-    return f"({handle_column} LIKE '%[bot]' OR {handle_column} IN ({_bot_handle_in_list()}))"
 
 
 def build_query(table_name: str, *, has_body: bool = False) -> str:
