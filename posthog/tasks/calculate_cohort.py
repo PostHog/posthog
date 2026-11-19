@@ -999,6 +999,78 @@ def _finalize_population_history(
     )
 
 
+def _release_population_claim(
+    cohort: Cohort,
+    *,
+    mode: str | None,
+    finished_replace: tuple[datetime, datetime] | None,
+) -> bool | None:
+    """Release the cohort's population run fields if this attempt still owns them.
+
+    Returns True when this attempt released its own claim, False when a newer attempt took
+    ownership first, and None when Postgres failed while recording the release.
+    """
+    from products.cohorts.backend.models.util import clear_population_run_fields
+
+    owns_cohort: bool | None = None
+
+    def _claim_finalize_ownership() -> None:
+        nonlocal owns_cohort
+        owns_cohort = clear_population_run_fields(
+            cohort,
+            marker=cohort.population_marker,
+            mode=mode,
+            finished_replace=finished_replace,
+        )
+
+    save_recovery_bookkeeping(
+        _claim_finalize_ownership,
+        cohort_id=cohort.pk,
+        team_id=cohort.team_id,
+    )
+    return owns_cohort
+
+
+def _finish_owned_population(
+    cohort: Cohort,
+    *,
+    log_prefix: str,
+    processing_error: BaseException | None,
+    replace_marker: str | None,
+    pg_membership_written: bool,
+    stored_marker: datetime | None,
+) -> None:
+    """Save final cohort state and delete uncopied ClickHouse replace rows when cleanup applies."""
+    from products.cohorts.backend.models.util import delete_failed_replace_attempt_rows
+
+    cohort._safe_save_cohort_state(team_id=cohort.team_id, processing_error=processing_error)
+    cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+    logger.info(
+        f"{log_prefix}_finished",
+        cohort_id=cohort.pk,
+        team_id=cohort.team_id,
+        is_calculating=cohort.is_calculating,
+        errors_calculating=cohort.errors_calculating,
+    )
+    # Clean up ClickHouse rows only when nothing in this replace lineage wrote Postgres membership,
+    # so Postgres stays a subset of ClickHouse. Worker interrupts (BaseException) skip cleanup
+    # because the sweep redispatches them.
+    if (
+        replace_marker is None
+        and not pg_membership_written
+        and stored_marker is not None
+        and isinstance(processing_error, Exception)
+    ):
+        try:
+            delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, marker=stored_marker)
+        except Exception:
+            logger.exception(
+                f"{log_prefix}_failed_replace_cleanup_failed",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+            )
+
+
 def _replace_floor(cohort: Cohort, marker: datetime) -> datetime:
     """Cutoff time from which a replace keeps added members: claim time minus the clock-skew margin, capped at the marker."""
     claimed_at = cohort.population_claimed_at
@@ -1091,8 +1163,6 @@ def _populate_static_cohort(
     from products.cohorts.backend.models.util import (
         PopulationEmptyResult,
         PopulationSuperseded,
-        clear_population_run_fields,
-        delete_failed_replace_attempt_rows,
         insert_cohort_people_into_pg,
         mint_population_marker,
         population_marker_is_current,
@@ -1280,100 +1350,54 @@ def _populate_static_cohort(
         # (Celery raises Reject in place of Retry) records the failure instead of stranding the
         # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt, and a
         # superseded attempt leaves all of it to the attempt that replaced it.
-        if claimed is not None and superseded is None and retry is None:
-            # Finalize only while this attempt still owns the cohort: its mode and marker are still the
-            # stored ones. Otherwise a newer attempt took over at the last moment, and releasing
-            # is_calculating would release that attempt's run.
-            finalized_cohort = claimed
-            stored_marker = finalized_cohort.population_marker
+        if claimed is not None:
+            stored_marker = claimed.population_marker
             owns_cohort: bool | None = None
-
-            def _claim_finalize_ownership() -> None:
-                nonlocal owns_cohort
-                owns_cohort = clear_population_run_fields(
-                    finalized_cohort,
-                    marker=finalized_cohort.population_marker,
+            if superseded is None and retry is None:
+                # Finalize only while this attempt still owns the cohort: its mode and marker are still the
+                # stored ones. Otherwise a newer attempt took over at the last moment, and releasing
+                # is_calculating would release that attempt's run.
+                owns_cohort = _release_population_claim(
+                    claimed,
                     mode=claimed_mode,
                     finished_replace=finished_replace if processing_error is None else None,
                 )
-
-            save_recovery_bookkeeping(
-                _claim_finalize_ownership,
-                cohort_id=cohort_id,
-                team_id=finalized_cohort.team_id,
-            )
-            if owns_cohort is True:
-                # Recompute count before closing history so a replace records its new size, not the size before it ran.
-                finalized_cohort._refresh_count(team_id=finalized_cohort.team_id)
-                if history is not None:
-                    _finalize_population_history(
-                        history, cohort=finalized_cohort, processing_error=processing_error, will_retry=False
-                    )
-                finalized_cohort._safe_save_cohort_state(
-                    team_id=finalized_cohort.team_id, processing_error=processing_error
-                )
-                finalized_cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
-                logger.info(
-                    f"{log_prefix}_finished",
-                    cohort_id=cohort_id,
-                    team_id=finalized_cohort.team_id,
-                    is_calculating=finalized_cohort.is_calculating,
-                    errors_calculating=finalized_cohort.errors_calculating,
-                )
-                # Clean up ClickHouse rows only when nothing in this replace lineage wrote Postgres membership,
-                # so Postgres stays a subset of ClickHouse. Worker interrupts (BaseException) skip cleanup
-                # because the sweep redispatches them.
-                if (
-                    replace_marker is None
-                    and not pg_membership_written
-                    and stored_marker is not None
-                    and isinstance(processing_error, Exception)
-                ):
-                    try:
-                        delete_failed_replace_attempt_rows(
-                            cohort_id, team_id=finalized_cohort.team_id, marker=stored_marker
-                        )
-                    except Exception:
-                        logger.exception(
-                            f"{log_prefix}_failed_replace_cleanup_failed",
-                            cohort_id=cohort_id,
-                            team_id=finalized_cohort.team_id,
-                        )
-            else:
-                # Discard history when a newer attempt took ownership; on a DB failure (owns_cohort is None),
-                # still close it so a transient Postgres outage never deletes the run's history row.
-                if history is not None:
-                    if owns_cohort is False:
-                        overtaken_history = history
-                        save_recovery_bookkeeping(
-                            lambda: _discard_population_history(overtaken_history),
-                            cohort_id=cohort_id,
-                            team_id=finalized_cohort.team_id,
-                        )
-                    else:
-                        _finalize_population_history(
-                            history, cohort=finalized_cohort, processing_error=processing_error, will_retry=False
-                        )
-                if owns_cohort is False:
+                if owns_cohort is True:
+                    # Recompute count before closing history so a replace records its new size, not the size before it ran.
+                    claimed._refresh_count(team_id=claimed.team_id)
+                elif owns_cohort is False:
                     logger.info(
                         f"{log_prefix}_superseded_at_finalize",
                         cohort_id=cohort_id,
-                        team_id=finalized_cohort.team_id,
+                        team_id=claimed.team_id,
                     )
-        # One history row records one attempt, so a retry closes it before scheduling the next one.
-        elif history is not None and claimed is not None:
-            if superseded is not None:
-                # Supersession is internal coordination, not an outcome. A closed row would show an error
-                # banner during the newer attempt, and could outrank its success in the history.
-                superseded_history = history
-                save_recovery_bookkeeping(
-                    lambda: _discard_population_history(superseded_history),
-                    cohort_id=cohort_id,
-                    team_id=claimed.team_id,
-                )
-            else:
-                _finalize_population_history(
-                    history, cohort=claimed, processing_error=processing_error, will_retry=retry is not None
+
+            # One history row records one attempt: discard it when a newer attempt took the cohort,
+            # otherwise close it (including on a DB failure during release, where owns_cohort is None).
+            if history is not None:
+                if superseded is not None or owns_cohort is False:
+                    lost_history = history
+                    save_recovery_bookkeeping(
+                        lambda: _discard_population_history(lost_history),
+                        cohort_id=cohort_id,
+                        team_id=claimed.team_id,
+                    )
+                else:
+                    _finalize_population_history(
+                        history,
+                        cohort=claimed,
+                        processing_error=processing_error,
+                        will_retry=retry is not None,
+                    )
+
+            if owns_cohort is True:
+                _finish_owned_population(
+                    claimed,
+                    log_prefix=log_prefix,
+                    processing_error=processing_error,
+                    replace_marker=replace_marker,
+                    pg_membership_written=pg_membership_written,
+                    stored_marker=stored_marker,
                 )
     if settings.DEBUG and processing_error is not None:
         raise processing_error
