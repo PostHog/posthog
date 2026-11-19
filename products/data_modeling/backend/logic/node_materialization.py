@@ -256,7 +256,7 @@ def _raise_if_picked_node_does_not_resolve(node: Node, unresolved: dict[str, str
 
 
 def _leave_out_unresolved_nodes(
-    graph: Graph, node_ids: set[str], unresolved: dict[str, str]
+    team_id: int, graph: Graph, node_ids: set[str], unresolved: dict[str, str]
 ) -> tuple[set[str], list[SkippedRunNode]]:
     """Drop every view that does not resolve, and the views in the run that depend on it.
 
@@ -265,7 +265,7 @@ def _leave_out_unresolved_nodes(
     """
     if not unresolved:
         return node_ids, []
-    names = dict(Node.objects.filter(id__in=node_ids).values_list("id", "name"))
+    names = dict(Node.objects.filter(team_id=team_id, id__in=node_ids).values_list("id", "name"))
     name_of = {str(node_id): name for node_id, name in names.items()}
     reasons = {node_id: UNRESOLVED_VIEW_SKIP_REASON.format(error=error) for node_id, error in unresolved.items()}
     for root_id in sorted(unresolved, key=lambda node_id: name_of.get(node_id, "")):
@@ -310,7 +310,7 @@ def _related_node_ids(
 
     unresolved = _assert_user_can_run_nodes(node, node_ids, user)
     _raise_if_picked_node_does_not_resolve(node, unresolved)
-    return _leave_out_unresolved_nodes(graph, node_ids, unresolved)
+    return _leave_out_unresolved_nodes(node.team_id, graph, node_ids, unresolved)
 
 
 def run_related_node_materializations(
