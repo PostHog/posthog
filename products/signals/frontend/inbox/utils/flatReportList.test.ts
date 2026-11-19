@@ -68,10 +68,8 @@ describe('mergeReportRows', () => {
     const plan = (lead: string): NonNullable<SignalReport['link_summary']>['plan'] => ({
         id: 'plan',
         title: 'plan',
-        status: 'ready',
         steps: ['layer-1', 'layer-2', 'layer-3'].map((id) => ({ id, title: id, state: 'waiting' as const })),
         lead_step_id: lead,
-        position: null,
     })
     const planRow = (id: string, key: number, lead: string, overrides: Partial<SignalReport> = {}): SignalReport =>
         report(id, {
@@ -80,7 +78,6 @@ describe('mergeReportRows', () => {
             link_summary: {
                 kind: id === 'plan' ? 'plan' : 'part_of',
                 report: null,
-                also_follow_up: false,
                 plan: plan(lead),
                 other_links: [],
             },

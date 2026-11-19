@@ -766,6 +766,7 @@ export function captureInboxReportLinkStripClicked(params: {
     /** The 1-based position of the opened layer, for a `plan_step` click. */
     stepPosition?: number | null
 }): void {
+    const ownStepIndex = params.summary.plan?.steps.findIndex((step) => step.id === params.report.id) ?? -1
     captureInboxEvent(INBOX_EVENTS.REPORT_LINK_STRIP_CLICKED, {
         ...baseReportProperties(params.report),
         strip_kind: params.summary.kind,
@@ -774,7 +775,7 @@ export function captureInboxReportLinkStripClicked(params: {
         linked_kind: params.linkedKind ?? null,
         step_position: params.stepPosition ?? null,
         step_count: params.summary.plan?.steps.length ?? null,
-        own_step_position: params.summary.plan?.position ?? null,
+        own_step_position: ownStepIndex >= 0 ? ownStepIndex + 1 : null,
         other_link_count: params.summary.other_links.length,
     })
 }

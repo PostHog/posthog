@@ -191,7 +191,10 @@ function PlanSteps({
 }
 
 /** The relationship the strip names, and the report its title links to, if any. */
-function stripHeading(summary: ReportLinkSummaryApi): {
+function stripHeading(
+    summary: ReportLinkSummaryApi,
+    reportId: string
+): {
     label: string
     target: { id: string; title: string | null } | null
 } {
@@ -200,8 +203,9 @@ function stripHeading(summary: ReportLinkSummaryApi): {
         return { label: `Plan with ${plan.steps.length} layers`, target: null }
     }
     if (summary.kind === 'part_of' && plan) {
+        const position = plan.steps.findIndex((step) => step.id === reportId) + 1
         return {
-            label: plan.position ? `Layer ${plan.position} of ${plan.steps.length} in` : 'Part of',
+            label: position > 0 ? `Layer ${position} of ${plan.steps.length} in` : 'Part of',
             target: plan,
         }
     }
@@ -264,7 +268,7 @@ export function ReportCardLinkStrip({
 }): JSX.Element {
     const Icon = KIND_ICON[summary.kind]
     const isRecurrence = summary.kind === 'recurrence_of'
-    const { label, target } = stripHeading(summary)
+    const { label, target } = stripHeading(summary, report.id)
     const reportUrl = (reportId: string): string => inboxReportDetailUrl(reportId, backUrl)
     const capture: StripCapture = (params) => captureInboxReportLinkStripClicked({ report, summary, ...params })
 

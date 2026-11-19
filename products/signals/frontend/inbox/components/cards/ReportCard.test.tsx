@@ -238,7 +238,6 @@ describe('ReportCard', () => {
                     link_summary: {
                         kind: 'recurrence_of',
                         report: linked('old', 'The old report'),
-                        also_follow_up: false,
                         plan: null,
                         other_links: [{ kind: 'depends_on', report: linked('lock', 'The lock') }],
                     },

@@ -24,9 +24,7 @@ def _ref(report_id: str) -> LinkedReportRef:
 
 def _plan(plan_id: str, *step_ids: str) -> LinkPlanSummary:
     steps = tuple(LinkPlanStep(id=step_id, title=step_id, state=PlanStepState.WAITING) for step_id in step_ids)
-    return LinkPlanSummary(
-        id=plan_id, title=plan_id, status="ready", steps=steps, lead_step_id=step_ids[0], position=None
-    )
+    return LinkPlanSummary(id=plan_id, title=plan_id, steps=steps, lead_step_id=step_ids[0])
 
 
 class TestChooseLinkSummary(SimpleTestCase):
@@ -37,7 +35,6 @@ class TestChooseLinkSummary(SimpleTestCase):
                 [("recurrence_of", "old"), ("part_of", "plan")],
                 LinkStripKind.PART_OF,
                 "plan",
-                False,
                 [("recurrence_of", "old")],
             ),
             (
@@ -45,7 +42,6 @@ class TestChooseLinkSummary(SimpleTestCase):
                 [("follow_up_of", "old"), ("recurrence_of", "old"), ("follow_up_of", "other")],
                 LinkStripKind.RECURRENCE_OF,
                 "old",
-                True,
                 [("follow_up_of", "other")],
             ),
             (
@@ -53,7 +49,6 @@ class TestChooseLinkSummary(SimpleTestCase):
                 [("follow_up_of", "other"), ("depends_on", "dep"), ("duplicate_of", "dup")],
                 LinkStripKind.DUPLICATE_OF,
                 "dup",
-                False,
                 [("follow_up_of", "other"), ("depends_on", "dep")],
             ),
             (
@@ -61,7 +56,6 @@ class TestChooseLinkSummary(SimpleTestCase):
                 [("recurrence_of", "deleted"), ("follow_up_of", "other")],
                 LinkStripKind.FOLLOW_UP_OF,
                 "other",
-                False,
                 [],
             ),
         ]
@@ -72,7 +66,6 @@ class TestChooseLinkSummary(SimpleTestCase):
         edges: list[tuple[str, str]],
         kind: LinkStripKind,
         linked_id: str,
-        also_follow_up: bool,
         other_links: list[tuple[str, str]],
     ) -> None:
         summary = choose_link_summary(
@@ -85,10 +78,9 @@ class TestChooseLinkSummary(SimpleTestCase):
         assert summary is not None
         assert summary.kind == kind
         assert summary.report is not None and summary.report.id == linked_id
-        assert summary.also_follow_up is also_follow_up
         assert [(link.kind.value, link.report.id) for link in summary.other_links] == other_links
 
-    def test_a_step_reads_its_position_and_hides_dependencies_inside_the_plan(self) -> None:
+    def test_a_step_hides_dependencies_inside_its_plan(self) -> None:
         summary = choose_link_summary(
             report_id="step-2",
             edges=[
@@ -101,7 +93,6 @@ class TestChooseLinkSummary(SimpleTestCase):
         )
 
         assert summary is not None
-        assert summary.plan is not None and summary.plan.position == 2
         assert [(link.kind, link.report.id) for link in summary.other_links] == [
             (ReportLinkKind.DEPENDS_ON, "elsewhere")
         ]
@@ -114,7 +105,6 @@ class TestChooseLinkSummary(SimpleTestCase):
         assert summary is not None
         assert summary.kind == LinkStripKind.PLAN
         assert summary.report is None
-        assert summary.plan is not None and summary.plan.position is None
 
     def test_a_report_with_no_live_link_gets_no_strip(self) -> None:
         assert choose_link_summary(report_id="lonely", edges=[], references={}, plans={}) is None

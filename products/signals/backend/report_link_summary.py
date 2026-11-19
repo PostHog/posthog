@@ -5,7 +5,6 @@ pay that per row, so this module reads every link the page needs in a fixed numb
 picks, for each row, the single link its strip shows.
 """
 
-import dataclasses
 from collections.abc import Collection, Mapping, Sequence
 
 from django.db.models import TextChoices
@@ -63,10 +62,8 @@ class LinkPlanStep:
 class LinkPlanSummary:
     id: str
     title: str | None
-    status: str
     steps: tuple[LinkPlanStep, ...]
     lead_step_id: str
-    position: int | None
 
 
 @frozen
@@ -79,7 +76,6 @@ class OtherReportLink:
 class ReportLinkSummary:
     kind: LinkStripKind
     report: LinkedReportRef | None
-    also_follow_up: bool
     plan: LinkPlanSummary | None
     other_links: tuple[OtherReportLink, ...]
 
@@ -143,19 +139,15 @@ def choose_link_summary(
     kind: LinkStripKind
     report: LinkedReportRef | None = None
     plan: LinkPlanSummary | None = None
-    also_follow_up = False
     hidden: set[tuple[ReportLinkKind, str]] = set()
 
     if part_of is not None:
-        step_ids = [step.id for step in plans[part_of.target_id].steps]
         kind = LinkStripKind.PART_OF
         report = references[part_of.target_id]
-        plan = dataclasses.replace(
-            plans[part_of.target_id], position=step_ids.index(report_id) + 1 if report_id in step_ids else None
-        )
+        plan = plans[part_of.target_id]
         hidden.add((ReportLinkKind.PART_OF, part_of.target_id))
         # Dependencies between the steps of one plan are what the step buttons show.
-        hidden.update((ReportLinkKind.DEPENDS_ON, step_id) for step_id in step_ids)
+        hidden.update((ReportLinkKind.DEPENDS_ON, step.id) for step in plan.steps)
     elif report_id in plans:
         kind = LinkStripKind.PLAN
         plan = plans[report_id]
@@ -166,17 +158,12 @@ def choose_link_summary(
         kind = LinkStripKind(edge.kind.value)
         report = references[edge.target_id]
         hidden.add((edge.kind, edge.target_id))
-        folded_follow_up = (ReportLinkKind.FOLLOW_UP_OF, edge.target_id)
-        if edge.kind == ReportLinkKind.RECURRENCE_OF and any(
-            (other.kind, other.target_id) == folded_follow_up for other in live_edges
-        ):
-            also_follow_up = True
-            hidden.add(folded_follow_up)
+        if edge.kind == ReportLinkKind.RECURRENCE_OF:
+            hidden.add((ReportLinkKind.FOLLOW_UP_OF, edge.target_id))
 
     return ReportLinkSummary(
         kind=kind,
         report=report,
-        also_follow_up=also_follow_up,
         plan=plan,
         other_links=tuple(
             OtherReportLink(kind=edge.kind, report=references[edge.target_id])
@@ -234,10 +221,8 @@ def link_summaries(
         plans[plan_id] = LinkPlanSummary(
             id=plan_id,
             title=plan_reference.title,
-            status=plan_reference.status,
             steps=steps,
             lead_step_id=lead_step_id(steps),
-            position=None,
         )
 
     summaries: dict[str, ReportLinkSummary] = {}

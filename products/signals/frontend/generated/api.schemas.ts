@@ -3151,29 +3151,10 @@ export interface LinkPlanSummaryApi {
      * @nullable
      */
     title: string | null
-    /** The plan's report status. Monitoring reads as resolved when its rollout is disabled.
-     *
-     * * `potential` - Potential
-     * * `candidate` - Candidate
-     * * `in_progress` - In Progress
-     * * `pending_input` - Pending Input
-     * * `ready` - Ready
-     * * `monitoring` - Monitoring
-     * * `resolved` - Resolved
-     * * `closed` - Closed
-     * * `failed` - Failed
-     * * `deleted` - Deleted
-     * * `suppressed` - Suppressed */
-    status: SignalReportStatusEnumApi
     /** The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out. */
     steps: LinkPlanStepApi[]
     /** The step to show for the whole plan: the first step in review, else the first waiting step, else the last step. */
     lead_step_id: string
-    /**
-     * This report's place among the steps, from 1. Null when this report is the plan.
-     * @nullable
-     */
-    position: number | null
 }
 
 /**
@@ -3218,11 +3199,9 @@ export interface ReportLinkSummaryApi {
     kind: LinkStripKindEnumApi
     /** The report the link points at. For `part_of` this is the plan. Null when `kind` is `plan`. */
     report: LinkedReportRefApi | null
-    /** True when this report is also a follow-up of the same report it recurs after. */
-    also_follow_up: boolean
     /** The plan, when `kind` is `part_of` or `plan`. Null otherwise. */
     plan: LinkPlanSummaryApi | null
-    /** This report's other outgoing links to live reports, oldest first. Links inside the same plan are left out. */
+    /** This report's other outgoing links to live reports, oldest first. Links inside the same plan are left out, and so is a `follow_up_of` to the report a `recurrence_of` strip names. */
     other_links: OtherReportLinkApi[]
 }
 

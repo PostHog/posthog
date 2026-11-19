@@ -1947,10 +1947,6 @@ class LinkPlanStepSerializer(serializers.Serializer):
 class LinkPlanSummarySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="The plan's report id.")
     title = serializers.CharField(allow_null=True, help_text="The plan's report title.")
-    status = serializers.ChoiceField(
-        choices=SignalReport.Status.choices,
-        help_text="The plan's report status. Monitoring reads as resolved when its rollout is disabled.",
-    )
     steps = LinkPlanStepSerializer(
         many=True,
         help_text="The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out.",
@@ -1960,10 +1956,6 @@ class LinkPlanSummarySerializer(serializers.Serializer):
             "The step to show for the whole plan: the first step in review, else the first waiting step, else the "
             "last step."
         ),
-    )
-    position = serializers.IntegerField(
-        allow_null=True,
-        help_text="This report's place among the steps, from 1. Null when this report is the plan.",
     )
 
 
@@ -1985,15 +1977,15 @@ class ReportLinkSummarySerializer(serializers.Serializer):
         allow_null=True,
         help_text="The report the link points at. For `part_of` this is the plan. Null when `kind` is `plan`.",
     )
-    also_follow_up = serializers.BooleanField(
-        help_text="True when this report is also a follow-up of the same report it recurs after.",
-    )
     plan = LinkPlanSummarySerializer(
         allow_null=True, help_text="The plan, when `kind` is `part_of` or `plan`. Null otherwise."
     )
     other_links = OtherReportLinkSerializer(
         many=True,
-        help_text="This report's other outgoing links to live reports, oldest first. Links inside the same plan are left out.",
+        help_text=(
+            "This report's other outgoing links to live reports, oldest first. Links inside the same plan are left "
+            "out, and so is a `follow_up_of` to the report a `recurrence_of` strip names."
+        ),
     )
 
 

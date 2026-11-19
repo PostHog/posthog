@@ -69777,36 +69777,6 @@ export namespace Schemas {
       state: PlanStepStateEnum;
     }
 
-    /**
-     * * `potential` - Potential
-     * * `candidate` - Candidate
-     * * `in_progress` - In Progress
-     * * `pending_input` - Pending Input
-     * * `ready` - Ready
-     * * `monitoring` - Monitoring
-     * * `resolved` - Resolved
-     * * `closed` - Closed
-     * * `failed` - Failed
-     * * `deleted` - Deleted
-     * * `suppressed` - Suppressed
-     */
-    export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
-
-
-    export const SignalReportStatusEnum = {
-      Potential: 'potential',
-      Candidate: 'candidate',
-      InProgress: 'in_progress',
-      PendingInput: 'pending_input',
-      Ready: 'ready',
-      Monitoring: 'monitoring',
-      Resolved: 'resolved',
-      Closed: 'closed',
-      Failed: 'failed',
-      Deleted: 'deleted',
-      Suppressed: 'suppressed',
-    } as const;
-
     export interface LinkPlanSummary {
       /** The plan's report id. */
       id: string;
@@ -69815,29 +69785,10 @@ export namespace Schemas {
          * @nullable
          */
       title: string | null;
-      /** The plan's report status. Monitoring reads as resolved when its rollout is disabled.
-       *
-       * * `potential` - Potential
-       * * `candidate` - Candidate
-       * * `in_progress` - In Progress
-       * * `pending_input` - Pending Input
-       * * `ready` - Ready
-       * * `monitoring` - Monitoring
-       * * `resolved` - Resolved
-       * * `closed` - Closed
-       * * `failed` - Failed
-       * * `deleted` - Deleted
-       * * `suppressed` - Suppressed */
-      status: SignalReportStatusEnum;
       /** The reports linked to the plan with `part_of`, in the order they were linked. Deleted steps are left out. */
       steps: LinkPlanStep[];
       /** The step to show for the whole plan: the first step in review, else the first waiting step, else the last step. */
       lead_step_id: string;
-      /**
-         * This report's place among the steps, from 1. Null when this report is the plan.
-         * @nullable
-         */
-      position: number | null;
     }
 
     /**
@@ -69885,6 +69836,36 @@ export namespace Schemas {
       /** @nullable */
       last_modified_at: string | null;
     }
+
+    /**
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed
+     */
+    export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
+
+
+    export const SignalReportStatusEnum = {
+      Potential: 'potential',
+      Candidate: 'candidate',
+      InProgress: 'in_progress',
+      PendingInput: 'pending_input',
+      Ready: 'ready',
+      Monitoring: 'monitoring',
+      Resolved: 'resolved',
+      Closed: 'closed',
+      Failed: 'failed',
+      Deleted: 'deleted',
+      Suppressed: 'suppressed',
+    } as const;
 
     /**
      * * `unknown` - Unknown
@@ -84088,11 +84069,9 @@ export namespace Schemas {
       kind: LinkStripKindEnum;
       /** The report the link points at. For `part_of` this is the plan. Null when `kind` is `plan`. */
       report: LinkedReportRef | null;
-      /** True when this report is also a follow-up of the same report it recurs after. */
-      also_follow_up: boolean;
       /** The plan, when `kind` is `part_of` or `plan`. Null otherwise. */
       plan: LinkPlanSummary | null;
-      /** This report's other outgoing links to live reports, oldest first. Links inside the same plan are left out. */
+      /** This report's other outgoing links to live reports, oldest first. Links inside the same plan are left out, and so is a `follow_up_of` to the report a `recurrence_of` strip names. */
       other_links: OtherReportLink[];
     }
 

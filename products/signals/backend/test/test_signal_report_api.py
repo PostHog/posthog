@@ -994,7 +994,6 @@ class TestSignalReportListAPI(APIBaseTest):
         assert rows[str(unlinked.id)] is None
         assert rows[str(second.id)]["kind"] == "part_of"
         assert rows[str(second.id)]["other_links"] == []
-        assert rows[str(second.id)]["plan"]["position"] == 2
         assert rows[str(second.id)]["plan"]["lead_step_id"] == str(first.id)
         assert [step["state"] for step in rows[str(second.id)]["plan"]["steps"]] == ["in_review", "waiting"]
         assert rows[str(plan.id)]["kind"] == "plan"

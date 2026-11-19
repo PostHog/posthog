@@ -44,23 +44,20 @@ function linkedReport(
     }
 }
 
-const exportsPlan = (position: number | null): LinkPlanSummaryApi => ({
+const exportsPlan: LinkPlanSummaryApi = {
     id: 'plan-exports',
     title: 'Stop funnel exports timing out on large projects',
-    status: SignalReportStatus.READY,
     steps: [
         { id: 'layer-1', title: 'Move the funnel export query into a paged runner', state: 'in_review' },
         { id: 'layer-2', title: 'Stream export pages to object storage', state: 'waiting' },
         { id: 'layer-3', title: 'Show export progress in the exports list', state: 'waiting' },
     ],
     lead_step_id: 'layer-1',
-    position,
-})
+}
 
 const cohortPlan: LinkPlanSummaryApi = {
     id: 'plan-cohorts',
     title: 'Retire the legacy cohort membership table',
-    status: SignalReportStatus.READY,
     steps: [
         { id: 'cohort-1', title: 'Dual-write cohort membership', state: 'merged' },
         { id: 'cohort-2', title: 'Backfill the new membership table', state: 'merged' },
@@ -72,11 +69,10 @@ const cohortPlan: LinkPlanSummaryApi = {
         { id: 'cohort-8', title: 'Drop the legacy table', state: 'waiting' },
     ],
     lead_step_id: 'cohort-3',
-    position: 2,
 }
 
 function linkSummary(overrides: Partial<ReportLinkSummaryApi>): ReportLinkSummaryApi {
-    return { kind: 'part_of', report: null, also_follow_up: false, plan: null, other_links: [], ...overrides }
+    return { kind: 'part_of', report: null, plan: null, other_links: [], ...overrides }
 }
 
 // One card per strip kind, the Monitoring band and the strip on one card, an eight-layer plan, and a plan
@@ -91,7 +87,7 @@ const linkedReports: SignalReport[] = [
         implementation_pr_state: 'open',
         source_products: ['error_tracking', 'logs', 'session_replay'],
         updated_at: '2026-06-10T09:25:00Z',
-        link_summary: linkSummary({ kind: 'part_of', plan: exportsPlan(1) }),
+        link_summary: linkSummary({ kind: 'part_of', plan: exportsPlan }),
     }),
     makeReport({
         title: 'fix(billing): Usage emails send twice when the job retries',
@@ -109,7 +105,6 @@ const linkedReports: SignalReport[] = [
                 4690,
                 'merged'
             ),
-            also_follow_up: true,
             other_links: [
                 {
                     kind: 'depends_on',
@@ -196,7 +191,7 @@ const linkedReports: SignalReport[] = [
         priority: 'P1',
         source_products: ['error_tracking'],
         updated_at: '2026-06-10T08:00:00Z',
-        link_summary: linkSummary({ kind: 'plan', plan: exportsPlan(null) }),
+        link_summary: linkSummary({ kind: 'plan', plan: exportsPlan }),
     }),
 ]
 
