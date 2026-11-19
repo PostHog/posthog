@@ -749,6 +749,26 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
 
         assert "/segments/s%2F..%2F..%2Fapi-keys/contacts" in self.resend.calls
 
+    @parameterized.expand([("contacts_completed", False, True), ("contacts_blocked", True, False)])
+    def test_an_automation_says_its_segment_was_filled_only_when_contacts_completed(
+        self, _name: str, opt_outs_fail: bool, filled: bool
+    ) -> None:
+        if opt_outs_fail:
+            self.resend.failures["/contacts"] = [(500, {})] * 10
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "automations"], API_KEY, self.user.id)
+
+        with (
+            patch.object(resend, "import_resend_automation", wraps=resend.import_resend_automation) as automation,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for step in run.steps:
+                try:
+                    runs.run_step(self.team.id, run.id, step, attempt=1)
+                except (ImportProviderUnavailable, ImportStepBlocked):
+                    pass
+
+        assert {call.kwargs["segment_members_imported"] for call in automation.call_args_list} == {filled}
+
     def test_segments_stay_unfilled_when_the_contacts_cohort_cannot_be_imported(self) -> None:
         Cohort.objects.create(
             team_id=self.team.id, name="Resend contacts", description="Imported from Resend contacts.", deleted=True
