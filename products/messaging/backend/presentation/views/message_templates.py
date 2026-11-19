@@ -564,7 +564,8 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
                 and _flag_enabled(team, EMAIL_SCHEDULED_SENDS_FLAG)
                 and _flag_enabled(team, TRANSACTIONAL_EMAIL_API_FLAG)
             ):
-                fix = "To schedule it, send it with `template_id` on `/api/messaging/send/email/`, or leave out"
+                route = f"/api/projects/{team.id}/messaging/send/email/"
+                fix = f"To schedule it, send it with `template_id` on `{route}`, or leave out"
             else:
                 fix = "Leave out"
             raise serializers.ValidationError(

@@ -1202,7 +1202,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["type"], response.json()["attr"]) == ("validation_error", "scheduled_at")
-        assert ("/api/messaging/send/email/" in response.json()["detail"]) == (not flags_off)
+        assert (self.send_email_url in response.json()["detail"]) == (not flags_off)
         assert cdp.received == []
 
     @parameterized.expand(
