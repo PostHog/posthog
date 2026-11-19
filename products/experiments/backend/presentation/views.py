@@ -79,6 +79,7 @@ from products.experiments.backend.facade.api import (
     get_experiment_health,
     get_experiment_health_inputs,
     get_running_time_target,
+    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthReaderAccess,
@@ -154,7 +155,6 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
-    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,

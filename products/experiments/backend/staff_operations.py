@@ -37,10 +37,12 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.recalculation import (
     _derive_counters,
-    cancel_recalculation_workflow,
     get_latest_recalculation,
-    metrics_recalculation_workflow_id,
     request_recalculation_without_age_limit,
+)
+from products.experiments.backend.temporal.recalculation.dispatch import (
+    cancel_recalculation_workflow,
+    metrics_recalculation_workflow_id,
     start_metrics_recalculation_workflow,
 )
 
