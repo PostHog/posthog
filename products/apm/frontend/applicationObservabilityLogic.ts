@@ -17,6 +17,7 @@ import type {
 } from './generated/api.schemas'
 import { matchesSearch } from './healthDisplay'
 import { ServiceGraph, buildServiceGraph, layoutServiceGraph } from './serviceMap'
+import { readEnvironmentParam, readScopeParam, scopeParamValue } from './servicePage/servicePage'
 
 export const APPLICATION_OBSERVABILITY_PATH = '/application-observability'
 
@@ -58,6 +59,18 @@ export function drillDownParams(serviceName: string, timeRange: TimeRange): stri
     const serviceNames = JSON.stringify([serviceName])
     const dateRange = JSON.stringify({ date_from: timeRange, date_to: null })
     return `serviceNames=${encodeURIComponent(serviceNames)}&dateRange=${encodeURIComponent(dateRange)}`
+}
+
+export function applicationObservabilityTabUrl(
+    tab: ApplicationObservabilityTab,
+    { service, timeRange, environment }: { service: string; timeRange: TimeRange; environment: string | null }
+): string {
+    return combineUrl(APPLICATION_OBSERVABILITY_PATH, {
+        ...(environment !== null ? { environment: scopeParamValue(environment) } : {}),
+        ...(timeRange !== '-1h' ? { range: timeRange } : {}),
+        tab,
+        service: scopeParamValue(service),
+    }).url
 }
 
 // Uses the two-level `filterGroup` that the Metrics filter bar writes, so the viewer opens on this service.
@@ -509,13 +522,13 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
     }),
 
     actionToUrl(({ values }) => {
-        const toUrl = (): [string, Record<string, string>] => [
+        const toUrl = (): [string, Record<string, string | string[]>] => [
             APPLICATION_OBSERVABILITY_PATH,
             {
-                ...(values.environment !== null ? { environment: values.environment } : {}),
+                ...(values.environment !== null ? { environment: scopeParamValue(values.environment) } : {}),
                 ...(values.timeRange !== '-1h' ? { range: values.timeRange } : {}),
                 ...(values.tab !== 'services' ? { tab: values.tab } : {}),
-                ...(values.endpointsService ? { service: values.endpointsService } : {}),
+                ...(values.endpointsService ? { service: scopeParamValue(values.endpointsService) } : {}),
                 ...(values.search ? { search: encodeSearchParam(values.search) } : {}),
                 ...(values.paused ? { paused: 'true' } : {}),
             },
@@ -542,10 +555,10 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         // `requestReload`'s listeners below, so a picker-driven change and a URL-driven change
         // reload exactly once either way (see the `listeners` block).
         [APPLICATION_OBSERVABILITY_PATH]: (_, searchParams) => {
-            const environment = typeof searchParams.environment === 'string' ? searchParams.environment : null
+            const environment = readEnvironmentParam(searchParams.environment)
             const range = isTimeRange(searchParams.range) ? searchParams.range : '-1h'
             const tab = isTab(searchParams.tab) ? searchParams.tab : 'services'
-            const service = typeof searchParams.service === 'string' ? searchParams.service : null
+            const service = readScopeParam(searchParams.service)
             const search = decodeSearchParam(searchParams.search)
             if (search !== values.search) {
                 actions.setSearch(search)
