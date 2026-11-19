@@ -560,6 +560,35 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         scanner.refresh_from_db()
         self.assertFalse(scanner.enabled)
 
+    def test_enabling_a_scope_stored_scanner_by_hand_consumes_its_launch_marker(self) -> None:
+        # The marker clearing on the experiment type reads `scanner_config`. A scanner carrying its
+        # scope in `scope` is not that type, so without its own clearing the marker outlives the
+        # enable and the launch catch-up turns the scanner back on over its owner's stop.
+        draft = create_experiment(self.team, "scope-marker-flag", variants=["control", "test"])
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="scope-waiting",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            enabled=False,
+            scope={"kind": "experiment", "experiment_id": draft.id, "start_on_launch": True},
+        )
+        scanner_url = f"{self.scanners_url}{scanner.id}/"
+
+        enabled = self.client.patch(scanner_url, data={"enabled": True}, format="json")
+        self.assertEqual(enabled.status_code, 200, enabled.json())
+        scanner.refresh_from_db()
+        self.assertNotIn("start_on_launch", scanner.scope)
+
+        self.client.patch(scanner_url, data={"enabled": False}, format="json")
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{draft.id}/launch/")
+        self.assertEqual(launch.status_code, 200, launch.json())
+        start_scanners_of_launched_experiments()
+
+        scanner.refresh_from_db()
+        self.assertFalse(scanner.enabled)
+
     def test_experiment_scanner_experiment_is_fixed_after_creation(self) -> None:
         # Retargeting would mix two experiments' populations under one scanner's history and
         # readouts, so it is a new scanner, not an edit; `variants` stays editable.

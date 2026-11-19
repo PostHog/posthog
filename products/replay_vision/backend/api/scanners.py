@@ -88,6 +88,7 @@ from products.replay_vision.backend.api.trigger import (
 from products.replay_vision.backend.billing import observation_credits_for_model, projected_monthly_credits
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE
+from products.replay_vision.backend.experiment_launch import START_ON_LAUNCH_KEY
 from products.replay_vision.backend.highlight_feed import HIGHLIGHT_FEED_MIN_ITEMS
 from products.replay_vision.backend.highlight_feed_impressions import feed_impression_counts, record_feed_impressions
 from products.replay_vision.backend.impact import (
@@ -952,6 +953,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._restore_redacted_experiment_config(attrs)
         self._validate_scanner_config(attrs)
         self._validate_experiment_scanner(attrs)
+        self._clear_scope_launch_marker(attrs)
         self._drop_redacted_targeting_clear(attrs)
         scout_caller = bool(self.context.get("scout_sandbox_caller"))
         check_scout_scanner_credit_limit(
@@ -1059,6 +1061,24 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 }
             )
         attrs["scanner_config"] = {**config, "experiment_id": stored["experiment_id"]}
+
+    def _clear_scope_launch_marker(self, attrs: dict[str, Any]) -> None:
+        """Drop `start_on_launch` from a scope once its scanner is turned on by hand.
+
+        `_validate_experiment_scanner` does this for the experiment type, reading the marker out of
+        `scanner_config`. A scanner whose scope holds it is not that type, so it returns before any
+        of that, and the marker would outlive the enable: the owner turns the scanner on, turns it
+        off again, and the launch receiver reads the stale marker and overrides them.
+        """
+        if self.instance is None or not isinstance(self.instance.scope, dict):
+            return
+        if START_ON_LAUNCH_KEY not in self.instance.scope:
+            return
+        # Only an enable consumes the marker. A save that leaves the scanner off is still waiting.
+        if not (attrs.get("enabled") and not self.instance.enabled):
+            return
+        scope = attrs.get("scope") if isinstance(attrs.get("scope"), dict) else self.instance.scope
+        attrs["scope"] = {k: v for k, v in scope.items() if k != START_ON_LAUNCH_KEY}
 
     def _validate_experiment_scanner(self, attrs: dict[str, Any]) -> None:
         """The experiment-type checks that need a viewer or the experiments product, which the
