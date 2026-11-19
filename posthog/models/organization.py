@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Self, Typ
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
+from django.db.models.functions import Upper
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
@@ -178,7 +180,10 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 fields=["id"],
                 condition=Q(is_active=False),
                 name="org_inactive_id_idx",
-            )
+            ),
+            # The admin console looks teams up by any part of their organization name. Django compiles icontains
+            # to UPPER(name) LIKE UPPER(pattern) on Postgres, so the index is on UPPER(name).
+            GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="posthog_org_name_trgm"),
         ]
         constraints = [
             models.UniqueConstraint(
