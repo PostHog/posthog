@@ -58,10 +58,21 @@ const OPEN_SETTINGS_IN: ExtensionPanelState['kind'][] = [
 ]
 
 /** Sends the PostHog session cookie, like the toolbar's own entitlements request. */
+function requestWithSession(uiHost: string, path: string): Promise<Response> {
+    return safeFetch(`${uiHost}${path}`, { credentials: 'include', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+}
+
 async function fetchWithSession(uiHost: string, path: string): Promise<{ status: number; data: unknown }> {
-    return await readResponse(
-        safeFetch(`${uiHost}${path}`, { credentials: 'include', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
-    )
+    return await readResponse(requestWithSession(uiHost, path))
+}
+
+/** For a request whose answer the panel doesn't read, such as the app page that a project switch returns. */
+async function sendWithSession(uiHost: string, path: string): Promise<void> {
+    try {
+        await requestWithSession(uiHost, path)
+    } catch {
+        // The caller checks the outcome with a request of its own, so a network failure needs no handling here.
+    }
 }
 
 async function readResponse(request: Promise<Response>): Promise<{ status: number; data: unknown }> {
@@ -438,10 +449,17 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             actions.loadAuthorizedUrls({ organizationId: user.organization.id, projectId: user.team.project_id })
         },
         switchProject: async ({ teamId }) => {
+            const uiHost = values.uiHost
             // The app's project-switch path moves the session's current project, which is the project
-            // toolbar authentication uses.
-            const { status } = await fetchWithSession(values.uiHost, `/project/${teamId}`)
-            if (status >= 200 && status < 300) {
+            // toolbar authentication uses. Its answer can't tell success from failure: it returns the app's HTML
+            // page with a 200 also when it refuses the switch, and a signed-out request ends on the login page.
+            // So the session's current project, read after the switch, decides.
+            await sendWithSession(uiHost, `/project/${teamId}`)
+            const { status, data } = await fetchWithSession(uiHost, getUsersRetrieveUrl('@me'))
+            if (values.uiHost !== uiHost) {
+                return
+            }
+            if (status === 200 && (data as UserApi | null)?.team?.id === teamId) {
                 toolbarPosthogJS.capture('toolbar extension project switched')
             } else {
                 actions.setProjectSwitchFailed(true)
