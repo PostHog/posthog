@@ -17,7 +17,6 @@ export interface MemoryRead extends MemoryFile {
 export type OnMemoryRead = (read: MemoryRead) => void;
 
 const INDEX_FILE = "MEMORY.md";
-const READ_TOOLS = new Set(["Read", "Grep", "Bash"]);
 const MEMORY_FILE_PATH = /\/projects\/([^/]+)\/memory\/([^/]+\.md)$/;
 
 function claudeProjectsDir(): string {
@@ -50,12 +49,19 @@ async function listMemoryFiles(projectsDir: string): Promise<MemoryFile[]> {
 
 function namesFile(text: string, file: string): boolean {
   const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![\\w.-])${escaped}(?![\\w-])`).test(text);
+  return new RegExp(
+    `(?:(?<![\\w./-])|(?<=(?<![\\w.-])memory/))${escaped}(?![\\w-])`,
+  ).test(text);
+}
+
+function projectSlug(cwd: string): string {
+  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
 export async function findMemoryFilesNamed(
   text: string,
   projectsDir: string,
+  cwd: string,
 ): Promise<MemoryFile[]> {
   if (!text.includes(".md")) return [];
   const named = (await listMemoryFiles(projectsDir)).filter(({ file }) =>
@@ -63,10 +69,51 @@ export async function findMemoryFilesNamed(
   );
   const inPath = ({ slug, file }: MemoryFile) =>
     text.includes(`${slug}/memory/${file}`);
-  const filesWithPath = new Set(named.filter(inPath).map(({ file }) => file));
-  return named.filter(
-    (candidate) => !filesWithPath.has(candidate.file) || inPath(candidate),
-  );
+  const cwdSlug = projectSlug(cwd);
+  return named.filter((candidate) => {
+    const sameName = named.filter(({ file }) => file === candidate.file);
+    if (sameName.some(inPath)) return inPath(candidate);
+    if (sameName.length === 1) return true;
+    return candidate.slug === cwdSlug;
+  });
+}
+
+function grepResultPaths(response: unknown): string[] {
+  if (!response || typeof response !== "object") return [];
+  const { filenames, content } = response as {
+    filenames?: unknown;
+    content?: unknown;
+  };
+  const paths = Array.isArray(filenames)
+    ? filenames.filter((name): name is string => typeof name === "string")
+    : [];
+  if (typeof content === "string") {
+    for (const line of content.split("\n")) {
+      const match = /^([^:]+\.md)[:-]/.exec(line);
+      if (match) paths.push(match[1]);
+    }
+  }
+  return paths;
+}
+
+function accessedPaths(input: HookInput): string {
+  if (input.hook_event_name !== "PostToolUse") return "";
+  const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === "string" ? value : "");
+  switch (input.tool_name) {
+    case "Read":
+      return text(toolInput.file_path);
+    case "Bash":
+      return text(toolInput.command).replace(/>>?\s*\S+/g, " ");
+    case "Grep": {
+      const target = text(toolInput.path);
+      return target.includes("/memory")
+        ? [target, ...grepResultPaths(input.tool_response)].join("\n")
+        : target;
+    }
+    default:
+      return "";
+  }
 }
 
 export const createMemoryReadHook =
@@ -75,17 +122,13 @@ export const createMemoryReadHook =
     projectsDir: string = claudeProjectsDir(),
   ): HookCallback =>
   async (input: HookInput) => {
-    if (
-      input.hook_event_name !== "PostToolUse" ||
-      !READ_TOOLS.has(input.tool_name)
-    ) {
-      return { continue: true };
-    }
-    let text = JSON.stringify(input.tool_input) ?? "";
-    if (input.tool_name === "Grep" && text.includes("/memory")) {
-      text += JSON.stringify(input.tool_response) ?? "";
-    }
-    for (const memoryFile of await findMemoryFilesNamed(text, projectsDir)) {
+    if (input.hook_event_name !== "PostToolUse") return { continue: true };
+    const memoryFiles = await findMemoryFilesNamed(
+      accessedPaths(input),
+      projectsDir,
+      input.cwd,
+    );
+    for (const memoryFile of memoryFiles) {
       onMemoryRead({
         ...memoryFile,
         tool: input.tool_name,

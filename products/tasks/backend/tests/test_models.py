@@ -2334,6 +2334,7 @@ class TestTaskRun(TestCase):
 
     MEMORY_READ_ENTRY: ClassVar[dict[str, Any]] = {
         "type": "notification",
+        "timestamp": "2026-11-19T15:00:00+00:00",
         "notification": {
             "method": "_posthog/memory_read",
             "params": {
@@ -2349,7 +2350,7 @@ class TestTaskRun(TestCase):
     def _append_memory_read_twice(self, environment: str) -> list[dict[str, Any]]:
         run = TaskRun.objects.create(task=self.task, team=self.team, environment=environment)
         with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            run.append_log([self.MEMORY_READ_ENTRY, {"type": "info", "message": "unrelated"}])
+            run.append_log([self.MEMORY_READ_ENTRY, self.MEMORY_READ_ENTRY, {"type": "info", "message": "unrelated"}])
             run.append_log([self.MEMORY_READ_ENTRY])
         return [dict(c.kwargs) for c in mock_capture.call_args_list if c.kwargs.get("event") == "agent_memory_read"]
 
@@ -2357,6 +2358,9 @@ class TestTaskRun(TestCase):
         first, retry = self._append_memory_read_twice(TaskRun.Environment.CLOUD)
 
         self.assertEqual(first["uuid"], retry["uuid"])
+        self.assertEqual(first["timestamp"], datetime(2026, 11, 19, 15, tzinfo=UTC))
+        self.assertEqual(retry["timestamp"], first["timestamp"])
+        self.assertFalse(first["send_feature_flags"])
         self.assertEqual(
             {key: first["properties"][key] for key in ("slug", "file", "tool", "agent_id")},
             {"slug": "-tmp-workspace", "file": "feedback_test_runner.md", "tool": "Bash", "agent_id": "agent_1"},

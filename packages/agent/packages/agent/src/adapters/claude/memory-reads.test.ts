@@ -32,6 +32,7 @@ describe("createMemoryReadHook", () => {
     tool: string;
     input: () => unknown;
     response?: () => unknown;
+    cwd?: string;
     expected: { slug: string; file: string }[];
   }>([
     {
@@ -76,6 +77,46 @@ describe("createMemoryReadHook", () => {
       expected: [{ slug: "-tmp-other", file: "shared.md" }],
     },
     {
+      name: "a bare name shared by two projects, from the project's directory",
+      tool: "Bash",
+      input: () => ({ command: "cat memory/shared.md" }),
+      cwd: "/tmp/other",
+      expected: [{ slug: "-tmp-other", file: "shared.md" }],
+    },
+    {
+      name: "a bare name shared by two projects, from an unrelated directory",
+      tool: "Bash",
+      input: () => ({ command: "cat memory/shared.md" }),
+      expected: [],
+    },
+    {
+      name: "the same file name under another directory",
+      tool: "Read",
+      input: () => ({ file_path: "/tmp/docs/feedback_test_runner.md" }),
+      expected: [],
+    },
+    {
+      name: "Bash that only redirects output into the file",
+      tool: "Bash",
+      input: () => ({
+        command: "printf new > memory/feedback_test_runner.md",
+        description: "Update feedback_test_runner.md",
+      }),
+      expected: [],
+    },
+    {
+      name: "Grep content that mentions another memory file",
+      tool: "Grep",
+      input: () => ({
+        pattern: "runner",
+        path: memoryDir("-tmp-workspace"),
+      }),
+      response: () => ({
+        content: "MEMORY.md:1:- [Runner](feedback_test_runner.md)",
+      }),
+      expected: [],
+    },
+    {
       name: "a write tool",
       tool: "Write",
       input: () => ({
@@ -106,7 +147,7 @@ describe("createMemoryReadHook", () => {
       input: () => ({ command: "cat old_feedback_test_runner.md" }),
       expected: [],
     },
-  ])("$name", async ({ tool, input, response, expected }) => {
+  ])("$name", async ({ tool, input, response, cwd, expected }) => {
     const reads: MemoryRead[] = [];
     const hook = createMemoryReadHook((read) => reads.push(read), projectsDir);
 
@@ -114,7 +155,7 @@ describe("createMemoryReadHook", () => {
       {
         session_id: "s",
         transcript_path: "/tmp/t",
-        cwd: "/tmp",
+        cwd: cwd ?? "/tmp",
         hook_event_name: "PostToolUse",
         tool_name: tool,
         tool_input: input(),

@@ -187,10 +187,20 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
     state["pending_user_message_id"] = str(uuid.uuid4())
 
 
+def _parse_entry_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
 MAX_PENDING_FOLLOWUP_MESSAGES = 20
 MEMORY_READ_METHOD = "_posthog/memory_read"
 MAX_MEMORY_READ_FIELD_CHARS = 200
+MAX_MEMORY_READS_PER_APPEND = 50
 MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
 MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
 
@@ -3478,6 +3488,7 @@ class TaskRun(models.Model):
     def _capture_memory_reads(self, entries: list[dict]) -> None:
         if self.environment != self.Environment.CLOUD:
             return
+        reads: dict[tuple[str, str, str], tuple[dict[str, Any], datetime | None]] = {}
         for entry in entries:
             notification = entry.get("notification")
             if not isinstance(notification, dict) or notification.get("method") != MEMORY_READ_METHOD:
@@ -3494,15 +3505,21 @@ class TaskRun(models.Model):
             ):
                 continue
             agent_id = params.get("agentId")
+            properties = {
+                "slug": slug[:MAX_MEMORY_READ_FIELD_CHARS],
+                "file": file[:MAX_MEMORY_READ_FIELD_CHARS],
+                "tool": tool[:MAX_MEMORY_READ_FIELD_CHARS],
+                "agent_id": agent_id[:MAX_MEMORY_READ_FIELD_CHARS] if isinstance(agent_id, str) else None,
+            }
+            reads.setdefault((tool_call_id, slug, file), (properties, _parse_entry_timestamp(entry.get("timestamp"))))
+            if len(reads) >= MAX_MEMORY_READS_PER_APPEND:
+                break
+        for (tool_call_id, slug, file), (properties, timestamp) in reads.items():
             self.capture_event(
                 "agent_memory_read",
-                {
-                    "slug": slug[:MAX_MEMORY_READ_FIELD_CHARS],
-                    "file": file[:MAX_MEMORY_READ_FIELD_CHARS],
-                    "tool": tool[:MAX_MEMORY_READ_FIELD_CHARS],
-                    "agent_id": agent_id[:MAX_MEMORY_READ_FIELD_CHARS] if isinstance(agent_id, str) else None,
-                },
+                properties,
                 event_uuid=str(uuid.uuid5(self.id, f"{tool_call_id}:{slug}:{file}")),
+                timestamp=timestamp,
             )
 
     def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
@@ -3666,6 +3683,7 @@ class TaskRun(models.Model):
         properties: dict | None = None,
         event_uuid: str | None = None,
         distinct_id_override: str | None = None,
+        timestamp: datetime | None = None,
     ) -> bool:
         """Capture an analytics event for this run. Returns False when it never reached capture.
 
@@ -3695,10 +3713,12 @@ class TaskRun(models.Model):
                 "event": event,
                 "properties": all_properties,
                 "groups": groups(team=self.team),
-                "send_feature_flags": event != "task_run_created",
+                "send_feature_flags": event not in {"task_run_created", "agent_memory_read"},
             }
             if event_uuid:
                 capture_kwargs["uuid"] = event_uuid
+            if timestamp:
+                capture_kwargs["timestamp"] = timestamp
             posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
