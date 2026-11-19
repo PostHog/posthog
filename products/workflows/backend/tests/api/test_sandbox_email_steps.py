@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -199,12 +199,17 @@ class TestSandboxEmailSteps(APIBaseTest):
             return self.client.patch(self._url(str(flow.id)), {"status": "active"}, format="json")
         if path == "test_run_saved_workflow":
             return self.client.post(f"{self._url(str(flow.id))}/invocations", {"globals": {}}, format="json")
-        preview = self.client.post(f"{self._url(str(flow.id))}/publish", {}, format="json")
-        return self.client.post(
-            f"{self._url(str(flow.id))}/publish",
-            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
-            format="json",
-        )
+        no_runs_in_flight = MagicMock(status_code=200, json=lambda: {"count": 0})
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            return_value=no_runs_in_flight,
+        ):
+            preview = self.client.post(f"{self._url(str(flow.id))}/publish", {}, format="json")
+            return self.client.post(
+                f"{self._url(str(flow.id))}/publish",
+                {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+                format="json",
+            )
 
     @parameterized.expand(
         [
