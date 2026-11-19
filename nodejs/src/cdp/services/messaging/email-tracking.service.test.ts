@@ -666,6 +666,9 @@ describe('EmailTrackingService', () => {
                     `<body><b>${'<div>'.repeat(3_000)}${'x '.repeat(count)}<a href="https://example.com/">a</a></body>`
                 expect(sesTrack(words(1_000))).toContain('phl:0')
                 expect(() => sesTrack(words(20_000))).toThrow(EmailFormattingTooCostlyError)
+                // A table cell's marker stops the search before it reaches the stack.
+                const inCell = `<body><b><table><tr><td>${'<div>'.repeat(2_000)}${'x '.repeat(15_000)}<a href="https://example.com/">a</a></td></tr></table></body>`
+                expect(sesTrack(inCell)).toContain('phl:0')
             })
 
             it('refuses an email whose MathML annotation the parser rereads for each child', () => {

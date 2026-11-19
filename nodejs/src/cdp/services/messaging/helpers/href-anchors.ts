@@ -326,7 +326,9 @@ const limitStackScans = (parser: Parser<DefaultTreeAdapterMap>, bounds: ParseBou
         }
     }
     internals._reconstructActiveFormattingElements = () => {
-        if (parser.activeFormattingElements.entries.length === 0) {
+        // The newest entry comes first. A marker there, such as a table cell's, ends the search before it reads the stack.
+        const newest = parser.activeFormattingElements.entries[0]
+        if (!newest || !('element' in newest)) {
             return reconstruct()
         }
         const depth = parser.openElements.stackTop + 1
