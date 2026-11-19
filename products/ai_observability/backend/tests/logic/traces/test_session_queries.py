@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.models.event.util import bulk_create_events
 
+from products.ai_observability.backend.logic.traces.events_fallback import fallback_window
 from products.ai_observability.backend.logic.traces.session_queries import load_session_facts
 
 from .test_trace_selection_queries import T0, at, seed
@@ -125,20 +126,44 @@ class TestSessionQueries(ClickhouseTestMixin, BaseTest):
 
         assert self._facts("s1")["s1"].errored_turns == 2
 
-    def test_trace_naming_two_sessions_counts_for_the_earliest(self) -> None:
+    def test_trace_naming_two_sessions_counts_in_both(self) -> None:
         seed(self.team, [generation("t-two", 0, "first"), generation("t-two", 1, "second")])
 
         facts = self._facts("first", "second")
 
-        assert set(facts) == {"first"}
-        assert facts["first"].turn_count == 1
+        assert {key: value.turn_count for key, value in facts.items()} == {"first": 1, "second": 1}
 
-    def test_missing_session_without_hint_is_absent(self) -> None:
+    def test_duration_covers_an_untimed_trace_after_a_timed_one(self) -> None:
+        seed(self.team, [root("t-timed", 0, "s1", latency=5), generation("t-untimed", 10, "s1")])
+
+        assert self._facts("s1")["s1"].duration_ms == 600_000
+
+    def test_support_traces_count_only_when_included(self) -> None:
+        seed(
+            self.team,
+            [
+                generation("t-normal", 0, "s1"),
+                generation("t-support", 1, "s1", props={"ai_support_impersonated": "true"}),
+            ],
+        )
+
+        assert self._facts("s1")["s1"].turn_count == 1
+        assert self._facts("s1", include_support_traces=True)["s1"].turn_count == 2
+
+    def test_last_seen_includes_feedback_events(self) -> None:
+        seed(self.team, [generation("t-1", 0, "s1"), event("$ai_feedback", "t-1", 7)])
+
+        facts = self._facts("s1")["s1"]
+
+        assert facts.last_seen == at(7)
+        assert facts.first_seen == at(0)
+
+    def test_missing_session_without_fallback_window_is_absent(self) -> None:
         self._seed_events_only([generation("t-old", 0, "s-old")])
 
         assert self._facts("s-old", "s-unknown") == {}
 
-    def test_old_session_read_from_events_with_hint(self) -> None:
+    def test_old_session_read_from_events_in_fallback_window(self) -> None:
         self._seed_events_only(
             [
                 root("t-old", 0, latency=4),
@@ -147,7 +172,7 @@ class TestSessionQueries(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        facts = self._facts("s-old", hint=at(0))["s-old"]
+        facts = self._facts("s-old", fallback=fallback_window(at(0)))["s-old"]
 
         assert facts.turn_count == 1
         assert facts.wait_ms == 4000

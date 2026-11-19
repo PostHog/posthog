@@ -6,7 +6,7 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -15,7 +15,7 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_column_rewriter import EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES
 from posthog.models import Team, User
 
-from .events_fallback import AI_EVENTS_RETENTION_DAYS, FallbackWindow, events_filter, fallback_window
+from .events_fallback import AI_EVENTS_RETENTION_DAYS, FallbackWindow, events_filter
 from .trace_expressions import (
     AI_EVENTS_COLUMNS,
     BILLED_EVENT_NAMES,
@@ -27,10 +27,11 @@ from .trace_expressions import (
     trace_errored,
     trace_latency,
 )
-from .trace_queries import read_ai_events_table
+from .trace_queries import FEEDBACK_EVENT_NAMES, read_ai_events_table
 
 SESSION_FACTS_QUERY_NAME = "ai_session_facts"
 _SESSION_FACTS_QUERY_SECONDS = 30
+_ACTIVITY_EVENT_NAMES = (*TRACE_EVENT_NAMES, *FEEDBACK_EVENT_NAMES)
 _TRACE_COLUMN_NAMES = tuple(field.name for field in fields(TraceColumns))
 _TOKEN_PROPERTIES = {
     "input_tokens": ("input_tokens", "$ai_input_tokens"),
@@ -90,8 +91,16 @@ def _names(names: Sequence[str]) -> ast.Tuple:
     return ast.Tuple(exprs=[ast.Constant(value=name) for name in names])
 
 
-def _trace_events(layout: _Layout) -> ast.Expr:
-    return ast.CompareOperation(op=ast.CompareOperationOp.In, left=layout.source.event, right=_names(TRACE_EVENT_NAMES))
+def _activity_events(layout: _Layout, include_support_traces: bool) -> ast.Expr:
+    in_names = ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=layout.source.event, right=_names(_ACTIVITY_EVENT_NAMES)
+    )
+    if include_support_traces:
+        return in_names
+    not_support = parse_expr(
+        "isNull(properties.ai_support_impersonated) OR properties.ai_support_impersonated != 'true'"
+    )
+    return ast.And(exprs=[in_names, not_support])
 
 
 def _since(layout: _Layout, moment: datetime) -> ast.Expr:
@@ -134,8 +143,12 @@ def _per_trace(deduped: ast.SelectQuery, session_ids: Sequence[str]) -> ast.Sele
         """
         SELECT
             trace_id,
-            argMinIf(session_id, timestamp, isNotNull(session_id) AND session_id != '') AS trace_session,
-            min(timestamp) AS trace_start,
+            arrayJoin(
+                arrayIntersect(
+                    groupUniqArrayIf(session_id, isNotNull(session_id) AND session_id != ''), {session_ids}
+                )
+            ) AS trace_session,
+            minIf(timestamp, {is_trace_event}) AS trace_start,
             max(timestamp) AS trace_end,
             {latency} AS trace_latency_s,
             {errored} AS trace_has_error,
@@ -144,16 +157,19 @@ def _per_trace(deduped: ast.SelectQuery, session_ids: Sequence[str]) -> ast.Sele
             sumIf(output_tokens, {billed}) AS trace_output_tokens,
             sumIf(cache_read_tokens, {billed}) AS trace_cache_read_tokens,
             sumIf(cache_write_tokens, {billed}) AS trace_cache_write_tokens,
-            argMin(distinct_id, timestamp) AS trace_distinct_id
+            argMinIf(distinct_id, timestamp, {is_trace_event}) AS trace_distinct_id
         FROM {deduped}
         GROUP BY trace_id
-        HAVING trace_session IN {session_ids}
+        HAVING countIf({is_trace_event}) > 0
         """,
         placeholders={
             "latency": trace_latency(_DEDUPED, grouped),
             "errored": trace_errored(_DEDUPED, grouped),
             "cost": trace_cost(_DEDUPED, grouped),
             "billed": billed,
+            "is_trace_event": ast.CompareOperation(
+                op=ast.CompareOperationOp.In, left=_DEDUPED.event, right=_names(TRACE_EVENT_NAMES)
+            ),
             "deduped": deduped,
             "session_ids": ast.Constant(value=list(session_ids)),
         },
@@ -163,19 +179,19 @@ def _per_trace(deduped: ast.SelectQuery, session_ids: Sequence[str]) -> ast.Sele
 
 
 def _facts_query(layout: _Layout, where: ast.Expr, session_ids: Sequence[str]) -> ast.SelectQuery:
-    # The earliest trace's latency may end after the last event, so the session runs to the latest trace's end.
+    # A trace's latency may end after its last event, so the session runs to the latest end of either.
     query = parse_select(
         """
         SELECT
             trace_session AS session_id,
             min(trace_start) AS first_seen,
             max(trace_end) AS last_seen,
-            if(
-                countIf(isNotNull(trace_latency_s)) = 0,
-                NULL,
-                maxIf(toUnixTimestamp64Milli(trace_start) + trace_latency_s * 1000, isNotNull(trace_latency_s))
-                    - toUnixTimestamp64Milli(min(trace_start))
-            ) AS duration_ms,
+            max(
+                greatest(
+                    toFloat(toUnixTimestamp64Milli(trace_end)),
+                    toUnixTimestamp64Milli(trace_start) + ifNull(trace_latency_s, 0) * 1000
+                )
+            ) - toUnixTimestamp64Milli(min(trace_start)) AS duration_ms,
             count() AS turn_count,
             sum(trace_cost_usd) AS cost_usd,
             sum(trace_input_tokens) AS input_tokens,
@@ -195,22 +211,24 @@ def _facts_query(layout: _Layout, where: ast.Expr, session_ids: Sequence[str]) -
     return query
 
 
-def _ai_events_query(session_ids: Sequence[str], now: datetime) -> ast.SelectQuery:
+def _ai_events_query(session_ids: Sequence[str], now: datetime, include_support_traces: bool) -> ast.SelectQuery:
     layout = _AI_EVENTS_LAYOUT
     within_retention = ast.And(
-        exprs=[_trace_events(layout), _since(layout, now - timedelta(days=AI_EVENTS_RETENTION_DAYS))]
+        exprs=[
+            _activity_events(layout, include_support_traces),
+            _since(layout, now - timedelta(days=AI_EVENTS_RETENTION_DAYS)),
+        ]
     )
     where = ast.And(exprs=[within_retention, _traces_of_sessions(layout, session_ids, within_retention)])
     return _facts_query(layout, where, session_ids)
 
 
-def _events_query(session_ids: Sequence[str], window: FallbackWindow) -> ast.SelectQuery:
+def _events_query(session_ids: Sequence[str], window: FallbackWindow, include_support_traces: bool) -> ast.SelectQuery:
     layout = _EVENTS_LAYOUT
-    in_window = events_filter(trace_filter=ast.Constant(value=True), event_filter=_trace_events(layout), window=window)
+    activity = _activity_events(layout, include_support_traces)
+    in_window = events_filter(trace_filter=ast.Constant(value=True), event_filter=activity, window=window)
     where = events_filter(
-        trace_filter=_traces_of_sessions(layout, session_ids, in_window),
-        event_filter=_trace_events(layout),
-        window=window,
+        trace_filter=_traces_of_sessions(layout, session_ids, in_window), event_filter=activity, window=window
     )
     return _facts_query(layout, where, session_ids)
 
@@ -266,7 +284,7 @@ def _facts(row: Sequence[Any]) -> SessionFacts:
         session_id=session_id,
         first_seen=first_seen,
         last_seen=last_seen,
-        duration_ms=(last_seen - first_seen) / timedelta(milliseconds=1) if duration_ms is None else float(duration_ms),
+        duration_ms=float(duration_ms),
         turn_count=int(turn_count),
         cost_usd=_number(cost_usd),
         input_tokens=_count(input_tokens),
@@ -282,17 +300,26 @@ def _facts(row: Sequence[Any]) -> SessionFacts:
 
 
 def load_session_facts(
-    team: Team, user: User | None, session_ids: Sequence[str], *, hint: datetime | None = None
+    team: Team,
+    user: User | None,
+    session_ids: Sequence[str],
+    *,
+    fallback: FallbackWindow | None = None,
+    include_support_traces: bool = False,
 ) -> dict[str, SessionFacts]:
     wanted = list(dict.fromkeys(session_ids))
     if not wanted:
         return {}
     ai_rows = read_ai_events_table(
-        SESSION_FACTS_QUERY_NAME, _ai_events_query(wanted, datetime.now(UTC)), team, user, _settings()
+        SESSION_FACTS_QUERY_NAME,
+        _ai_events_query(wanted, datetime.now(UTC), include_support_traces),
+        team,
+        user,
+        _settings(),
     )
     found = {facts.session_id: facts for facts in map(_facts, ai_rows)}
     missing = [session_id for session_id in wanted if session_id not in found]
-    if missing and hint is not None:
-        events_rows = _read_events(team, user, _events_query(missing, fallback_window(hint)))
+    if missing and fallback is not None:
+        events_rows = _read_events(team, user, _events_query(missing, fallback, include_support_traces))
         found.update({facts.session_id: facts for facts in map(_facts, events_rows)})
     return found
