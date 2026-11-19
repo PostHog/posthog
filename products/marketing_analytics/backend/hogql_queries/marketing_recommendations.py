@@ -136,6 +136,7 @@ REVIEW_MIN_SPEND_SHARE = 0.05
 # A brand search is worth a pause test once it takes this share of the account's search term spend. A share, unlike
 # a CPA, also works for an account that only bids on its brand.
 BRAND_OVERLAP_MIN_SPEND_SHARE = 0.0025
+MINOR_IMPACT_SHARE = 0.01
 # From this many non-brand conversions a campaign's own CPA is stable enough to judge its search terms by.
 MIN_CAMPAIGN_BENCHMARK_CONVERSIONS = 15
 # Below this many Google Ads sessions, a missing utm_term can be a few visits from links shared without it.
@@ -452,6 +453,7 @@ class _Recommender:
         self.search_cost = sum(
             campaign.cost for campaign in self.campaigns.values() if campaign.channel_type == "SEARCH"
         )
+        self.monthly_spend = sum(campaign.cost for campaign in self.campaigns.values()) * self.per_month
         self.organic = _merge_organic(inputs.organic_queries)
         self.term_cost_by_campaign: dict[str, float] = defaultdict(float)
         for row in inputs.search_terms:
@@ -1685,6 +1687,7 @@ class _Recommender:
             impact=round(impact) if impact is not None else None,
             impactDirection=direction,
             impactType=impact_type,
+            minor=impact is not None and impact < MINOR_IMPACT_SHARE * self.monthly_spend,
             currency=self.inputs.currency,
             steps=list(steps),
             cpa=cpa,
