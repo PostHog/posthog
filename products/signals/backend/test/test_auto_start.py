@@ -86,6 +86,7 @@ from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRu
 from products.signals.backend.signal_metadata import ReportSignalMeta, SignalSourceReference
 from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
+from products.signals.backend.temporal.agentic.report import ArtefactDraft, _append_agentic_report_artefacts
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.signals.backend.trial.funding import TrialFunding
 from products.skills.backend.models.skills import LLMSkill
@@ -560,7 +561,7 @@ def test_resolve_triggering_user_runs_as_self(organization, team, autostart_prio
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("actor_kind", ["system", "task", "user", "agent"])
+@pytest.mark.parametrize("actor_kind", ["system", "pipeline_task", "task", "user", "agent"])
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
 def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
     organization: Organization, team: Team, actor_kind: str
@@ -577,16 +578,17 @@ def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
     )
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
-    task = Task.objects.create(team=team, title="Example task") if actor_kind == "task" else None
-    SignalReportArtefact.objects.create(
-        team=team,
-        report=report,
-        type="suggested_reviewers",
-        content=json.dumps([{"github_login": "example-reviewer"}]),
-        actor_kind=actor_kind,
-        task=task,
-        actor_agent="Example agent" if actor_kind == "agent" else None,
-    )
+    task = Task.objects.create(team=team, title="Example task") if actor_kind in {"task", "pipeline_task"} else None
+    if actor_kind != "pipeline_task":
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type="suggested_reviewers",
+            content=json.dumps([{"github_login": "example-reviewer"}]),
+            actor_kind=actor_kind,
+            task=task,
+            actor_agent="Example agent" if actor_kind == "agent" else None,
+        )
 
     def create_task(*, title: str, description: str, user_id: int, **kwargs: object) -> SimpleNamespace:
         implementation = Task.objects.create(team=team, title=title, description=description, created_by_id=user_id)
@@ -601,6 +603,18 @@ def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
         ),
         patch.object(tasks_facade, "create_and_run_task", side_effect=create_task),
     ):
+        if actor_kind == "pipeline_task":
+            assert task is not None
+            _append_agentic_report_artefacts(
+                team_id=team.id,
+                report_id=str(report.id),
+                artefacts=[
+                    ArtefactDraft(
+                        content=SuggestedReviewers.model_validate([{"github_login": "example-reviewer"}]),
+                        attribution=ArtefactAttribution.from_task(str(task.id)),
+                    )
+                ],
+            )
         async_to_sync(maybe_autostart_implementation_task)(
             team_id=team.id,
             report_id=str(report.id),
@@ -618,7 +632,7 @@ def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
 
     assert list(
         Task.objects.filter(team=team).exclude(id__in=[task.id] if task else []).values_list("created_by_id", flat=True)
-    ) == ([reviewer.id] if actor_kind == "system" else [])
+    ) == ([reviewer.id] if actor_kind in {"system", "pipeline_task"} else [])
 
 
 @pytest.mark.parametrize(

@@ -1870,6 +1870,7 @@ class SignalReportArtefact(UUIDModel):
         reevaluate_autostart: bool = True,
         reviewer_proposal: ReviewerProposal | None = None,
         reviewer_edit: ReviewerEdit | None = None,
+        claim_attribution: ArtefactAttribution | None = None,
     ) -> "SignalReportArtefact":
         """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
@@ -1902,7 +1903,7 @@ class SignalReportArtefact(UUIDModel):
                     if (
                         claim is None
                         or str(claim.claim_id) != claim_id
-                        or not actor_works_under_claim(claim, attribution)
+                        or not actor_works_under_claim(claim, claim_attribution or attribution)
                     ):
                         raise ArtefactContentValidationError("Claim is stale or belongs to another actor.")
                 update = rules.prepare(content, attribution=attribution, proposal=reviewer_proposal, edit=reviewer_edit)

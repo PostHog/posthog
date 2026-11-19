@@ -112,7 +112,7 @@ def create_custom_agent_ready_report(
                 team_id=team_id,
                 report_id=report_id,
                 content=reviewers,
-                attribution=attribution,
+                attribution=ArtefactAttribution.system(task_id=task_id),
                 reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="custom_agent"),
                 reevaluate_autostart=False,
             )

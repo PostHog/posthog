@@ -76,11 +76,13 @@ class TestCustomAgentLogArtefacts(BaseTest):
     def test_registered_reviewers_use_shared_writer(self, _writer) -> None:
         member = User.objects.create(email="agent-reviewer@example.com")
         OrganizationMembership.objects.create(user=member, organization=self.organization)
+        task = self._task()
         result = create_custom_agent_ready_report(
             team_id=self.team.id,
             final_report=self._final_report(),
             repo_selection=RepoSelectionResult(repository=None, reason="No repository"),
             agent_identifier=("billing", "anomaly_scan"),
+            task_id=str(task.id),
             registered_artefacts=[
                 SuggestedReviewers(
                     root=[
@@ -104,6 +106,9 @@ class TestCustomAgentLogArtefacts(BaseTest):
             self.user.id,
         }
         assert SignalReportArtefact.objects.filter(report_id=result.report_id, type="reviewer_corrections").count() == 1
+        artefact = SignalReportArtefact.objects.get(report_id=result.report_id, type="suggested_reviewers")
+        assert artefact.actor_kind == "system"
+        assert artefact.task_id == task.id
 
     def test_register_artefact_queues_any_content_model(self):
         agent = self._agent()

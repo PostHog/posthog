@@ -1117,8 +1117,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
 
-    @parameterized.expand([("put",), ("post",)])
-    def test_reviewers_ignore_task_header_and_attribute_to_requesting_user(self, method: str) -> None:
+    @parameterized.expand([("put", False), ("post", False), ("post", True)])
+    def test_reviewers_ignore_task_header_and_attribute_to_requesting_user(self, method: str, task_claim: bool) -> None:
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
         task = Task.objects.create(
@@ -1127,10 +1127,20 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             description="desc",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
+        payload: dict[str, object] = {"artefact_type": "suggested_reviewers", "content": [{"github_login": "bob"}]}
+        if task_claim:
+            claimed = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/claim/",
+                {},
+                format="json",
+                headers={"X-PostHog-Task-Id": str(task.id)},
+            )
+            assert claimed.status_code == status.HTTP_200_OK, claimed.json()
+            payload["claim_id"] = claimed.json()["assignee"]["claim_id"]
 
         response = getattr(self.client, method)(
             self._detail_url(str(report.id), str(artefact.id)) if method == "put" else self._list_url(str(report.id)),
-            data=json.dumps({"artefact_type": "suggested_reviewers", "content": [{"github_login": "bob"}]}),
+            data=json.dumps(payload),
             content_type="application/json",
             headers={"X-PostHog-Task-Id": str(task.id)},
         )
@@ -1146,6 +1156,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert latest is not None
         assert latest.created_by_id == self.user.id
         assert latest.task_id is None
+        if task_claim:
+            assert str(latest.claim_id) == payload["claim_id"]
 
     def test_put_response_is_enriched_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="alice")

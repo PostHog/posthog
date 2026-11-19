@@ -473,6 +473,8 @@ Reviewer changes through the artefact API retain the authenticated user, includi
 Automatic implementation triggered by such a change runs as that user and respects their autonomy threshold.
 If that user is ineligible, it does not fall back to a named reviewer or another project member.
 Automatic execution pauses when a non-system reviewer row has no authenticated user, including older task-attributed rows and rows whose user was deleted.
+Internal research and custom-agent workers record system provenance for reviewer rows and retain the originating task link.
+Task-owned work claims still validate task identity independently of the user who can trigger execution.
 
 Automatic callers read `reviewer_assignment.state` from the report detail response before selection.
 This is the only API response that includes correction state.

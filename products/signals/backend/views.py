@@ -7653,6 +7653,7 @@ class SignalReportArtefactViewSet(
                         if attribution.kind == "user" and reviewer_outcome == "selected"
                         else None,
                         claim_id=str(claim_id) if claim_id else None,
+                        claim_attribution=resolve_request_attribution(request, self.team.id) if claim_id else None,
                     )
                     if artefact.id != previous:
                         self._schedule_suggested_reviewer_telemetry(

@@ -90,7 +90,7 @@ class TestSignalReportArtefactHelpers(BaseTest):
             ("task_missing_id", {"kind": "task"}),
             ("task_with_user", {"kind": "task", "task_id": "t", "user_id": 1}),
             ("system_with_user", {"kind": "system", "user_id": 1}),
-            ("system_with_task", {"kind": "system", "task_id": "t"}),
+            ("system_with_agent", {"kind": "system", "agent_name": "Example agent"}),
         ]
     )
     def test_attribution_rejects_mismatched_fields(self, _name, kwargs):

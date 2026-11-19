@@ -783,7 +783,7 @@ def _append_agentic_report_artefacts(
                         team_id=team_id,
                         report_id=report_id,
                         content=draft.content,
-                        attribution=draft.attribution,
+                        attribution=ArtefactAttribution.system(task_id=draft.attribution.task_id),
                         reviewer_proposal=reviewer_proposal
                         or ReviewerProposal(expected_state=service.read().state, source="research"),
                         reevaluate_autostart=False,
