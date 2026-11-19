@@ -1387,6 +1387,7 @@ const TRUSTED_PRODUCT_CASCADE_PHASE = 2
 
 const PRODUCT_FRONTEND_FILE = /^products\/[^/]+\/frontend\//
 const PRODUCT_FACADE_FILE = /^products\/[^/]+\/backend\/facade\//
+const IMPORT_REACHED_CONTRACT_INPUT = /^backend\/(facade|presentation)\//
 const PRODUCT_MODEL_OR_MIGRATION_FILE = /^products\/[^/]+\/.*\b(models|migrations)(\/|\.py$)/
 
 // Python test code and syrupy snapshots. Any other file under a test directory is a fixture,
@@ -1411,11 +1412,14 @@ function isProductTestFile(file) {
 // what the selector is trusted to see past them.
 //   1  every changed product file is Python test code, a snapshot, or a facade file, which core
 //      reaches only by import
-//   2  an isolated product's contract cascade
+//   2  an isolated product's contract cascade, while every contract input it changed sits in
+//      facade/ or presentation/. The other inputs (apps.py, models, migrations, routes,
+//      receivers, tasks loaded by name) are declared because core reaches them without an
+//      import, so a cascade through one of them stays unclassified.
 //   3  a non-isolated product change, while it touches no models or migrations
 // A changed file outside products/ that the backend can read leaves the cascade unclassified,
 // because the cascade logic cannot say what it reaches. Markdown and frontend code cannot.
-function productCascadePhase(runLegacyReason, changedFiles) {
+function productCascadePhase(runLegacyReason, changedFiles, repoRoot = process.cwd()) {
     if (!PRODUCT_CASCADE_REASONS.has(runLegacyReason) || !Array.isArray(changedFiles)) {
         return null
     }
@@ -1433,9 +1437,25 @@ function productCascadePhase(runLegacyReason, changedFiles) {
         return 1
     }
     if (runLegacyReason === 'contract_cascade') {
-        return 2
+        return productFiles.some((file) => isContractInputReachedWithoutImport(file, repoRoot)) ? null : 2
     }
     return productFiles.some((file) => PRODUCT_MODEL_OR_MIGRATION_FILE.test(file)) ? null : 3
+}
+
+function isContractInputReachedWithoutImport(file, repoRoot) {
+    if (isProductTestFile(file)) {
+        return false
+    }
+    const product = productOfFile(file)
+    const relativePath = file.slice(`${PRODUCTS_DIR}${product}/`.length)
+    if (IMPORT_REACHED_CONTRACT_INPUT.test(relativePath)) {
+        return false
+    }
+    if (relativePath === 'turbo.json' || relativePath === 'package.json') {
+        return true
+    }
+    const matcher = loadContractSurfaces(repoRoot, [product]).get(product)
+    return !matcher || matcher(relativePath)
 }
 
 // A product cascade in a trusted phase changed nothing core reaches past an import, so the
