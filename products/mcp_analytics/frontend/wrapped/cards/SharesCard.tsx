@@ -52,12 +52,12 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
                         className="MCPWrapped__rise grid grid-cols-[1.75rem_1fr_auto] items-center gap-x-2 gap-y-1.5 text-sm tabular-nums"
                         style={{ animationDelay: `${index * 80}ms` }}
                     >
-                        <span className="flex size-7 items-center justify-center rounded-full bg-white text-black">
+                        <span className="row-span-2 flex size-7 items-center justify-center self-center rounded-full bg-white text-black">
                             <Logo cardKey={cardKey} name={share.name} className="size-4" />
                         </span>
                         <span className="truncate">{share.name}</span>
                         <span>{formatPercent(share.share)}</span>
-                        <span className="col-span-2 col-start-2 h-3 overflow-hidden rounded-full bg-white/20">
+                        <span className="col-span-2 col-start-2 row-start-2 h-3 overflow-hidden rounded-full bg-white/20">
                             <span
                                 className={cn(
                                     'MCPWrapped__grow-x block h-full rounded-full',
