@@ -34,7 +34,7 @@ Start from what the conversation already found: the docs you read, the checks a 
 Then look up only what the ticket still needs:
 
 - **Project.** The name and ID from `posthog:project-get`, and a link to the project's home page from `posthog:generate-app-url`. The link's host gives the region: `us.posthog.com` is US Cloud, and `eu.posthog.com` is EU Cloud. If it is neither, write the host you found. The region goes on its own line.
-- **Links.** A link to every object the ticket names, such as an insight or funnel, a dashboard, a flag, an experiment, a survey, a cohort, an error issue or a replay. Write it as a Markdown link on the object's name, then its ID, such as `Funnel: [Signup to upload](<link>) (ID abc123)`. Support sees the name as a link, so a long URL doesn't stretch the ticket. Take the link from the `_posthogUrl` field of a tool result or from `posthog:generate-app-url`. Never build a PostHog URL by hand, because a wrong link reads as a real one. When the object isn't saved, such as a funnel you built only to check, write that it isn't saved and give its settings instead. Copy a docs URL from `posthog:docs-search` as it is, and link it the same way, on the page title.
+- **Links.** A link to every object the ticket names, such as an insight or funnel, a dashboard, a flag, an experiment, a survey, a cohort, an error issue or a replay. Write it as a Markdown link on the object's name, such as `Funnel: [Signup to upload](<link>)`. Support sees the name as a link, and the URL carries the ID. Give an ID as plain text only for something with no page to link to, such as a distinct ID or a session ID. Take the link from the `_posthogUrl` field of a tool result or from `posthog:generate-app-url`. Never build a PostHog URL by hand, because a wrong link reads as a real one. When the object isn't saved, such as a funnel you built only to check, write that it isn't saved and give its settings instead. Copy a docs URL from `posthog:docs-search` as it is, and link it the same way, on the page title.
 - **SDK.** When the problem is in their app, the `$lib` and `$lib_version` of a recent event they sent.
 - **Numbers.** What they see and what they expected, with the time range in UTC.
 - **Error.** The exact text, and where it shows: a page, an API endpoint or an SDK call.
@@ -67,9 +67,9 @@ Request:
 ---
 
 Details:
-- Project: [<name>](<link>) (ID <id>)
+- Project: [<name>](<link>)
 - Region: <US Cloud, EU Cloud, or the host>
-- <Type>: [<name>](<link to the object>) (ID <id>)
+- <Type>: [<name>](<link to the object>)
 - <a setting that matters, the SDK, or a number>
 
 ---

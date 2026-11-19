@@ -10,7 +10,7 @@ Support usually cannot do that, so the ticket still asks to delete the events, w
 ## What the ticket must include
 
 **Region and project ID.**
-Take both from the project lookup in the skill.
+Take both from the project lookup in the skill: the project link carries the ID, and the Region line gives the region.
 IDs repeat across regions, so always give both.
 A query covers one project, so give a query and a count for each project.
 
@@ -59,7 +59,7 @@ Our staging build sent test checkout events to our live project in the first wee
 ---
 
 Details:
-- Project: [Web app](https://us.posthog.com/project/12345) (ID 12345)
+- Project: [Web app](https://us.posthog.com/project/12345)
 - Region: US Cloud
 - Events: `checkout_started` and `checkout_completed` from the host `staging.example.com`
 - Query, which returned 3,817 events:

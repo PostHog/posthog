@@ -76,9 +76,8 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
         help_text=(
             "Markdown bullets of facts support needs: the project and the region, a link to each object involved, "
             "SDK and version, and every required detail for the kind of request, such as a deletion query and its "
-            "count. Link each object on its name, then give its ID, such as "
-            "'- Experiment: [Checkout test](<link>) (ID 3)', and put the region on its own line. Take links from "
-            "_posthogUrl. No guesses."
+            "count. Link each object on its name, such as '- Experiment: [Checkout test](<link>)', and put the "
+            "region on its own line. Take links from _posthogUrl. No guesses."
         ),
     )
     already_checked = serializers.CharField(
