@@ -47,8 +47,6 @@ describe('PersonMergeService store-owned merges', () => {
         properties: { plan: 'merged' },
         created_at: timestamp,
         version: 5,
-        properties_last_updated_at: {},
-        properties_last_operation: {},
         is_user_id: null,
         is_identified: true,
         last_seen_at: null,
