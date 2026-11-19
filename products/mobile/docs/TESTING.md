@@ -353,6 +353,9 @@ The flow:
 8. goes Home and taps **Exit demo** in Settings.
 
 It starts and ends on the sign-in screen with demo mode off, so you can run it again right away.
+
+To check replay, tap **Try the demo**, then open **Views → Sessions**. Play a sample in **Moment** and **Full recording**.
+Open the Sources button, choose **Errors**, and tap **Play all**. These recordings play from bundled fixture snapshots.
 Actions use the app's `testID`s, except the hand-off sheet drag, which starts on its "Choose an agent" header.
 
 ### Set up once

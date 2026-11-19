@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import { useAuthStore } from '@/auth/authStore'
+import { useDataMode } from '@/demo/demoMode'
 
 import { hostKind } from './environment'
 
@@ -57,8 +58,10 @@ export function useFeatureFlag(key: FeatureFlagKey): boolean {
 }
 
 export function useMobileProductFlags(): { errors: boolean; replay: boolean } {
+    const replay = useFeatureFlag(FEATURE_FLAGS.sessionReplay)
+    const mode = useDataMode()
     return {
         errors: useFeatureFlag(FEATURE_FLAGS.errorTracking),
-        replay: useFeatureFlag(FEATURE_FLAGS.sessionReplay),
+        replay: replay || mode === 'demo',
     }
 }

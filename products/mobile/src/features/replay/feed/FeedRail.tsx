@@ -17,8 +17,8 @@ interface FeedRailProps {
     /** A hold fades every button but Speed, which shows the hold's rate. */
     speedOnly: boolean
     onSpeed: () => void
-    onChat: () => void
-    onShare: () => void
+    onChat?: () => void
+    onShare?: () => void
 }
 
 export function speedLabel(speed: number): string {
@@ -46,8 +46,8 @@ export function FeedRail({ speed, speedOn, speedOnly, onSpeed, onChat, onShare }
                 </Text>
             </RailButton>
             <Animated.View style={[styles.rail, others]} pointerEvents="box-none">
-                <RailButton label="Chat" Icon={ChatBubbleIcon} onPress={onChat} testID="feed-chat" />
-                <RailButton label="Share" Icon={ShareIcon} onPress={onShare} testID="feed-share" />
+                {onChat ? <RailButton label="Chat" Icon={ChatBubbleIcon} onPress={onChat} testID="feed-chat" /> : null}
+                {onShare ? <RailButton label="Share" Icon={ShareIcon} onPress={onShare} testID="feed-share" /> : null}
             </Animated.View>
         </View>
     )

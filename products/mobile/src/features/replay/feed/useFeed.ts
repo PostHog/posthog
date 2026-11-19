@@ -13,6 +13,8 @@ import { listRecentReplayVideoExports, type ReplayVideoExport } from '@/api/repl
 import { fetchSessionObservations } from '@/api/replayVision'
 import { type ProjectScope, retryUnlessMissing, scopeKey } from '@/api/reports'
 import { sessionGeneration } from '@/auth/tokens'
+import { useDemoMode } from '@/demo/demoMode'
+import { demoReplayItems, demoReplaySignals, demoReplayTimeline } from '@/demo/replays'
 import { reportScopeError } from '@/features/views/useViewsAccess'
 import { toError } from '@/lib/errors'
 
@@ -60,7 +62,9 @@ function keepsOngoing(source: FeedSource): boolean {
 const EMPTY_PAGE_LIMIT = 5
 
 export function useFeed(source: FeedSource): Feed {
-    const { scope, ready } = useReplayContext()
+    const { mode, scope, ready } = useReplayContext()
+    const demo = mode === 'demo'
+    const demoAnchor = useDemoMode((state) => (demo ? state.anchor : 0))
     const queryClient = useQueryClient()
     const hidden = useFeedSettings((state) => state.hidden)
     const generation = sessionGeneration()
@@ -103,6 +107,9 @@ export function useFeed(source: FeedSource): Feed {
     const exportsKnown = !VIDEO_PLAYER || exports.isSuccess || exports.isError
     // biome-ignore lint/correctness/useExhaustiveDependencies: observation pages change when their version does.
     const allItems = useMemo((): FeedItem[] | undefined => {
+        if (demo) {
+            return demoReplayItems(source, demoAnchor)
+        }
         if (!recordings.data || !exportsKnown) {
             return undefined
         }
@@ -149,7 +156,7 @@ export function useFeed(source: FeedSource): Feed {
             }
         })
         return result
-    }, [recordings.data, exportsKnown, exports.data, source, observationsVersion])
+    }, [demo, demoAnchor, recordings.data, exportsKnown, exports.data, source, observationsVersion])
 
     const items = useMemo(() => {
         const hiddenIds = new Set(hidden)
@@ -164,6 +171,9 @@ export function useFeed(source: FeedSource): Feed {
     const { refetch: refetchRecordings } = recordings
     const { refetch: refetchExports } = exports
     const refresh = useCallback(async (): Promise<void> => {
+        if (!ready) {
+            return
+        }
         setRefreshing(true)
         try {
             await queryClient.cancelQueries({ queryKey: recordingsKey })
@@ -175,7 +185,7 @@ export function useFeed(source: FeedSource): Feed {
         } finally {
             setRefreshing(false)
         }
-    }, [queryClient, recordingsKey, refetchRecordings, refetchExports])
+    }, [ready, queryClient, recordingsKey, refetchRecordings, refetchExports])
 
     const { hasNextPage, isFetching, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = recordings
     const retryMore = useCallback((): void => {
@@ -203,7 +213,11 @@ export function useFeed(source: FeedSource): Feed {
     return {
         items: searching ? undefined : items,
         error: recordings.isError ? toError(recordings.error) : null,
-        retry: () => void refetchRecordings(),
+        retry: () => {
+            if (ready) {
+                void refetchRecordings()
+            }
+        },
         refresh,
         refreshing,
         loadMore,
@@ -218,7 +232,8 @@ export function useFeed(source: FeedSource): Feed {
 export function feedTimelineQuery(
     scope: ProjectScope | null,
     item: FeedItem,
-    enabled: boolean
+    enabled: boolean,
+    demo = false
 ): UseQueryOptions<FeedTimeline, Error, FeedTimeline, readonly unknown[]> {
     const { sessionId, startedAt, durationSeconds } = item.recording
     const endedAt =
@@ -233,15 +248,16 @@ export function feedTimelineQuery(
                     startedAt as string
                 )
             ),
-        enabled: enabled && startedAt !== null && endedAt !== null,
+        initialData: demo ? demoReplayTimeline(sessionId) : undefined,
+        enabled: !demo && enabled && startedAt !== null && endedAt !== null,
         retry: retryUnlessMissing,
         staleTime: 5 * 60_000,
     }
 }
 
 export function useFeedTimeline(item: FeedItem, enabled: boolean): FeedTimeline | null {
-    const { scope, ready } = useReplayContext()
-    const query = useQuery(feedTimelineQuery(scope, item, enabled && ready))
+    const { mode, scope, ready } = useReplayContext()
+    const query = useQuery(feedTimelineQuery(scope, item, enabled && ready, mode === 'demo'))
     return query.data ?? null
 }
 
@@ -272,7 +288,7 @@ function signalWindow(page: readonly FeedItem[]): SignalWindow | null {
 
 /** The rage clicks and errors of each listed recording: one query per page of rows, never one per row. */
 export function useSessionSignals(items: readonly FeedItem[] | undefined): ReadonlyMap<string, SessionSignals> {
-    const { scope, ready } = useReplayContext()
+    const { mode, scope, ready } = useReplayContext()
     const pages = useMemo(() => {
         const list = items ?? []
         const chunks: FeedItem[][] = []
@@ -297,6 +313,9 @@ export function useSessionSignals(items: readonly FeedItem[] | undefined): Reado
     const version = queries.map((query) => query.dataUpdatedAt).join(',')
     // biome-ignore lint/correctness/useExhaustiveDependencies: the queries change when their version does.
     return useMemo(() => {
+        if (mode === 'demo') {
+            return new Map(items?.map(({ recording: { sessionId } }) => [sessionId, demoReplaySignals(sessionId)]))
+        }
         const merged = new Map<string, SessionSignals>()
         queries.forEach((query, index) => {
             const page = pages[index] ?? []
@@ -310,5 +329,5 @@ export function useSessionSignals(items: readonly FeedItem[] | undefined): Reado
             }
         })
         return merged
-    }, [version, pages])
+    }, [version, pages, mode, items])
 }

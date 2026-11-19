@@ -116,6 +116,7 @@ interface FeedCardProps {
     pool: PoolPlayer | null
     /** Plays the recording's snapshots in a WebView: no render, no export. */
     webPlayer: boolean
+    demo: boolean
     unit: FeedUnit
     source: FeedSource
     settings: FeedSettings
@@ -180,6 +181,7 @@ function FeedCardBody({
     near,
     pool,
     webPlayer,
+    demo,
     unit,
     source,
     settings,
@@ -1082,17 +1084,19 @@ function FeedCardBody({
                             >
                                 <Text style={styles.errorButtonText}>Try again</Text>
                             </Pressable44>
-                            <Pressable44
-                                onPress={() => onOpenWeb(item, startSeconds)}
-                                accessibilityRole="link"
-                                accessibilityLabel="Open in PostHog"
-                                style={styles.errorButton}
-                                pressedStyle={styles.pressed}
-                                testID="feed-load-open-web"
-                            >
-                                <Text style={styles.errorButtonText}>Open in PostHog</Text>
-                                <ExternalLinkIcon size={13} color={feedColors.text} />
-                            </Pressable44>
+                            {!demo ? (
+                                <Pressable44
+                                    onPress={() => onOpenWeb(item, startSeconds)}
+                                    accessibilityRole="link"
+                                    accessibilityLabel="Open in PostHog"
+                                    style={styles.errorButton}
+                                    pressedStyle={styles.pressed}
+                                    testID="feed-load-open-web"
+                                >
+                                    <Text style={styles.errorButtonText}>Open in PostHog</Text>
+                                    <ExternalLinkIcon size={13} color={feedColors.text} />
+                                </Pressable44>
+                            ) : null}
                         </View>
                     </View>
                 </View>
@@ -1146,8 +1150,8 @@ function FeedCardBody({
                     speedOn={holding}
                     speedOnly={holding}
                     onSpeed={onSpeed}
-                    onChat={() => onChat(item)}
-                    onShare={() => onShare(item, Math.max(0, Math.floor(position.value)))}
+                    onChat={demo ? undefined : () => onChat(item)}
+                    onShare={demo ? undefined : () => onShare(item, Math.max(0, Math.floor(position.value)))}
                 />
             </Animated.View>
 

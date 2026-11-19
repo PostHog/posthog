@@ -116,7 +116,6 @@ function emptyMessage(source: FeedSource, stillRecording: number): string {
     }
     return 'Nothing in the last 7 days.'
 }
-const WEB_PLAYER = FEED_PLAYER_KIND === 'web'
 const NO_SOURCES: ReadonlyMap<number, PoolSource> = new Map()
 
 /**
@@ -157,6 +156,8 @@ function FeedContent(): ReactElement {
     const router = useRouter()
     const insets = useScreenInsets()
     const { mode, access, scope, ready } = useReplayContext()
+    const demo = mode === 'demo'
+    const webPlayer = demo || FEED_PLAYER_KIND === 'web'
     const { unit, source, speed, autoplayNext, skipInactivity, hidden, set, hide } = useFeedSettings()
     const settings = useMemo(
         (): FeedSettings => ({ speed, autoplayNext, skipInactivity }),
@@ -197,7 +198,7 @@ function FeedContent(): ReactElement {
         [items, focusRow]
     )
     const timelineQueries = useQueries({
-        queries: windowItems.map((item) => feedTimelineQuery(scope, item, ready)),
+        queries: windowItems.map((item) => feedTimelineQuery(scope, item, ready, demo)),
     })
     const retainedSessions = useMemo(() => new Set(items?.map((item) => item.recording.sessionId)), [items])
     const knownTimelines = useRef<ReadonlyMap<string, FeedTimeline>>(new Map())
@@ -294,8 +295,8 @@ function FeedContent(): ReactElement {
             return map
         })
     }, [])
-    const videoPool = usePlayerPool(WEB_PLAYER ? NO_SOURCES : sources, currentIndex)
-    const webPool = useWebPlayerPool(cards ?? null, currentIndex, WEB_PLAYER)
+    const videoPool = usePlayerPool(webPlayer ? NO_SOURCES : sources, currentIndex)
+    const webPool = useWebPlayerPool(cards ?? null, currentIndex, webPlayer, demo)
 
     const handles = useRef(new Map<string, FeedCardHandle>())
     const registerHandle = useCallback((key: string, handle: FeedCardHandle | null): void => {
@@ -422,10 +423,10 @@ function FeedContent(): ReactElement {
 
     const isReady = useCallback(
         (item: FeedItem): boolean =>
-            WEB_PLAYER
+            webPlayer
                 ? !item.recording.ongoing
                 : hasReadyVideo(item.exports) || readyJobFor(jobs, item.recording.sessionId) !== null,
-        [jobs]
+        [jobs, webPlayer]
     )
     const advanceTarget = useCallback(
         (index: number): number | null => (cards ? nextCardIndex(cards, index, isReady, READY_LOOKAHEAD) : null),
@@ -753,8 +754,9 @@ function FeedContent(): ReactElement {
                 insets={insets}
                 active={focused && entry.index === currentIndex}
                 near={Math.abs(entry.index - currentIndex) <= 2}
-                pool={(WEB_PLAYER ? webPool.get(entry.key) : videoPool.get(entry.index)) ?? null}
-                webPlayer={WEB_PLAYER}
+                pool={(webPlayer ? webPool.get(entry.key) : videoPool.get(entry.index)) ?? null}
+                webPlayer={webPlayer}
+                demo={demo}
                 unit={unit}
                 source={source}
                 settings={settings}
@@ -800,14 +802,7 @@ function FeedContent(): ReactElement {
     }
 
     let body: ReactElement
-    if (mode === 'demo') {
-        body = (
-            <FeedState
-                title="Recordings aren't in the demo"
-                message="Sign in to your PostHog project to see its recordings."
-            />
-        )
-    } else if (access.state !== 'ok') {
+    if (access.state !== 'ok') {
         body = (
             <View style={styles.reauth}>
                 <ViewsReauthState access={access} feature="replay" />

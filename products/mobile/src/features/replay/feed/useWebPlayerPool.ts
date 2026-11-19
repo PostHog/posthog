@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { demoReplaySnapshots } from '@/demo/replays'
+
 import { WebReplayPlayer } from '../web/WebReplayPlayer'
 import type { FeedCardEntry } from './feedCards'
 import { FEED_DEBUG } from './feedPerf'
@@ -16,7 +18,8 @@ const NO_PLAYERS: ReadonlyMap<string, PoolPlayer> = new Map()
 export function useWebPlayerPool(
     cards: readonly FeedCardEntry[] | null,
     current: number,
-    enabled: boolean
+    enabled: boolean,
+    demo: boolean
 ): ReadonlyMap<string, PoolPlayer> {
     const players = useRef(new Map<string, WebReplayPlayer>())
     const [assigned, setAssigned] = useState<ReadonlyMap<string, PoolPlayer>>(NO_PLAYERS)
@@ -32,7 +35,14 @@ export function useWebPlayerPool(
                 if (!card || !recording || Number.isNaN(startMs)) {
                     continue
                 }
-                const player = players.current.get(card.key) ?? new WebReplayPlayer(recording.sessionId, startMs)
+                let player = players.current.get(card.key)
+                if (!player) {
+                    const snapshots = demo ? demoReplaySnapshots(recording.sessionId, startMs) : undefined
+                    if (demo && !snapshots) {
+                        continue
+                    }
+                    player = new WebReplayPlayer(recording.sessionId, startMs, snapshots)
+                }
                 keep.set(card.key, player)
                 next.set(card.key, { kind: 'web', player, key: `web:${card.key}`, loaded: true })
             }
@@ -52,7 +62,7 @@ export function useWebPlayerPool(
                 [...next].every(([key, entry]) => previous.get(key)?.player === entry.player)
             return same ? previous : next
         })
-    }, [cards, current, enabled])
+    }, [cards, current, enabled, demo])
 
     useEffect(
         () => () => {

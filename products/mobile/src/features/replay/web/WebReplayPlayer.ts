@@ -1,6 +1,7 @@
 import type { VideoPlayer, VideoPlayerEvents } from 'expo-video'
 
 import { fetchSnapshotBlocks, fetchSnapshotRange, type SnapshotBlock } from '@/api/snapshots'
+import type { DemoReplaySnapshots } from '@/demo/replays'
 import { actionErrorMessage } from '@/lib/errors'
 import { FEED_PERF, perfMark } from '../feed/feedPerf'
 import type { FeedPlayer } from '../feed/feedPlayer'
@@ -57,7 +58,8 @@ export class WebReplayPlayer implements FeedPlayer {
 
     constructor(
         readonly sessionId: string,
-        private readonly startMs: number
+        private readonly startMs: number,
+        private readonly demoSnapshots?: DemoReplaySnapshots
     ) {
         void this.loadBlocks()
     }
@@ -344,7 +346,9 @@ export class WebReplayPlayer implements FeedPlayer {
     private async loadBlocks(): Promise<void> {
         this.mark('listRequested')
         try {
-            const blocks = await fetchSnapshotBlocks(this.sessionId, this.controller.signal)
+            const blocks = this.demoSnapshots
+                ? [this.demoSnapshots.block]
+                : await fetchSnapshotBlocks(this.sessionId, this.controller.signal)
             this.mark('listReceived', { blocks: blocks.length })
             if (blocks.length === 0) {
                 this.setListingError('This recording has no playback data yet.')
@@ -369,7 +373,7 @@ export class WebReplayPlayer implements FeedPlayer {
         const { signal } = this.rangeController
         this.mark('rangeRequested', { from, to })
         try {
-            const text = await fetchSnapshotRange(this.sessionId, from, to, signal)
+            const text = this.demoSnapshots?.text ?? (await fetchSnapshotRange(this.sessionId, from, to, signal))
             this.mark('rangeReceived', { chars: text.length })
             const page = this.page
             if (!page || signal.aborted) {

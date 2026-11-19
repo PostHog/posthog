@@ -4,16 +4,18 @@ import type { ReactElement, ReactNode } from 'react'
 
 import { setAuthProvider } from '@/api/client'
 import type { ProjectScope } from '@/api/reports'
+import type { DataMode } from '@/demo/demoMode'
 
 import { useFeedSettings } from './feed/feedSettingsStore'
-import { useFeed } from './feed/useFeed'
+import { useFeed, useSessionSignals } from './feed/useFeed'
 import { useSessionList } from './hooks'
 
 let mockScope: ProjectScope = { host: 'https://app.example.com', projectId: 2 }
+let mockMode: DataMode = 'live'
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => mockScope }))
 jest.mock('@/demo/demoMode', () => ({
     ...jest.requireActual('@/demo/demoMode'),
-    useDataMode: () => 'live',
+    useDataMode: () => mockMode,
 }))
 jest.mock('@/features/views/useViewsAccess', () => ({
     reportScopeError: jest.fn(),
@@ -35,6 +37,7 @@ function setup(): { client: QueryClient; wrapper: ({ children }: { children: Rea
 
 beforeEach(() => {
     mockScope = { host: 'https://app.example.com', projectId: 2 }
+    mockMode = 'live'
     setAuthProvider({
         getAuth: () => ({ ...mockScope, accessToken: 'fake-token', session: 1 }),
         refreshAccessToken: async () => null,
@@ -163,6 +166,29 @@ test('loads the next feed page when the only available recording is hidden', asy
     } finally {
         unmount()
         useFeedSettings.getState().set({ hidden: [] })
+        client.clear()
+    }
+})
+
+test('shows simulated errors and signals without contacting the signed-in project', async () => {
+    mockMode = 'demo'
+    globalThis.fetch = jest.fn()
+    const { client, wrapper } = setup()
+    const { result, unmount } = renderHook(
+        () => {
+            const feed = useFeed('errors')
+            const signals = useSessionSignals(feed.items)
+            return { feed, signals }
+        },
+        { wrapper }
+    )
+    try {
+        expect(result.current.feed.items?.map((item) => item.recording.sessionId)).toEqual(['demo-replay-export'])
+        expect(result.current.signals.get('demo-replay-export')?.errors).toHaveLength(1)
+        await act(() => result.current.feed.refresh())
+        expect(globalThis.fetch).not.toHaveBeenCalled()
+    } finally {
+        unmount()
         client.clear()
     }
 })
