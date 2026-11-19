@@ -174,9 +174,17 @@ QUOTE_INSTRUCTION = (
 )
 
 
+UNTRUSTED_OPEN = "<<<UNTRUSTED"
+UNTRUSTED_CLOSE = "UNTRUSTED>>>"
+MARKER_PLACEHOLDER_WITH_NO_MARKER_CHARACTERS = "[marker removed]"
+
+
 def untrusted_block(text: str) -> str:
+    sanitized = text.replace(UNTRUSTED_CLOSE, MARKER_PLACEHOLDER_WITH_NO_MARKER_CHARACTERS).replace(
+        UNTRUSTED_OPEN, MARKER_PLACEHOLDER_WITH_NO_MARKER_CHARACTERS
+    )
     # nosemgrep: raw-html-format -- Agent prompt text, never rendered as HTML.
-    return f"<<<UNTRUSTED\n{text}\nUNTRUSTED>>>"
+    return f"{UNTRUSTED_OPEN}\n{sanitized}\n{UNTRUSTED_CLOSE}"
 
 
 def replace_entry_with(value: object) -> Callable[[object], tuple[object, None]]:

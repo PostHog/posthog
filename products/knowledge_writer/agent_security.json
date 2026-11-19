@@ -177,8 +177,13 @@
         ],
         "F1": [
             {
-                "kind": "prose",
-                "reason": "Text that contains the closing marker can still end the untrusted block early; the fix and its check land together in the next change."
+                "kind": "check",
+                "by": [
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_untrusted_text_reaches_the_writer_prompt_only_inside_untrusted_blocks[closing_marker]",
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_untrusted_text_reaches_the_writer_prompt_only_inside_untrusted_blocks[closing_marker_nested]",
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_untrusted_text_reaches_the_writer_prompt_only_inside_untrusted_blocks[opening_marker]",
+                    "products/knowledge_writer/backend/tests/test_agent_security.py::test_untrusted_text_reaches_the_writer_prompt_only_inside_untrusted_blocks[opening_marker_nested]"
+                ]
             }
         ],
         "F2": [
@@ -239,7 +244,7 @@
             },
             {
                 "kind": "prose",
-                "reason": "Per-run spend is bounded only by max_wake_minutes=180; the tasks platform reads neither max_cost_usd nor task_budget_usd, so the wake cap lands with its check in the next change."
+                "reason": "TaskProfile.max_cost_usd is read nowhere, so per-wake spend is bounded only by the shared $50 background_agents gateway token cap; the next change wires the profile cap into the mint."
             }
         ],
         "I1": [
