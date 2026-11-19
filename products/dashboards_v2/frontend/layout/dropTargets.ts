@@ -39,7 +39,16 @@ export function readDropZones(dragged: HTMLElement): DropZones | null {
         .filter((element) => !dragged.contains(element))
         .map((element) => {
             const { left, top, right, bottom } = element.getBoundingClientRect()
-            return { id: (element.dataset.dv2Grid ?? element.dataset.dv2Tab)!, element, left, top, right, bottom }
+            // Below the tab's grid is still the tab's grid, so a tile dragged out under the last section lands in it.
+            const zoneBottom = element === anchor ? Infinity : bottom
+            return {
+                id: (element.dataset.dv2Grid ?? element.dataset.dv2Tab)!,
+                element,
+                left,
+                top,
+                right,
+                bottom: zoneBottom,
+            }
         })
     const { left, top } = anchor.getBoundingClientRect()
     return { zones, anchor, anchorLeft: left, anchorTop: top }
