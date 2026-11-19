@@ -9,6 +9,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
 
 import { TodayExplainerPreview, TodayProductPreview } from './todayPreviewCards'
+import { TODAY_RAIL_ILLUSTRATIONS } from './todayRailIllustrations'
 
 export function TodayProductHoverCard({
     preview,
@@ -23,9 +24,16 @@ export function TodayProductHoverCard({
             posthog.capture('today rail preview shown', { pane: railPane })
         }
     }, [railPane])
+    const Illustration = railPane ? TODAY_RAIL_ILLUSTRATIONS[railPane] : null
 
     return (
         <div className="flex flex-col" data-attr="today-product-hover-card">
+            {Illustration && (
+                <div className="flex justify-center rounded-t-[inherit] bg-[var(--fill-hover)] py-2">
+                    {/* Eager: the card mounts the image only when it opens, so lazy loading only adds a delay. */}
+                    <Illustration className="h-24 w-auto" loading="eager" />
+                </div>
+            )}
             <Item size="xs" className="items-start">
                 <ItemContent className="min-w-0 gap-2">
                     <ItemTitle className="flex items-center gap-2 overflow-visible wrap-anywhere">
