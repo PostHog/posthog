@@ -576,9 +576,8 @@ tools:
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
             still parked shortly after publishing are normal, not a sign of a failed publish. When the published
             workflow has a test_sender_live warning, tell the user its message: email steps on the PostHog test
-            sender reach only verified members of their organization. Once they have a verified sender, move each of
-            those steps to it with workflows-patch-action-email (sender: 'own' and email_patch.from.integrationId),
-            then publish the staged change after the user approves.
+            sender reach only verified members of their organization. Move those steps to a verified sender only
+            after the user asks you to; workflows-patch-action-email describes how.
         response:
             exclude:
                 - workflow.actions.*.config.inputs
