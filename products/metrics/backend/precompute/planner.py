@@ -7,13 +7,15 @@ and buckets from the cut on run through the ordinary runner. Since the cut is a 
 mixes the two. Anything else runs exactly as without the planner.
 """
 
-import re
 import datetime as dt
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from django.utils import timezone
+
+import re2
 
 from posthog.models import Team
 
@@ -61,13 +63,19 @@ class ClausePlan:
     cut: dt.datetime
 
 
+@lru_cache(maxsize=256)
+def _compile(pattern: str) -> re2._Regexp:
+    return re2.compile(pattern)
+
+
 def _matches(filter: MetricFilter, value: str) -> bool:
     if filter.op == FilterOp.EQ:
         return value == filter.value
     if filter.op == FilterOp.NEQ:
         return value != filter.value
-    # ClickHouse `match` finds the pattern anywhere in the value, as `re.search` does.
-    found = re.search(filter.value, value) is not None
+    # RE2 is the engine of ClickHouse `match`, so the match is the same, and its linear time keeps a filter
+    # pattern from backtracking on the web worker. Both find the pattern anywhere in the value.
+    found = _compile(filter.value).search(value) is not None
     return found if filter.op == FilterOp.REGEX else not found
 
 
