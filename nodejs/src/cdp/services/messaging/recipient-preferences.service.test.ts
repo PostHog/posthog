@@ -188,6 +188,18 @@ describe('RecipientPreferencesService', () => {
                 expect(result).toBe(expected)
             })
 
+            it('uses an opt-out this run made for another spelling of the address', async () => {
+                const action = createEmailAction('Test@Example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createFunctionStepInvocation(action)
+                mockRecipientsManagerGet.mockResolvedValue(null)
+
+                const result = await service.shouldSkipAction(invocation, action, [
+                    { identifier: 'test@example.com', categoryId: '$all' },
+                ])
+
+                expect(result).toBe('opted_out')
+            })
+
             it('should return false if recipient is opted in', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)

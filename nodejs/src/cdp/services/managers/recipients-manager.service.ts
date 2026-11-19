@@ -15,6 +15,11 @@ const fromKey = (key: string): RecipientGetArgs => {
     return { teamId: Number(teamId), identifier }
 }
 
+const isEmail = (identifier: string): boolean => identifier.includes('@')
+
+// Rows for one address in any case share this key.
+const matchKey = (identifier: string): string => (isEmail(identifier) ? identifier.toLowerCase() : identifier)
+
 export type PreferenceStatus = 'OPTED_IN' | 'OPTED_OUT' | 'NO_PREFERENCE'
 
 // Reserved key in the preferences JSON for open/click tracking consent, alongside the '$all'
@@ -129,13 +134,15 @@ export class RecipientsManagerService {
 
         logger.debug('[RecipientsManager]', 'Fetching recipients', { recipientArgs })
 
-        // Build the WHERE clause for multiple team_id, identifier pairs
+        // An email address matches whatever case it was stored in, so an opt-out saved as `User@Example.com` also
+        // stops a send to `user@example.com`. Other identifiers, such as a push distinct ID, match exactly.
         const conditions = recipientArgs
-            .map((_, index) => {
+            .map(({ identifier }, index) => {
                 const teamIdParam = index * 2 + 1
                 const identifierParam = index * 2 + 2
-                // NOTE: We have a unique index on (team_id, identifier) so this should be efficient
-                return `(team_id = $${teamIdParam} AND identifier = $${identifierParam})`
+                return isEmail(identifier)
+                    ? `(team_id = $${teamIdParam} AND lower(identifier) = lower($${identifierParam}))`
+                    : `(team_id = $${teamIdParam} AND identifier = $${identifierParam})`
             })
             .join(' OR ')
 
@@ -160,17 +167,30 @@ export class RecipientsManagerService {
             'fetchCDPRecipients'
         )
 
-        const recipientRows = response.rows
+        const rowsByAddress = new Map<string, MessageRecipientPreferenceRow[]>()
+        for (const row of response.rows) {
+            const key = toKey({ teamId: row.team_id, identifier: matchKey(row.identifier) })
+            rowsByAddress.set(key, [...(rowsByAddress.get(key) ?? []), row])
+        }
 
-        // Map results back to the original keys
         const result: Record<string, RecipientManagerRecipient | undefined> = {}
-
-        for (const row of recipientRows) {
-            const key = toKey({ teamId: row.team_id, identifier: row.identifier })
+        for (const args of recipientArgs) {
+            const rows = rowsByAddress.get(toKey({ teamId: args.teamId, identifier: matchKey(args.identifier) }))
+            if (!rows?.length) {
+                continue
+            }
+            // The spelling the send names wins. Between other spellings, the latest change wins.
+            const ordered = [...rows].sort(
+                (a, b) =>
+                    Number(a.identifier === args.identifier) - Number(b.identifier === args.identifier) ||
+                    String(a.updated_at).localeCompare(String(b.updated_at))
+            )
+            const chosen = ordered[ordered.length - 1]
+            const merged: Record<string, string> = Object.assign({}, ...ordered.map((row) => row.preferences))
 
             // Convert raw preferences object to typed preferences
             const typedPreferences: Record<string, PreferenceStatus> = {}
-            for (const [categoryId, status] of Object.entries(row.preferences)) {
+            for (const [categoryId, status] of Object.entries(merged)) {
                 if (['OPTED_IN', 'OPTED_OUT', 'NO_PREFERENCE'].includes(status)) {
                     typedPreferences[categoryId] = status as PreferenceStatus
                 } else {
@@ -178,13 +198,13 @@ export class RecipientsManagerService {
                 }
             }
 
-            result[key] = {
-                id: row.id,
-                team_id: row.team_id,
-                identifier: row.identifier,
+            result[toKey(args)] = {
+                id: chosen.id,
+                team_id: chosen.team_id,
+                identifier: chosen.identifier,
                 preferences: typedPreferences,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
+                created_at: chosen.created_at,
+                updated_at: chosen.updated_at,
             }
         }
 

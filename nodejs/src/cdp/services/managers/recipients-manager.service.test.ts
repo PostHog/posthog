@@ -75,6 +75,35 @@ describe('RecipientsManager', () => {
             })
         })
 
+        it('finds an email address stored in another case', async () => {
+            await createRecipient(team.id, 'User@Example.com', { $all: 'OPTED_OUT' })
+
+            const results = await manager.getMany([
+                { teamId: team.id, identifier: 'user@example.com' },
+                { teamId: team.id, identifier: 'USER@EXAMPLE.COM' },
+            ])
+
+            expect(results[`${team.id}:user@example.com`]?.preferences).toEqual({ $all: 'OPTED_OUT' })
+            expect(results[`${team.id}:USER@EXAMPLE.COM`]?.preferences).toEqual({ $all: 'OPTED_OUT' })
+        })
+
+        it('lets the spelling the send names win over another spelling of the address', async () => {
+            await createRecipient(team.id, 'user@example.com', { $all: 'OPTED_IN', 'category-1': 'OPTED_OUT' })
+            await createRecipient(team.id, 'User@Example.com', { $all: 'OPTED_OUT' })
+
+            const result = await manager.get({ teamId: team.id, identifier: 'user@example.com' })
+
+            expect(result?.identifier).toBe('user@example.com')
+            expect(result?.preferences).toEqual({ $all: 'OPTED_IN', 'category-1': 'OPTED_OUT' })
+        })
+
+        it('matches an identifier that is not an email address exactly', async () => {
+            await createRecipient(team.id, 'Distinct-Id-1', { $all: 'OPTED_OUT' })
+
+            expect(await manager.get({ teamId: team.id, identifier: 'distinct-id-1' })).toBeNull()
+            expect(await manager.get({ teamId: team.id, identifier: 'Distinct-Id-1' })).not.toBeNull()
+        })
+
         it('should filter out deleted recipients', async () => {
             const id = await createRecipient(team.id, 'user@example.com', {})
 

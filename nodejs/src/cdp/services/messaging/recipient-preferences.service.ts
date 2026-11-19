@@ -47,6 +47,11 @@ export type FrequencyCapCheck =
     // team lets a capped message wait for that slot; null means skip it.
     | { capped: true; nextSlotAt: number; holdHours: number | null }
 
+// An email address names the same person in any case, so an opt-out recorded earlier in the run applies to every
+// spelling of it.
+const sameRecipient = (a: string, b: string): boolean =>
+    a === b || (a.includes('@') && a.toLowerCase() === b.toLowerCase())
+
 export class RecipientPreferencesService {
     constructor(
         private recipientsManager: RecipientsManagerService,
@@ -259,7 +264,7 @@ export class RecipientPreferencesService {
         if (
             runOptOuts.some(
                 (optOut) =>
-                    optOut.identifier === trimmedIdentifier &&
+                    sameRecipient(optOut.identifier, trimmedIdentifier) &&
                     (optOut.categoryId === categoryId || optOut.categoryId === '$all')
             )
         ) {
