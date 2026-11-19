@@ -73,7 +73,7 @@ export function CalendarMonthView({
                             key={key}
                             className={clsx(
                                 'flex min-h-28 min-w-0 flex-col gap-0.5 border-b border-r p-1',
-                                !inMonth && 'bg-muted/50',
+                                !inMonth && 'bg-fill-hover',
                                 dragOver === key && 'bg-fill-selected'
                             )}
                             onDragOver={(event) => {

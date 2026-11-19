@@ -42,7 +42,7 @@ export function OverviewMetric({
                 theme={theme}
                 change={change === undefined ? null : { value: change }}
                 goodDirection={goodDirection}
-                restingSubtitle={subtitle}
+                restingSubtitle={subtitle ?? 'Last 30 days'}
                 formatValue={format}
                 sparklineHeight={36}
                 hoverIntentMs={0}
