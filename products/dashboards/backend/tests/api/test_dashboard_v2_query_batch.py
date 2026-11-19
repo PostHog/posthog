@@ -1,7 +1,9 @@
 import json
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import time_machine
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import patch
 
@@ -163,26 +165,26 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self._enable_flag()
 
     def test_runs_misses_in_the_stream_and_serves_them_from_cache_next_time(self) -> None:
+        sql = {"refId": "sql", "language": "hogql", "query": "select count() from events where {filters}"}
         queries = [
             _insight("$pageview"),
-            {
-                "target": {
-                    "refId": "sql",
-                    "language": "hogql",
-                    "query": "select count() from events where {filters}",
-                },
-                "time": _LAST_7_DAYS,
-            },
+            {"target": sql, "time": _LAST_7_DAYS},
+            {"target": sql, "time": {"from": "now-1h", "to": "now"}},
         ]
 
-        first = self._lines(queries)
-        second = self._lines(queries)
+        with time_machine.travel(datetime.now(UTC), tick=False) as traveller:
+            first = self._lines(queries)
+            second = self._lines(queries)
+            traveller.shift(timedelta(minutes=10))
+            later = self._lines([{**query, "cacheOnly": True} for query in queries])
 
-        self.assertEqual([line["result"]["cache"]["hit"] for line in first], [False, False])
-        self.assertEqual([line["result"]["cache"]["hit"] for line in second], [True, True])
+        self.assertEqual([line["result"]["cache"]["hit"] for line in first], [False, False, False])
+        self.assertEqual([line["result"]["cache"]["hit"] for line in second], [True, True, True])
         self.assertEqual(
             [line["result"]["cache"]["key"] for line in second], [line["result"]["cache"]["key"] for line in first]
         )
+        # A SQL tile is fresh for as long as its range's interval allows, so the hour tile expires first.
+        self.assertEqual([line["result"]["cache"]["stale"] for line in later[1:]], [False, True])
 
 
 class TestResolveQuery(SimpleTestCase):

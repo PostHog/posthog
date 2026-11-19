@@ -1,5 +1,7 @@
-from collections.abc import Callable
-from datetime import UTC, datetime
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -52,6 +54,7 @@ from posthog.hogql_queries.sql_freshness.classifier import (
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
+from posthog.utils import relative_date_parse
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
@@ -64,6 +67,26 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
 API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
+
+_range_freshness: ContextVar[bool] = ContextVar("hogql_range_freshness", default=False)
+
+# A relative range is as fresh as the interval Trends would chart it at, by the range's length:
+# up to an hour by minute (5 min), up to two days by hour (1 h), up to 90 days by day (6 h), longer by week (1 day).
+_RANGE_FRESHNESS_INTERVALS: tuple[tuple[timedelta, str], ...] = (
+    (timedelta(hours=1), "minute"),
+    (timedelta(days=2), "hour"),
+    (timedelta(days=90), "day"),
+)
+
+
+@contextmanager
+def range_based_freshness() -> Iterator[None]:
+    """HogQL runners built inside this block take their staleness from `filters.dateRange` when it is relative."""
+    token = _range_freshness.set(True)
+    try:
+        yield
+    finally:
+        _range_freshness.reset(token)
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -86,6 +109,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         self._raw_query_on_organization_grant = False
         self._trino_canary = False
+        # Read at construction: the runner can be planned in one thread and run or read in another.
+        self._range_freshness_requested = _range_freshness.get()
         super().__init__(*args, **kwargs)
 
     def _reads_events_route(self) -> bool:
@@ -101,7 +126,26 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             if isinstance(freshness, SqlFreshness) and expiry is not None:
                 return max(expiry, freshness.fresh_until)
             return expiry
-        return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+        interval = self.range_freshness_interval or "day"
+        return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT][interval]
+
+    @cached_property
+    def range_freshness_interval(self) -> Optional[str]:
+        """The interval whose staleness rule applies, when built under `range_based_freshness` with a relative range."""
+        if not self._range_freshness_requested or self.query.filters is None or self.query.filters.dateRange is None:
+            return None
+        date_from, date_to = self.query.filters.dateRange.date_from, self.query.filters.dateRange.date_to
+        if not date_from or not date_from.startswith("-") or (date_to and not date_to.startswith("-")):
+            return None
+        now = datetime.now(UTC)
+        timezone_info = self.team.timezone_info
+        try:
+            start = relative_date_parse(date_from, timezone_info, now=now)
+            end = relative_date_parse(date_to, timezone_info, now=now) if date_to else now
+        except ValueError:
+            return None
+        span = end - start
+        return next((interval for limit, interval in _RANGE_FRESHNESS_INTERVALS if span <= limit), "week")
 
     @cached_property
     def _api_sql_freshness_enabled(self) -> bool:
@@ -113,6 +157,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         freshness = self._sql_classification
+        api_sql_freshness = freshness is not None and self._api_sql_freshness_enabled
+        if self.range_freshness_interval is not None and last_refresh is not None and not api_sql_freshness:
+            target_age = self.cache_target_age(last_refresh, lazy=lazy)
+            return target_age is None or datetime.now(UTC) > target_age
         default_stale = super()._is_stale(last_refresh, lazy=lazy)
         if isinstance(freshness, SqlFreshness) and last_refresh is not None and self._api_sql_freshness_enabled:
             return default_stale and datetime.now(UTC) > freshness.fresh_until

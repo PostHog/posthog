@@ -43,6 +43,7 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
@@ -146,9 +147,18 @@ def _limit_context(query: dict[str, Any]) -> Optional[LimitContext]:
     return None
 
 
-def _is_stale(response: object) -> bool:
+def _is_stale(response: object, planned: PlannedQuery) -> bool:
     # The rule the dashboard client applies to decide which tiles to refresh.
     target_age = getattr(response, "cache_target_age", None)
+    runner = planned.query_runner
+    last_refresh = getattr(response, "last_refresh", None)
+    if (
+        isinstance(runner, HogQLQueryRunner)
+        and runner.range_freshness_interval is not None
+        and isinstance(last_refresh, datetime)
+    ):
+        # The entry may have been stored by a run outside this batch, which uses the flat SQL rule.
+        target_age = runner.cache_target_age(last_refresh)
     return not isinstance(target_age, datetime) or target_age <= now()
 
 
@@ -236,16 +246,17 @@ class QueryBatch:
 
         def plan(index: int) -> PlannedQuery | None:
             query = resolved[index]
-            return plan_query_dict(
-                self._team,
-                query.query,
-                dashboard_filters_json=query.filters,
-                variables_override_json=query.variables,
-                limit_context=_limit_context(query.query),
-                user=self._user,
-                user_access_control=user_access_control,
-                allow_raw_results=False,
-            )
+            with range_based_freshness():
+                return plan_query_dict(
+                    self._team,
+                    query.query,
+                    dashboard_filters_json=query.filters,
+                    variables_override_json=query.variables,
+                    limit_context=_limit_context(query.query),
+                    user=self._user,
+                    user_access_control=user_access_control,
+                    allow_raw_results=False,
+                )
 
         to_run: list[int] = []
         to_refresh: list[int] = []
@@ -278,7 +289,7 @@ class QueryBatch:
                     else:
                         to_run.append(index)
                     continue
-                stale = _is_stale(response)
+                stale = _is_stale(response, planned)
                 if stale and not (item.swr or item.cache_only):
                     to_run.append(index)
                     continue
@@ -295,32 +306,34 @@ class QueryBatch:
     def _refresh_in_background(self, query: ResolvedQuery) -> None:
         # The stale result is already in the response. The async path recomputes it for the next read.
         try:
-            process_query_dict(
-                self._team,
-                query.query,
-                dashboard_filters_json=query.filters,
-                variables_override_json=query.variables,
-                limit_context=_limit_context(query.query),
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                user=self._user,
-                dashboard_id=self._dashboard_id,
-            )
+            with range_based_freshness():
+                process_query_dict(
+                    self._team,
+                    query.query,
+                    dashboard_filters_json=query.filters,
+                    variables_override_json=query.variables,
+                    limit_context=_limit_context(query.query),
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                    user=self._user,
+                    dashboard_id=self._dashboard_id,
+                )
         except Exception:
             logger.warning("dashboard_v2_query_batch_refresh_failed", team_id=self._team.pk, exc_info=True)
 
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
         try:
-            response = process_query_dict(
-                self._team,
-                query.query,
-                dashboard_filters_json=query.filters,
-                variables_override_json=query.variables,
-                limit_context=_limit_context(query.query),
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                user=self._user,
-                query_id=query_id,
-                dashboard_id=self._dashboard_id,
-            )
+            with range_based_freshness():
+                response = process_query_dict(
+                    self._team,
+                    query.query,
+                    dashboard_filters_json=query.filters,
+                    variables_override_json=query.variables,
+                    limit_context=_limit_context(query.query),
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                    user=self._user,
+                    query_id=query_id,
+                    dashboard_id=self._dashboard_id,
+                )
         except Exception as e:
             return _error_line(index, e, team=self._team)
         return _result_line(index, response, hit=False, stale=False)
