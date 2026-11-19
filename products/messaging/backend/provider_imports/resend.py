@@ -9,6 +9,7 @@ import re
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime
 from email.utils import parseaddr
 from functools import partial
@@ -410,15 +411,21 @@ def _timestamp(value: Any) -> datetime | None:
 def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[ImportPage]:
     # Each list's cohort fills in one go, so the step reads every contact before it saves, and a retry reads them again.
     contacts = ContactCollector()
+    unsubscribed: set[str] = set()
     for page in client.pages("/contacts"):
         _collect(contacts, page.data)
+        unsubscribed.update(
+            email.lower()
+            for contact in page.data
+            if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
+        )
     everyone = contacts.everyone
     yield ImportPage(
         processed=len(everyone),
         save=partial(
             save_contact_lists,
             context,
-            _everyone(everyone),
+            replace(_everyone(everyone), non_members=frozenset(unsubscribed)),
             (),
             contacts.other_spellings,
         ),

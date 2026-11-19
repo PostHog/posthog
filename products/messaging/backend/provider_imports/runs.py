@@ -32,11 +32,13 @@ from products.messaging.backend.provider_imports.base import (
     ImportProvider,
     ImportStepBlocked,
     ImportStepError,
+    PeopleImportPlan,
     StepCheckpoint,
 )
 from products.messaging.backend.provider_imports.registry import get_provider
 from products.messaging.backend.temporal.client import RUN_EXECUTION_TIMEOUT, start_provider_import_workflow
 from products.workflows.backend.facade.api import can_edit_workflows
+from products.workflows.backend.facade.people_import import discard_staged_contacts
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,7 @@ STALE_RUN_AGE = RUN_EXECUTION_TIMEOUT + timedelta(hours=1)
 MAX_STEP_WARNINGS = 50
 MAX_STEP_ITEMS = 200
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error interrupted this step."
+PEOPLE_IMPORT_FAILED_MESSAGE = "Some contacts couldn't become people or join their cohort. Import again to finish."
 
 
 class ProviderImportAlreadyRunning(Exception):
@@ -117,17 +120,18 @@ def start_run(
     return run
 
 
-def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
+def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> list[PeopleImportPlan]:
     """Run one step from its saved checkpoint, and save each page together with the step's progress.
 
     `attempt` is the Temporal attempt number. An older attempt can keep running after Temporal starts a newer one,
-    so each page write checks that its attempt still owns the step.
+    so each page write checks that its attempt still owns the step. Returns the contact lists the step stored, which
+    the run's workflow sends next.
     """
     run = _runs(team_id).get(id=run_id)
     provider = get_provider(run.provider)
     claim = _claim_step(team_id, run_id, step, attempt)
     if claim.completed:
-        return
+        return _people_imports(team_id, run_id, step)
 
     context = ImportContext(
         team_id=team_id,
@@ -135,6 +139,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         integration_id=run.integration_id,
         api_key=run.temporary_api_key,
         steps=tuple(run.steps),
+        run_id=str(run_id),
     )
     try:
         _check_required_steps(provider, run, step)
@@ -142,8 +147,9 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
             _check_creator_access(team_id, run.created_by_id)
             _save_page(team_id, run_id, step, attempt, page)
             if page.checkpoint is None:
-                return
+                return _people_imports(team_id, run_id, step)
         _update_owned_step(team_id, run_id, step, attempt, _mark_completed)
+        return _people_imports(team_id, run_id, step)
     except (StaleImportAttempt, ImportRunClosed):
         raise
     except Exception as e:
@@ -182,6 +188,29 @@ def _check_required_steps(provider: ImportProvider, run: ProviderImportRun, step
 def finish_run(team_id: int, run_id: UUID) -> None:
     """Fail the steps that did not complete, and set the run's final status. A run that already ended stays as it is."""
     _close_run(team_id, run_id)
+    try:
+        # Also removes what a save that rolled back, or a step that failed, stored.
+        discard_staged_contacts(team_id, str(run_id))
+    except Exception:
+        logger.exception("Failed to delete the contacts a provider import stored", extra={"run_id": str(run_id)})
+
+
+def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping[str, int]) -> None:
+    """Save how sending a step's contact lists went. A list that failed fails the step, so the run shows it."""
+    with transaction.atomic():
+        run = _runs(team_id).select_for_update().get(id=run_id)
+        if run.status not in ACTIVE_IMPORT_STATUSES:
+            return
+        progress = run.progress.setdefault(step, _new_step_progress())
+        progress["people_import"] = dict(outcome)
+        if outcome.get("failed_lists"):
+            progress.update(status=ImportStepStatus.FAILED.value, last_error=PEOPLE_IMPORT_FAILED_MESSAGE)
+        run.save(update_fields=["progress"])
+
+
+def _people_imports(team_id: int, run_id: UUID, step: str) -> list[PeopleImportPlan]:
+    progress = _runs(team_id).get(id=run_id).progress.get(step, {})
+    return [PeopleImportPlan(**plan) for plan in progress.get("people_imports", [])]
 
 
 def close_stale_runs() -> int:
@@ -301,6 +330,10 @@ def _save_page(team_id: int, run_id: UUID, step: str, attempt: int, page: Import
         _add_warnings(progress, saved.warnings)
         _add_counts(progress, saved.counts)
         _add_items(progress, saved.items)
+        if saved.people_imports:
+            progress["people_imports"] = progress.get("people_imports", []) + [
+                asdict(plan) for plan in saved.people_imports
+            ]
         progress["checkpoint"] = page.checkpoint
         if page.checkpoint is None:
             _mark_completed(progress)

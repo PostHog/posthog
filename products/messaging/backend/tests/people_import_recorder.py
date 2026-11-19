@@ -4,42 +4,39 @@ from typing import Any
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from products.cohorts.backend.models.cohort import Cohort
+from posthog.api.capture import CaptureInternalResult
 
-_TASKS = "products.workflows.backend.tasks.people_import"
+_SERVICE = "products.workflows.backend.services.provider_contacts"
 
 
 class PeopleImportRecorder:
-    """Stands in for the people import's storage and tasks, and records what each import would send or fill."""
+    """Stands in for object storage and capture, and records the contact lists an import stores and the events it
+    sends."""
 
     def __init__(self, test: TestCase) -> None:
         self.stored: dict[str, str] = {}
-        self.storage = MagicMock()
-        self.storage.write.side_effect = self.stored.__setitem__
-        self.storage.read.side_effect = lambda key, missing_ok=False: self.stored.get(key)
-        self.storage.delete.side_effect = lambda key: self.stored.pop(key, None)
-        # ("send <cohort>" or "fill <cohort>", distinct IDs), in the order the imports started.
-        self.imports: list[tuple[str, list[str]]] = []
-        # The person properties the sending import sets, by distinct ID.
-        self.properties: dict[str, dict[str, str]] = {}
+        storage = MagicMock()
+        storage.write.side_effect = self.stored.__setitem__
+        storage.read.side_effect = lambda key, missing_ok=False: self.stored.get(key)
+        # Every event sent, in order.
+        self.events: list[dict[str, Any]] = []
         for target, kwargs in (
-            ("products.workflows.backend.services.people_import.object_storage", {"new": self.storage}),
-            (f"{_TASKS}.capture_people_import.delay", {"side_effect": lambda **kw: self._record(True, kw)}),
-            (f"{_TASKS}.schedule_people_import_fill", {"side_effect": lambda **kw: self._record(False, kw)}),
-            (f"{_TASKS}.fail_people_import_if_stalled.apply_async", {}),
+            ("products.workflows.backend.services.people_import.object_storage", {"new": storage}),
+            (f"{_SERVICE}.object_storage", {"new": storage}),
+            (f"{_SERVICE}.capture_batch_internal", {"side_effect": self._capture}),
         ):
             patcher = patch(target, **kwargs)
             test.addCleanup(patcher.stop)
             patcher.start()
 
-    @property
-    def staged(self) -> list[list[dict[str, Any]]]:
-        """The rows each import stored, without the records of how far each got."""
-        return [json.loads(content) for key, content in self.stored.items() if not key.endswith(".phase.json")]
+    def people(self, plan: dict[str, Any]) -> list[dict[str, Any]]:
+        """The people a stored list holds, from a plan in the step's progress."""
+        return [
+            person
+            for chunk in range(plan["chunks"])
+            for person in json.loads(self.stored[f"{plan['storage_prefix']}/chunk-{chunk}.json"])
+        ]
 
-    def _record(self, sends: bool, kwargs: dict[str, Any]) -> None:
-        people = json.loads(self.stored[kwargs["storage_key"]])
-        cohort = Cohort.objects.get(id=kwargs["cohort_id"])
-        self.imports.append((f"{'send' if sends else 'fill'} {cohort.name}", [p["distinct_id"] for p in people]))
-        if sends:
-            self.properties.update({person["distinct_id"]: person["properties"] for person in people})
+    def _capture(self, *, events: list[dict[str, Any]], **_: Any) -> CaptureInternalResult:
+        self.events.extend(events)
+        return CaptureInternalResult(status_code=200, ok=[event["event_uuid"] for event in events])

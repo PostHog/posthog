@@ -853,7 +853,12 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
-    """Remove a person from a static cohort in ClickHouse.
+    remove_people_from_static_cohort([person_uuid], cohort_id, team_id=team_id)
+
+
+def remove_people_from_static_cohort(person_uuids: Sequence[uuid.UUID], cohort_id: int, *, team_id: int):
+    """Remove people from a static cohort in ClickHouse, in one mutation. A delete per person can pass the table's
+    limit on unfinished mutations.
 
     Uses DELETE FROM with mutations_sync=0 and lightweight_deletes_sync=0 to avoid replica
     synchronization issues when some replicas are inactive. In tests, uses synchronous mutations
@@ -884,7 +889,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
-            "person_id": str(person_uuid),
+            "person_ids": [str(person_uuid) for person_uuid in person_uuids],
             "cohort_id": cohort_id,
             "team_id": team_id,
         },

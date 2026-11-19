@@ -472,7 +472,6 @@ rules:
                               |AnomalyScoringState
                               |AnomalyScoringDueInsight
                               |PushTokenImport
-                              |PeopleImportBatch
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -1020,7 +1019,6 @@ rules:
                         |AnomalyScoringState
                         |AnomalyScoringDueInsight
                         |PushTokenImport
-                        |PeopleImportBatch
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary

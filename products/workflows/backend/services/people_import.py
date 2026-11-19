@@ -3,15 +3,13 @@
 import re
 import json
 import uuid
-from datetime import datetime, timedelta
-from enum import StrEnum
-from typing import Any, NotRequired, TypedDict
-from uuid import UUID
+from datetime import timedelta
+from typing import NotRequired, TypedDict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F
 from django.utils import timezone
 
 from structlog import get_logger
@@ -33,11 +31,9 @@ from posthog.models.user import User
 from posthog.storage import object_storage
 
 from products.access_control.backend.property_access_control import get_non_writable_property_names
-from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import PeopleImportInvalid, PeopleImportSummary
-from products.workflows.backend.models.people_import_batch import PeopleImportBatch
 
 logger = get_logger(__name__)
 
@@ -51,12 +47,6 @@ PERSON_LOOKUP_CHUNK_SIZE = 1000
 
 # An import finishes in under 30 minutes, including the waits for ingestion and the capture retries.
 STALLED_IMPORT_AFTER = timedelta(hours=1)
-# The stall check repeats this often while a dispatch is retried or the cohort population is still running.
-MAX_STALL_CHECKS = 6
-# A batch fill claimed this long ago without starting was lost, so another task may claim it.
-FILL_CLAIM_EXPIRES = timedelta(hours=1)
-# A population that hasn't started by then was lost on its way to a worker.
-POPULATION_START_TIMEOUT = timedelta(hours=1)
 
 # Capture rejects longer distinct IDs (CAPTURE_V1_DISTINCT_ID_MAX_SIZE in rust/capture).
 MAX_DISTINCT_ID_BYTES = 200
@@ -101,6 +91,8 @@ class StagedPerson(TypedDict):
     properties: dict[str, str]
     # Only fills properties the person doesn't have yet.
     fill_only: NotRequired[bool]
+    # False for a person whose events the import sends but who stays out of the cohort.
+    member: NotRequired[bool]
 
 
 @frozen
@@ -122,16 +114,12 @@ def start_people_import(
     create_missing: bool = True,
     send_events: bool = True,
     fill_only: bool = False,
-    batch: tuple[UUID, int] | None = None,
-    fill_cohort: bool = True,
 ) -> PeopleImportSummary:
     """Create or update a person per row, then add them to a new static cohort called `name`, or to `cohort_id`.
 
     Without `create_missing`, a row no person matches is left out instead of becoming a new person. Without
     `send_events`, the import only fills the cohort: another import of the same rows creates and updates the people.
     With `fill_only`, a person keeps the values they have, and the import sets only the properties they lack.
-    `batch` names the batch from `start_people_import_batch` and this import's part of it. Without `fill_cohort`, the
-    import only sends the events and leaves `cohort_id` as it is, for people another import adds to the cohort.
     """
     if cohort_id is None and not create_missing:
         raise ValueError("An import that leaves out new people adds the rest to an existing cohort.")
@@ -140,19 +128,103 @@ def start_people_import(
             f"This file has {len(rows):,} rows. A file can have up to {MAX_PEOPLE_IMPORT_ROWS:,}."
         )
 
+    prepared = prepare_people(team, user, rows, create_missing=create_missing, fill_only=fill_only)
+    people = prepared.people
+    if not people:
+        # Every row was left out, so there is nothing to send and the cohort stays as it is.
+        assert cohort_id is not None
+        return prepared.summary(cohort_id, new_people=0)
+    existing = existing_distinct_ids(team.id, [person["distinct_id"] for person in people])
+    target_id = _start_filling(team, user, name, cohort_id)
+    storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{target_id}-{uuid.uuid4()}.json"
+
+    # The task module imports this one, so a module-level import would be circular.
+    from products.workflows.backend.tasks.people_import import (  # noqa: PLC0415
+        capture_people_import,
+        fail_people_import_if_stalled,
+        schedule_people_import_fill,
+    )
+
+    try:
+        object_storage.write(storage_key, json.dumps(people))
+        # Scheduled before the caller commits, so the stored rows are deleted even when its transaction rolls back
+        # or the dispatch below never runs. A worker that dies mid-task leaves the cohort calculating too, and the
+        # stuck-cohort sweep resets an uploaded cohort only after SOURCELESS_STATIC_COHORT_STUCK_AFTER without
+        # deleting the rows.
+        fail_people_import_if_stalled.apply_async(
+            kwargs={"team_id": team.id, "cohort_id": target_id, "storage_key": storage_key},
+            countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
+        )
+    except Exception:
+        fail_people_import(team.id, target_id, storage_key)
+        raise
+
+    def dispatch() -> None:
+        try:
+            if send_events:
+                capture_people_import.delay(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
+            else:
+                schedule_people_import_fill(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
+        except Exception:
+            # No task would finish this cohort. The stuck-cohort sweep would leave it calculating until
+            # SOURCELESS_STATIC_COHORT_STUCK_AFTER passes.
+            fail_people_import(team.id, target_id, storage_key)
+            raise
+
+    # A caller's transaction can still roll back the cohort, and events sent before that can't be taken back.
+    transaction.on_commit(dispatch)
+
+    return prepared.summary(target_id, new_people=sum(1 for person in people if person["distinct_id"] not in existing))
+
+
+@frozen
+class PreparedPeople:
+    """The people an import's rows write to, and the rows it left out."""
+
+    people: list[StagedPerson]
+    columns: list[str]
+    dropped_invalid_email: int
+    dropped_duplicate_email: int
+    dropped_too_large: int
+    skipped_new_people: int
+    person_emails: tuple[str, ...]
+
+    def summary(self, cohort_id: int, *, new_people: int) -> PeopleImportSummary:
+        return PeopleImportSummary(
+            cohort_id=cohort_id,
+            row_count=len(self.people),
+            new_people=new_people,
+            columns=self.columns,
+            dropped_invalid_email=self.dropped_invalid_email,
+            dropped_duplicate_email=self.dropped_duplicate_email,
+            dropped_too_large=self.dropped_too_large,
+            skipped_new_people=self.skipped_new_people,
+            person_emails=self.person_emails,
+        )
+
+
+def prepare_people(
+    team: Team,
+    user: User | None,
+    rows: list[dict[str, str]],
+    *,
+    create_missing: bool,
+    fill_only: bool,
+    require_rows: bool = True,
+) -> PreparedPeople:
+    """Checks the rows and finds the person each one writes to. Raises PeopleImportInvalid, also when no row has a
+    valid email and `require_rows` is set."""
     cleaned = _clean_rows(rows)
-    if not cleaned.rows and batch is None:
+    if not cleaned.rows and require_rows:
         raise PeopleImportInvalid("No row has a valid email address.")
     _check_writable_columns(team, user, cleaned.columns)
 
     resolved_people = _resolve_distinct_ids(team, user, cleaned.rows)
-    distinct_ids = resolved_people.distinct_ids
-    person_emails = tuple(sorted({spelling for spelled in resolved_people.spellings.values() for spelling in spelled}))
     people: list[StagedPerson] = []
     seen_distinct_ids: set[str] = set()
     dropped_duplicate_distinct_id = 0
     skipped_new_people = 0
-    for row, distinct_id in zip(cleaned.rows, distinct_ids):
+    for row, distinct_id in zip(cleaned.rows, resolved_people.distinct_ids):
         if distinct_id is None and not create_missing:
             skipped_new_people += 1
             continue
@@ -167,73 +239,35 @@ def start_people_import(
             if fill_only
             else {"distinct_id": resolved, "properties": row}
         )
-
-    if not people:
-        # Every row was left out, so there is nothing to send and the cohort stays as it is.
-        assert cohort_id is not None
-        if batch is not None:
-            _on_part_ready(team.id, *batch, storage_key=None)
-        return PeopleImportSummary(
-            cohort_id=cohort_id,
-            row_count=0,
-            new_people=0,
-            columns=cleaned.columns,
-            dropped_invalid_email=cleaned.dropped_invalid_email,
-            dropped_duplicate_email=cleaned.dropped_duplicate_email,
-            dropped_too_large=cleaned.dropped_too_large,
-            skipped_new_people=skipped_new_people,
-            person_emails=person_emails,
-        )
-    existing = existing_distinct_ids(team.id, [person["distinct_id"] for person in people])
-    if fill_cohort:
-        target_id = _start_filling(team, user, name, cohort_id)
-    else:
-        assert cohort_id is not None and send_events
-        target_id = cohort_id
-    storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{target_id}-{uuid.uuid4()}.json"
-
-    # The task module imports this one, so a module-level import would be circular.
-    from products.workflows.backend.tasks.people_import import fail_people_import_if_stalled  # noqa: PLC0415
-
-    try:
-        object_storage.write(storage_key, json.dumps(people))
-        # A row written in the caller's transaction shows the import committed. A batch's own row does that for a part.
-        marker = start_people_import_batch(team.id, target_id, 1) if batch is None else None
-        _set_phase(
-            storage_key,
-            ImportPhase.STAGED,
-            send_events=send_events,
-            batch=batch,
-            fill_cohort=fill_cohort,
-            commit_marker=marker,
-        )
-        # Scheduled before the caller commits, so the stored rows are deleted even when its transaction rolls back,
-        # and the import is dispatched again when the dispatch below fails or never runs.
-        fail_people_import_if_stalled.apply_async(
-            kwargs={"team_id": team.id, "cohort_id": target_id, "storage_key": storage_key},
-            countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
-        )
-    except Exception:
-        fail_people_import(team.id, target_id, storage_key, fills_cohort=fill_cohort)
-        raise
-
-    # A caller's transaction can still roll back the cohort, and events sent before that can't be taken back.
-    # `robust` keeps one failed dispatch from skipping the other imports the same transaction started.
-    transaction.on_commit(
-        lambda: dispatch_people_import(team.id, target_id, storage_key, send_events=send_events), robust=True
-    )
-
-    return PeopleImportSummary(
-        cohort_id=target_id,
-        row_count=len(people),
-        new_people=sum(1 for person in people if person["distinct_id"] not in existing),
+    return PreparedPeople(
+        people=people,
         columns=cleaned.columns,
         dropped_invalid_email=cleaned.dropped_invalid_email,
         dropped_duplicate_email=cleaned.dropped_duplicate_email + dropped_duplicate_distinct_id,
         dropped_too_large=cleaned.dropped_too_large,
         skipped_new_people=skipped_new_people,
-        person_emails=person_emails,
+        person_emails=tuple(
+            sorted({spelling for spelled in resolved_people.spellings.values() for spelling in spelled})
+        ),
     )
+
+
+def set_events(people: list[StagedPerson], storage_key: str) -> list[dict[str, object]]:
+    """One $set event per person. The uuid stays the same for a person in the same stored list, so a retry can find
+    which events capture didn't acknowledge."""
+    return [
+        {
+            "event": "$set",
+            "distinct_id": person["distinct_id"],
+            # The server's IP says nothing about where the person is.
+            "properties": {
+                "$set_once" if person.get("fill_only") else "$set": person["properties"],
+                "$geoip_disable": True,
+            },
+            "event_uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{storage_key}/{person['distinct_id']}")),
+        }
+        for person in people
+    ]
 
 
 def _start_filling(team: Team, user: User | None, name: str, cohort_id: int | None) -> int:
@@ -242,10 +276,7 @@ def _start_filling(team: Team, user: User | None, name: str, cohort_id: int | No
         return Cohort.objects.create(
             team_id=team.id, name=name, is_static=True, is_calculating=True, created_by=user
         ).pk
-    if not Cohort.objects.filter(team_id=team.id, pk=cohort_id, is_static=True, deleted=False).update(
-        is_calculating=True
-    ):
-        raise PeopleImportInvalid("The cohort for this import was deleted or isn't static anymore.")
+    mark_cohort_filling(team.id, cohort_id)
     return cohort_id
 
 
@@ -254,248 +285,41 @@ def read_people(storage_key: str) -> list[StagedPerson]:
     return json.loads(content) if content else []
 
 
-def start_people_import_batch(team_id: int, cohort_id: int, parts: int) -> UUID:
-    """Starts a batch of `parts` imports that fill one cohort together, once every part's people exist."""
-    return PeopleImportBatch.objects.for_team(team_id).create(team_id=team_id, cohort_id=cohort_id, parts=parts).id
-
-
-def claim_people_import_batch_fill(team_id: int, batch_id: UUID) -> bool:
-    """Only one caller starts a batch's fill. Another can only after the claim expired with the fill not started."""
-    now = timezone.now()
-    return bool(
-        PeopleImportBatch.objects.for_team(team_id)
-        .filter(id=batch_id, failed=False)
-        .filter(Q(fill_claimed_at__isnull=True) | Q(fill_claimed_at__lt=now - FILL_CLAIM_EXPIRES))
-        .update(fill_claimed_at=now)
-    )
-
-
-def mark_people_import_part_ready(team_id: int, batch_id: UUID, part: int, storage_key: str | None) -> bool:
-    """Records that a part's people exist. Only the call that completes the batch returns True, so the cohort fills
-    once. A part recorded twice counts once."""
-    with transaction.atomic():
-        batch = PeopleImportBatch.objects.for_team(team_id).select_for_update().filter(id=batch_id).first()
-        if batch is None or batch.failed or str(part) in batch.ready_parts:
-            return False
-        batch.ready_parts[str(part)] = storage_key
-        batch.save(update_fields=["ready_parts"])
-        return len(batch.ready_parts) == batch.parts
-
-
-def people_import_batch_rows(team_id: int, batch_id: UUID) -> tuple[int, list[str]] | None:
-    """The cohort a completed batch fills and the stored rows of its parts, or None for a batch that failed."""
-    batch = PeopleImportBatch.objects.for_team(team_id).filter(id=batch_id, failed=False).first()
-    if batch is None:
-        return None
-    return batch.cohort_id, [key for _, key in sorted(batch.ready_parts.items(), key=lambda item: int(item[0])) if key]
-
-
-def fail_people_import_batch(team_id: int, batch_id: UUID) -> None:
-    """Stops a batch whose part can't finish, so its other parts end instead of waiting for it."""
-    PeopleImportBatch.objects.for_team(team_id).filter(id=batch_id).update(failed=True)
-
-
-def finish_people_import_batch(team_id: int, batch_id: UUID) -> None:
-    PeopleImportBatch.objects.for_team(team_id).filter(id=batch_id).delete()
-
-
-def _on_part_ready(team_id: int, batch_id: UUID, part: int, *, storage_key: str | None) -> None:
-    if not mark_people_import_part_ready(team_id, batch_id, part, storage_key):
-        return
-    if not claim_people_import_batch_fill(team_id, batch_id):
-        return
-    from products.workflows.backend.tasks.people_import import fill_people_import_batch  # noqa: PLC0415
-
-    transaction.on_commit(lambda: fill_people_import_batch.delay(team_id=team_id, batch_id=str(batch_id)), robust=True)
-
-
 def delete_people(storage_key: str) -> None:
     object_storage.delete(storage_key)
-    object_storage.delete(_phase_key(storage_key))
 
 
-def dispatch_people_import(team_id: int, cohort_id: int, storage_key: str, *, send_events: bool) -> None:
-    """Start the tasks that send the stored rows and fill the cohort. A failed dispatch is kept for the stall check."""
-    from products.workflows.backend.tasks.people_import import (  # noqa: PLC0415
-        capture_people_import,
-        schedule_people_import_fill,
-    )
-
-    try:
-        _set_phase(storage_key, ImportPhase.DISPATCHED, send_events=send_events)
-        if send_events:
-            capture_people_import.delay(team_id=team_id, cohort_id=cohort_id, storage_key=storage_key)
-        else:
-            schedule_people_import_fill(team_id=team_id, cohort_id=cohort_id, storage_key=storage_key)
-    except Exception:
-        logger.exception("people_import_dispatch_failed", team_id=team_id, cohort_id=cohort_id)
-        try:
-            _set_phase(storage_key, ImportPhase.DISPATCH_FAILED, send_events=send_events)
-        except Exception:
-            fail_people_import(team_id, cohort_id, storage_key)
+def mark_cohort_filling(team_id: int, cohort_id: int) -> None:
+    """Shows the cohort as calculating until an import sets its people. Raises PeopleImportInvalid for a cohort that
+    was deleted or isn't static anymore."""
+    if not Cohort.objects.filter(team_id=team_id, pk=cohort_id, is_static=True, deleted=False).update(
+        is_calculating=True
+    ):
+        raise PeopleImportInvalid("The cohort for this import was deleted or isn't static anymore.")
 
 
-def mark_people_import_populating(storage_key: str) -> None:
-    """Records that the cohort population started, so the stall check follows it until it ends."""
-    _set_phase(storage_key, ImportPhase.POPULATING)
-
-
-def people_import_fills_cohort(storage_key: str) -> bool:
-    """Whether the import adds its people to its cohort, or only sends their events."""
-    return bool(_read_phase(storage_key).get("fill_cohort", True))
-
-
-def people_import_part(storage_key: str) -> tuple[UUID, int] | None:
-    """The batch and part an import belongs to, or None for an import that fills its cohort alone."""
-    batch = _read_phase(storage_key).get("batch")
-    return (UUID(batch[0]), int(batch[1])) if batch else None
-
-
-def wait_for_other_parts(team_id: int, storage_key: str) -> bool:
-    """Records that this part's people exist. True when it was the last part, so its caller fills the cohort."""
-    part = people_import_part(storage_key)
-    assert part is not None
-    _set_phase(storage_key, ImportPhase.WAITING_FOR_PARTS)
-    return mark_people_import_part_ready(team_id, *part, storage_key) and claim_people_import_batch_fill(
-        team_id, part[0]
+def fail_cohort_fill(team_id: int, cohort_id: int) -> None:
+    """The cohort stops calculating and shows an error."""
+    Cohort.objects.filter(pk=cohort_id, team_id=team_id).update(
+        is_calculating=False, errors_calculating=F("errors_calculating") + 1, last_error_at=timezone.now()
     )
 
 
-def finish_people_import_rows(team_id: int, storage_key: str) -> None:
-    """Deletes what a finished import stored."""
-    _drop_commit_marker(team_id, _read_phase(storage_key))
-    delete_people(storage_key)
-
-
-def _drop_commit_marker(team_id: int, state: dict[str, Any]) -> None:
-    if state.get("commit_marker"):
-        finish_people_import_batch(team_id, UUID(state["commit_marker"]))
-
-
-def _committed(team_id: int, state: dict[str, Any]) -> bool:
-    """Whether the caller that staged the import committed, from the row it wrote in the same transaction."""
-    marker = state.get("commit_marker") or (state.get("batch") or [None])[0]
-    return bool(marker) and PeopleImportBatch.objects.for_team(team_id).filter(id=marker).exists()
-
-
-def fail_people_import(team_id: int, cohort_id: int, storage_key: str, *, fills_cohort: bool | None = None) -> None:
-    """Ends an import that can't finish: the cohort stops calculating and shows an error.
-
-    `fills_cohort` says whether the import owns the cohort, for a caller that knows. Otherwise the import's record
-    says, and an import without one leaves the cohort alone.
-    """
-    state: dict[str, Any] = {}
-    try:
-        state = _read_phase(storage_key)
-        _drop_commit_marker(team_id, state)
-        batch = state.get("batch")
-        if batch:
-            fail_people_import_batch(team_id, UUID(batch[0]))
-    except Exception:
-        logger.exception("people_import_batch_fail_failed", team_id=team_id, cohort_id=cohort_id)
-    if fills_cohort is None:
-        fills_cohort = bool(state) and bool(state.get("fill_cohort", True))
-    if fills_cohort:
-        Cohort.objects.filter(pk=cohort_id, team_id=team_id).update(
-            is_calculating=False, errors_calculating=F("errors_calculating") + 1, last_error_at=timezone.now()
-        )
+def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
+    """Ends an import that can't finish: the cohort stops calculating and shows an error."""
+    fail_cohort_fill(team_id, cohort_id)
     try:
         delete_people(storage_key)
     except Exception:
         logger.exception("people_import_cleanup_failed", team_id=team_id, cohort_id=cohort_id)
 
 
-class StallCheck(StrEnum):
-    FINISHED = "finished"
-    FAILED = "failed"
-    WAITING = "waiting"
-
-
-def check_stalled_people_import(team_id: int, cohort_id: int, storage_key: str, *, check: int) -> StallCheck:
-    """Ends, dispatches again, or keeps waiting on an import that hasn't deleted its rows yet.
-
-    `check` counts the earlier checks of the import. WAITING asks the caller to check again later.
-    """
+def fail_stalled_people_import(team_id: int, cohort_id: int, storage_key: str) -> bool:
     # A finished import deletes its rows. Checking them, not the cohort, leaves a later import of the cohort alone.
     if object_storage.read(storage_key, missing_ok=True) is None:
-        return StallCheck.FINISHED
-    state = _read_phase(storage_key)
-    if not state:
-        # Staging stopped before it recorded the import, so nothing will send these rows.
-        delete_people(storage_key)
-        return StallCheck.FINISHED
-    phase = state.get("phase")
-    cohort = Cohort.objects.filter(pk=cohort_id, team_id=team_id).first()
-    last_check = check + 1 >= MAX_STALL_CHECKS
-    if phase == ImportPhase.STAGED and not _committed(team_id, state):
-        # A caller staging a long list can still be in its transaction, so only the last check takes it as rolled back.
-        if not last_check:
-            return StallCheck.WAITING
-        delete_people(storage_key)
-        return StallCheck.FINISHED
-    if phase in (ImportPhase.STAGED, ImportPhase.DISPATCH_FAILED) and not last_check:
-        # The caller committed, but the dispatch failed or never ran.
-        dispatch_people_import(team_id, cohort_id, storage_key, send_events=bool(state.get("send_events", True)))
-        return StallCheck.WAITING
-    if phase == ImportPhase.WAITING_FOR_PARTS and not last_check:
-        batch = PeopleImportBatch.objects.for_team(team_id).filter(id=state["batch"][0]).first()
-        if batch is not None and not batch.failed:
-            if len(batch.ready_parts) == batch.parts and claim_people_import_batch_fill(team_id, batch.id):
-                # Every part is in but the cohort fill never started, so the last part's dispatch was lost.
-                from products.workflows.backend.tasks.people_import import fill_people_import_batch  # noqa: PLC0415
-
-                fill_people_import_batch.delay(team_id=team_id, batch_id=str(batch.id))
-            return StallCheck.WAITING
-    if phase == ImportPhase.POPULATING and cohort is not None:
-        if not cohort.is_calculating:
-            # The population ended, and the cohort shows how. Only the cleanup after it went missing.
-            finish_people_import_rows(team_id, storage_key)
-            return StallCheck.FINISHED
-        started = datetime.fromisoformat(state["at"])
-        attempts = CohortCalculationHistory.objects.filter(cohort_id=cohort_id, started_at__gte=started)
-        lost = not attempts.exists() and timezone.now() - started > POPULATION_START_TIMEOUT
-        if not lost and not last_check:
-            return StallCheck.WAITING
+        return False
     fail_people_import(team_id, cohort_id, storage_key)
-    return StallCheck.FAILED
-
-
-class ImportPhase(StrEnum):
-    STAGED = "staged"
-    DISPATCHED = "dispatched"
-    DISPATCH_FAILED = "dispatch_failed"
-    WAITING_FOR_PARTS = "waiting_for_parts"
-    POPULATING = "populating"
-
-
-def _phase_key(storage_key: str) -> str:
-    return f"{storage_key.removesuffix('.json')}.phase.json"
-
-
-def _set_phase(
-    storage_key: str,
-    phase: ImportPhase,
-    *,
-    send_events: bool | None = None,
-    batch: tuple[UUID, int] | None = None,
-    fill_cohort: bool | None = None,
-    commit_marker: UUID | None = None,
-) -> None:
-    state: dict[str, object] = {**_read_phase(storage_key), "phase": phase.value, "at": timezone.now().isoformat()}
-    if send_events is not None:
-        state["send_events"] = send_events
-    if batch is not None:
-        state["batch"] = [str(batch[0]), batch[1]]
-    if fill_cohort is not None:
-        state["fill_cohort"] = fill_cohort
-    if commit_marker is not None:
-        state["commit_marker"] = str(commit_marker)
-    object_storage.write(_phase_key(storage_key), json.dumps(state))
-
-
-def _read_phase(storage_key: str) -> dict[str, Any]:
-    content = object_storage.read(_phase_key(storage_key), missing_ok=True)
-    return json.loads(content) if content else {}
+    return True
 
 
 def existing_distinct_ids(team_id: int, distinct_ids: list[str]) -> set[str]:

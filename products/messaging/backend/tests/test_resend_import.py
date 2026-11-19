@@ -671,16 +671,14 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                 runs.run_step(self.team.id, run.id, step, attempt=1)
         run.refresh_from_db()
 
-        sent = self.people.staged
-        assert all(person["fill_only"] for rows in sent for person in rows)
+        sent = [(event["distinct_id"], event["properties"]) for event in self.people.events]
         if defined:
             # The identity and $ names stay out, and a property with no value adds nothing.
-            assert sent[-1] == [
-                {
-                    "distinct_id": "user-hal",
-                    "properties": {"email": "happy@example.com", "plan": "pro", "seats": "3"},
-                    "fill_only": True,
-                }
+            assert sent == [
+                (
+                    "user-hal",
+                    {"$set_once": {"email": "happy@example.com", "plan": "pro", "seats": "3"}, "$geoip_disable": True},
+                )
             ]
             assert run.progress["contact_properties"]["counts"] == {"people": 1, "contacts": 4}
         else:
@@ -692,20 +690,20 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             (
                 "with_new_people",
                 [*OPT_OUT_STEPS, "contacts", "new_people", "automations"],
-                [("send Resend contacts", ["unsubscribed@example.com", "left-a-topic@example.com", "user-hal"])],
+                [("unsubscribed@example.com", False), ("left-a-topic@example.com", True), ("user-hal", True)],
                 # The people import only takes addresses Django validates, which leaves out Björk's.
                 {"people": 3, "new_people": 2, "skipped_new_people": 0, "dropped": 1},
             ),
             (
                 "matching_people_only",
                 [*OPT_OUT_STEPS, "contacts", "automations"],
-                [("send Resend contacts", ["user-hal"])],
+                [("user-hal", True)],
                 {"people": 1, "new_people": 0, "skipped_new_people": 2, "dropped": 1},
             ),
         ]
     )
     def test_contacts_become_people_once_and_fill_the_cohort_automations_use(
-        self, _name: str, steps: list[str], sent: list[tuple[str, list[str]]], counts: dict[str, int]
+        self, _name: str, steps: list[str], staged: list[tuple[str, bool]], counts: dict[str, int]
     ) -> None:
         _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
         flush_persons_and_events()
@@ -717,12 +715,13 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
 
-        assert self.people.imports == sent
-        assert self.people.properties["user-hal"] == {
-            "email": "happy@example.com",
-            "first_name": "Hal",
-            "last_name": "Happy",
-        }
+        # The workflow sends the stored list once the step completes. A contact who unsubscribed becomes a person but
+        # stays out of the cohort.
+        [plan] = run.progress["contacts"]["people_imports"]
+        people = self.people.people(plan)
+        assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
+        assert [(person["distinct_id"], person.get("member", True)) for person in people] == staged
+        assert people[-1]["properties"] == {"email": "happy@example.com", "first_name": "Hal", "last_name": "Happy"}
         assert run.progress["contacts"]["counts"] == counts
         segment_cohorts = Cohort.objects.filter(team_id=self.team.id, description="Imported from Resend segment seg-1.")
         assert segment_cohorts.count() == 1
