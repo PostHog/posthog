@@ -34,6 +34,8 @@ from posthog.models.utils import (
 )
 from posthog.test.api_keys import create_project_secret_api_key
 
+from products.conversations.backend.models import SigningSecret
+
 
 class TestGitHubSignatureVerification(TestCase):
     def setUp(self):
@@ -619,6 +621,7 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         token = "phs_legacy_team_secret_token_123"
         self.team.secret_api_token = token
         self.team.save()
+        signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=token)
 
         response = self._post_alert([token])
 
@@ -631,6 +634,9 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         self.assertTrue(
             RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
         )
+        signing_secret.refresh_from_db()
+        self.assertNotEqual(signing_secret.secret, token)
+        self.assertTrue(signing_secret.rotated_independently)
         mock_ff_exposed.assert_called_once()
         mock_psak_exposed.assert_not_called()
 

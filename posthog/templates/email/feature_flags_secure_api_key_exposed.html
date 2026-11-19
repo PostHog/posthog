@@ -9,9 +9,11 @@
     <p>
         If your systems still need this access, create a project secret API key with the <strong>feature_flag:read</strong> scope and update them to use it.
     </p>
-    <p>
-        If you use identity verification for the support widget, also rotate the identity verification secret in <a href="{{ conversations_settings_url }}">Conversations settings</a> and select "Expire now" on the previous secret.
-    </p>
+    {% if signing_secret_replaced %}
+        <p>
+            This key was also your identity verification secret for the support widget. We replaced it, and identity verification requests fail until your server uses the new secret from <a href="{{ conversations_settings_url }}">Conversations settings</a>.
+        </p>
+    {% endif %}
     <div class="mb mt text-center">
         <a class="button" href="{{ url }}">Go to project settings</a>
     </div>

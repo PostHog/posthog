@@ -1,6 +1,7 @@
 from django.db import transaction
 
-from posthog.models.utils import generate_random_token
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.utils import generate_random_token, mask_key_value
 
 from products.conversations.backend.models import SigningSecret
 
@@ -12,22 +13,58 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> bool:
     Leak revocation deletes the token's PSAK mirror row, but a signing secret row holding
     the same value would keep verifying identity hashes signed with the leaked token.
     Mint a fresh secret with no grace window, so verification fails closed until an admin
-    reads the new value from Conversations settings. Returns whether anything changed.
+    reads the new value from Conversations settings. Returns whether the active secret
+    was replaced.
     """
     with transaction.atomic():
-        row = SigningSecret.objects.for_team(team_id).select_for_update().first()
+        row = SigningSecret.objects.for_team(team_id).select_related("team").select_for_update(of=("self",)).first()
         if row is None:
             return False
+        changes = []
         update_fields = []
+        replaced = False
         if row.secret == token:
+            old_secret = row.secret
             row.secret = generate_random_token()
             row.rotated_independently = True
             update_fields += ["secret", "rotated_independently"]
+            changes.append(
+                Change(
+                    type="Team",
+                    action="changed",
+                    field="conversations_signing_secret",
+                    before=mask_key_value(old_secret),
+                    after=mask_key_value(row.secret),
+                )
+            )
+            replaced = True
         if row.previous_secret == token:
+            expired = row.previous_secret
             row.previous_secret = None
             row.previous_secret_rotated_at = None
             update_fields += ["previous_secret", "previous_secret_rotated_at"]
+            changes.append(
+                Change(
+                    type="Team",
+                    action="deleted",
+                    field="conversations_signing_secret_previous",
+                    before=mask_key_value(expired),
+                    after=None,
+                )
+            )
         if not update_fields:
             return False
         row.save(update_fields=update_fields)
-        return True
+        # user=None: the change is system-initiated by leak revocation, and the admin who
+        # later finds a new secret needs this trail, same as the rotate endpoint writes.
+        log_activity(
+            organization_id=row.team.organization_id,
+            team_id=team_id,
+            user=None,
+            was_impersonated=False,
+            scope="Team",
+            item_id=team_id,
+            activity="updated",
+            detail=Detail(name=str(row.team.name), changes=changes),
+        )
+        return replaced

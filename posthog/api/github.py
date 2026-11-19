@@ -19,6 +19,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.project_secret_api_key import retire_leaked_team_secret_token
 from posthog.api.secret_revocation import (
     CANONICAL_OAUTH_ACCESS_TOKEN,
     CANONICAL_OAUTH_REFRESH_TOKEN,
@@ -30,8 +31,7 @@ from posthog.api.secret_revocation import (
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
-from posthog.models.project_secret_api_key import RevokedTeamSecretToken
-from posthog.models.utils import hash_key_value, mask_key_value
+from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed
 from posthog.utils import get_instance_region
@@ -280,17 +280,11 @@ class SecretAlert(APIView):
                         team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                         local_found = True
                         key_kind = CANONICAL_TEAM_SECRET_TOKEN
-                        # Lazy: conversations imports posthog.api modules at load time.
-                        from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
-
                         with transaction.atomic():
-                            # Without this record the pre-drop rerun of the #63111 backfill
-                            # would mint a fresh mirror row for the leaked value.
-                            RevokedTeamSecretToken.objects.for_team(team.id).get_or_create(
-                                team_id=team.id, secure_value=hash_key_value(token)
-                            )
-                            retire_leaked_signing_secret(team.id, token)
-                        send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
+                            signing_secret_replaced = retire_leaked_team_secret_token(team.id, token)
+                        send_feature_flags_secure_api_key_exposed(
+                            team.id, mask_key_value(token), more_info, signing_secret_replaced
+                        )
 
                     except Team.DoesNotExist:
                         pass

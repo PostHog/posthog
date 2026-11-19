@@ -26,18 +26,21 @@ def reconcile_signing_secrets(apps, schema_editor):
     trusted signing secret either, even when the row already mirrors it: such rows get
     a fresh random secret instead, so identity verification fails closed until an admin
     reads the new value from Conversations settings. Revocations are re-read per batch
-    and again under the repair lock, because pods on the previous release record them
-    without retiring the signing secret while this scan runs.
+    and again after each repair locks the team row, because pods on the previous release
+    record them without retiring the signing secret while this scan runs.
     """
     SigningSecret = apps.get_model("conversations", "SigningSecret")
     RevokedTeamSecretToken = apps.get_model("posthog", "RevokedTeamSecretToken")
-    Team = SigningSecret._meta.get_field("team").related_model
+    Team = apps.get_model("posthog", "Team")
     alias = schema_editor.connection.alias
 
     row_ids = list(SigningSecret.objects.using(alias).filter(rotated_independently=False).values_list("pk", flat=True))
 
     checked = 0
     resynced = 0
+    # Minting a fresh secret breaks a team's widget identity verification until its admin
+    # reads the new value, so the summary log names those teams for the operator.
+    failed_closed_team_ids = []
     for start in range(0, len(row_ids), BATCH_SIZE):
         batch = list(
             SigningSecret.objects.using(alias)
@@ -93,11 +96,19 @@ def reconcile_signing_secrets(apps, schema_editor):
                 # row lock, and this write must not clobber the secret it minted. A
                 # mirroring row never carries grace; a drifted previous_secret may hold a
                 # revoked key, so expire it with the resync.
-                resynced += (
+                updated = (
                     SigningSecret.objects.using(alias).filter(pk=row.pk, rotated_independently=False).update(**updates)
                 )
+                resynced += updated
+                if updated and "rotated_independently" in updates:
+                    failed_closed_team_ids.append(row.team_id)
 
-    logger.info("reconciled_conversations_signing_secrets", checked=checked, resynced=resynced)
+    logger.info(
+        "reconciled_conversations_signing_secrets",
+        checked=checked,
+        resynced=resynced,
+        failed_closed_team_ids=failed_closed_team_ids,
+    )
 
 
 class Migration(migrations.Migration):
