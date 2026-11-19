@@ -2238,6 +2238,11 @@ class EmailForwardingChallengeThrottle(UserRateThrottle):
     rate = "6/minute"
 
 
+class PostHogSupportDraftCreateThrottle(UserRateThrottle):
+    scope = "posthog_support_draft_create"
+    rate = "20/day"
+
+
 class ComposeTicketBurstThrottle(UserRateThrottle):
     scope = "compose_ticket_burst"
     rate = "10/minute"

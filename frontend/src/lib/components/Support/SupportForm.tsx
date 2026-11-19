@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 import { useRef } from 'react'
 
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -71,6 +72,12 @@ export function SupportForm({ messageLabel, messagePlaceholder }: SupportFormPro
             enableFormOnSubmit
             className="deprecated-space-y-4"
         >
+            {sendSupportRequest.ai_draft_id && (
+                <LemonBanner type="info">
+                    An AI agent drafted this ticket. Nothing has been sent yet. Check it and edit anything that's wrong
+                    before you send it.
+                </LemonBanner>
+            )}
             {!user && (
                 <>
                     <LemonField name="name" label="Name">

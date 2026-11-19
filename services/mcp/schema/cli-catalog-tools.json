@@ -39374,6 +39374,67 @@
             "validators": []
         }
     },
+    "posthog-support-draft-create": {
+        "name": "posthog-support-draft-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/posthog_support/drafts/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "request",
+                    "key": "request"
+                },
+                {
+                    "param": "details",
+                    "key": "details"
+                },
+                {
+                    "param": "already_checked",
+                    "key": "already_checked"
+                },
+                {
+                    "param": "left_for_support",
+                    "key": "left_for_support"
+                },
+                {
+                    "param": "error",
+                    "key": "error"
+                },
+                {
+                    "param": "filing_reason",
+                    "key": "filing_reason"
+                },
+                {
+                    "param": "agent_name",
+                    "key": "agent_name"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "pr-lifecycle": {
         "name": "pr-lifecycle",
         "kind": "http",

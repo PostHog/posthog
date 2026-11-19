@@ -54,11 +54,10 @@ Support checks that the requester is a member of the organization that owns the 
 
 ## Example
 
-````markdown
-**Request:** Please delete the test checkout events that our staging build sent to our live project in the first week of October 2026.
+````text
+Request: Please delete the test checkout events that our staging build sent to our live project in the first week of October 2026.
 
-**Details:**
-
+Details:
 - Project: Web app, ID 12345, US Cloud, https://us.posthog.com/project/12345
 - Events: `checkout_started` and `checkout_completed` from the host `staging.example.com`
 - Query, which returned 3,817 events:
@@ -72,10 +71,9 @@ WHERE timestamp >= toDateTime('2026-10-01 00:00:00', 'UTC')
   AND properties.$host = 'staging.example.com'
 ```
 
-**Already checked:**
-
+Already checked:
 - Claude Code checked: no self-serve route fits, because the same persons have real events that must stay
 - Claude Code checked: the query returns 3,817 events, all from `staging.example.com`
 
-**Left for support:** Delete the 3,817 events this query returns.
+Left for support: Delete the 3,817 events this query returns.
 ````

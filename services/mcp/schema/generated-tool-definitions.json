@@ -13018,6 +13018,22 @@
         },
         "feature_flag": "posthog-connect"
     },
+    "posthog-support-draft-create": {
+        "description": "Draft a ticket to PostHog's human support team for the person to review and send. It sends nothing. Load the writing-posthog-support-tickets skill first, and draft only after you checked the docs and did the lookups it asks for. Each field is one part of the ticket. Afterwards, show the person the message and the review_url, and tell them nothing is sent until they send it from PostHog.",
+        "category": "PostHog support",
+        "feature": "conversations",
+        "summary": "Draft a PostHog support ticket",
+        "title": "Draft a PostHog support ticket",
+        "required_scopes": ["posthog_support:write"],
+        "api_operations": ["POST /api/projects/{project_id}/posthog_support/drafts/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-posthog-support-tickets"
+    },
     "pr-lifecycle": {
         "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events: opened, ready for review, converted to draft, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". Draft/ready transitions appear only when the issue-events table is synced and cover a bounded recent window. metric_quality is \"partial\": review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
         "category": "Engineering analytics",

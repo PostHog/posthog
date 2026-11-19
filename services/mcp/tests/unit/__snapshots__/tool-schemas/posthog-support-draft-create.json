@@ -1,0 +1,50 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "agent_name": {
+            "anyOf": [
+                {
+                    "pattern": "^[\\w .\\-]{1,40}$",
+                    "type": "string"
+                },
+                {
+                    "maxLength": 0,
+                    "type": "string"
+                }
+            ],
+            "description": "Name of the agent or client drafting the ticket, such as Claude Code or Codex."
+        },
+        "already_checked": {
+            "description": "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', one of yours with '<your name> checked:', and one of the person's with 'I tried:'.",
+            "maxLength": 1500,
+            "type": "string"
+        },
+        "details": {
+            "description": "Markdown bullets of facts support needs: the project name, ID, region and link, links to the objects involved, SDK and version, and every required detail for the kind of request, such as a deletion query and its count. Take links from _posthogUrl. No guesses.",
+            "maxLength": 3000,
+            "type": "string"
+        },
+        "error": {
+            "description": "The exact error text and its top frames. Remove any credential and say that you removed it.",
+            "maxLength": 1500,
+            "type": "string"
+        },
+        "filing_reason": {
+            "description": "Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason.\n\n* `user_asked_for_support` - The person asked to contact PostHog support\n* `needs_posthog_staff` - Only PostHog staff can do or see what the person needs\n* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n* `user_disagrees_with_agent` - The person disagrees with the agent's answer",
+            "enum": ["user_asked_for_support", "needs_posthog_staff", "unexplained_error", "user_disagrees_with_agent"],
+            "type": "string"
+        },
+        "left_for_support": {
+            "description": "The one thing only PostHog can do or confirm, such as 'Delete the 3,817 events this query returns'.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "request": {
+            "description": "What the person needs PostHog to do or answer, in one to three sentences, in their own words. Put each question they asked on its own line.",
+            "maxLength": 1000,
+            "type": "string"
+        }
+    },
+    "required": ["request", "left_for_support", "filing_reason"],
+    "type": "object"
+}

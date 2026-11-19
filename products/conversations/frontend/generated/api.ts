@@ -34,6 +34,8 @@ import type {
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
+    PostHogSupportDraftApi,
+    PostHogSupportDraftCreateApi,
     PylonImportJobApi,
     PylonImportStartApi,
     SigningSecretApi,
@@ -888,5 +890,64 @@ export const conversationsZendeskImportsStatusRetrieve = async (
     return apiMutator<ZendeskImportJobApi>(getConversationsZendeskImportsStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getPosthogSupportDraftsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/`
+}
+
+/**
+ * Saves a draft ticket to PostHog support. It does not send it. The person opens review_url, checks and edits the ticket, and sends it from the PostHog web app.
+ * @summary Draft a PostHog support ticket for the person to send
+ */
+export const posthogSupportDraftsCreate = async (
+    projectId: string,
+    postHogSupportDraftCreateApi: PostHogSupportDraftCreateApi,
+    options?: RequestInit
+): Promise<PostHogSupportDraftApi> => {
+    return apiMutator<PostHogSupportDraftApi>(getPosthogSupportDraftsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(postHogSupportDraftCreateApi),
+    })
+}
+
+export const getPosthogSupportDraftsRetrieveUrl = (projectId: string, draftId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/`
+}
+
+/**
+ * A draft that has not been sent yet. Browser sessions only.
+ * @summary Get a PostHog support ticket draft
+ */
+export const posthogSupportDraftsRetrieve = async (
+    projectId: string,
+    draftId: string,
+    options?: RequestInit
+): Promise<PostHogSupportDraftApi> => {
+    return apiMutator<PostHogSupportDraftApi>(getPosthogSupportDraftsRetrieveUrl(projectId, draftId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPosthogSupportDraftsClaimCreateUrl = (projectId: string, draftId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/claim/`
+}
+
+/**
+ * Called by the web app right before it sends the person's ticket. One browser session can claim a draft, and can claim it again to retry, so a review link opened elsewhere cannot file it twice. Browser sessions only.
+ * @summary Claim a draft for the person to send
+ */
+export const posthogSupportDraftsClaimCreate = async (
+    projectId: string,
+    draftId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPosthogSupportDraftsClaimCreateUrl(projectId, draftId), {
+        ...options,
+        method: 'POST',
     })
 }

@@ -324,6 +324,11 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
 SCOUT_DEFAULT_WRITE_SCOPES: frozenset[str] = frozenset({"notebook:write"})
 
 
+# A PostHog support draft speaks for the person, who reviews and sends it. A sandbox run, such as a
+# scout acting as the skill's author on a prompt other members can edit, must not draft one for them.
+SANDBOX_EXCLUDED_SCOPE_OBJECTS = frozenset({"posthog_support"})
+
+
 # Derived from posthog.scopes so the token issued to a sandboxed agent cannot
 # drift out of subset of what the MCP server advertises in
 # `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
@@ -331,7 +336,7 @@ SCOUT_DEFAULT_WRITE_SCOPES: frozenset[str] = frozenset({"notebook:write"})
 # already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
 # emit duplicates.
 def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
-    excluded_objects = INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS
+    excluded_objects = INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS | SANDBOX_EXCLUDED_SCOPE_OBJECTS
     internal_set = set(INTERNAL_SCOPES)
     return [
         f"{obj}:{action}"

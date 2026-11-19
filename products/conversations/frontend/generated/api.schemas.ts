@@ -1338,6 +1338,78 @@ export interface ZendeskImportErrorApi {
     detail: string
 }
 
+/**
+ * * `user_asked_for_support` - The person asked to contact PostHog support
+ * * `needs_posthog_staff` - Only PostHog staff can do or see what the person needs
+ * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
+ * * `user_disagrees_with_agent` - The person disagrees with the agent's answer
+ */
+export type FilingReasonEnumApi = (typeof FilingReasonEnumApi)[keyof typeof FilingReasonEnumApi]
+
+export const FilingReasonEnumApi = {
+    UserAskedForSupport: 'user_asked_for_support',
+    NeedsPosthogStaff: 'needs_posthog_staff',
+    UnexplainedError: 'unexplained_error',
+    UserDisagreesWithAgent: 'user_disagrees_with_agent',
+} as const
+
+export interface PostHogSupportDraftCreateApi {
+    /**
+     * What the person needs PostHog to do or answer, in one to three sentences, in their own words. Put each question they asked on its own line.
+     * @maxLength 1000
+     */
+    request: string
+    /**
+     * Markdown bullets of facts support needs: the project name, ID, region and link, links to the objects involved, SDK and version, and every required detail for the kind of request, such as a deletion query and its count. Take links from _posthogUrl. No guesses.
+     * @maxLength 3000
+     */
+    details?: string
+    /**
+     * Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', one of yours with '<your name> checked:', and one of the person's with 'I tried:'.
+     * @maxLength 1500
+     */
+    already_checked?: string
+    /**
+     * The one thing only PostHog can do or confirm, such as 'Delete the 3,817 events this query returns'.
+     * @maxLength 500
+     */
+    left_for_support: string
+    /**
+     * The exact error text and its top frames. Remove any credential and say that you removed it.
+     * @maxLength 1500
+     */
+    error?: string
+    /** Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason.
+     *
+     * * `user_asked_for_support` - The person asked to contact PostHog support
+     * * `needs_posthog_staff` - Only PostHog staff can do or see what the person needs
+     * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
+     * * `user_disagrees_with_agent` - The person disagrees with the agent's answer */
+    filing_reason: FilingReasonEnumApi
+    /** Name of the agent or client drafting the ticket, such as Claude Code or Codex. */
+    agent_name?: string
+}
+
+export interface PostHogSupportDraftApi {
+    /** Draft id. */
+    id: string
+    /** Ticket text exactly as the person will see it in the support form. */
+    message: string
+    /** Note filed under the ticket for support, saying an agent drafted it and why. */
+    ticket_context: string
+    /** Unix time after which the draft is gone if nobody sent it. */
+    expires_at: number
+    /** Link the person opens in their browser to review, edit and send the ticket. */
+    review_url: string
+    /** What to tell the person now. */
+    next_step: string
+}
+
+export interface PostHogSupportErrorApi {
+    /** What went wrong. */
+    detail: string
+}
+
 export type ConversationsMacrosListParams = {
     /**
      * Number of results to return per page.

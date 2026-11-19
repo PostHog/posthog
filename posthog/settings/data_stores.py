@@ -887,6 +887,12 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
+# PostHog support drafts enforce a per-user cap and single-use claims, so they must read what they wrote.
+CACHES["posthog_support_drafts"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
 CACHES["current_alias_usage"] = {
     **CACHES["default"],
@@ -969,6 +975,7 @@ if TEST:
     CACHES["admin_console_results"] = CACHES["default"]
     CACHES["data_deletion_stats"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
+    CACHES["posthog_support_drafts"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

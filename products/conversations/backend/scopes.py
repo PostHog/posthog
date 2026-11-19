@@ -12,6 +12,15 @@ SCOPE_DOCS = (
         docs_url="https://posthog.com/docs/support",
     ),
     ScopeDoc(
+        object="posthog_support",
+        name="PostHog support",
+        plural="PostHog support tickets",
+        description="Drafts of tickets to PostHog support, which you review and send yourself in PostHog.",
+        group="Customers & support",
+        docs_url="https://posthog.com/docs/support",
+        actions=("write",),
+    ),
+    ScopeDoc(
         object="ticket",
         name="Ticket",
         plural="tickets",

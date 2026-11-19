@@ -4,6 +4,7 @@ from products.conversations.backend.api import (
     AIContextAccountPropertiesViewSet,
     AIReplyPlaybookViewSet,
     IntercomImportViewSet,
+    PostHogSupportViewSet,
     PylonImportViewSet,
     SigningSecretViewSet,
     TicketMacroViewSet,
@@ -67,5 +68,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/signing_secret",
         SigningSecretViewSet,
         "project_conversations_signing_secret",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"posthog_support",
+        PostHogSupportViewSet,
+        "project_posthog_support",
         ["team_id"],
     )
