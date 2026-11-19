@@ -486,7 +486,7 @@ export class PostHogAPIClient {
     runId: string,
   ): Promise<StoredEntry[]> {
     const teamId = this.getTeamId();
-    const endpoint = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/logs`;
+    const endpoint = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/log_entries/`;
 
     try {
       const response = await this.performRequestWithRetry(endpoint, {

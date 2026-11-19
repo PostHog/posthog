@@ -95,7 +95,7 @@ export function createPostHogHandlers(options: PostHogHandlersOptions = {}) {
     ),
 
     http.get(
-      `${baseUrl}/api/projects/:projectId/tasks/:taskId/runs/:runId/logs`,
+      `${baseUrl}/api/projects/:projectId/tasks/:taskId/runs/:runId/log_entries/`,
       () => new HttpResponse(null, { status: 404 }),
     ),
 

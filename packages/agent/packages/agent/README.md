@@ -237,7 +237,7 @@ Independently of that flush cycle, the writer tees every parsed non-chunk entry 
 When a session needs to recover from a crash, `resumeFromLog()` in `src/resume.ts` reconstructs the agent's state from the persisted log. This is implemented as a `ResumeSaga` (`src/sagas/resume-saga.ts`) with the following steps:
 
 ```text
-1. fetch_logs          → GET /api/.../runs/{runId}/logs for all StoredNotification entries
+1. fetch_logs          → GET /api/.../runs/{runId}/log_entries/ for all StoredNotification entries
 2. rebuild_conversation → Walk log entries to reconstruct conversation turns
 ```
 

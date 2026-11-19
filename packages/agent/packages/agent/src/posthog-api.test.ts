@@ -79,6 +79,10 @@ describe("PostHogAPIClient", () => {
     expect(getApiKey).toHaveBeenCalledTimes(1);
     expect(refreshApiKey).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      "https://app.posthog.com/api/projects/1/tasks/task-1/runs/run-1/log_entries/",
+      expect.anything(),
+    );
   });
 
   it("does not refresh or retry when the API answers 403", async () => {
