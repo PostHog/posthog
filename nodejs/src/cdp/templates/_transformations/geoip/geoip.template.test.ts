@@ -142,6 +142,49 @@ describe('geoip.template', () => {
         `)
     })
 
+    it.each([
+        { coordinatePrecision: 'full', latitude: 47.2513, longitude: -122.3149 },
+        { coordinatePrecision: '2', latitude: 47.25, longitude: -122.31 },
+        { coordinatePrecision: '1', latitude: 47.3, longitude: -122.3 },
+        { coordinatePrecision: '0', latitude: 47, longitude: -122 },
+    ])(
+        'writes coordinates at $coordinatePrecision precision to the event, $set and $set_once',
+        async ({ coordinatePrecision, latitude, longitude }) => {
+            mockGlobals = tester.createGlobals({ event: { properties: { $ip: '216.160.83.56' } } })
+
+            const response = await tester.invoke({ coordinatePrecision }, mockGlobals)
+
+            expect(response.error).toBeUndefined()
+            const properties = (response.execResult as any).properties
+            expect({
+                event: [properties.$geoip_latitude, properties.$geoip_longitude],
+                set: [properties.$set.$geoip_latitude, properties.$set.$geoip_longitude],
+                setOnce: [properties.$set_once.$initial_geoip_latitude, properties.$set_once.$initial_geoip_longitude],
+            }).toEqual({
+                event: [latitude, longitude],
+                set: [latitude, longitude],
+                setOnce: [latitude, longitude],
+            })
+        }
+    )
+
+    it('leaves coordinates out of the event, $set and $set_once when set to remove them', async () => {
+        mockGlobals = tester.createGlobals({ event: { properties: { $ip: '216.160.83.56' } } })
+
+        const response = await tester.invoke({ coordinatePrecision: 'remove' }, mockGlobals)
+
+        expect(response.error).toBeUndefined()
+        const properties = (response.execResult as any).properties
+        expect(properties).not.toHaveProperty('$geoip_latitude')
+        expect(properties).not.toHaveProperty('$geoip_longitude')
+        expect(properties.$set).toMatchObject({ $geoip_latitude: null, $geoip_longitude: null })
+        expect(properties.$set_once).toMatchObject({
+            $initial_geoip_latitude: null,
+            $initial_geoip_longitude: null,
+        })
+        expect(properties).toMatchObject({ $geoip_city_name: 'Milton', $geoip_accuracy_radius: 22 })
+    })
+
     it('should set properties to null if no values present', async () => {
         // First call beforeEach with a transform function to remove city data
         await tester.beforeEach()

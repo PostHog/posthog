@@ -60,9 +60,27 @@ if (response.continent) {
 if (response.postal) {
     location['postal_code'] := response.postal.code
 }
+// Rounds half up with floor(), because round() breaks ties differently in the Node and Rust VMs
+fun roundCoordinate(value, precision) {
+    let factor := null
+    if (precision == '2') {
+        factor := 100
+    } else if (precision == '1') {
+        factor := 10
+    } else if (precision == '0') {
+        factor := 1
+    }
+    if (value == null or factor == null) {
+        return value
+    }
+    return floor(value * factor + 0.5) / factor
+}
+let coordinatePrecision := inputs.coordinatePrecision ?? 'full'
 if (response.location) {
-    location['latitude'] := response.location?.latitude
-    location['longitude'] := response.location?.longitude
+    if (coordinatePrecision != 'remove') {
+        location['latitude'] := roundCoordinate(response.location?.latitude, coordinatePrecision)
+        location['longitude'] := roundCoordinate(response.location?.longitude, coordinatePrecision)
+    }
     location['accuracy_radius'] := response.location?.accuracyRadius
     location['time_zone'] := response.location?.timeZone
 }
@@ -92,5 +110,22 @@ for (let key, value in location) {
 }
 return returnEvent
     `,
-    inputs_schema: [],
+    inputs_schema: [
+        {
+            key: 'coordinatePrecision',
+            type: 'choice',
+            label: 'Coordinate precision',
+            description:
+                'How precise the latitude and longitude are. The setting applies to the event properties and to the person properties set from them. Person profiles that already store coordinates keep them.',
+            default: 'full',
+            required: false,
+            choices: [
+                { value: 'full', label: 'Full precision' },
+                { value: '2', label: '2 decimal places (about 1 km)' },
+                { value: '1', label: '1 decimal place (about 11 km)' },
+                { value: '0', label: 'Whole degrees (about 111 km)' },
+                { value: 'remove', label: "Don't store coordinates" },
+            ],
+        },
+    ],
 }
