@@ -1,5 +1,6 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC
+from typing import Any
 
 from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter
 
@@ -37,6 +38,7 @@ AI_TRACE_EVENTS = (*TRACE_EVENT_NAMES, *FEEDBACK_EVENT_NAMES)
 _SELECTION_QUERY_SECONDS = 30
 _QUICK_FILTER_FACTS: dict[QuickFilter, str] = {"errors": "has_error", "feedback": "has_feedback"}
 _QUERY_SCOPED_FILTER_TYPES = frozenset(cls.model_fields["type"].default for cls in QUERY_SCOPED_FILTERS)
+_VIRTUAL_PROPERTY_PREFIX = "$virt_"
 
 
 @frozen
@@ -227,10 +229,17 @@ def _selection_query(
     )
 
 
+def _reads_beyond_posthog_tables(prop: Mapping[str, Any]) -> bool:
+    # A virtual revenue property is computed from the project's revenue views, which only the full catalog holds.
+    return prop.get("type") in _QUERY_SCOPED_FILTER_TYPES or str(prop.get("key", "")).startswith(
+        _VIRTUAL_PROPERTY_PREFIX
+    )
+
+
 def _database(team: Team, selection: TraceSelection) -> Database | None:
     test_account_filters = (team.test_account_filters or []) if filters_test_accounts(team, selection) else []
-    filter_types = [prop.type for prop in selection.properties] + [prop.get("type") for prop in test_account_filters]
-    if _QUERY_SCOPED_FILTER_TYPES.intersection(filter_types):
+    filters = [prop.model_dump() for prop in selection.properties] + list(test_account_filters)
+    if any(_reads_beyond_posthog_tables(prop) for prop in filters):
         return None
     return Database.create_for_posthog_tables(team, group_types=get_group_types_for_project(team.project_id))
 
