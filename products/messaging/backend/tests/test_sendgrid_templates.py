@@ -106,40 +106,25 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             '{{ variables.name | join: "," }} Go (https://example.com/?a={{ variables.id | join: "," }})'
         )
 
-    def test_plain_text_keeps_a_condition_written_inside_html_comments(self) -> None:
-        converted = convert_version({"html_content": "<!-- {{#if allow}} --><p>{{token}}</p><!-- {{/if}} -->"})
-
-        assert (
-            converted.text
-            == '{% if variables.allow and variables.allow != 0 and variables.allow != empty %}{{ variables.token | join: "," }}\n{% endif %}'
-        )
-
-    def test_plain_text_keeps_a_condition_when_a_stray_angle_bracket_comes_before_it(self) -> None:
-        converted = convert_version({"html_content": "x < <!--{{#if allow}}-->>{{token}} <i<!--{{/if}}-->b> y"})
-
-        assert converted.text.count("{% if variables.allow") == 1
-        assert converted.text.count("{% endif %}") == 1
-        assert (
-            converted.text.index("{% if") < converted.text.index("variables.token") < converted.text.index("{% endif")
-        )
-
     @parameterized.expand(
         [
-            ("inside_the_link", '<a href="https://example.com">{{token}}<b {{#if allow}}>bold</b>{{/if}}</a>'),
-            ("on_the_link", '<a {{#if allow}} href="https://example.com">{{token}}</a>{{/if}}'),
+            ("in_a_comment", "<!-- {{#if allow}} --><p>{{token}}</p><!-- {{/if}} -->", "comment"),
+            ("after_a_stray_angle_bracket", "x < <!--{{#if allow}}-->>{{token}} <i<!--{{/if}}-->b> y", "comment"),
+            ("in_an_attribute", '<a href="{{#if allow}}https://example.com">{{token}}</a>{{/if}}', "attribute"),
+            ("in_a_tag", '<a {{#if allow}} href="https://example.com">{{token}}</a>{{/if}}', "attribute"),
+            ("in_a_link", '<a href="https://example.com">{{#if allow}}{{token}}{{/if}}</a>', "link"),
+            ("in_a_style_block", "<style>{{#if dark}}p{color:#fff}{{/if}}</style><p>{{token}}</p>", "style"),
+            ("unsubscribe_tag_in_a_string", '{{ insert name "default=<%body%>" }}', "inside another tag"),
+            ("unsubscribe_tag_in_a_comparison", '{{#equals a "<%subject%>"}}x{{/equals}}', "inside another tag"),
         ]
     )
-    def test_plain_text_keeps_a_condition_held_by_a_link_s_tags(self, _name: str, html: str) -> None:
+    def test_a_tag_in_an_unusual_place_keeps_the_whole_template_as_text(self, _name: str, html: str, why: str) -> None:
         converted = convert_version({"html_content": html})
 
-        assert converted.text.count("{% if variables.allow") == converted.text.count("{% endif %}") == 1
-        assert converted.text.index("{% if") < converted.text.index("{% endif")
-
-    def test_a_note_names_a_tag_as_it_was_written(self) -> None:
-        converted = convert_version({"html_content": "{{ x endraw <%subject%> }}", "generate_plain_content": False})
-
-        assert "{{ x endraw <%subject%> }}" in " ".join(converted.notes)
-        assert "\x00" not in " ".join(converted.notes)
+        assert "variables.token" not in converted.html + converted.text
+        assert "{% if" not in converted.html + converted.text
+        assert why in " ".join(converted.notes)
+        assert "\x00" not in converted.html + " ".join(converted.notes)
 
     def test_a_tag_kept_as_text_stays_text_in_the_plain_part(self) -> None:
         converted = convert_version({"html_content": '<p>{{helper endraw" | append: person.properties.secret}}</p>'})

@@ -584,6 +584,9 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
     converter = _Converter(is_html, contact_fields, budget=max(_MIN_OUTPUT_BUDGET, _OUTPUT_GROWTH_LIMIT * len(source)))
     if not source:
         return "", converter
+    unusual = _unusual_position(source, is_html)
+    if unusual:
+        return _kept_as_text(source, is_html, contact_fields, unusual)
     with_asm = _convert_asm_placeholders(source)
     try:
         tree = _parse_nodes(_tokenize(with_asm, is_html))
@@ -593,15 +596,51 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
     try:
         converted = _restore_asm(converter.nodes(tree, frames), is_html, converter)
     except _OutputTooLarge:
-        converter = _Converter(is_html, contact_fields)
-        converter.unsupported.append("this template's tags, which nest too deeply to convert")
-        literal = _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), source)
-        return _convert_asm_tags(literal, is_html, converter), converter
+        return _kept_as_text(source, is_html, contact_fields, "nest too deeply")
     # A note names the tag as the person wrote it, not with the placeholder set aside while parsing.
     converter.unsupported = [
         _ASM_PLACEHOLDER_PATTERN.sub(lambda match: match.group(1), tag) for tag in converter.unsupported
     ]
     return converted, converter
+
+
+def _kept_as_text(source: str, is_html: bool, contact_fields: bool, reason: str) -> tuple[str, _Converter]:
+    converter = _Converter(is_html, contact_fields)
+    converter.unsupported.append(f"this template's tags, which {reason}")
+    literal = _ANY_LIQUID_OPENING.sub(lambda match: liquid_literal(match.group(0)), source)
+    return _convert_asm_tags(literal, is_html, converter), converter
+
+
+# A tag in one of these places only converts with rules for each case, so the whole template stays as text instead.
+_HANDLEBARS_TAG = re.compile(r"\{\{(?:(?!\{\{).){0,2000}?\}\}\}?", re.DOTALL)
+_LINK_LABEL = re.compile(r"<a\b[^<>]{0,2000}>((?:(?!<a\b).){0,5000}?)</a\s*>", re.DOTALL | re.IGNORECASE)
+
+
+def _unusual_position(source: str, is_html: bool) -> str | None:
+    """Why the template's tags can't convert where they sit, or None when they can."""
+    if _ASM_TAG.search("".join(match.group(0) for match in _HANDLEBARS_TAG.finditer(source))):
+        return "put an unsubscribe or body tag inside another tag"
+    if not is_html:
+        return None
+
+    def hold(match: re.Match[str]) -> str:
+        body = match.group(0).lstrip("{").lstrip("~").lstrip()
+        return "\x02b\x02" if body.startswith(("#", "^", "/", "else")) else "\x02o\x02"
+
+    held = _HANDLEBARS_TAG.sub(hold, source)
+    # A value in an attribute converts with escaping. A condition or loop there decides which HTML exists.
+    if any("\x02b\x02" in text for text in _not_content_text(held)):
+        return "put a condition or loop inside a comment, style, script or head block"
+    if any("\x02b\x02" in match.group(0) for match in _HTML_TAG.finditer(held)):
+        return "put a condition or loop inside an HTML tag or attribute"
+    if any("\x02b\x02" in match.group(1) for match in _LINK_LABEL.finditer(held)):
+        return "put a condition or loop inside a link"
+    return None
+
+
+def _not_content_text(html: str) -> Iterator[str]:
+    for span in _not_content_spans(html):
+        yield html[span.start : span.end]
 
 
 # Set aside while the Handlebars is parsed, because `<%...%>` reads as text to the parser and its result is Liquid.
@@ -778,14 +817,14 @@ def plain_text_from_html(html: str) -> str:
         )
     )
 
-    def plain_link(match: re.Match[str]) -> str:
-        # The tags the link drops can hold a condition too, so it stays around what the link prints.
-        opening = kept_control_flow(match.group(0)[: match.start(2) - match.start(0)].replace(match.group(1), ""))
-        label = _HTML_TAG.sub(lambda tag: kept_control_flow(tag.group(0)), match.group(2)).strip()
-        shown = _LIQUID_SLOT.sub("", label).strip()
-        return opening + (label if shown == match.group(1) else f"{label} ({match.group(1)})")
-
-    text = _HTML_LINK.sub(plain_link, text)
+    text = _HTML_LINK.sub(
+        lambda match: (
+            match.group(1)
+            if _HTML_TAG.sub("", match.group(2)).strip() == match.group(1)
+            else f"{_HTML_TAG.sub('', match.group(2)).strip()} ({match.group(1)})"
+        ),
+        text,
+    )
     text = _HTML_LINE_BREAK.sub("\n", text)
     text = html_lib.unescape(_HTML_TAG.sub(lambda match: kept_control_flow(match.group(0)), text))
     lines = [re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.split("\n")]
