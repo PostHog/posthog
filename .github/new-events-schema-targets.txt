@@ -48,6 +48,7 @@ products/customer_analytics/backend/test/test_key_metrics.py
 products/customer_analytics/backend/test/test_membership_backfill.py
 products/error_tracking/backend/hogql_queries
 products/error_tracking/backend/tests/test_issue_summaries.py
+products/error_tracking/backend/tests/test_issue_tagger_rerun.py
 products/experiments
 products/groups/backend/tests
 products/marketing_analytics/backend/hogql_queries

@@ -1,7 +1,6 @@
 import json
 import time
-import itertools
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -15,6 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team
 
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
@@ -40,7 +40,10 @@ BATCH_SIZE = 100
 # cymbal sets that after it processes the event, and the hosts' clocks can differ.
 FIRST_EVENT_LEAD = timedelta(days=1)
 FIRST_EVENT_LAG = timedelta(hours=1)
-# The retry policy of the issue-created tag activity: three attempts, with the waits between them.
+# The most time between the first_seen values in one batch, so that one old issue does not widen a batch's window.
+EVENT_BATCH_SPAN = timedelta(days=1)
+# The retry policy of the issue-created tag activity: three attempts, with the waits between them. The ClickHouse read
+# of each batch uses it too.
 RETRY_DELAYS = (timedelta(seconds=2), timedelta(seconds=4))
 
 # The inner query finds each issue's first event from small columns. The outer query then reads `properties`, a large
@@ -74,7 +77,7 @@ class IssueTaggerRerun:
     # No first event in ClickHouse, or run_issue_taggers skipped the issue: it merged away, or no selected tagger
     # applies to it any more.
     skipped: int
-    # A tagger still failed after the retries.
+    # A tagger, or the ClickHouse read of the issue's batch, still failed after the retries.
     failed: int
 
 
@@ -119,8 +122,18 @@ def rerun_issue_taggers(
         return IssueTaggerRerun(selected=len(stale), ran=0, skipped=0, failed=0)
 
     ran = skipped = failed = 0
-    for batch in itertools.batched(stale, BATCH_SIZE, strict=False):
-        events = _first_exception_events(team, batch)
+    for batch in _event_batches(stale):
+        try:
+            events = _first_exception_events_with_retries(team, batch)
+        except CH_TRANSIENT_ERRORS as error:
+            logger.warning(
+                "error_tracking_issue_tagger_rerun_events_unavailable",
+                team_id=team_id,
+                issues=len(batch),
+                error_type=type(error).__name__,
+            )
+            failed += len(batch)
+            continue
         # One issue at a time, because Jev has a rate limit.
         for issue in batch:
             properties = events.get(issue.id)
@@ -209,6 +222,29 @@ def _stale_issues(
             if len(stale) == limit:
                 return stale
     return stale
+
+
+def _event_batches(issues: Sequence[_StaleIssue]) -> Iterator[list[_StaleIssue]]:
+    """Group the issues by first_seen, at most BATCH_SIZE to a batch and EVENT_BATCH_SPAN apart."""
+    batch: list[_StaleIssue] = []
+    for issue in sorted(issues, key=lambda issue: issue.first_seen):
+        if batch and (len(batch) == BATCH_SIZE or issue.first_seen - batch[0].first_seen > EVENT_BATCH_SPAN):
+            yield batch
+            batch = []
+        batch.append(issue)
+    if batch:
+        yield batch
+
+
+def _first_exception_events_with_retries(team: Team, issues: Sequence[_StaleIssue]) -> dict[UUID, dict[str, object]]:
+    delays = iter(RETRY_DELAYS)
+    while True:
+        try:
+            return _first_exception_events(team, issues)
+        except CH_TRANSIENT_ERRORS:
+            if (delay := next(delays, None)) is None:
+                raise
+            time.sleep(delay.total_seconds())
 
 
 def _first_exception_events(team: Team, issues: Sequence[_StaleIssue]) -> dict[UUID, dict[str, object]]:

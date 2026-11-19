@@ -1,6 +1,7 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from io import StringIO
+from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -9,7 +10,10 @@ from django.core.management import CommandError, call_command
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
+
+from posthog.hogql.query import execute_hogql_query
 
 from products.error_tracking.backend.logic import team_flags
 from products.error_tracking.backend.logic.issue_tags import rerun, runner
@@ -19,7 +23,13 @@ from products.error_tracking.backend.logic.issue_tags.registry import (
     JevTaggerConfig,
     RuleTaggerConfig,
 )
-from products.error_tracking.backend.logic.issue_tags.rerun import IssueTaggerRerun, _needs_rerun, rerun_issue_taggers
+from products.error_tracking.backend.logic.issue_tags.rerun import (
+    IssueTaggerRerun,
+    _event_batches,
+    _needs_rerun,
+    _StaleIssue,
+    rerun_issue_taggers,
+)
 from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason
 from products.error_tracking.backend.logic.issue_tags.taggers.base import Tagger
 from products.error_tracking.backend.logic.issue_tags.taggers.rule import RuleTagger
@@ -43,6 +53,7 @@ Source = ErrorTrackingIssueTag.Source
 
 DECIDE = "products.error_tracking.backend.logic.issue_tags.taggers.jev.ml_inference.decide_when_available"
 SLEEP = "products.error_tracking.backend.logic.issue_tags.rerun.time.sleep"
+QUERY = "products.error_tracking.backend.logic.issue_tags.rerun.execute_hogql_query"
 
 RULE_ID = uuid.uuid4()
 RULE_TAG = IssueTagDefinition(
@@ -100,6 +111,28 @@ class TestNeedsRerun(SimpleTestCase):
         assert _needs_rerun(source, definition, row) is expected
 
 
+class TestEventBatches(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("an_old_issue_gets_its_own_batch", [1.0, 60.0, 1.5], 100, [[60.0], [1.5, 1.0]]),
+            ("a_full_batch_starts_the_next", [1.0, 1.0, 1.0], 2, [[1.0, 1.0], [1.0]]),
+        ]
+    )
+    def test_groups_issues_by_first_seen(
+        self, _name: str, days_ago: list[float], batch_size: int, expected: list[list[float]]
+    ) -> None:
+        now = datetime(2026, 1, 31, tzinfo=UTC)
+        issues = [
+            _StaleIssue(id=uuid.uuid4(), first_seen=now - timedelta(days=days), taggers=(), keys=frozenset())
+            for days in days_ago
+        ]
+
+        with patch.object(rerun, "BATCH_SIZE", batch_size):
+            batches = list(_event_batches(issues))
+
+        assert [[(now - issue.first_seen) / timedelta(days=1) for issue in batch] for batch in batches] == expected
+
+
 @patch.object(team_flags, "feature_enabled_or_false", new=lambda *args, **kwargs: True)
 class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
@@ -147,9 +180,7 @@ class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
         self._fingerprint(split, moved, first_seen=original.created_at - timedelta(seconds=5))
         flush_persons_and_events()
 
-        # One issue per batch, so the original issue's window does not cover the split issue's events.
-        with patch.object(rerun, "BATCH_SIZE", 1):
-            result = self._rerun(taggers=(RuleTagger(),))
+        result = self._rerun(taggers=(RuleTagger(),))
 
         assert result == IssueTaggerRerun(selected=2, ran=2, skipped=0, failed=0)
         assert [(issue_id, key) for issue_id, key, *_ in self._labels()] == [(split.id, "paid_plan")]
@@ -188,6 +219,26 @@ class TestRerunIssueTaggers(ClickhouseTestMixin, BaseTest):
 
         assert result == IssueTaggerRerun(selected=2, ran=2, skipped=0, failed=0)
         assert {issue_id for issue_id, *_ in self._labels()} == {issues[1].id, issues[2].id}
+
+    @parameterized.expand([("transient_then_answers", 1, True), ("transient_on_every_attempt", 3, False)])
+    def test_retries_a_transient_clickhouse_failure_on_the_event_read(
+        self, _name: str, failures: int, answered: bool
+    ) -> None:
+        issue = self._issue(days_ago=1)
+        self._exception(issue, {"plan": "paid"}, at=issue.created_at - timedelta(seconds=5))
+        flush_persons_and_events()
+        errors = iter([NetworkError("connection refused")] * failures)
+
+        def flaky_query(*args: Any, **kwargs: Any) -> Any:
+            if (error := next(errors, None)) is not None:
+                raise error
+            return execute_hogql_query(*args, **kwargs)
+
+        with patch(QUERY, side_effect=flaky_query), patch(SLEEP):
+            result = self._rerun(taggers=(RuleTagger(),))
+
+        assert result == IssueTaggerRerun(selected=1, ran=int(answered), skipped=0, failed=int(not answered))
+        assert [key for _, key, *_ in self._labels()] == (["paid_plan"] if answered else [])
 
     def test_paging_keeps_issues_created_at_the_same_time(self) -> None:
         issues = [self._issue(days_ago=1) for _ in range(3)]
