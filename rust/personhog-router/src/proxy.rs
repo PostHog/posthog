@@ -36,6 +36,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "CreateGroup",
     "DeleteCohortMember",
     "DeleteCohortMembersBulk",
+    "DeleteCohortMembersByPersonIds",
     "DeleteGroupTypeMapping",
     "DeleteGroupTypeMappingsBatchForTeam",
     "DeleteGroupsBatchForTeam",

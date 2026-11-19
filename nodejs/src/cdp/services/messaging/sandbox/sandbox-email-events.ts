@@ -6,10 +6,13 @@ import { MinimalAppMetric } from '../../../types'
 
 export type SandboxTerminalOutcome = 'accepted' | 'skipped' | 'failed'
 
+export type SandboxSendSource = 'workflow' | 'code' | 'test'
+
 export type SandboxEventProperties = {
     workflow_id: string
     action_id: string
     is_test: boolean
+    source: SandboxSendSource
     reason?: string
 }
 

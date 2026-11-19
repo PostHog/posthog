@@ -47,6 +47,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
+    TwoFactorEnforcementPermission,
     VerifiedDomainEnforcementPermission,
     is_service_auth,
 )
@@ -435,6 +436,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 *dangerously_defined,
                 *workload_token_boundary,
                 VerifiedDomainEnforcementPermission(),
+                TwoFactorEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
                 IPRestrictionsPermission(),
@@ -466,6 +468,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # organization row it resolved is reused. The MCP cap follows for the same reason:
         # its message must not disclose another organization's security settings.
         permission_classes.append(VerifiedDomainEnforcementPermission)
+        permission_classes.append(TwoFactorEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
         permission_classes.append(ActiveOrganizationPermission)
         permission_classes.append(IPRestrictionsPermission)

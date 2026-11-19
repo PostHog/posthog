@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconEllipsis, IconTrash } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconLock, IconTrash } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -19,7 +19,9 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
+import { AccessControlResourceType } from '~/types'
 
 import { canvasSpaceLabel } from '../canvasTasksApi'
 import { CanvasEditSaveStatus } from '../editing/CanvasEditSaveStatus'
@@ -40,8 +42,8 @@ import { CanvasVisibilityControl } from './CanvasVisibilityControl'
  * at the start, then the canvas's status, editing, the side panel, and the canvas menu at the end.
  */
 export function CanvasSceneHeader(): JSX.Element {
-    const { canvas, space } = useValues(canvasSceneLogic)
-    const { copyLink, deleteCanvas } = useActions(canvasSceneLogic)
+    const { canvas, space, canManageAccess, accessControlOpen } = useValues(canvasSceneLogic)
+    const { copyLink, deleteCanvas, openAccessControl, closeAccessControl } = useActions(canvasSceneLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!canvas) {
@@ -88,6 +90,15 @@ export function CanvasSceneHeader(): JSX.Element {
                                 <IconCopy />
                                 Copy link
                             </DropdownMenuItem>
+                            {canManageAccess && (
+                                <DropdownMenuItem
+                                    onClick={() => openAccessControl()}
+                                    data-attr="canvas-action-manage-access"
+                                >
+                                    <IconLock />
+                                    Manage access
+                                </DropdownMenuItem>
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 variant="destructive"
@@ -99,6 +110,16 @@ export function CanvasSceneHeader(): JSX.Element {
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                    {canManageAccess && (
+                        <AccessControlObjectModal
+                            isOpen={accessControlOpen}
+                            onClose={closeAccessControl}
+                            resource={AccessControlResourceType.Canvas}
+                            resource_id={canvas.id}
+                            title="Manage access"
+                            description="Everyone who can see this canvas can edit it by default. Make it view-only, or give members and roles their own access."
+                        />
+                    )}
                 </>
             }
         >
