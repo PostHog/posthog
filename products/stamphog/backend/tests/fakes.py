@@ -391,6 +391,10 @@ class GitHubRecorder:
             return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": {"target": {"oid": oid}}}}})
         if "{ __typename oid }" in query:
             return self._default_branch_blob_shas(variables)
+        if "isBinary" in query:
+            return self._default_branch_blob_text(
+                f"{variables.get('owner', '')}/{variables.get('name', '')}", variables
+            )
         if "object(expression:" in query:
             return self._ownership_blobs(f"{variables.get('owner', '')}/{variables.get('name', '')}", query, variables)
         if "reviewThreads" in query:
@@ -425,6 +429,16 @@ class GitHubRecorder:
             sha = self.default_branch_blob_shas.get(str(expression).split(":", 1)[1])
             field[name] = None if sha is None else {"__typename": "Blob", "oid": sha}
         return FakeResponse(200, json_data={"data": {"repository": field}})
+
+    def _default_branch_blob_text(self, repo: str, variables: dict) -> FakeResponse:
+        """The single blob read of an issuer manifest, served from the same files the contents API
+        answers with, except that a symlink reads as its link text."""
+        path = str(variables.get("expression") or "").split(":", 1)[1]
+        content = self.repo_files.get((repo, path), self.policy_files.get(path))
+        if (repo, path) in self.repo_symlinks:
+            content = self.repo_symlinks[(repo, path)]
+        blob = None if content is None else {"text": content, "isBinary": False, "isTruncated": False}
+        return FakeResponse(200, json_data={"data": {"repository": {"object": blob}}})
 
     def _ownership_blobs(self, repo: str, query: str, variables: dict) -> FakeResponse:
         """The aliased blob lookups the shared ownership reader sends, served from the same files the

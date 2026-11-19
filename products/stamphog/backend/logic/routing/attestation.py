@@ -40,14 +40,15 @@ def _policy_files(client: StamphogGitHubClient, repository: str) -> dict[str, st
     """The default branch's policy.yml and the issuer manifests it names, or None without a policy.yml.
 
     The shipped default policy declares no attestations, so without the repo's own policy nothing is proven.
-    An absent manifest is left out, which leaves its entry unusable.
+    An absent manifest is left out, which leaves its entry unusable. A manifest is read as the blob at
+    its path, the way the review reads it, so a symlinked manifest leaves its entry unusable too.
     """
     policy_text = client.get_default_branch_file(repository, STAMPHOG_POLICY_ENTRYPOINT)
     if policy_text is None:
         return None
     policy_files = {STAMPHOG_POLICY_ENTRYPOINT: policy_text}
     for path in issuer_manifest_paths(policy_text):
-        content = client.get_default_branch_file(repository, path)
+        content = client.get_default_branch_blob_text(repository, path)
         if content is not None:
             policy_files[path] = content
     return policy_files
