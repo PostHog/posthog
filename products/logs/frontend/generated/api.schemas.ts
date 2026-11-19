@@ -1074,7 +1074,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+    /** HTTPS endpoint to post to. Required for webhook, teams, and discord. */
     webhook_url?: string
     /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
     pagerduty_routing_key?: string

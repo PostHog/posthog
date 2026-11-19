@@ -759,7 +759,9 @@ SPECTACULAR_SETTINGS = {
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
-            # Logs and warehouse alerts offer the same destination types.
+            # LOGS_DESTINATION_TYPES and WAREHOUSE_ALERT_DESTINATION_TYPES hold the same values, so both
+            # serializers share this name. If the two lists diverge, give each set its own entry here,
+            # because a set that matches no entry gets a name derived from another serializer's field.
             "AlertDestinationTypeEnum": ["slack", "webhook", "teams", "discord", "pagerduty"],
             "WarehouseAlertGroupByEnum": ["schema", "source"],
             "PagerDutySeverityEnum": ["critical", "error", "warning", "info"],

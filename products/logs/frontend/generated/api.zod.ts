@@ -600,7 +600,7 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Integration ID for the Slack workspace. Required when type=slack.'),
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook, teams and discord.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook, teams, and discord.'),
     pagerduty_routing_key: zod
         .string()
         .optional()
