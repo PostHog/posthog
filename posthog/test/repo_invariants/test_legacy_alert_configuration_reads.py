@@ -63,7 +63,6 @@ READERS: dict[str, str] = {
     "products/logs/backend/legacy_config_drift.py": "drift report compares rows with copies (A5, retired at E2)",
     "products/alerts/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
     "products/logs/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
-    "products/alerts/backend/facade/platform.py": "`follow_insight_alert` keeps copies in step (D1)",
     "products/logs/backend/tasks/tasks.py": "`follow_logs_alert` keeps copies in step (E5)",
     "products/alerts/backend/platform_insight_alert.py": (
         "investigations and firing signals of a copy load its row (D1 follow-up)"

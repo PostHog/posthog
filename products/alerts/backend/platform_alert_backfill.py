@@ -18,7 +18,7 @@ from products.alerts.backend.llm_detector_limits import calls_ai_gateway
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
-from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
+from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import SourceKind
 
 logger = structlog.get_logger(__name__)
@@ -108,22 +108,3 @@ def disable_platform_insight_alert_configurations(
     disabled = disable_configurations(SourceKind.INSIGHT, team_id=team_id, legacy_configuration_ids=alert_ids)
     logger.info("platform_insight_alert_backfill.disabled", disabled=disabled, team_id=team_id)
     return disabled
-
-
-def follow_insight_alert(alert: AlertConfiguration) -> None:
-    """Copies an insight alert that was just created or turned back on, while insight runs on the platform.
-
-    Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
-    stay off the platform until the next backfill. The insight parallel run covers every team, so a
-    team with no enabled copy yet, such as one creating its first alert, is admitted too.
-
-    An alert whose detector calls the AI gateway (the AI or forecast detector) is never followed.
-    The backfill copies those only when an operator asks, and a copy's stored detector is what
-    records that request, so following would overwrite it.
-    """
-    if calls_ai_gateway(alert.detector_config):
-        return
-    upsert = platform_upsert_of(alert)
-    if upsert is not None:
-        upsert_if_running(upsert, revive=True, admit_new_teams=True)
-        sync_subscriber_destinations(alert)

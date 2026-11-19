@@ -145,7 +145,6 @@ from products.alerts.backend.facade.platform import (
     creates_native_alert,
     delete_alert_destinations_and_copy,
     delete_native_insight_alert,
-    follow_insight_alert,
     hand_over_new_alert,
     moved_alert_check_page,
     moved_alert_fired_checks,
@@ -1048,11 +1047,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
-        # A handed-over copy is the platform's now, and a revived copy would lose its state.
-        if instance.enabled and not instance.platform_owned:
-            transaction.on_commit(
-                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
-            )
         return instance
 
     def _create_native(
@@ -1209,10 +1203,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
-        if enable_now:
-            transaction.on_commit(
-                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
-            )
         return instance
 
     def _update_moved(self, instance: AlertConfiguration, validated_data: dict) -> AlertConfiguration:

@@ -1027,18 +1027,14 @@ def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: dateti
     configuration.save(update_fields=["snooze_until", "next_check_at", "updated_at"])
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
-    A copy the platform owns gets nothing, because every edit already writes both of its rows.
+    A copy the platform owns gets nothing, because the platform holds its settings.
     Otherwise a team runs a source here while any of its parallel-run copies of that source is
     enabled. A team the backfill left out of its sample, or one
     `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
     off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
-
-    `admit_new_teams` is for a source whose parallel run covers every team. It also admits a team with
-    no enabled copy, such as one whose first alert this is, while the source runs for another team and
-    no operator switched this team off.
     """
     with transaction.atomic():
         _hold_admission(upsert.source_kind.value, exclusive=False)
@@ -1048,23 +1044,10 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admi
         existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
         if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
             return
-        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists() or (
-            admit_new_teams and _admits_new_team(team_copies, upsert.source_kind.value)
-        )
+        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
         switched_off = existing is not None and existing.switched_off_at is not None
         if running and not switched_off:
             upsert_configuration(upsert, revive=revive)
-
-
-def _admits_new_team(team_copies: QuerySet[PlatformAlertConfiguration], source_kind: str) -> bool:
-    if team_copies.filter(switched_off_at__isnull=False).exists():
-        return False
-    # A switch-off of the whole source leaves no enabled copy anywhere, so this admits nothing then.
-    return (
-        PlatformAlertConfiguration.objects.unscoped()
-        .filter(source_kind=source_kind, owner=PlatformAlertOwner.SOURCE, enabled=True)
-        .exists()
-    )
 
 
 def _hold_admission(source_kind: str, *, exclusive: bool) -> None:

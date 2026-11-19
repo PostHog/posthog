@@ -193,17 +193,9 @@ class UpsertAlertToolArgs(BaseModel):
     )
 
 
-def _follow_on_commit(alert: AlertConfiguration) -> None:
-    # Deferred to break a cycle: platform_alert_backfill reaches this module back through the alert
-    # workflows and the chat agent.
-    from products.alerts.backend.platform_alert_backfill import follow_insight_alert  # noqa: PLC0415
-
-    transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
-
-
 def _native_alert(*, team_id: int, alert_id: str) -> AlertConfiguration | None:
     """The team's insight alert with no insight row under `alert_id`, as the insight API presents it, or None."""
-    # Deferred for the same cycle as `_follow_on_commit`.
+    # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
     from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
 
     try:
@@ -220,7 +212,7 @@ def _persist_native_alert(
     *, team_id: int, insight: Insight, creator: User, fields: dict[str, Any]
 ) -> AlertConfiguration:
     """Creates an alert with no insight row, its creator subscribed, as the row path subscribes them."""
-    # Deferred for the same cycle as `_follow_on_commit`.
+    # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
     from products.alerts.backend.platform_ownership import create_native_alert  # noqa: PLC0415
     from products.alerts.backend.platform_subscribers import set_native_subscribers  # noqa: PLC0415
 
@@ -350,7 +342,7 @@ class UpsertAlertTool(MaxTool):
             except ValidationError as e:
                 return str(e), {"error": "validation_failed"}
 
-            # Deferred for the same cycle as `_follow_on_commit`.
+            # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
             from products.alerts.backend.platform_ownership import creates_native_alert  # noqa: PLC0415
 
             alert = await self._persist_alert(
@@ -425,7 +417,7 @@ class UpsertAlertTool(MaxTool):
                 return _SaveRefusal(
                     message="The alert's insight changed. Retry the update.", error_code="validation_failed"
                 )
-            # Deferred for the same cycle as `_follow_on_commit`.
+            # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
             from products.alerts.backend.platform_ownership import on_updated, show_locked_copy  # noqa: PLC0415
 
             moved = alert.platform_owned
@@ -507,8 +499,6 @@ class UpsertAlertTool(MaxTool):
                     return _SaveRefusal(message=str(error), error_code="validation_failed")
             else:
                 alert.save(update_fields=update_fields)
-            if not moved and enabled_changed and action.enabled:
-                _follow_on_commit(alert)
             # Again under the lock, because the check above counted without it and another update can race.
             # After `on_updated`, for the lock order the API's `update` keeps.
             if limit_error := AlertConfiguration.update_limit_error(
@@ -576,7 +566,7 @@ class UpsertAlertTool(MaxTool):
     def _save_native_alert(self, alert: AlertConfiguration, action: UpdateAlertAction) -> _SaveRefusal | None:
         """`_save_alert` for an alert with no insight row: the same checks under the insight API's lock
         order, then the edit written to the platform, which keeps the alert."""
-        # Deferred for the same cycle as `_follow_on_commit`.
+        # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
         from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
         from products.alerts.backend.platform_ownership import write_native_alert_edit  # noqa: PLC0415
 
@@ -715,7 +705,7 @@ class UpsertAlertTool(MaxTool):
             )
         except Exception:
             return await sync_to_async(_native_alert)(team_id=self._team.id, alert_id=alert_id)
-        # Deferred for the same cycle as `_follow_on_commit`.
+        # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
         from products.alerts.backend.platform_insight_alert import show_copy_settings  # noqa: PLC0415
 
         await sync_to_async(show_copy_settings)([alert])
@@ -879,12 +869,9 @@ class UpsertAlertTool(MaxTool):
             alert_configuration=alert,
             created_by=user,
         )
-        # Deferred for the same cycle as `_follow_on_commit`.
+        # Deferred: the platform modules reach this module back through the alert workflows and the chat agent.
         from products.alerts.backend.platform_ownership import on_created  # noqa: PLC0415
 
-        # A draft is handed over too, so turning it on later needs no second cutover run.
-        handed_over = on_created(alert, timezone.now())
-        if alert.enabled and not handed_over:
-            _follow_on_commit(alert)
+        on_created(alert, timezone.now())
 
         return alert

@@ -19,7 +19,6 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade.contracts import AlertWriteRefused, PlatformCannotOwn
-from products.alerts.backend.facade.platform import follow_insight_alert
 from products.alerts.backend.insight_alert_state_machine import apply_enable, apply_threshold_change
 from products.alerts.backend.llm_detector_limits import (
     LLMAlertWrite,
@@ -189,8 +188,6 @@ def _save_owner_and_enable(
         locked.created_by = owner
         locked.save()
         sync_alert_subscriber_destinations(team_id=team_id, alert_id=alert_id)
-        if enable_now:
-            transaction.on_commit(lambda: follow_insight_alert(team_id=team_id, alert_id=alert_id), robust=True)
         updated = locked
     return updated
 
