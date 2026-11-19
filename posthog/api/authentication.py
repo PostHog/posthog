@@ -74,6 +74,7 @@ from posthog.helpers.sso import (
 )
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
+    CODE_TTL_SECONDS,
     LOGIN_CODE_VERIFICATION_COUNTER,
     clear_two_factor_session_flags,
     code_based_verifier,
@@ -117,6 +118,7 @@ from posthog.workos_radar import (
     evaluate_auth_attempt,
     radar_client_id_for_login,
 )
+from posthog.workos_radar_signal_handlers import extend_login_attempt, remember_login_attempt
 
 from products.security.backend.facade.api import (
     REFUSAL_CODE as SECURITY_REFUSAL_CODE,
@@ -423,9 +425,10 @@ class LoginSerializer(serializers.Serializer):
 
         # A re-auth comes from a signed-in session, so Radar has nothing to add to it. The login
         # form cannot show a Turnstile challenge, so only a block verdict refuses the login.
+        radar_attempt = None
         if not was_authenticated_before_login_attempt:
             try:
-                evaluate_auth_attempt(
+                radar_attempt = evaluate_auth_attempt(
                     request=request._request,
                     # Radar knows the account by its stored address, not the variant spelling the lookup folded
                     email=existing_user.email if existing_user else validated_data["email"],
@@ -460,6 +463,10 @@ class LoginSerializer(serializers.Serializer):
                 raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+
+        if radar_attempt and radar_attempt.attempt_id:
+            # Reported when the session signs in, so a login that stops at a second factor is never reported
+            remember_login_attempt(request, radar_attempt.attempt_id, user.pk, valid_for_seconds=CODE_TTL_SECONDS)
 
         try:
             refused = security_access_refused(
@@ -1300,6 +1307,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
                 {"detail": "Could not send verification code."},
                 code="code_based_verification_email_failed",
             )
+        extend_login_attempt(request, valid_for_seconds=CODE_TTL_SECONDS)
 
         return Response({"success": True, "message": "Verification code sent"})
 
