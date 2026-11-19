@@ -3,16 +3,11 @@ import clsx from 'clsx'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
 import { ImpactStep, stepBarPercents } from './impactSteps'
 
-export function ImpactFunnel({
-    steps,
-    onTurnOnLinkTagging,
-}: {
-    steps: ImpactStep[]
-    onTurnOnLinkTagging: () => void
-}): JSX.Element {
+export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
     const barPercents = stepBarPercents(steps)
     return (
         <ol className="m-0 p-0 list-none grid grid-cols-6 gap-2" data-attr="email-impact-funnel">
@@ -22,7 +17,7 @@ export function ImpactFunnel({
                     <span className="text-xs text-secondary truncate" title={step.label}>
                         {step.label}
                     </span>
-                    <StepValue step={step} onTurnOnLinkTagging={onTurnOnLinkTagging} />
+                    <StepValue step={step} />
                     <StepShare step={step} />
                 </li>
             ))}
@@ -44,7 +39,7 @@ function StepBar({ step, percent }: { step: ImpactStep; percent: number | null }
     )
 }
 
-function StepValue({ step, onTurnOnLinkTagging }: { step: ImpactStep; onTurnOnLinkTagging: () => void }): JSX.Element {
+function StepValue({ step }: { step: ImpactStep }): JSX.Element {
     if (step.value !== null) {
         return <span className="font-semibold text-base">{humanFriendlyNumber(step.value)}</span>
     }
@@ -53,7 +48,7 @@ function StepValue({ step, onTurnOnLinkTagging }: { step: ImpactStep; onTurnOnLi
             <Tooltip title={step.missingDetail}>
                 <Link
                     className="text-xs"
-                    onClick={onTurnOnLinkTagging}
+                    to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
                     data-attr="email-impact-link-tagging-settings-link"
                 >
                     {step.missing}

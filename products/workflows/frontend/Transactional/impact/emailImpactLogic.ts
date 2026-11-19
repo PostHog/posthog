@@ -61,7 +61,6 @@ export interface emailImpactLogicValues {
     impactLoading: boolean
     lift: ImpactLift | null
     linkTagging: LinkTagging
-    linkTaggingSettingsOpen: boolean
     replayEnabled: boolean
     steps: ImpactStep[] | null
     untrackedNote: string | null
@@ -76,9 +75,6 @@ export interface emailImpactLogicActions {
         currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
-    closeLinkTaggingSettings: () => {
-        value: true
-    }
     loadImpact: (_: void) => void
     loadImpactFailure: (
         error: string,
@@ -93,9 +89,6 @@ export interface emailImpactLogicActions {
     ) => {
         impact: TransactionalEmailImpactApi | null
         payload?: void
-    }
-    openLinkTaggingSettings: () => {
-        value: true
     }
     setAlwaysSensitive: (alwaysSensitive: boolean) => {
         alwaysSensitive: boolean
@@ -177,18 +170,12 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     actions({
         setEvent: (event: string | null) => ({ event }),
         setDays: (days: number) => ({ days }),
-        openLinkTaggingSettings: true,
-        closeLinkTaggingSettings: true,
         setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
     }),
     reducers(({ props }) => ({
         // A selector that reads props keeps its result while the store is unchanged, so a template's new
         // sensitivity flag goes through the store.
         alwaysSensitive: [!!props.alwaysSensitive, { setAlwaysSensitive: (_, { alwaysSensitive }) => alwaysSensitive }],
-        linkTaggingSettingsOpen: [
-            false,
-            { openLinkTaggingSettings: () => true, closeLinkTaggingSettings: () => false },
-        ],
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
         impactError: [

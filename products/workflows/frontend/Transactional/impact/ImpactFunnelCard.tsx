@@ -5,7 +5,6 @@ import { LemonBanner, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 import { emailImpactLogic } from './emailImpactLogic'
 import { ImpactFunnel } from './ImpactFunnel'
 import { ImpactLiftLine } from './ImpactLiftLine'
-import { ImpactLinkTaggingModal } from './ImpactLinkTaggingModal'
 import { emptyPeriodMessage } from './impactSteps'
 
 export function ImpactFunnelCard(): JSX.Element {
@@ -17,14 +16,13 @@ export function ImpactFunnelCard(): JSX.Element {
                 {event ? `From send to "${event}"` : 'From send to conversion'}
             </h3>
             <FunnelBody />
-            <ImpactLinkTaggingModal />
         </LemonCard>
     )
 }
 
 function FunnelBody(): JSX.Element {
     const { funnelState, impact, impactError, steps, untrackedNote } = useValues(emailImpactLogic)
-    const { loadImpact, openLinkTaggingSettings } = useActions(emailImpactLogic)
+    const { loadImpact } = useActions(emailImpactLogic)
 
     if (funnelState === 'error') {
         return (
@@ -49,7 +47,7 @@ function FunnelBody(): JSX.Element {
     }
     return (
         <>
-            <ImpactFunnel steps={steps} onTurnOnLinkTagging={openLinkTaggingSettings} />
+            <ImpactFunnel steps={steps} />
             {untrackedNote && <p className="text-secondary text-sm m-0">{untrackedNote}</p>}
             <ImpactLiftLine />
         </>

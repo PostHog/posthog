@@ -164,7 +164,7 @@ describe('MessageTemplate', () => {
         ['a sensitive template, whose links are never tagged', true, 'Not measured', false],
         ['any other template', false, 'Needs link tagging', true],
     ])(
-        "offers the link tagging switch on the Impact tab's session step only for %s",
+        "links the Impact tab's session step to the link tagging setting only for %s",
         async (_, sensitive, label, offered) => {
             useMocks({
                 get: {
@@ -176,7 +176,7 @@ describe('MessageTemplate', () => {
 
             fireEvent.click(screen.getByText('Impact'))
 
-            expect(!!(await screen.findByText(label)).closest('button')).toBe(offered)
+            expect(!!(await screen.findByText(label)).closest('a')).toBe(offered)
         }
     )
 

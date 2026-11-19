@@ -5,7 +5,7 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -71,49 +71,29 @@ describe('ImpactFunnelCard', () => {
         ['tagging is on', true, false, 'Not measured yet', false],
         ['the email protects sensitive data', false, true, 'Not measured', false],
     ])(
-        "offers the project's link tagging switch on the session step only when it would help, when %s",
-        async (_, enabled, sensitive, label, offered) => {
+        "links the session step to the project's link tagging setting only when it would help, when %s",
+        async (_, enabled, sensitive, label, linked) => {
             initKeaTests(true, teamWithLinkTagging(enabled))
             answer = [200, IMPACT]
             renderCard(sensitive)
 
             const step = await screen.findByText(label)
-            expect(!!step.closest('button')).toBe(offered)
+            expect(step.closest('a')?.getAttribute('href') ?? null).toEqual(
+                linked ? expect.stringMatching(/\/settings\/environment-workflows#workflows-email-run-link-tag$/) : null
+            )
+            expect(step.closest('a')?.getAttribute('target') ?? null).toBe(null)
         }
     )
 
-    it('turns link tagging on in place, keeping the switch open while the step shows the new setting', async () => {
+    it('shows the setting saved on the settings page once the user is back on the Impact tab', async () => {
         initKeaTests(true, teamWithLinkTagging(false))
-        useMocks({
-            patch: {
-                '/api/projects/:id/': async ({ request }) => {
-                    const { workflows_config } = (await request.json()) as Pick<TeamType, 'workflows_config'>
-                    const stored = teamWithLinkTagging(false)
-                    return [200, { ...stored, workflows_config: { ...stored.workflows_config, ...workflows_config } }]
-                },
-            },
-        })
         answer = [200, IMPACT]
         renderCard()
+        await screen.findByText('Needs link tagging')
 
-        fireEvent.click(await screen.findByText('Needs link tagging'))
-        fireEvent.click(await screen.findByLabelText('Connect tracked email clicks to sessions'))
+        teamLogic.actions.updateCurrentTeamSuccess(teamWithLinkTagging(true))
 
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
-        expect(screen.getByText('Connect email clicks to sessions')).toBeInTheDocument()
-    })
-
-    it('keeps the switch off for a member without project admin access', async () => {
-        initKeaTests(true, {
-            ...teamWithLinkTagging(false),
-            effective_membership_level: OrganizationMembershipLevel.Member,
-        })
-        answer = [200, IMPACT]
-        renderCard()
-
-        fireEvent.click(await screen.findByText('Needs link tagging'))
-
-        expect(await screen.findByLabelText('Connect tracked email clicks to sessions')).toBeDisabled()
     })
 
     it("shows a template's new sensitivity on a mounted Impact tab", async () => {

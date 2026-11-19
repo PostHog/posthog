@@ -284,13 +284,13 @@ describe('CodeEmailTabs', () => {
         expect(screen.queryByText('ada@example.com')).not.toBeInTheDocument()
     })
 
-    it('offers the link tagging switch on the Impact session step of a sensitive code email, since a send can turn sensitivity off', async () => {
+    it('links the Impact session step of a sensitive code email to the link tagging setting, since a send can turn sensitivity off', async () => {
         useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
         renderTabs({ impact: true })
 
         fireEvent.click(await screen.findByText('Impact'))
 
-        expect((await screen.findByText('Needs link tagging')).closest('button')).toBeInTheDocument()
+        expect((await screen.findByText('Needs link tagging')).closest('a')).toBeInTheDocument()
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {

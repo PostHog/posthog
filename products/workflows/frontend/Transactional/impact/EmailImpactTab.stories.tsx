@@ -46,8 +46,7 @@ const Template: StoryFn<{
     replay?: boolean
     linkTagging?: boolean
     sensitive?: boolean
-    settingsOpen?: boolean
-}> = ({ impact, event, replay = true, linkTagging = true, sensitive = false, settingsOpen = false }) => {
+}> = ({ impact, event, replay = true, linkTagging = true, sensitive = false }) => {
     const team = useMemo(
         () => ({
             ...MOCK_DEFAULT_TEAM,
@@ -60,12 +59,6 @@ const Template: StoryFn<{
         [replay, linkTagging]
     )
     useStorybookMocks({
-        patch: {
-            '/api/projects/:id/': async ({ request }: { request: Request }) => {
-                const saved = await request.json()
-                return [200, { ...team, workflows_config: { ...team.workflows_config, ...saved.workflows_config } }]
-            },
-        },
         get: {
             '/api/projects/:team_id/transactional_email_log/impact/': ({ request }: { request: Request }) => {
                 if (!new URL(request.url).searchParams.get('event')) {
@@ -83,16 +76,13 @@ const Template: StoryFn<{
         },
     })
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
-    const { setEvent, openLinkTaggingSettings } = useActions(emailImpactLogic({ workflowId: WORKFLOW_ID }))
+    const { setEvent } = useActions(emailImpactLogic({ workflowId: WORKFLOW_ID }))
     const [ready, setReady] = useState(false)
     useLayoutEffect(() => {
         loadCurrentTeamSuccess(team)
         setEvent(event)
-        if (settingsOpen) {
-            openLinkTaggingSettings()
-        }
         setReady(true)
-    }, [loadCurrentTeamSuccess, setEvent, openLinkTaggingSettings, event, team, settingsOpen])
+    }, [loadCurrentTeamSuccess, setEvent, event, team])
 
     return ready ? <EmailImpactTab workflowId={WORKFLOW_ID} alwaysSensitive={sensitive} /> : <></>
 }
@@ -111,9 +101,6 @@ NoSessionReplay.args = { impact: tracked, event: 'plan upgraded', replay: false 
 
 export const LinkTaggingOff = Template.bind({})
 LinkTaggingOff.args = { impact: tracked, event: 'plan upgraded', linkTagging: false }
-
-export const LinkTaggingSettingsOpen = Template.bind({})
-LinkTaggingSettingsOpen.args = { impact: tracked, event: 'plan upgraded', linkTagging: false, settingsOpen: true }
 
 export const SensitiveEmail = Template.bind({})
 SensitiveEmail.args = { impact: tracked, event: 'plan upgraded', linkTagging: false, sensitive: true }
