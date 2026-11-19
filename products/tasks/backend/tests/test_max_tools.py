@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized_class
 
 from posthog.constants import AvailableFeature
+from posthog.utils import absolute_uri
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -498,38 +499,19 @@ class TestGetTaskRunToolMessageFields(BaseTaskToolTest):
 
 
 class TestGetTaskRunLogsTool(BaseTaskToolTest):
-    @patch("products.tasks.backend.max_tools.object_storage")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_get_logs_success(self, mock_storage):
-        mock_storage.get_presigned_url.return_value = "https://s3.example.com/logs/test.jsonl?signed=true"
-
+    async def test_get_logs_returns_logs_api_url(self):
         task = await self._create_task()
-        await self._create_task_run(task, status=TaskRun.Status.IN_PROGRESS)
+        run = await self._create_task_run(task, status=TaskRun.Status.IN_PROGRESS)
 
         tool = self._create_tool(GetTaskRunLogsTool)
 
         content, artifact = await tool._arun_impl(task_id=str(task.id))
 
-        assert "Logs for task" in content
-        assert "https://s3.example.com" in artifact["log_url"]
-        assert artifact["expires_in"] == 3600
-
-    @patch("products.tasks.backend.max_tools.object_storage")
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_get_logs_presign_failed(self, mock_storage):
-        mock_storage.get_presigned_url.return_value = None
-
-        task = await self._create_task()
-        await self._create_task_run(task, status=TaskRun.Status.IN_PROGRESS)
-
-        tool = self._create_tool(GetTaskRunLogsTool)
-
-        content, artifact = await tool._arun_impl(task_id=str(task.id))
-
-        assert "Unable to generate" in content
-        assert artifact["error"] == "presign_failed"
+        logs_api_url = absolute_uri(f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/logs/")
+        assert logs_api_url in content
+        assert artifact == {"task_id": str(task.id), "run_id": str(run.id), "logs_api_url": logs_api_url}
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -566,12 +548,9 @@ class TestGetTaskRunLogsTool(BaseTaskToolTest):
         assert "not found" in content
         assert artifact["error"] == "run_not_found"
 
-    @patch("products.tasks.backend.max_tools.object_storage")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_get_logs_specific_run(self, mock_storage):
-        mock_storage.get_presigned_url.return_value = "https://s3.example.com/logs/specific.jsonl"
-
+    async def test_get_logs_specific_run(self):
         task = await self._create_task()
         run1 = await self._create_task_run(task, status=TaskRun.Status.COMPLETED)
         await self._create_task_run(task, status=TaskRun.Status.IN_PROGRESS)
@@ -580,7 +559,7 @@ class TestGetTaskRunLogsTool(BaseTaskToolTest):
 
         content, artifact = await tool._arun_impl(task_id=str(task.id), run_id=str(run1.id))
 
-        assert artifact["run_id"] == str(run1.id)
+        assert artifact["logs_api_url"].endswith(f"/runs/{run1.id}/logs/")
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1146,8 +1125,7 @@ class TestTaskRunAnalyticsAccess(BaseTaskToolTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    @patch("products.tasks.backend.max_tools.object_storage")
-    async def test_protected_runs_require_the_viewers_analytics_access(self, storage):
+    async def test_protected_runs_require_the_viewers_analytics_access(self):
         task = await self._create_task()
         run = await self._create_task_run(task, output="Protected findings", error_message="Protected error")
         query = {
@@ -1175,11 +1153,6 @@ class TestTaskRunAnalyticsAccess(BaseTaskToolTest):
         restriction = await restrict()
         _, denied = await self._create_tool(self.tool_class)._arun_impl(task_id=str(task.id))
         assert denied == {"error": "permission_denied"}
-        storage.get_presigned_url.assert_not_called()
         await sync_to_async(restriction.delete)()
         _, allowed = await self._create_tool(self.tool_class)._arun_impl(task_id=str(task.id))
         assert "error" not in allowed
-        if self.tool_class == GetTaskRunLogsTool:
-            assert allowed["logs_api_url"].endswith(f"/runs/{run.id}/logs/")
-            assert "log_url" not in allowed
-            storage.get_presigned_url.assert_not_called()

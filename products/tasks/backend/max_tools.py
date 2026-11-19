@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager
-from posthog.storage import object_storage
+from posthog.utils import absolute_uri
 
 from products.signals.backend.facade.trial import prepare_task_trial
 
@@ -375,27 +375,17 @@ Use this tool when the user wants to:
             if "analytics_query_context" in (task_run.state or {}):
                 if not may_read(task_run.state["analytics_query_context"]):
                     return {"error": "permission_denied"}
-                return {
-                    "task_id": str(task.id),
-                    "run_id": str(task_run.id),
-                    "logs_api_url": f"/api/projects/{self._team.id}/tasks/{task.id}/runs/{task_run.id}/logs/",
-                }
 
             return {
                 "task_id": str(task.id),
-                "task_title": task.title,
                 "run_id": str(task_run.id),
-                "status": task_run.status,
-                "status_display": task_run.get_status_display(),
-                "log_url": task_run.log_url,
+                "logs_api_url": absolute_uri(f"/api/projects/{self._team.id}/tasks/{task.id}/runs/{task_run.id}/logs/"),
             }
 
         result = await get_task_and_run()
 
         if result.get("error") == "permission_denied":
             return "You do not have access to the analytics data in this run.", result
-        if result.get("logs_api_url"):
-            return f"Read this run's logs through the authenticated endpoint: {result['logs_api_url']}", result
 
         if result.get("error") == "not_found":
             return f"Task with ID {task_id} not found", {"error": "not_found"}
@@ -405,23 +395,7 @@ Use this tool when the user wants to:
         if result.get("error") == "no_runs":
             return f"Task '{result['task_title']}' has no runs yet", {"error": "no_runs"}
 
-        presigned_url = object_storage.get_presigned_url(result["log_url"], expiration=3600)
-
-        if not presigned_url:
-            return "Unable to generate log download URL", {"error": "presign_failed"}
-
-        return (
-            f"Logs for task '{result['task_title']}' run {result['run_id']} (status: {result['status_display']}).\n"
-            f"Download logs from: {presigned_url}\n"
-            f"(URL expires in 1 hour)",
-            {
-                "task_id": result["task_id"],
-                "run_id": result["run_id"],
-                "status": result["status"],
-                "log_url": presigned_url,
-                "expires_in": 3600,
-            },
-        )
+        return f"Read this run's logs through the authenticated endpoint: {result['logs_api_url']}", result
 
 
 class ListTasksTool(MaxTool):
