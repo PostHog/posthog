@@ -102,6 +102,9 @@ rules:
       owners: team-product-analytics
     - match: '/toolbar-launch/'
       owners: team-growth
+    # The Tools page of the Today rail navigation.
+    - match: '/tools/'
+      owners: team-surfaces
     - match: '/web-analytics/'
       owners: team-web-analytics
     - match: '/welcome/'
