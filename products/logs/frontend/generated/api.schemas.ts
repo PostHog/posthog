@@ -3966,6 +3966,14 @@ export type TasksRunsLogsRetrieveParams = {
      */
     before?: number
     /**
+     * 'chain' returns the run's whole history: the logs of the runs it continues, oldest first, then its own log. 'run' returns only this run's own log. It applies to the full log and to every slice.
+     *
+     * * `chain` - chain
+     * * `run` - run
+     * @minLength 1
+     */
+    scope?: TasksRunsLogsRetrieveScope
+    /**
      * With tail_bytes, return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. When those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start.
      * @minimum 0
      */
@@ -3984,6 +3992,13 @@ export type TasksRunsLogsRetrieveParams = {
      */
     view?: TasksRunsLogsRetrieveView
 }
+
+export type TasksRunsLogsRetrieveScope = (typeof TasksRunsLogsRetrieveScope)[keyof typeof TasksRunsLogsRetrieveScope]
+
+export const TasksRunsLogsRetrieveScope = {
+    Chain: 'chain',
+    Run: 'run',
+} as const
 
 export type TasksRunsLogsRetrieveView = (typeof TasksRunsLogsRetrieveView)[keyof typeof TasksRunsLogsRetrieveView]
 
