@@ -750,6 +750,9 @@ class InsightShapeSpec(TypedDict, total=False):
     formula: bool
     filter_test_accounts: bool
     filtered_on: list[str]
+    date_from: str | list[str]
+    interval: str | list[str]
+    funnel_window: str | list[str]
 
 
 class InsightShape(Scorer):
@@ -776,10 +779,14 @@ class InsightShape(Scorer):
     - ``formula``: whether a trends query combines its series with a formula.
     - ``filter_test_accounts``: whether the query excludes internal and test accounts.
     - ``filtered_on``: property keys of which at least one must appear in a query or series filter.
+    - ``date_from``: accepted ``dateRange.date_from`` values, such as ``["-8w", "-56d"]``.
+    - ``interval``: accepted trends intervals; an omitted interval counts as ``day``.
+    - ``funnel_window``: accepted funnel conversion windows as ``"<count> <unit>"``; an omitted
+      window counts as ``14 day``.
 
     The keys after ``tool`` describe a series query, so they are checked only when
-    the chosen tool is ``query-trends`` or ``query-funnel``. Property filters and date
-    ranges are left to the schema-alignment judges.
+    the chosen tool is ``query-trends`` or ``query-funnel``. Property filter values are
+    left to the schema-alignment judges.
     """
 
     def _name(self) -> str:
@@ -822,6 +829,9 @@ class InsightShape(Scorer):
             "formula": _actual_formula(query, tool_name),
             "filter_test_accounts": query.get("filterTestAccounts") is True,
             "filtered_on": sorted(_filtered_properties(query)),
+            "date_from": _actual_date_from(query),
+            "interval": _actual_interval(query, tool_name),
+            "funnel_window": _actual_funnel_window(query, tool_name),
         }
         actual["events"] = sorted(actual["event_sequence"], key=str)
         checked = shape if tool_name in SERIES_QUERY_TOOLS else {"tool": shape.get("tool")}
@@ -861,7 +871,7 @@ def _query_of(tool_name: str, raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _shape_field_matches(key: str, expected_value: Any, actual: dict[str, Any]) -> bool:
-    if key in ("tool", "display", "funnel_viz"):
+    if key in ("tool", "display", "funnel_viz", "date_from", "interval", "funnel_window"):
         accepted = expected_value if isinstance(expected_value, list | tuple | set) else [expected_value]
         return actual[key] in {str(item) for item in accepted}
     if key in ("compare", "breakdown", "formula", "filter_test_accounts"):
@@ -898,6 +908,28 @@ def _actual_funnel_viz(query: dict[str, Any], tool_name: str) -> str | None:
     funnels_filter = query.get("funnelsFilter")
     viz = funnels_filter.get("funnelVizType") if isinstance(funnels_filter, dict) else None
     return str(viz) if viz else DEFAULT_FUNNEL_VIZ
+
+
+def _actual_date_from(query: dict[str, Any]) -> str | None:
+    date_range = query.get("dateRange")
+    date_from = date_range.get("date_from") if isinstance(date_range, dict) else None
+    return str(date_from) if date_from else None
+
+
+def _actual_interval(query: dict[str, Any], tool_name: str) -> str | None:
+    if tool_name != QUERY_TRENDS_TOOL_NAME:
+        return None
+    return str(query.get("interval") or "day")
+
+
+def _actual_funnel_window(query: dict[str, Any], tool_name: str) -> str | None:
+    if tool_name != QUERY_FUNNEL_TOOL_NAME:
+        return None
+    funnels_filter = query.get("funnelsFilter")
+    funnels_filter = funnels_filter if isinstance(funnels_filter, dict) else {}
+    return (
+        f"{funnels_filter.get('funnelWindowInterval') or 14} {funnels_filter.get('funnelWindowIntervalUnit') or 'day'}"
+    )
 
 
 def _actual_breakdown(query: dict[str, Any]) -> str | None:

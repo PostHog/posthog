@@ -1187,6 +1187,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
         from products.cohorts.backend.models.util import insert_cohort_members, insert_static_cohort
+        from products.cohorts.backend.static_reconciliation import clear_static_cohort_member_removals
 
         if not id_uuid_pairs:
             return
@@ -1203,6 +1204,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         person_uuids = [person_uuid for _, person_uuid in deduped_pairs]
 
         if insert_in_clickhouse:
+            # An explicit addition undoes an earlier removal, so a repair must not delete these members.
+            clear_static_cohort_member_removals(cohort_id=self.pk, person_uuids=person_uuids)
             existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
             new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
             if new_uuids:
@@ -1252,6 +1255,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             is_person_in_cohort,
             remove_person_from_static_cohort,
         )
+        from products.cohorts.backend.static_reconciliation import record_static_cohort_member_removal
 
         try:
             # Only person.id/uuid are used (to resolve and remove the row), so skip the distinct-id fetch.
@@ -1262,6 +1266,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             # Check if person is in the cohort via personhog.
             is_member = is_person_in_cohort(team_id=team_id, person_id=person.id, cohort_id=self.id)
+
+            # The ClickHouse delete is asynchronous, so the reconciliation must not copy the member back meanwhile.
+            record_static_cohort_member_removal(cohort_id=self.id, person_id=person.id, person_uuid=str(person.uuid))
 
             # Delete from PostgreSQL first (source of truth), then ClickHouse.
             # This order ensures if PG delete fails, we don't create inverse inconsistency.

@@ -16,6 +16,12 @@ class TestAppfollowSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
+    def test_tables_that_reread_a_lookback_window_do_not_offer_append(self):
+        # Append never dedupes, so the re-read days would be stored twice.
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+        assert schemas["reviews_replies_speed"].supports_append is False
+        assert schemas["reviews_stats"].supports_append is True
+
     def test_new_sources_start_on_v3(self):
         assert self.source.default_version == APPFOLLOW_V3
         assert self.source.supported_versions == (APPFOLLOW_V2, APPFOLLOW_V3)

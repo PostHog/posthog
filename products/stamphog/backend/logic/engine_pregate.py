@@ -28,7 +28,7 @@ import json
 import time
 import tempfile
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 
 import structlog
@@ -37,6 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.ownership.github_files import GitHubFilesFetcher, is_absent
 
+from products.stamphog.backend.logic.attestation_checks import PendingCheck
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 
 logger = structlog.get_logger(__name__)
@@ -99,6 +100,12 @@ class GateAttestation:
     manifests: tuple[str, ...] = ()
     # False only when the engine said that no CI check lifted a deny for this PR.
     lifted: bool = True
+
+
+@frozen
+class AttestationProof:
+    checks: tuple[PendingCheck, ...]
+    proven: bool
 
 
 def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: str) -> str | None:
@@ -241,7 +248,20 @@ def owners_package_files() -> dict[str, str]:
     return {path.name: path.read_text() for path in sorted(OWNERS_PACKAGE_DIR.glob("*.py"))}
 
 
+def check_outside_engine_tree(paths: Iterable[str]) -> None:
+    """Refuse a repository file whose path lands beside the engine or owners modules.
+
+    The engine runs with its own directory first on `sys.path`, so any file there, such as a
+    `yaml.py`, would be imported as code. Every path the server reads from a repository must stay out.
+    """
+    reserved = (f"{_ENGINE_SUBDIR.as_posix()}/", f"{_OWNERS_SUBDIR.parent.as_posix()}/")
+    inside = sorted(path for path in paths if path.startswith(reserved))
+    if inside:
+        raise RuntimeError(f"repository files may not be written into the engine tree: {inside}")
+
+
 def _write_tree(root: Path, policy_files: Mapping[str, str]) -> None:
+    check_outside_engine_tree(policy_files)
     # The engine finds the repo root by its `.stamphog/` directory, and a repository with no policy
     # files of its own writes nothing there.
     (root / ".stamphog").mkdir(parents=True, exist_ok=True)
@@ -273,16 +293,22 @@ def _child_environment(root: Path, extra: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def _parse_outcome(stdout: str) -> PregateOutcome:
+def _last_json_object(stdout: str, what: str) -> dict:
+    """The JSON object on the last non-empty line of an engine run. ``what`` names the run in the error."""
     lines = [line for line in stdout.splitlines() if line.strip()]
     if not lines:
-        raise EnginePregateError("the engine pre-check printed nothing")
+        raise EnginePregateError(f"the engine {what} printed nothing")
     try:
         parsed = json.loads(lines[-1])
     except json.JSONDecodeError as exc:
-        raise EnginePregateError("the engine pre-check printed no JSON result") from exc
+        raise EnginePregateError(f"the engine {what} printed no JSON result") from exc
     if not isinstance(parsed, dict):
-        raise EnginePregateError("the engine pre-check result is not an object")
+        raise EnginePregateError(f"the engine {what} result is not an object")
+    return parsed
+
+
+def _parse_outcome(stdout: str) -> PregateOutcome:
+    parsed = _last_json_object(stdout, "pre-check")
     result = parsed.get("result")
     return PregateOutcome(
         final=parsed.get("final") is True and isinstance(result, dict),
@@ -344,13 +370,7 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
     It takes the same inputs as ``run_engine_pregate``. It emits no analytics event.
     """
     stdout = _run_engine_gates_only(context, policy_files, "--attest", {})
-    lines = [line for line in stdout.splitlines() if line.strip()]
-    try:
-        parsed = json.loads(lines[-1]) if lines else None
-    except json.JSONDecodeError as exc:
-        raise EnginePregateError("the engine attestation printed no JSON result") from exc
-    if not isinstance(parsed, dict):
-        raise EnginePregateError("the engine attestation result is not an object")
+    parsed = _last_json_object(stdout, "attestation")
     gates = parsed.get("gates")
     manifests = parsed.get("manifests")
     return GateAttestation(
@@ -359,4 +379,26 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
         gates=[gate for gate in gates if isinstance(gate, dict)] if isinstance(gates, list) else [],
         manifests=tuple(str(path) for path in manifests) if isinstance(manifests, list) else (),
         lifted=parsed.get("lifted") is not False,
+    )
+
+
+def _pending_check(entry: object) -> PendingCheck:
+    check = PendingCheck.from_entry(entry)
+    if check is None:
+        raise EnginePregateError("the engine attestation proof names a check without a name or an App id")
+    return check
+
+
+def run_engine_attestation_proof(context: Mapping[str, object], policy_files: Mapping[str, str]) -> AttestationProof:
+    """Run ``review_local.py --attestation-proof`` on ``context`` under ``policy_files`` and parse its answer.
+
+    ``context`` needs the PR, its files, its check runs with their pins and its merge base. Without check
+    runs, the answer still names the checks to wait for. It emits no analytics event.
+    """
+    stdout = _run_engine_gates_only(context, policy_files, "--attestation-proof", {})
+    parsed = _last_json_object(stdout, "attestation proof")
+    if not isinstance(parsed.get("checks"), list):
+        raise EnginePregateError("the engine attestation proof result has no list of checks")
+    return AttestationProof(
+        checks=tuple(_pending_check(entry) for entry in parsed["checks"]), proven=parsed.get("proven") is True
     )
