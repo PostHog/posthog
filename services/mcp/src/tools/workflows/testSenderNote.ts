@@ -5,7 +5,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function hasTestSenderLiveWarning(flow: unknown): boolean {
     const warnings = isRecord(flow) ? flow.warnings : undefined
     return (
-        Array.isArray(warnings) && warnings.some((warning) => isRecord(warning) && warning.code === 'test_sender_live')
+        Array.isArray(warnings) &&
+        warnings.some(
+            (warning) =>
+                isRecord(warning) &&
+                warning.code === 'test_sender_live' &&
+                typeof warning.message === 'string' &&
+                warning.message.trim() !== ''
+        )
     )
 }
 

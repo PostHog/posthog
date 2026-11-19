@@ -93,6 +93,13 @@ describe('workflow write response shape', () => {
         ['a broadcast on the test sender', 'broadcasts', testSenderLive, true, '/project/42/broadcasts/wf-1'],
         ['a workflow on its own sender', undefined, [], false, '/project/42/workflows/wf-1/workflow'],
         ['a workflow with malformed warnings', undefined, [null], false, '/project/42/workflows/wf-1/workflow'],
+        [
+            'a workflow whose warning has no message',
+            undefined,
+            [{ code: 'test_sender_live', message: ' ' }],
+            false,
+            '/project/42/workflows/wf-1/workflow',
+        ],
     ])('relays the test sender warning only when it enables %s', async (_name, origin, warnings, relays, path) => {
         const request = vi.fn().mockResolvedValue({ ...workflow(), origin_product: origin, warnings })
 
@@ -101,7 +108,7 @@ describe('workflow write response shape', () => {
         } as any)
 
         expect(request.mock.calls[0]?.[0].body).toEqual({ status: 'active' })
-        expect('_agentNote' in result).toBe(relays)
+        expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
         expect(result.warnings).toEqual(warnings)
         expect(result._posthogUrl).toBe(`https://us.posthog.com${path}`)
     })
@@ -109,21 +116,26 @@ describe('workflow write response shape', () => {
     it.each([
         [
             'a publish onto the test sender',
+            { confirm: true, confirm_token: 'preview-token' },
             { published: true, workflow: { ...workflow(), warnings: testSenderLive } },
             true,
         ],
-        ['a publish on its own sender', { published: true, workflow: { ...workflow(), warnings: [] } }, false],
-        ['a preview', { published: false, confirm_token: 'preview-token', impact: null }, false],
-    ])('relays the test sender warning only for %s', async (_name, response, relays) => {
+        [
+            'a publish on its own sender',
+            { confirm: true, confirm_token: 'preview-token' },
+            { published: true, workflow: { ...workflow(), warnings: [] } },
+            false,
+        ],
+        ['a preview', {}, { published: false, confirm_token: 'preview-token', impact: null }, false],
+    ])('relays the test sender warning only for %s', async (_name, confirmation, response, relays) => {
         const request = vi.fn().mockResolvedValue(response)
 
         const result: any = await GENERATED_TOOLS['workflows-publish']!().handler(createMockContext(request), {
             id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
-            confirm: true,
-            confirm_token: 'preview-token',
+            ...confirmation,
         } as any)
 
-        expect('_agentNote' in result).toBe(relays)
+        expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
         expect(result.workflow?.warnings).toEqual((response as any).workflow?.warnings)
     })
 })
