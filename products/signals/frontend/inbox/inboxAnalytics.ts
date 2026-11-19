@@ -76,6 +76,8 @@ export const INBOX_EVENTS = {
     SOURCE_CATALOG_SOURCE_SELECTED: 'Signal source catalog source selected',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
+    SOURCE_FILTER_EDITOR_OPENED: 'Signal source filter editor opened',
+    SOURCE_FILTER_EXPRESSION_CHANGED: 'Signal source filter expression changed',
     SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
     SOURCE_ALERT_PATTERNS_CHANGED: 'Signal source alert patterns changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
@@ -1041,6 +1043,39 @@ export function captureSignalSourceFiltersChanged(params: {
         filter: params.filter,
         selected_count: params.selectedCount,
         reads_everything: params.selectedCount === 0,
+        success: params.success,
+    })
+}
+
+/** The expression filter editor opened on a source. Pairs with the changed event to show drop-off. */
+export function captureSignalSourceFilterEditorOpened(params: {
+    sourceProduct: string
+    sourceType: string
+    hasFilter: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTER_EDITOR_OPENED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        has_filter: params.hasFilter,
+    })
+}
+
+/**
+ * A source's expression filter was saved or removed. Carries only the length: the expression names
+ * the customer's own projects and labels, so its text never leaves their project.
+ */
+export function captureSignalSourceFilterExpressionChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    action: 'saved' | 'removed'
+    expressionLength: number
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTER_EXPRESSION_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        action: params.action,
+        expression_length: params.expressionLength,
         success: params.success,
     })
 }

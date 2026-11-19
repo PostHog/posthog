@@ -134,7 +134,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.briefing_reports import reports_for_person
+from products.signals.backend.briefing_reports import reports_for_person, reports_needing_person
 from products.signals.backend.contracts import alert_patterns_problem
 from products.signals.backend.dismissal_notes import forward_dismissal_note, principal_may_steer_scouts
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRemovalReason
@@ -243,7 +243,8 @@ from products.signals.backend.report_metric_refresh import (
     REFRESHABLE_REPORT_STATUSES,
     refresh_report_metric_snapshots,
 )
-from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
+from products.signals.backend.report_monitoring_attempts import complete_implementation, verifying_attempt
 from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
 from products.signals.backend.report_note_mentions import (
     note_text,
@@ -297,6 +298,7 @@ from products.signals.backend.scout_harness.tools.report_author import (
     UserReportAuthor,
     user_report_limit_resets_at,
 )
+from products.signals.backend.scout_harness.tools.runs import run_id_for_sandbox_task
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_harness.views import (
     assert_custom_image_usable,
@@ -2023,6 +2025,18 @@ _REPORT_LIST_PARAMETERS = [
             "claims by MCP agents acting for them. Internal task claims are not included."
         ),
     ),
+    OpenApiParameter(
+        name="needs_you",
+        type=OpenApiTypes.BOOL,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "'true' keeps only the reports that need the requesting user: the ones waiting on their input "
+            "(pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or "
+            "through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by "
+            "the user's personal ranking."
+        ),
+    ),
 ]
 # Section counts set the status and the implementation PR condition themselves, so they reject these.
 _SECTION_DEFINING_PARAMETERS = frozenset({"status", "has_implementation_pr", "include_all_statuses", "view"})
@@ -2381,6 +2395,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_unclaimed_filter(qs)
         qs = self._apply_signal_report_assignee_filter(qs)
+        qs = self._apply_signal_report_needs_you_filter(qs)
         qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_inbox_scope_filter(qs)
@@ -2732,6 +2747,13 @@ class SignalReportViewSet(
             raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me, mine."})
         actor = self._request_attribution()
         return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
+
+    def _apply_signal_report_needs_you_filter(self, queryset):
+        wants_needs_you = self._bool_query_param("needs_you")
+        if wants_needs_you is None:
+            return queryset
+        needs_you = reports_needing_person(self.team_id, cast(User, self.request.user))
+        return queryset.filter(needs_you) if wants_needs_you else queryset.exclude(needs_you)
 
     def _channel_id_filter_value(self) -> uuid.UUID | None:
         # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
@@ -6981,6 +7003,14 @@ def _record_reviewer_edit(
     )
 
 
+def _bound_to_scout_run(request: Request, team: Team) -> bool:
+    authenticator = request.successful_authenticator
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+    task_id = authenticator.access_token.sandbox_task_id
+    return run_id_for_sandbox_task(task_id=task_id, team_id=team.parent_team_id or team.id) is not None
+
+
 @extend_schema_view(
     list=extend_schema(
         summary="List a report's checks",
@@ -7064,9 +7094,32 @@ class SignalReportCheckViewSet(
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
-        stopped = cancel_check(
-            check, reason="stopped_by_person", attribution=resolve_request_attribution(request, self.team.id)
-        )
+        attribution = resolve_request_attribution(request, self.team.id)
+        with transaction.atomic():
+            # A running assessment was prompted with this check, so a cancel now would not reach its verdict.
+            # The report lock keeps an assessment from starting between this guard and the cancel.
+            report = (
+                SignalReport.objects.select_for_update(no_key=True, of=("self",))
+                .select_related("team__organization")
+                .get(team_id=check.team_id, id=check.report_id)
+            )
+            attempt = verifying_attempt(report, check)
+            # Scout tokens carry inbox:write, and a cancelled member leaves verification.
+            if attempt is not None and _bound_to_scout_run(request, self.team):
+                return Response(
+                    {"error": "A scout cannot cancel a check that is verifying a report in Monitoring."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if (
+                attempt is not None
+                and attempt.aggregation_state == MonitoringAggregation.ASSESSMENT_REQUIRED
+                and report.team.organization.is_ai_data_processing_approved is True
+            ):
+                return Response(
+                    {"error": "This check is part of an assessment in progress. Try again after it finishes."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            stopped = cancel_check(check, reason="stopped_by_person", attribution=attribution)
         if not stopped:
             return Response(
                 {"error": f"This check already finished as '{check.status}' and cannot be cancelled."},
