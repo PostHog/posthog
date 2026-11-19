@@ -1,4 +1,4 @@
-import { applyEdit, dropIntoGrid, findTile, settleDashboard, stackTiles } from './dashboardEdits'
+import { applyEdit, dropIntoGrid, findTile, settleDashboard, stackTiles, withFolds } from './dashboardEdits'
 import type { Dashboard, Tile } from './dashboardTypes'
 
 const text = (id: string, x: number, y: number, w: number, h: number): Tile => ({
@@ -106,5 +106,17 @@ describe('dashboardEdits', () => {
             'left@group: 0,0,24,4',
             'right@group: 0,4,24,2',
         ])
+    })
+
+    it('closes a section for one viewer, moving the tiles below up, without changing the saved dashboard', () => {
+        const board = dashboard([section('group', 0, 0, 24, [text('inside', 0, 0, 24, 4)]), text('below', 0, 6, 24, 2)])
+        const saved = JSON.stringify(board)
+
+        expect(allPlaces(withFolds(board, { group: true }))).toEqual([
+            'group@first: 0,0,24,1',
+            'inside@group: 0,0,24,4',
+            'below@first: 0,1,24,2',
+        ])
+        expect(JSON.stringify(board)).toEqual(saved)
     })
 })

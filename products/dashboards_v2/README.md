@@ -33,6 +33,7 @@ A tile keeps its size when it moves in or out of a section, unless the grid it l
 
 A section's height is never chosen. It is one row for the header plus the rows its tiles need.
 A closed section is one row. An empty open section keeps two rows, so it can take a drop.
+Anyone can open or close a section, for their own view only. It is not saved and is not an undo step; the saved state is the default everyone sees first.
 A section cannot be resized narrower than its tiles need.
 A section moved into a narrower grid gets narrower, and its tiles are placed again to fit.
 
