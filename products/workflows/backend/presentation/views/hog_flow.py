@@ -6558,10 +6558,9 @@ class HogFlowViewSet(
         confirm = param_serializer.validated_data["confirm"]
 
         instance = self._edit_state()
-        if not instance.draft:
-            raise exceptions.ValidationError("This workflow has no staged draft to publish.")
-
         if not confirm:
+            if not instance.draft:
+                raise exceptions.ValidationError("This workflow has no staged draft to publish.")
             counts = self._get_in_flight_counts(instance)
             # nosemgrep: api-response-must-match-schema (these keys are exactly HogFlowPublishResponseSerializer's fields)
             return Response(
@@ -6604,6 +6603,10 @@ class HogFlowViewSet(
                 }
             )
 
+        # A valid token names a draft that existed at the preview, so a missing one was published or discarded since.
+        if not instance.draft:
+            raise StaleWorkflowUpdateError()
+
         def validate(state: WorkflowEditState, content: dict) -> dict:
             try:
                 return self._validate_locked_content(state, content)
@@ -6627,9 +6630,7 @@ class HogFlowViewSet(
                 validate=validate,
                 sandbox_sender_warned=param_serializer.validated_data.get("sandbox_sender_warned"),
             )
-        except WorkflowHasNoDraft:
-            raise exceptions.ValidationError("This workflow has no staged draft to publish.")
-        except WorkflowStale:
+        except (WorkflowHasNoDraft, WorkflowStale):
             raise StaleWorkflowUpdateError()
         locked = self._written_workflow(result)
 

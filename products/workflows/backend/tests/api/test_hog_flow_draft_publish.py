@@ -618,13 +618,17 @@ class TestHogFlowDraftPublish(APIBaseTest):
         entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
         assert entry is not None and entry.activity == "published"
 
-    def test_publish_with_stale_token_after_draft_reedit_is_rejected_with_409(self):
+    @parameterized.expand([("reedited",), ("discarded",)])
+    def test_publish_with_stale_token_is_rejected_with_409_when_the_draft_was(self, change: str):
         flow_id = self._create_active_flow()
         self._stage_draft(flow_id)
         confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
         # The draft changes between preview and confirm — the token no longer matches what's staged
-        reedit = self._patch_actions_via_mcp(flow_id, url="https://reedited.example.com")
-        assert reedit.status_code == 200, reedit.json()
+        if change == "reedited":
+            changed = self._patch_actions_via_mcp(flow_id, url="https://reedited.example.com")
+        else:
+            changed = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/discard_draft")
+        assert changed.status_code == 200, changed.json()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
