@@ -813,6 +813,12 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "'(Z|[+-][0-9]{2}:?[0-9]{2})$'",
             "'(Z|[+-][0-9]{2}:[0-9]{2})$'",
         ),
+        # HogQL parses with the OrNull variant, so a value no branch can read, such as '', is NULL and not a failed cast.
+        (
+            "SELECT parseDateTimeBestEffort(user_id) FROM users",
+            'with_timezone(TRY_CAST("users"."user_id" AS TIMESTAMP)',
+            'with_timezone(CAST("users"."user_id" AS TIMESTAMP)',
+        ),
         # A direct Trino table declares its physical types, so a native UUID column keeps pushdown.
         (
             "SELECT 1 FROM users WHERE uuid = toUUID(user_id)",
