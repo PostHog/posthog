@@ -30,6 +30,7 @@ from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.caching.throttle_history_cache import throttle_history_cache
 from posthog.exceptions import exception_handler
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
@@ -1177,6 +1178,7 @@ class TestReserveUnits(BaseTest):
         [
             ("the_refusing_scope_needs_room_for_the_retry_unit", "3/minute", "4/minute", [0, 20], 30, "50"),
             ("an_admitting_scope_has_no_room_for_the_retry", "2/minute", "4/hour", [0, 100], 130, "3470"),
+            ("skewed_worker_clocks_left_the_history_out_of_order", "4/minute", "100/minute", [1, 0, 20], 30, "31"),
         ]
     )
     def test_a_retry_at_the_advertised_wait_fits(self, _name, key_rate, team_rate, singles_at, batch_at, retry_after):
@@ -1409,6 +1411,17 @@ class TestReserveUnits(BaseTest):
                     )
 
         self.assertEqual(outcome, "60")
+
+    def test_a_send_without_a_replica_passes_when_the_primary_stalls(self):
+        with self._stalled_redis() as stalled:
+            default = {"BACKEND": "django_redis.cache.RedisCache", "LOCATION": stalled, "KEY_PREFIX": self.cache_prefix}
+            with (
+                override_settings(CACHES={"default": default, "throttle_history": throttle_history_cache(default)}),
+                patch.object(TransactionalEmailBurstThrottle, "rate", "3/minute"),
+            ):
+                outcome = self._send([TransactionalEmailBurstThrottle], 1)
+
+        self.assertIsNone(outcome)
 
     @parameterized.expand([("single", 1), ("batch", 3)])
     def test_a_send_admitted_from_the_replica_leaves_the_primary_charges_alone(self, _name, recipients):

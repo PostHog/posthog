@@ -8,6 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
 
+from posthog.caching.throttle_history_cache import throttle_history_cache
 from posthog.product_db_config import load_product_db_routes
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
@@ -879,16 +880,7 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
-CACHES["throttle_history"] = {
-    **CACHES["default"],
-    "LOCATION": REDIS_URL,
-    "OPTIONS": {
-        **CACHES["default"]["OPTIONS"],
-        "CONNECTION_FACTORY": "posthog.caching.throttle_history_cache.ThrottleHistoryConnectionFactory",
-        "SOCKET_CONNECT_TIMEOUT": 0.2,
-        "SOCKET_TIMEOUT": 0.2,
-    },
-}
+CACHES["throttle_history"] = throttle_history_cache(CACHES["default"])
 
 # The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
 CACHES["current_alias_usage"] = {

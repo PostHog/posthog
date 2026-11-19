@@ -172,6 +172,11 @@ def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
 THROTTLE_HISTORY_CACHE_ALIAS = "throttle_history"
 
 
+def _default_cache_reads_a_replica() -> bool:
+    location = settings.CACHES.get("default", {}).get("LOCATION")
+    return isinstance(location, list | tuple) and len(location) > 1
+
+
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     DRF_UNITS_PER_REQUEST = 1
     reads_history_from_primary = False
@@ -266,6 +271,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         try:
             return self.primary_cache.get(key, [])
         except Exception as e:
+            if not _default_cache_reads_a_replica():
+                raise
             capture_exception(e)
             self.history_from_replica = True
             return self.cache.get(key, [])
@@ -276,7 +283,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return 0.0
         if expiries_needed > len(self.history):
             return math.inf
-        return self.history[-expiries_needed] + duration - self.now
+        return max(self.history[-expiries_needed:]) + duration - self.now
 
     def _would_allow(self, request: "Request", view: "APIView") -> bool:
         if self.units_to_check is not None:
