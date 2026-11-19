@@ -263,6 +263,8 @@ A key is a short ID of at most 300 characters, never the note itself. The note g
 
 `remember` upserts on `key`: writing a key that already exists *overwrites it in place*. A key is a stable identity, not a log entry, so it must name the *thing* you're tracking, never *when* you saw it. A date, timestamp, or run id in a key mints a brand-new row every run, never reclaims the old one, and for a dedupe key guarantees next run's key won't match the entity you already surfaced.
 
+When you rewrite an entry another writer may also touch, pass the `updated_at` you read from `scout-scratchpad-search` as `if_updated_at`. Other scouts and pipeline stages write this keyspace at the same time, so without it your write silently erases any update made after your read; with it, that write returns a conflict instead, and you read the entry again before you write.
+
 - **Run state / cursors** (a "last scan" marker, a rolling baseline, "where I got to") → one fixed key like `pattern:<domain>:cursor`, timestamp *in the content*. Overwrite it each run.
 - **Dedupe / "already surfaced X"** → key off the stable identity of the thing (`dedupe:<domain>:<issue_id>`, `<account_external_id>`, `<file_path>`), no date. Put the dates you saw it *in the content* ("surfaced 2026-05-01, re-confirmed 2026-06-09"); re-confirming updates the same row in place.
 - **One row per real external item** (a specific Discord message id, a specific alert id) is fine: that's bounded by real events, not by time.

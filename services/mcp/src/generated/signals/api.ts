@@ -5397,7 +5397,7 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
 })
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read.
  * @summary Remember a scratchpad entry
  */
 export const SignalsScoutScratchpadRememberParams = () => zod.object({
@@ -5437,6 +5437,12 @@ export const SignalsScoutScratchpadRememberBody = () => zod
             .nullish()
             .describe(
                 "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost."
+            ),
+        if_updated_at: zod
+            .string()
+            .optional()
+            .describe(
+                "Optional precondition: the `updated_at` you read for this key from `scout-scratchpad-search`, sent back unchanged. The write happens only when the stored entry still has this `updated_at`. When the entry changed since you read it, or no entry has this key, nothing is written and the call returns 409 with the entry's current `updated_at`. Read the entry again and decide. Omit it to overwrite unconditionally. A value that can't be parsed is rejected, not dropped."
             ),
     })
     .describe('Request body for `remember`.')
