@@ -62,8 +62,10 @@ FINAL_AFTER = LATENESS_CAP + dt.timedelta(seconds=MAX_SETTLE_SECONDS)
 REFILL_EVERY = dt.timedelta(hours=24)
 REFILL_WINDOW = dt.timedelta(hours=26)
 # The re-fill reaches back to the oldest bucket that is not final yet, however old, so every bucket gets one
-# re-read once it can no longer change. After a long gap in fills it catches up this much per step.
-MAX_REFILL_STEP = dt.timedelta(days=3)
+# re-read once it can no longer change. After a long gap in fills it catches up this much per step. A step holds
+# every label set of its hours in memory until it writes them, so it stays as short as the forward and backfill
+# steps. It must still cover `REFILL_WINDOW - REREAD`, so that a re-fill without a backlog completes in one step.
+MAX_REFILL_STEP = dt.timedelta(days=1)
 UNUSED_AFTER = dt.timedelta(days=14)
 PAUSE_AFTER_FAILURES = 10
 PASS_BUDGET = dt.timedelta(minutes=4)
