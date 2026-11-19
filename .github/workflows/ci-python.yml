@@ -135,9 +135,10 @@ jobs:
                           - '.github/actions/paths-filter/**'
                           - '.github/workflows/ci-python.yml'
                       python:
-                        # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
-                        # file anywhere must trigger this workflow — otherwise an unformatted
-                        # file lands undetected and trips the next unrelated PR that does run.
+                        # ruff and ty run repo-wide (`.`) in code-quality, and mypy runs
+                        # in its own job, so any Python file anywhere must trigger this
+                        # workflow — otherwise an unformatted or untyped file lands
+                        # undetected and trips the next unrelated PR that does run.
                         - '**/*.py'
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
@@ -710,7 +711,7 @@ jobs:
     # The warehouse source vendors under products/warehouse_sources/sources/ need no service:
     # no Postgres, ClickHouse, Redis or Kafka. So a pull request that changes only vendors
     # runs this job, and Backend CI does not start (its `backend` filter excludes that
-    # directory). code-quality already runs ruff, mypy and ty on the vendors.
+    # directory). code-quality and mypy already run ruff, ty and mypy on the vendors.
     warehouse-sources:
         needs: changes
         # Skipped on master push: the merge queue already ran this for every landed commit,
