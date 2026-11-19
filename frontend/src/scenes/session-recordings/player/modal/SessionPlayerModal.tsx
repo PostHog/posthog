@@ -127,7 +127,9 @@ function RecordingListPosition({ recordingList }: { recordingList: SessionPlayer
             <span className="font-semibold shrink-0">
                 {`Recording ${position + 1} of ${entries.length}${hasMoreToLoad ? ' loaded' : ''}`}
             </span>
-            {personDisplayName ? <span className="truncate text-secondary">{`· ${personDisplayName}`}</span> : null}
+            {personDisplayName ? (
+                <span className="truncate text-secondary ph-no-capture">{`· ${personDisplayName}`}</span>
+            ) : null}
         </div>
     )
 }
