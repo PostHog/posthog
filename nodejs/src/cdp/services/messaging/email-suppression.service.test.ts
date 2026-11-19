@@ -563,16 +563,21 @@ describe('EmailSuppressionService', () => {
             const email = `back-${step}-${team.id}@example.com`
             const otherTeamId = await bounceForAnotherTeam(email)
 
-            if (step === 'removed' || step === 'counting') {
+            if (step === 'removed') {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_messagesuppression
                         (id, team_id, identifier, source, reason, transient_bounce_count,
                          suppressed, suppressed_at, deleted, created_at, updated_at)
-                     VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', NULL, $3, false, NULL, $4, NOW(), NOW())`,
-                    [team.id, email, step === 'counting' ? 2 : 0, step === 'removed'],
-                    'test-insert-unlisted-suppression'
+                     VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', NULL, 0, false, NULL, true, NOW(), NOW())`,
+                    [team.id, email],
+                    'test-insert-removed-suppression'
                 )
+            } else if (step === 'counting') {
+                process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
+                const svc = newService(true)
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId: 'first' })
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, { eventId: 'second' })
             } else {
                 // Bounces stamp last_bounced_at with NOW(), so a delivery has to be newer than that.
                 await newService(true).recordDeliveries(
@@ -585,6 +590,7 @@ describe('EmailSuppressionService', () => {
                 )
             }
 
+            expect(await newService(false).isSuppressed(team.id, email)).toBe(false)
             expect(await newService(true).isSuppressed(team.id, email)).toBe(blocked)
         })
 
