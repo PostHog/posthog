@@ -43,9 +43,9 @@ const ITEMS: AttentionItem[] = [
         id: 'paused',
         tone: 'warning',
         title: 'Partner program invite is paused',
-        detail: 'It was due in 6 days. Resume it or move it on the calendar.',
-        action: 'Open on calendar',
-        onAction: () => openInCalendar('b-paused', 'D'),
+        detail: 'It was due in 6 days. Resume it or pick a new time.',
+        action: 'Open broadcast',
+        onAction: () => openInCalendar('b-paused'),
     },
 ]
 
@@ -86,7 +86,7 @@ export function OverviewAttention(): JSX.Element {
                 <section className="flex min-w-0 flex-col gap-2">
                     <div className="flex items-center justify-between">
                         <Heading size="sm">Goes out in the next 7 days</Heading>
-                        <Button variant="link" onClick={() => openInCalendar(undefined, 'F')}>
+                        <Button variant="link" onClick={() => openInCalendar()}>
                             Open calendar
                         </Button>
                     </div>

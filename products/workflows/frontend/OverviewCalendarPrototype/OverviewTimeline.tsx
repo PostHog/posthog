@@ -32,7 +32,7 @@ export function OverviewTimeline(): JSX.Element {
             <section className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                     <Heading size="sm">Next 14 days</Heading>
-                    <Button variant="link" onClick={() => openInCalendar(undefined, 'F')}>
+                    <Button variant="link" onClick={() => openInCalendar()}>
                         Open calendar
                     </Button>
                 </div>
@@ -45,7 +45,7 @@ export function OverviewTimeline(): JSX.Element {
                             <button
                                 key={d.format('YYYY-MM-DD')}
                                 type="button"
-                                onClick={() => openInCalendar(oneOff[0]?.id, 'E')}
+                                onClick={() => openInCalendar()}
                                 className={clsx(
                                     'flex min-h-20 flex-col gap-1 rounded-md border p-1.5 text-left hover:bg-fill-hover',
                                     d.isSame(TODAY, 'day') && 'border-primary'

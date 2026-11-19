@@ -25,7 +25,7 @@ import {
     MessagingNavTabKey,
     isMessagingSetupTab,
 } from '../messagingTabs'
-import { CalendarPrototype } from '../OverviewCalendarPrototype/CalendarPrototype'
+import { SendCalendar } from '../SendCalendar/SendCalendar'
 import { SendCalendarTabLabel } from '../SendCalendar/SendCalendarTabLabel'
 import { NewWorkflowModal } from '../Workflows/NewWorkflowModal'
 import { BroadcastAudienceSuggestions } from './audienceSuggestions/BroadcastAudienceSuggestions'
@@ -110,7 +110,7 @@ export function BroadcastsScene(): JSX.Element {
                         label: <SendCalendarTabLabel />,
                         key: 'calendar',
                         link: urls.broadcasts('calendar'),
-                        content: <CalendarPrototype />,
+                        content: <SendCalendar />,
                     },
                     {
                         label: 'Templates',
