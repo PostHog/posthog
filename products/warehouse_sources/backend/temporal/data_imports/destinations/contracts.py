@@ -70,10 +70,21 @@ class DestinationBatchContext:
 
 @frozen
 class BatchWriteOutcome:
-    """What a writer actually delivered for one batch."""
+    """What a writer actually delivered for one batch.
+
+    `bytes_written` is the egress billed for the batch: the bytes sent to the destination after
+    format encoding and compression, summed over every file or chunk the batch was split into.
+    Required so that a new writer cannot report zero by omission.
+    """
 
     rows_written: int
-    bytes_written: int = 0
+    bytes_written: int
+
+    def __add__(self, other: BatchWriteOutcome) -> BatchWriteOutcome:
+        return BatchWriteOutcome(
+            rows_written=self.rows_written + other.rows_written,
+            bytes_written=self.bytes_written + other.bytes_written,
+        )
 
 
 @runtime_checkable

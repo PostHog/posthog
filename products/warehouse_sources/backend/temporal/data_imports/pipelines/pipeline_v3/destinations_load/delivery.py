@@ -17,11 +17,14 @@ from __future__ import annotations
 import time
 from collections.abc import Iterable
 
+from django.db import transaction
+
 import structlog
 from asgiref.sync import async_to_sync
 
 from products.warehouse_sources.backend.destination_health import record_delivery_failure, record_delivery_success
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
+from products.warehouse_sources.backend.models.external_data_destination_delivery import ExternalDataDestinationDelivery
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
@@ -262,6 +265,7 @@ def deliver_batch_to_destinations(
                     export_signal.batch_index,
                     destination_id=destination_id,
                 )
+                _record_delivery(export_signal, destination, outcome)
                 written += 1
             if export_signal.is_final_batch:
                 async_to_sync(writer.finalize_run)(run_ctx)
@@ -301,11 +305,47 @@ def deliver_batch_to_destinations(
             table_name=run_ctx.table_name,
             batch_index=export_signal.batch_index,
             rows_written=rows_written,
+            bytes_written=outcome.bytes_written if outcome else 0,
             duration_seconds=duration_seconds,
             msg=(f"Wrote {rows_written:,} rows to {destination.name} ({run_ctx.table_name}) in {duration_seconds}s"),
         )
 
     return written
+
+
+def _record_delivery(
+    export_signal: ExportSignalMessage, destination: ExternalDataDestination, outcome: BatchWriteOutcome | None
+) -> None:
+    """Record the egress of one delivered batch for billing.
+
+    The unique constraint on (job, destination, batch_index) makes a re-delivered batch insert
+    nothing, so it is billed once. A failure here only loses the egress record, so it is logged
+    and the batch, which the destination already has, is not failed. The savepoint keeps a failed
+    insert from aborting a transaction the caller may have open.
+    """
+    try:
+        with transaction.atomic():
+            ExternalDataDestinationDelivery.objects.for_team(export_signal.team_id, canonical=True).bulk_create(
+                [
+                    ExternalDataDestinationDelivery(
+                        team_id=export_signal.team_id,
+                        job_id=export_signal.job_id,
+                        destination_id=destination.id,
+                        batch_index=export_signal.batch_index,
+                        rows_written=outcome.rows_written if outcome else 0,
+                        bytes_exported=outcome.bytes_written if outcome else 0,
+                    )
+                ],
+                ignore_conflicts=True,
+            )
+    except Exception as e:
+        logger.warning(
+            "destination_delivery_record_failed",
+            destination_name=destination.name,
+            destination_type=destination.type,
+            batch_index=export_signal.batch_index,
+            error=str(e),
+        )
 
 
 async def _write(
