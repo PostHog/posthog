@@ -295,6 +295,16 @@ class TestSendGridImport(BaseTest):
         assert any("A/B test" in note for note in items["From a design"]["notes"])
         assert any("example.com/leave" in note for note in items["From a design"]["notes"])
 
+    def test_a_single_send_takes_its_own_sender_not_the_first_one_listed(self) -> None:
+        self.state.account["single_sends"][0]["email_config"]["sender_id"] = 8
+
+        run = self._run(["single_sends"])
+
+        items = {item["label"]: item for item in run.progress["single_sends"]["items"]}
+        notes = " ".join(items["November news"]["notes"])
+        assert "new@example.org" in notes
+        assert "hello@example.com" not in notes
+
     def test_senders_domains_and_lists_are_listed_with_what_to_do(self) -> None:
         run = self._run(["lists", "senders", "domains"])
 

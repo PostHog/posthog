@@ -756,7 +756,7 @@ def _save_designs(context: ImportContext, designs: list[dict[str, Any]]) -> Save
 def _fetch_single_sends(
     client: SendGridClient, context: ImportContext, resume: StepCheckpoint | None, fingerprint: str
 ) -> Iterator[ImportPage]:
-    senders: dict[int, dict[str, Any] | None] = {}
+    senders: dict[int, dict[str, Any]] | None = None
     for page in client.token_pages("/v3/marketing/singlesends", _page_token(resume), 100):
         details = []
         for summary in page.data:
@@ -770,23 +770,33 @@ def _fetch_single_sends(
             design = (
                 _read_unless_deleted(client, f"/v3/designs/{config['design_id']}") if config.get("design_id") else None
             )
-            sender_id = config.get("sender_id")
-            if isinstance(sender_id, int) and sender_id not in senders:
-                senders[sender_id] = _read_sender(client, sender_id)
+            if senders is None and isinstance(config.get("sender_id"), int):
+                senders = _all_verified_senders(client)
             details.append((single_send, design))
         yield ImportPage(
             processed=len(page.data),
-            save=partial(_save_single_sends, context, details, dict(senders)),
+            save=partial(_save_single_sends, context, details, dict(senders or {})),
             checkpoint=_token_checkpoint(fingerprint, page.next_position),
         )
 
 
-def _read_sender(client: SendGridClient, sender_id: int) -> dict[str, Any] | None:
-    try:
-        results = client.get("/v3/verified_senders", {"id": sender_id}).get("results") or []
-    except SendGridScopeMissing:
-        return None
-    return results[0] if results else None
+def _all_verified_senders(client: SendGridClient) -> dict[int, dict[str, Any]]:
+    """Every verified sender by id. SendGrid's list has no filter by id, so it's read page by page."""
+    senders: dict[int, dict[str, Any]] = {}
+    last_seen = None
+    while True:
+        params: dict[str, Any] = {"limit": 100, **({"lastSeenID": last_seen} if last_seen is not None else {})}
+        try:
+            body = client.get("/v3/verified_senders", params)
+        except SendGridScopeMissing:
+            return senders
+        results = body.get("results") if isinstance(body, dict) else None
+        if not isinstance(results, list) or not results:
+            return senders
+        senders.update({row["id"]: row for row in results if isinstance(row, dict) and isinstance(row.get("id"), int)})
+        if len(results) < 100 or results[-1].get("id") in (None, last_seen):
+            return senders
+        last_seen = results[-1].get("id")
 
 
 def _save_single_sends(
