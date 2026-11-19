@@ -1996,7 +1996,6 @@ describe('TaxonomicFilter', () => {
 
         await waitFor(() => expect(requests.length).toBeGreaterThan(0))
         expect(requests[0].get('search')).toBe('checkout')
-        // A remembered value finds the attribute that carries it, as it does for logs and traces.
         expect(requests[0].get('search_values')).toBe('true')
     })
 

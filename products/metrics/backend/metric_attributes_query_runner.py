@@ -34,8 +34,7 @@ _TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
 # metric names picker uses.
 _DEFAULT_LOOKBACK = dt.timedelta(hours=24)
 
-# Value search probes `attribute_value` with ILIKE %search%, which scans far more rows than the
-# key-only path. Require a meaningfully specific term, as logs and traces do.
+# A value search scans far more rows than a key search, so it needs a specific term.
 MIN_VALUE_SEARCH_LENGTH = 4
 
 # Autocomplete tolerates partial results, so reads break at the budget instead
@@ -89,7 +88,8 @@ class MetricAttributeKeysQueryRunner:
 
     def run(self) -> list[dict[str, Any]]:
         results = self._key_results()
-        if self._should_search_values():
+        # Value matches rank after key matches, so a full page of key matches leaves no room for them.
+        if self._should_search_values() and len(results) < self.limit:
             results = self._with_value_matches(results)
         return results
 
@@ -111,13 +111,11 @@ class MetricAttributeKeysQueryRunner:
         return results
 
     def _with_value_matches(self, key_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        # Keys whose name matches the search rank above keys that only match on a value, and a key
-        # the name search already found keeps that plain row, so it is not listed twice.
         response = execute_hogql_query(
             query_type="MetricAttributeValueSearchQuery",
             query=self._value_matches_query(),
             team=self.team,
-            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
 
@@ -135,8 +133,7 @@ class MetricAttributeKeysQueryRunner:
         return (key_results + value_results)[: self.limit]
 
     def _value_matches_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        # Keys whose *values* match the search, which the key-only queries cannot find. The
-        # synthetic service key is never an attribute row, so it gets its own branch.
+        # The service name is a column, not an attribute row, so it needs its own branch.
         return parse_select(
             """
                 SELECT attribute_key, sample_value, value_count

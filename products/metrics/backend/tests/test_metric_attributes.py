@@ -261,9 +261,6 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestMetricAttributeValueSearchAPI(ClickhouseTestMixin, APIBaseTest):
-    """`search_values` lets a remembered value, such as a service or an environment,
-    find the attribute key that carries it, the way logs and traces already do."""
-
     CLASS_DATA_LEVEL_SETUP = True
     now: dt.datetime
 
@@ -303,7 +300,6 @@ class TestMetricAttributeValueSearchAPI(ClickhouseTestMixin, APIBaseTest):
         return response.json()["results"]
 
     def test_value_search_is_off_by_default(self):
-        # No attribute key contains "checkout", so only a value search can find the service key.
         assert self._results({"search": "checkout"}) == []
 
     def test_value_search_finds_the_key_that_carries_the_value(self):
@@ -326,7 +322,6 @@ class TestMetricAttributeValueSearchAPI(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_short_search_does_not_probe_values(self):
-        # Under the minimum length only the key-name path runs, so "zone" is not suggested.
         assert self._results({"metricName": "http_requests", "search": "reg", "search_values": "true"}) == [
             {"name": "region", "value_count": 1}
         ]
