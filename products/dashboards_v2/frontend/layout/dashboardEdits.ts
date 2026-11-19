@@ -99,6 +99,22 @@ function stackSection(tile: SectionTile, cols: number, y: number): Tile {
     return { ...tile, widget, place: { x: 0, y, w: cols, h: sectionRows(widget) } }
 }
 
+/** The dashboard as one person sees it, with sections they opened or closed for themselves. Never saved. */
+export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>): Dashboard {
+    const ids = Object.keys(folds)
+    if (ids.length === 0) {
+        return dashboard
+    }
+    const folded = ids.reduce(
+        (next, id) =>
+            changeTileEverywhere(next, id, (tile) =>
+                isSection(tile) ? { ...tile, widget: { ...tile.widget, collapsed: folds[id] } } : tile
+            ),
+        dashboard
+    )
+    return settleDashboard(folded)
+}
+
 export function settleDashboard(dashboard: Dashboard): Dashboard {
     return { ...dashboard, tabs: dashboard.tabs.map((tab) => ({ ...tab, tiles: settleGrid(tab.tiles, GRID.columns) })) }
 }
