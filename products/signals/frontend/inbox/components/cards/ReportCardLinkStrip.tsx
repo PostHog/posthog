@@ -15,7 +15,7 @@ import type {
     ReportLinkSummaryApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { captureInboxReportLinkStripClicked } from '../../inboxAnalytics'
+import { captureInboxReportLinkStripClicked } from '../../linkStripAnalytics'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
@@ -82,7 +82,7 @@ type StripCapture = (
 ) => void
 
 /**
- * Reports which linked report a menu entry opened. Captured on the way down, because Link returns before
+ * Reports which linked report a menu entry opened, and the link kind the entry named. Captured on the way down, because Link returns before
  * its own onClick on a Cmd/Ctrl-click, and those opens count too. The menu renders in a portal, and React
  * still passes its clicks up through this wrapper.
  */
@@ -90,18 +90,18 @@ function MenuOpenCapture({
     onOpen,
     children,
 }: {
-    onOpen: (reportId: string) => void
+    onOpen: (reportId: string, kind: string | null) => void
     children: React.ReactNode
 }): JSX.Element {
     return (
         <span
             className="contents"
             onClickCapture={(event) => {
-                const reportId = (event.target as Element)
+                const entry = (event.target as Element)
                     .closest('a')
-                    ?.querySelector<HTMLElement>('[data-linked-report-id]')?.dataset.linkedReportId
-                if (reportId) {
-                    onOpen(reportId)
+                    ?.querySelector<HTMLElement>('[data-linked-report-id]')?.dataset
+                if (entry?.linkedReportId) {
+                    onOpen(entry.linkedReportId, entry.linkedKind ?? null)
                 }
             }}
         >
@@ -226,18 +226,12 @@ function OtherLinksMenu({
     }
     return (
         <MenuOpenCapture
-            onOpen={(reportId) =>
-                capture({
-                    target: 'other_link',
-                    linkedReportId: reportId,
-                    linkedKind: links.find((link) => link.report.id === reportId)?.kind ?? null,
-                })
-            }
+            onOpen={(reportId, kind) => capture({ target: 'other_link', linkedReportId: reportId, linkedKind: kind })}
         >
             <LemonMenu
                 items={links.map((link) => ({
                     label: (
-                        <span data-linked-report-id={link.report.id}>
+                        <span data-linked-report-id={link.report.id} data-linked-kind={link.kind}>
                             {`${KIND_LABEL[link.kind]} ${link.report.title ?? 'Untitled report'}`}
                         </span>
                     ),

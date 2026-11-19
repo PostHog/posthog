@@ -11,6 +11,7 @@ import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
@@ -268,6 +269,7 @@ export function ReportsTab(): JSX.Element {
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
+    const { selectedReportIds } = useValues(inboxBulkActionsLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
@@ -312,6 +314,7 @@ export function ReportsTab(): JSX.Element {
     const linkStrips = useFeatureFlag('INBOX_CARDS_LINK_RELATED_REPORTS')
     const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection, {
         collapsePlans: linkStrips,
+        selectedReportIds,
     })
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =

@@ -209,18 +209,23 @@ describe('ReportCard', () => {
     })
 
     // Link returns before its own onClick on a Cmd/Ctrl-click, so a strip that tracked in onClick would
-    // miss every open in a new tab, from the strip and from its menu alike.
+    // miss every open in a new tab, from the strip and from its menu alike. The menu holds two links to
+    // the same report, so a lookup by report id alone would record the first one's kind.
     it.each([
-        { name: 'the linked report', open: () => screen.getByText('The old report'), target: 'linked_report' },
+        {
+            name: 'the linked report',
+            open: () => screen.getByText('The old report'),
+            expected: { target: 'linked_report', linked_kind: null },
+        },
         {
             name: 'a menu entry',
             open: () => {
-                fireEvent.click(screen.getByText('+1 more'))
-                return screen.getByText('Waiting on The lock')
+                fireEvent.click(screen.getByText('+2 more'))
+                return screen.getByText('Follow-up of The lock')
             },
-            target: 'other_link',
+            expected: { target: 'other_link', linked_kind: 'follow_up_of' },
         },
-    ])('records a Cmd-click on $name in the link strip', ({ open, target }) => {
+    ])('records a Cmd-click on $name in the link strip', ({ open, expected }) => {
         cleanup()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_CARDS_LINK_RELATED_REPORTS], {
             [FEATURE_FLAGS.INBOX_CARDS_LINK_RELATED_REPORTS]: true,
@@ -239,7 +244,10 @@ describe('ReportCard', () => {
                         kind: 'recurrence_of',
                         report: linked('old', 'The old report'),
                         plan: null,
-                        other_links: [{ kind: 'depends_on', report: linked('lock', 'The lock') }],
+                        other_links: [
+                            { kind: 'depends_on', report: linked('lock', 'The lock') },
+                            { kind: 'follow_up_of', report: linked('lock', 'The lock') },
+                        ],
                     },
                 })}
                 backUrl="/customer_analytics/feed"
@@ -251,7 +259,7 @@ describe('ReportCard', () => {
         expect(link.getAttribute('href')).toContain('back=')
         expect(posthog.capture).toHaveBeenCalledWith(
             INBOX_EVENTS.REPORT_LINK_STRIP_CLICKED,
-            expect.objectContaining({ report_id: 'r-3', strip_kind: 'recurrence_of', target }),
+            expect.objectContaining({ report_id: 'r-3', strip_kind: 'recurrence_of', ...expected }),
             undefined
         )
     })

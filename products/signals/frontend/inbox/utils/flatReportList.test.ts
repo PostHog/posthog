@@ -127,9 +127,16 @@ describe('mergeReportRows', () => {
                 ['layer-1', ['layer-2'], null],
             ],
         },
-    ])('collapses plan layers: $name', ({ rows, expected }) => {
+        {
+            name: 'a selected layer keeps the card when the lead loads after it',
+            rows: [planRow('layer-2', 1, 'layer-1'), planRow('layer-1', 2, 'layer-1')],
+            selected: ['layer-2'],
+            expected: [['layer-2', ['layer-1'], null]],
+        },
+    ])('collapses plan layers: $name', ({ rows, selected, expected }) => {
         const merged = mergeReportRows(sections({ 'needs-decision': rows }), ['needs-decision'], 'recommended', 'asc', {
             collapsePlans: true,
+            selectedReportIds: selected,
         })
 
         expect(merged.map((row) => [row.report.id, row.collapsedReportIds ?? [], row.slotReport?.id ?? null])).toEqual(

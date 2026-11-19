@@ -7,7 +7,6 @@ import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes
 import type {
     InboxSummaryApi,
     PaginatedSignalReportListListApiPersonalRankingStatus,
-    ReportLinkSummaryApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
@@ -333,7 +332,11 @@ export type ScoutActionType =
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
-function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>, options?: CaptureOptions): void {
+export function captureInboxEvent(
+    event: InboxEvent,
+    properties: Record<string, unknown>,
+    options?: CaptureOptions
+): void {
     posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties }, options)
 }
 
@@ -394,7 +397,7 @@ interface BaseReportProperties {
  * own data. User-authored notes (a dismissal reason note, feedback note) are a different case: they
  * are the actionable signal we want, so the relevant capture calls attach them explicitly.
  */
-function baseReportProperties(report: SignalReport): BaseReportProperties {
+export function baseReportProperties(report: SignalReport): BaseReportProperties {
     return {
         report_id: report.id,
         report_age_hours: reportAgeHours(report),
@@ -749,37 +752,6 @@ export function captureInboxReportAction(params: {
               )
             : {}),
         ...params.extra,
-    })
-}
-
-/** What a click on a card's link strip opened. */
-export type InboxLinkStripTarget = 'linked_report' | 'plan_step' | 'other_link'
-
-/**
- * A click on a card's link strip. With the strip kinds on `Inbox reports impressed` as the denominator,
- * this says whether people follow links from the list, and for which kinds.
- */
-export function captureInboxReportLinkStripClicked(params: {
-    report: SignalReport
-    summary: ReportLinkSummaryApi
-    target: InboxLinkStripTarget
-    linkedReportId: string
-    /** The link kind of the report that was opened, for an `other_link` click. */
-    linkedKind?: string | null
-    /** The 1-based position of the opened layer, for a `plan_step` click. */
-    stepPosition?: number | null
-}): void {
-    const ownStepIndex = params.summary.plan?.steps.findIndex((step) => step.id === params.report.id) ?? -1
-    captureInboxEvent(INBOX_EVENTS.REPORT_LINK_STRIP_CLICKED, {
-        ...baseReportProperties(params.report),
-        strip_kind: params.summary.kind,
-        target: params.target,
-        linked_report_id: params.linkedReportId,
-        linked_kind: params.linkedKind ?? null,
-        step_position: params.stepPosition ?? null,
-        step_count: params.summary.plan?.steps.length ?? null,
-        own_step_position: ownStepIndex >= 0 ? ownStepIndex + 1 : null,
-        other_link_count: params.summary.other_links.length,
     })
 }
 

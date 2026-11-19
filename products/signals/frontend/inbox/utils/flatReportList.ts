@@ -83,7 +83,14 @@ export function mergeReportRows(
     selectedSections: InboxReportSectionKey[],
     sortField: InboxSortField,
     sortDirection: InboxSortDirection,
-    { collapsePlans = false }: { collapsePlans?: boolean } = {}
+    {
+        collapsePlans = false,
+        selectedReportIds = [],
+    }: {
+        collapsePlans?: boolean
+        /** The selected reports, which keep their own card when their plan collapses. */
+        selectedReportIds?: readonly string[]
+    } = {}
 ): MergedReportRow[] {
     const seen = new Set<string>()
     const rowsBySection: MergedReportRow[][] = []
@@ -101,7 +108,7 @@ export function mergeReportRows(
     const rows = isMergeKeySortField(sortField)
         ? mergeSortedSections(rowsBySection, compare)
         : rowsBySection.flat().sort((a, b) => compare(a.report, b.report))
-    return collapsePlans ? collapsePlanRows(rows) : rows
+    return collapsePlans ? collapsePlanRows(rows, new Set(selectedReportIds)) : rows
 }
 
 /**
@@ -120,37 +127,48 @@ function planKey(report: SignalReport): string | null {
 }
 
 /**
- * Show each plan as one card, at the place of its best-ranked loaded row, so a plan never sorts below its
- * strongest layer. The card is the plan's lead layer when that layer is loaded, else the best-ranked
- * loaded layer, else the plan itself. Only loaded rows collapse, so a filter that matches some layers
- * collapses over those, and a layer that arrives on a later page joins the card already shown.
+ * The row a plan's card shows. A selected member comes first, so a lead layer that loads later never
+ * swaps a selected card out of the list, and out of the selection with it. Then the lead layer, the
+ * best-ranked loaded layer, and the plan itself.
  */
-export function collapsePlanRows(rows: MergedReportRow[]): MergedReportRow[] {
-    const members = new Map<string, MergedReportRow[]>()
+function planCard(group: MergedReportRow[], planId: string, selectedIds: ReadonlySet<string>): MergedReportRow {
+    const layers = group.filter((member) => member.report.id !== planId)
+    return (
+        group.find((member) => selectedIds.has(member.report.id)) ??
+        layers.find((member) => member.report.link_summary?.plan?.lead_step_id === member.report.id) ??
+        layers[0] ??
+        group[0]
+    )
+}
+
+/**
+ * Show each plan as one card, at the place of its best-ranked loaded row, so a plan never sorts below its
+ * strongest layer. Only loaded rows collapse, so a filter that matches some layers collapses over those,
+ * and a layer that arrives on a later page joins the card already shown.
+ */
+export function collapsePlanRows(
+    rows: MergedReportRow[],
+    selectedIds: ReadonlySet<string> = new Set()
+): MergedReportRow[] {
+    const groups = new Map<string, MergedReportRow[]>()
     for (const row of rows) {
         const key = planKey(row.report)
         if (key) {
-            members.set(key, [...(members.get(key) ?? []), row])
+            groups.set(key, [...(groups.get(key) ?? []), row])
         }
     }
     const collapsed: MergedReportRow[] = []
-    const shown = new Set<string>()
     for (const row of rows) {
         const key = planKey(row.report)
-        if (!key) {
+        const group = key ? groups.get(key) : undefined
+        if (!key || !group) {
             collapsed.push(row)
             continue
         }
-        if (shown.has(key)) {
+        if (group[0] !== row) {
             continue
         }
-        shown.add(key)
-        const group = members.get(key) ?? [row]
-        const layers = group.filter((member) => member.report.id !== key)
-        const card =
-            layers.find((member) => member.report.link_summary?.plan?.lead_step_id === member.report.id) ??
-            layers[0] ??
-            row
+        const card = planCard(group, key, selectedIds)
         collapsed.push({
             ...card,
             collapsedReportIds: group.filter((member) => member !== card).map((member) => member.report.id),
