@@ -77,6 +77,81 @@ describe('shortcutLogic key handling', () => {
         expect(onOther).toHaveBeenCalledTimes(1)
         expect(onSequence).not.toHaveBeenCalled()
     })
+
+    it.each([
+        { matchInEditable: true, expectedCalls: 1 },
+        { matchInEditable: false, expectedCalls: 0 },
+    ])(
+        'fires a sequence typed into a text field only when matchInEditable is $matchInEditable',
+        ({ matchInEditable, expectedCalls }) => {
+            const onTyped = jest.fn()
+            logic.actions.registerShortcut({
+                name: 'Typed',
+                keybind: [['h', 'then', 'e', 'then', 'y']],
+                intent: 'Easter egg',
+                interaction: 'function',
+                matchInEditable,
+                callback: onTyped,
+            })
+            const input = document.createElement('input')
+            document.body.appendChild(input)
+
+            const events = ['x', 'H', 'e', 'y'].map(
+                (key) => new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+            )
+            events.forEach((event) => input.dispatchEvent(event))
+            input.remove()
+
+            expect(onTyped).toHaveBeenCalledTimes(expectedCalls)
+            expect(onSingleKey).not.toHaveBeenCalled()
+            expect(events.some((event) => event.defaultPrevented)).toBe(false)
+        }
+    )
+
+    it.each([
+        { interruption: 'a pause longer than the sequence timeout' },
+        { interruption: 'switching to another text field' },
+        { interruption: 'a ctrl chord' },
+        { interruption: 'a key inside a data-shortcuts-ignore region' },
+    ])('does not fire a sequence typed into a text field across $interruption', ({ interruption }) => {
+        const onTyped = jest.fn()
+        logic.actions.registerShortcut({
+            name: 'Typed',
+            keybind: [['h', 'then', 'e', 'then', 'y']],
+            intent: 'Easter egg',
+            interaction: 'function',
+            matchInEditable: true,
+            callback: onTyped,
+        })
+        const first = document.createElement('input')
+        const second = document.createElement('input')
+        const ignored = document.createElement('div')
+        ignored.dataset.shortcutsIgnore = 'all'
+        ignored.appendChild(document.createElement('input'))
+        document.body.append(first, second, ignored)
+        const typeInto = (target: Element, key: string, init: KeyboardEventInit = {}): void => {
+            target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
+        }
+
+        typeInto(first, 'h')
+        let rest: Element = first
+        if (interruption === 'a pause longer than the sequence timeout') {
+            jest.setSystemTime(new Date('2026-01-01T00:00:02Z'))
+        } else if (interruption === 'switching to another text field') {
+            rest = second
+        } else if (interruption === 'a ctrl chord') {
+            typeInto(first, 'v', { ctrlKey: true })
+        } else {
+            typeInto(ignored.firstElementChild!, 'x')
+        }
+        typeInto(rest, 'e')
+        typeInto(rest, 'y')
+        first.remove()
+        second.remove()
+        ignored.remove()
+
+        expect(onTyped).not.toHaveBeenCalled()
+    })
 })
 
 describe('shortcutLogic', () => {

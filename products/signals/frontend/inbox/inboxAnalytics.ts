@@ -502,6 +502,7 @@ export function captureInboxViewed(params: {
         personal_list_age_minutes: status?.age_minutes ?? null,
         personal_list_checked_age_minutes: status?.checked_age_minutes ?? null,
         personal_list_fallback_reason: status?.fallback_reason ?? null,
+        personal_list_building: status?.building ?? null,
         for_you_report_count: params.forYouReportCount,
         sort_field: params.sortField,
         ranker_id: params.rankerId,
