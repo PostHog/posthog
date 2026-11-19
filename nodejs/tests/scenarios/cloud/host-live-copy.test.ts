@@ -1,5 +1,5 @@
 import { ChildProcess, execFileSync, spawn } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 
@@ -7,8 +7,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 const WRAPPER = path.join(__dirname, 'host-run-card.sh')
 const RUN_ID = '00000000-0000-4000-8000-000000000001'
-const RUNNER_RUN_ID = '00000000-0000-4000-8000-000000000002'
-const EARLIER_RUNNER_RUN_ID = '00000000-0000-4000-8000-000000000003'
+const EARLIER_RUN_ID = '00000000-0000-4000-8000-000000000002'
 const BUCKET = 'test-evidence'
 const START = '{"type":"start","at":1}'
 const TICK = '{"type":"tick","at":2}'
@@ -46,7 +45,7 @@ cat >"$target.part" && mv "$target.part" "$target"
 `
 
 const FAKE_RUNNER = `#!/usr/bin/env bash
-run="$XDG_CACHE_HOME/posthog-scenarios/${RUNNER_RUN_ID}"
+run="$XDG_CACHE_HOME/posthog-scenarios/${RUN_ID}"
 mkdir -p "$run"
 [ -z "\${FAKE_LIVE:-}" ] || printf '%s\\n%s' '${START}' '${TICK.slice(0, 14)}' >>"$run/live.jsonl"
 [ -z "\${FAKE_CARD_SECONDS:-}" ] || sleep "$FAKE_CARD_SECONDS"
@@ -58,10 +57,10 @@ exit "\${FAKE_CARD_EXIT:-0}"
 `
 
 type Run = { dir: string; wrapper: ChildProcess; exited: Promise<number | null> }
-type LiveLogOnHost = { runnerRunId: string; content: string; modifiedAt: Date }
+type LiveLogOnHost = { runId: string; content: string }
 
-const liveLogIn = (dir: string, runnerRunId: string): string =>
-    path.join(dir, 'host', 'cache', 'posthog-scenarios', runnerRunId, 'live.jsonl')
+const liveLogIn = (dir: string, runId: string): string =>
+    path.join(dir, 'host', 'cache', 'posthog-scenarios', runId, 'live.jsonl')
 
 describe('host-live-copy.sh, run by host-run-card.sh', () => {
     let root: string
@@ -79,10 +78,9 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         writeFileSync(path.join(bin, 'aws'), FAKE_AWS, { mode: 0o755 })
         writeFileSync(path.join(bin, 'node'), FAKE_RUNNER, { mode: 0o755 })
         if (onHost) {
-            const liveLog = liveLogIn(dir, onHost.runnerRunId)
+            const liveLog = liveLogIn(dir, onHost.runId)
             mkdirSync(path.dirname(liveLog), { recursive: true })
             writeFileSync(liveLog, onHost.content)
-            utimesSync(liveLog, onHost.modifiedAt, onHost.modifiedAt)
         }
         const wrapper = spawn('bash', [WRAPPER], {
             cwd: dir,
@@ -167,13 +165,11 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     it('makes a final copy when the card ends between two copies', async () => {
         const run = start('run', { FAKE_LIVE: '1', FAKE_HOLD: '1', SCENARIO_LIVE_COPY_SECONDS: '600' })
 
-        await until(() => existsSync(liveLogIn(run.dir, RUNNER_RUN_ID)), 'the live log')
+        await until(() => existsSync(liveLogIn(run.dir, RUN_ID)), 'the live log')
         release(run)
         await run.exited
 
-        expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(
-            readFileSync(liveLogIn(run.dir, RUNNER_RUN_ID), 'utf8')
-        )
+        expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(readFileSync(liveLogIn(run.dir, RUN_ID), 'utf8'))
     })
 
     it.each([
@@ -211,7 +207,7 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
                 SCENARIO_LIVE_COPY_SECONDS: '600',
                 SCENARIO_LIVE_COPY_FINAL_SECONDS: '1',
             },
-            { runnerRunId: RUNNER_RUN_ID, content: `${START}\n`, modifiedAt: new Date(Date.now() + 60_000) }
+            { runId: RUN_ID, content: `${START}\n` }
         )
 
         await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
@@ -240,9 +236,8 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
             'run',
             {},
             {
-                runnerRunId: EARLIER_RUNNER_RUN_ID,
+                runId: EARLIER_RUN_ID,
                 content: `${START}\n${END}\n`,
-                modifiedAt: new Date(Date.now() - 3_600_000),
             }
         )
 
