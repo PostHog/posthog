@@ -1173,6 +1173,7 @@ class TestReserveUnits(BaseTest):
             with self.assertRaises(exceptions.Throttled):
                 self._reserve([_PSAKTeamThrottleForTest, _PSAKThrottleForTest], 3)
 
+            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 3), [True, True, False])
             self.assertEqual(self._singles_allowed(_PSAKTeamThrottleForTest, 5), [True, True, True, True, False])
 
     @parameterized.expand(
