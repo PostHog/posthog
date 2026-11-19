@@ -17,7 +17,9 @@ use bytes::Bytes;
 use capture_logs::authorizer::{Authorizer, Signal};
 use capture_logs::kafka::KafkaSink;
 use capture_logs::metric_record::{flatten_metric, KafkaMetricRow};
-use capture_logs::service::{export_success_response, parse_otel_metrics_message};
+use capture_logs::service::{
+    check_metrics_expansion, export_success_response, parse_otel_metrics_message,
+};
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use prost::Message;
@@ -33,6 +35,7 @@ pub struct MetricsService {
     pub(crate) sink: KafkaSink,
     pub(crate) authorizer: Authorizer,
     pub(crate) max_request_body_size_bytes: usize,
+    pub(crate) max_expanded_request_bytes: usize,
     pub(crate) remote_write_max_expanded_bytes: u64,
     pub(crate) series_label_gate: Arc<SeriesLabelGate>,
     pub(crate) k8s_resource_attributes: Arc<K8sResourceAttributes>,
@@ -49,6 +52,7 @@ impl MetricsService {
         kafka_sink: KafkaSink,
         authorizer: Authorizer,
         max_request_body_size_bytes: usize,
+        max_expanded_request_bytes: usize,
         remote_write_max_expanded_bytes: u64,
         series_label_gate: Arc<SeriesLabelGate>,
         k8s_resource_attributes: Arc<K8sResourceAttributes>,
@@ -58,6 +62,7 @@ impl MetricsService {
             sink: kafka_sink,
             authorizer,
             max_request_body_size_bytes,
+            max_expanded_request_bytes,
             remote_write_max_expanded_bytes,
             series_label_gate,
             k8s_resource_attributes,
@@ -148,6 +153,8 @@ pub async fn export_metrics_http(
             }
         },
     };
+
+    check_metrics_expansion(&export_request, service.max_expanded_request_bytes)?;
 
     let mut rows: Vec<KafkaMetricRow> = Vec::new();
     let mut timestamps_overridden: u64 = 0;
