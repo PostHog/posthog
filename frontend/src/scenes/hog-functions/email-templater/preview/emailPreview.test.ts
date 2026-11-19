@@ -80,6 +80,12 @@ describe('renderEmailPreview', () => {
         ])
     })
 
+    it('strips html without hanging on an unclosed tag', () => {
+        expect(renderEmailPreview("{{ 'a<' | strip_html }} {{ '<b>bold</b>' | strip_html }}", person)).toBe(
+            'a&lt; bold'
+        )
+    })
+
     it('falls back to the template rather than throwing on a broken tag', () => {
         expect(renderEmailPreview('{% for %}', person)).toBe('{% for %}')
     })

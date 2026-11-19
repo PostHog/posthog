@@ -139,6 +139,14 @@ export class LiquidRenderer {
                 memoryLimit: 1_000_000,
             })
             this._liquid.registerFilter('currency', formatCurrency)
+            // liquidjs 10.27.0's own strip_html never returns on input such as 'a<' (GHSA-m7fp-h3p4-hr49), and
+            // previews render as the page draws, so a saved template could freeze every viewer's tab.
+            this._liquid.registerFilter('strip_html', (value: unknown) =>
+                String(value ?? '').replace(
+                    /<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<!--[\s\S]*?-->|<[^>]*>/g,
+                    ''
+                )
+            )
             this._liquid.registerTag('unsubscribe_url', UnsubscribeUrlTag)
         }
         return this._liquid
