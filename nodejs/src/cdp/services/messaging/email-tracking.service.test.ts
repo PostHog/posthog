@@ -290,6 +290,26 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com/" data-ph-no-trac\u212a ses:tags="phl:0">a</a>',
                 ],
                 [
+                    'two clicktracking values, on before off',
+                    '<a href="https://example.com/" clicktracking="on" clicktracking="off">a</a>',
+                    '<a href="https://example.com/" clicktracking="on" clicktracking="off" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'two clicktracking values, off before on',
+                    '<a href="https://example.com/" clicktracking="off" clicktracking="on">a</a>',
+                    '<a href="https://example.com/" clicktracking="off" clicktracking="on" ses:no-track>a</a>',
+                ],
+                [
+                    'an encoded comment end in the ses:tags of an Outlook link',
+                    '<!--[if mso]><a href="https://example.com/" ses:tags="a--&gt;b">a</a><![endif]-->',
+                    '<!--[if mso]><a href="https://example.com/" ses:tags="a--&gt;b;phl:0">a</a><![endif]-->',
+                ],
+                [
+                    'an entity-encoded javascript href before a link',
+                    '<a href="java&#x73;cript:x">j</a><a href="https://example.com/">a</a>',
+                    '<a href="java&#x73;cript:x">j</a><a href="https://example.com/" ses:tags="phl:1">a</a>',
+                ],
+                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',

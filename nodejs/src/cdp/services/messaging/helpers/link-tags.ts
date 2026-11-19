@@ -1,4 +1,4 @@
-import { HrefAnchor, readAnchorOpeningTag } from './href-anchors'
+import { HrefAnchor } from './href-anchors'
 
 export const WORKFLOW_RUN_PARAM = 'ph_workflow_run'
 
@@ -6,10 +6,8 @@ export const WORKFLOW_RUN_PARAM = 'ph_workflow_run'
 export const hasClickTrackingOptOutAttribute = (anchor: Pick<HrefAnchor, 'attribute'>): boolean =>
     anchor.attribute('data-ph-no-track') !== undefined || /^off$/i.test(anchor.attribute('clicktracking')?.value ?? '')
 
-export const isNeverClickTracked = (openingTag: string): boolean => {
-    const anchor = readAnchorOpeningTag(openingTag)
-    return hasClickTrackingOptOutAttribute(anchor) || anchor.attribute('ses:no-track') !== undefined
-}
+export const isNeverClickTracked = (anchor: Pick<HrefAnchor, 'attribute'>): boolean =>
+    hasClickTrackingOptOutAttribute(anchor) || anchor.attribute('ses:no-track') !== undefined
 
 const paramName = (param: string): string => {
     const name = param.split('=')[0]

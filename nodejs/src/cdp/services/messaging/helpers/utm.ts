@@ -5,7 +5,7 @@ import { throwIfDeadlinePassed } from '~/cdp/utils/deadline'
 import { LiquidRenderBudget, LiquidRenderer } from '~/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
-import { escapeHtml } from './escape-html'
+import { HrefAnchor, editHrefAnchors } from './href-anchors'
 import { WORKFLOW_RUN_PARAM, isNeverClickTracked, removeWorkflowRunTag } from './link-tags'
 import { addUtmTagsToEmailLegacy } from './utm-legacy'
 
@@ -36,30 +36,12 @@ export const utmValueOverLimit = (raw: unknown): (typeof UTM_KEYS)[number] | und
           })
         : undefined
 
-// One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
-// inside another attribute's value or as part of a longer name like `data-href`.
-const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\t\n\f\r >]+)))?/g
-
-type Attribute = RegExpMatchArray
-
-type Anchor = {
-    html: string
-    attributes: Attribute[]
-}
-
 type LinkTagger = {
-    isOptedOut: (anchor: Anchor) => boolean
+    isOptedOut: (anchor: HrefAnchor) => boolean
     tagUrl: (url: string) => string | null
 }
 
-const attributesOf = (anchor: string): Attribute[] => [...anchor.matchAll(ATTRIBUTE_REGEX)]
-
-const attributeName = (attribute: Attribute): string => attribute[1].toLowerCase()
-
-const attributeValue = (attribute: Attribute): string | undefined => attribute[2] ?? attribute[3] ?? attribute[4]
-
-const isOptedOutOfUtmTags = ({ attributes }: Anchor): boolean =>
-    attributes.some((attribute) => attributeName(attribute) === 'data-ph-no-utm')
+const isOptedOutOfUtmTags = (anchor: HrefAnchor): boolean => anchor.attribute('data-ph-no-utm') !== undefined
 
 /**
  * Renders each custom value as Liquid with the recipient's data. A value that fails to render is
@@ -167,78 +149,14 @@ const addTagsToUrl = (url: string, tags: LinkTags, isTaggedHost: (url: URL) => b
     return `${base}${separator}${query}${hash}`
 }
 
-/** Index of the `>` that closes the tag opened before `from`, skipping quoted values, or -1 if it never closes. */
-const findTagEnd = (html: string, from: number): number => {
-    let quote: string | null = null
-    for (let i = from; i < html.length; i++) {
-        const char = html[i]
-        if (quote) {
-            if (char === quote) {
-                quote = null
-            }
-        } else if (char === '"' || char === "'") {
-            quote = char
-        } else if (char === '>') {
-            return i
+const addTagsToEmailLinks = (html: string, tagger: LinkTagger): string =>
+    editHrefAnchors(html, (anchor) => {
+        if (tagger.isOptedOut(anchor)) {
+            return null
         }
-    }
-    return -1
-}
-
-const tagAnchor = (anchor: string, tagger: LinkTagger): string => {
-    const attributes = attributesOf(anchor)
-    if (tagger.isOptedOut({ html: anchor, attributes })) {
-        return anchor
-    }
-    const href = attributes.find((attribute) => attributeName(attribute) === 'href')
-    const value = href ? attributeValue(href) : undefined
-    if (!href || value === undefined) {
-        return anchor
-    }
-    const tagged = tagger.tagUrl(trimUrlWhitespace(decodeHtmlEntitiesInHref(value)))
-    if (tagged === null) {
-        return anchor
-    }
-    const quote = href[3] !== undefined ? "'" : '"'
-    // A raw `>` in the href would end the opening tag for SES tracking, which then writes its tag into the URL.
-    const encoded = escapeHtml(tagged)
-    const start = href.index! + href[0].indexOf('=')
-    return anchor.slice(0, start) + `=${quote}${encoded}${quote}` + anchor.slice(href.index! + href[0].length)
-}
-
-const findAnchorStart = (html: string, from: number): number => {
-    const anchorStart = /<a/gi
-    anchorStart.lastIndex = from
-    return anchorStart.exec(html)?.index ?? -1
-}
-
-// One forward pass rather than a regex, so a body full of unclosed `<a` tags costs linear time instead
-// of rescanning the rest of the email for each one and stalling the worker.
-const addTagsToEmailLinks = (html: string, tagger: LinkTagger): string => {
-    let output = ''
-    let cursor = 0
-    while (cursor < html.length) {
-        const start = findAnchorStart(html, cursor)
-        if (start === -1) {
-            break
-        }
-        const after = html[start + 2]
-        if (after !== undefined && !/[\s>/]/.test(after)) {
-            // `<abbr>`, `<area>` and other tags that only start with "a".
-            output += html.slice(cursor, start + 2)
-            cursor = start + 2
-            continue
-        }
-        const end = findTagEnd(html, start + 2)
-        if (end === -1) {
-            // The tag never closes, so it is not a link, and the rest of the email is left as is.
-            break
-        }
-        output += html.slice(cursor, start) + tagAnchor(html.slice(start, end + 1), tagger)
-        cursor = end + 1
-    }
-    return output + html.slice(cursor)
-}
+        const tagged = tagger.tagUrl(trimUrlWhitespace(anchor.href))
+        return tagged === null ? null : { name: 'href', value: tagged }
+    })
 
 const registrableDomainOf = (hostname: string): string | null => getDomain(hostname, { allowPrivateDomains: true })
 
@@ -264,7 +182,7 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
     const isOnSenderDomain = (parsed: URL): boolean =>
         parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain
     return addTagsToEmailLinks(html, {
-        isOptedOut: ({ html: anchor }) => isNeverClickTracked(anchor),
+        isOptedOut: isNeverClickTracked,
         tagUrl: (url) => {
             if (runId !== null) {
                 return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain)

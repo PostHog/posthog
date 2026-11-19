@@ -36,7 +36,7 @@ describe('addUtmTagsToEmail', () => {
             case: 'a link that already sets its campaign',
             html: "<a class='btn' href='https://example.com/?utm_campaign=launch'>x</a>",
             expected:
-                "<a class='btn' href='https://example.com/?utm_campaign=launch&amp;utm_source=posthog&amp;utm_medium=email'>x</a>",
+                '<a class=\'btn\' href="https://example.com/?utm_campaign=launch&amp;utm_source=posthog&amp;utm_medium=email">x</a>',
         },
         {
             case: 'a link that already has every tag',
@@ -119,6 +119,11 @@ describe('addUtmTagsToEmail', () => {
             case: 'an href ending in a non-breaking space, which is part of the URL',
             html: '<a href="https://example.com/pricing&#160;">x</a>',
             expected: `<a href="https://example.com/pricing\u00a0?${QUERY}">x</a>`,
+        },
+        {
+            case: 'a link after a quote in a comment',
+            html: '<!-- <a title=" --><a href="https://example.com/pricing">x</a>',
+            expected: `<!-- <a title=" --><a href="https://example.com/pricing?${QUERY}">x</a>`,
         },
         {
             case: 'links after text that grows when lowercased',
@@ -219,6 +224,17 @@ describe('addUtmTagsToEmail', () => {
             html: '<a title="data-ph-no-track ses:no-track" clicktracking="offline" href="https://example.com/">x</a>',
             expected:
                 '<a title="data-ph-no-track ses:no-track" clicktracking="offline" href="https://example.com/?ph_workflow_run=run-1">x</a>',
+        },
+        {
+            case: 'tags a link after a quote in a comment',
+            html: '<!-- <a title=" --><a href="https://example.com/">x</a>',
+            expected: '<!-- <a title=" --><a href="https://example.com/?ph_workflow_run=run-1">x</a>',
+        },
+        {
+            case: 'reads the first of two clicktracking values',
+            html: '<a clicktracking="on" clicktracking="off" href="https://example.com/">x</a><a clicktracking="off" clicktracking="on" href="https://example.com/">y</a>',
+            expected:
+                '<a clicktracking="on" clicktracking="off" href="https://example.com/?ph_workflow_run=run-1">x</a><a clicktracking="off" clicktracking="on" href="https://example.com/">y</a>',
         },
         {
             case: 'leaves a link opted out with a character reference',

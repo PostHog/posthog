@@ -12,9 +12,18 @@ describe('email link tracking benchmark', () => {
     it.each([
         {
             shape: 'anchors that never close',
-            mode: 'redirect',
+            mode: 'ses',
             body: '<a href="https://example.com/x">'.repeat(64_000),
-            tagged: '<a href="https://example.com/x">'.repeat(64_000),
+            tagged: Array.from(
+                { length: 64_000 },
+                (_, i) => `<a href="https://example.com/x" ses:tags="phl:${i}">`
+            ).join(''),
+        },
+        {
+            shape: 'comments opened inside a comment',
+            mode: 'ses',
+            body: `<!--${'<!--<a href="https://example.com/x">'.repeat(16_000)}-->`,
+            tagged: `<!--${Array.from({ length: 16_000 }, (_, i) => `<!--<a href="https://example.com/x" ses:tags="phl:${i}">`).join('')}-->`,
         },
         {
             shape: 'anchor tags that never end',

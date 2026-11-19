@@ -1,5 +1,7 @@
 import { QuoteType, Tokenizer } from 'htmlparser2'
 
+import { escapeHtml } from './escape-html'
+
 export type AnchorAttribute = {
     // As a browser reads it, with character references decoded. Empty for an attribute written without `=`.
     value: string
@@ -24,6 +26,8 @@ type ScannedAttribute = {
     hasValue: boolean
     quoted: boolean
     start: number
+    // Where the value starts in the source, after any opening quote.
+    valueStart: number
     end: number
 }
 
@@ -43,19 +47,21 @@ const isSpace = (char: string): boolean =>
 // HTML folds only ASCII letters in names. `toLowerCase` would also fold the Kelvin sign into `k`.
 const asciiLowercase = (text: string): string => text.replace(/[A-Z]/g, (char) => char.toLowerCase())
 
-const escapeAttributeValue = (value: string): string => value.replaceAll('&', '&amp;').replaceAll('"', '&quot;')
-
 const noop = (): void => {}
 
 // Collects the opening `<a>` tags of `html[from, to)` in document order. Comment content is scanned as markup
-// too, because Outlook renders the links inside its `<!--[if mso]>` blocks.
-const scanAnchorTags = (html: string, from: number, to: number, found: ScannedTag[]): void => {
+// too, because Outlook renders the links inside its `<!--[if mso]>` blocks. That scan reads a `<!--` as text, so
+// each character is scanned at most twice however many comments a comment opens.
+const scanAnchorTags = (html: string, from: number, to: number, found: ScannedTag[], inComment = false): void => {
     let isAnchor = false
     let attributes: ScannedAttribute[] = []
     let attribute: ScannedAttribute | null = null
 
-    const scanInner = (start: number, end: number, endOffset: number): void =>
-        scanAnchorTags(html, from + start, from + end - endOffset, found)
+    const scanInner = (start: number, end: number, endOffset: number): void => {
+        if (!inComment) {
+            scanAnchorTags(html, from + start, from + end - endOffset, found, true)
+        }
+    }
     const closeTag = (insertAt: number, end: number): void => {
         if (isAnchor) {
             found.push({ attributes, insertAt, end })
@@ -79,6 +85,7 @@ const scanAnchorTags = (html: string, from: number, to: number, found: ScannedTa
                     hasValue: false,
                     quoted: false,
                     start: from + start,
+                    valueStart: from + end,
                     end: from + end,
                 }
             },
@@ -91,6 +98,13 @@ const scanAnchorTags = (html: string, from: number, to: number, found: ScannedTa
             onattribend(quote, end) {
                 attribute!.hasValue = quote !== QuoteType.NoValue
                 attribute!.quoted = quote === QuoteType.Single || quote === QuoteType.Double
+                if (attribute!.hasValue) {
+                    let valueStart = html.indexOf('=', attribute!.end) + 1
+                    while (isSpace(html[valueStart])) {
+                        valueStart++
+                    }
+                    attribute!.valueStart = attribute!.quoted ? valueStart + 1 : valueStart
+                }
                 attribute!.end = from + end
                 attributes.push(attribute!)
                 attribute = null
@@ -115,7 +129,9 @@ const scanAnchorTags = (html: string, from: number, to: number, found: ScannedTa
             ontextentity: noop,
         }
     )
-    tokenizer.write(html.slice(from, to))
+    const markup = html.slice(from, to)
+    // `<!--` becomes ` !--`, the same length, so every offset still points into `html`.
+    tokenizer.write(inComment ? markup.replaceAll('<!--', ' !--') : markup)
     tokenizer.end()
 }
 
@@ -129,14 +145,6 @@ const firstByName = (attributes: ScannedAttribute[]): Map<string, ScannedAttribu
     return first
 }
 
-// The attributes of one opening tag such as `<a href="…" data-ph-no-track>`, read the way `editHrefAnchors` reads them.
-export const readAnchorOpeningTag = (openingTag: string): Pick<HrefAnchor, 'attribute'> => {
-    const tags: ScannedTag[] = []
-    scanAnchorTags(openingTag, 0, openingTag.length, tags)
-    const attributes = firstByName(tags[0]?.attributes ?? [])
-    return { attribute: (name) => attributes.get(name) }
-}
-
 // Calls `edit` for each anchor with a usable href, in document order, and applies the edit it returns to the
 // opening tag. The rest of the email stays byte for byte as written.
 export const editHrefAnchors = (html: string, edit: (anchor: HrefAnchor) => AnchorEdit | null): string => {
@@ -148,16 +156,22 @@ export const editHrefAnchors = (html: string, edit: (anchor: HrefAnchor) => Anch
     for (const tag of tags) {
         const attributes = firstByName(tag.attributes)
         const href = attributes.get('href')
-        if (!href || !href.hasValue || (!href.quoted && href.value === '') || JAVASCRIPT_SCHEME.test(href.value)) {
+        if (!href || !href.hasValue || (!href.quoted && href.value === '')) {
+            continue
+        }
+        // Read on the source text, not the decoded value, so an encoded scheme still counts as a link, as it always has.
+        if (JAVASCRIPT_SCHEME.test(html.slice(href.valueStart, href.valueStart + 'javascript:'.length))) {
             continue
         }
         const change = edit({ href: href.value, attribute: (name) => attributes.get(name) })
         if (!change) {
             continue
         }
-        const written = change.value === null ? change.name : `${change.name}="${escapeAttributeValue(change.value)}"`
-
         const existing = attributes.get(change.name)
+        const name = existing?.rawName ?? change.name
+        // `<` and `>` are escaped too: a raw `-->` would end an Outlook conditional comment around the link.
+        const written = change.value === null ? name : `${name}="${escapeHtml(change.value)}"`
+
         if (existing) {
             pieces.push(html.slice(copiedUpTo, existing.start), written)
             copiedUpTo = existing.end
