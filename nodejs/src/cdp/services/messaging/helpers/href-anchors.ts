@@ -62,9 +62,9 @@ const PARSE_OPTIONS = { sourceCodeLocationInfo: true, scriptingEnabled: false } 
 
 // A same-length stand-in for `<!--` inside a comment, where it is text. `<_` opens no tag.
 const COMMENT_OPENING = '<!--'
+const COMMENT_OPENING_AS_TEXT = '<_--'
 // Outlook renders the content of `<!--[if mso]>` and its kin; every other comment shows nothing in any client.
 const CONDITIONAL_COMMENT = /^\s*\[if\b/i
-const COMMENT_OPENING_AS_TEXT = '<_--'
 
 type SourceAttribute = Omit<ScannedAttribute, 'name' | 'value'>
 
@@ -73,16 +73,28 @@ type SourceAttribute = Omit<ScannedAttribute, 'name' | 'value'>
 // down to a floor far deeper than real emails nest. That keeps the read of an email of any size linear.
 export const NESTING_BUDGET = 10_000_000
 export const MIN_NESTING_LIMIT = 256
+// The parser copies each formatting element left open, such as `<b>` or `<font>`, into every block after it, so a
+// short email can build elements with the square of its size. Allowing a few per tag keeps the tree linear.
+export const ELEMENTS_PER_TAG = 2
+export const MIN_ELEMENT_BUDGET = 50_000
 
-const nestingLimitFor = (html: string): number => {
+// Shared by the document and every comment read as markup, so the elements they build together stay in budget.
+type ParseBounds = { depth: number; elementsLeft: number }
+
+const parseBoundsFor = (html: string): ParseBounds => {
     let tags = 0
     for (let at = html.indexOf('<'); at >= 0; at = html.indexOf('<', at + 1)) {
         tags++
     }
-    return Math.max(MIN_NESTING_LIMIT, Math.floor(NESTING_BUDGET / Math.max(tags, 1)))
+    return {
+        depth: Math.max(MIN_NESTING_LIMIT, Math.floor(NESTING_BUDGET / Math.max(tags, 1))),
+        elementsLeft: MIN_ELEMENT_BUDGET + ELEMENTS_PER_TAG * tags,
+    }
 }
 
-export class EmailNestingTooDeepError extends Error {
+export class EmailHtmlTooComplexError extends Error {}
+
+export class EmailNestingTooDeepError extends EmailHtmlTooComplexError {
     constructor(limit: number) {
         super(
             `This email nests HTML elements more than ${limit} levels deep, which is too deep to read its links. Remove some of the nesting and send it again.`
@@ -91,23 +103,39 @@ export class EmailNestingTooDeepError extends Error {
     }
 }
 
+export class EmailTooManyElementsError extends EmailHtmlTooComplexError {
+    constructor() {
+        super(
+            'This email repeats formatting tags left open, such as <b> or <font>, in so many places that its links are too costly to read. Close those tags and send it again.'
+        )
+        this.name = 'EmailTooManyElementsError'
+    }
+}
+
 type ParentNode = DefaultTreeAdapterMap['parentNode']
 
-// Stops a parse when an element nests deeper than the limit. A template's content counts from the template.
-const nestingLimitedAdapter = (limit: number): TreeAdapter<DefaultTreeAdapterMap> => {
+// Stops a parse when an element nests deeper than the limit, or when the parse builds more elements than the email's
+// budget. A template's content counts from the template.
+const boundedAdapter = (bounds: ParseBounds): TreeAdapter<DefaultTreeAdapterMap> => {
     const depths = new WeakMap<Node, number>()
     const templates = new WeakMap<Node, Node>()
     const attributeNames = new WeakMap<Element, Set<string>>()
     const place = (parent: ParentNode, node: Node): void => {
         const owner = templates.get(parent)
         const depth = (depths.get(parent) ?? (owner ? depths.get(owner) : undefined) ?? 0) + 1
-        if (depth > limit) {
-            throw new EmailNestingTooDeepError(limit)
+        if (depth > bounds.depth) {
+            throw new EmailNestingTooDeepError(bounds.depth)
         }
         depths.set(node, depth)
     }
     return {
         ...defaultTreeAdapter,
+        createElement(tagName, namespaceURI, attrs) {
+            if (--bounds.elementsLeft < 0) {
+                throw new EmailTooManyElementsError()
+            }
+            return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs)
+        },
         appendChild(parent, node) {
             place(parent, node)
             defaultTreeAdapter.appendChild(parent, node)
@@ -234,7 +262,7 @@ const scanAnchors = (
     root: Node,
     base: number,
     inComment: boolean,
-    limit: number,
+    bounds: ParseBounds,
     anchors: Map<number, ScannedTag>
 ): void => {
     const pending: Node[] = [root]
@@ -242,7 +270,7 @@ const scanAnchors = (
         const node = pending.pop()!
         if (node.nodeName === '#comment') {
             if (!inComment) {
-                scanComment(html, node as DefaultTreeAdapterMap['commentNode'], limit, anchors)
+                scanComment(html, node as DefaultTreeAdapterMap['commentNode'], bounds, anchors)
             }
             continue
         }
@@ -271,7 +299,7 @@ const scanAnchors = (
 const scanComment = (
     html: string,
     comment: DefaultTreeAdapterMap['commentNode'],
-    limit: number,
+    bounds: ParseBounds,
     anchors: Map<number, ScannedTag>
 ): void => {
     const location = comment.sourceCodeLocation
@@ -287,16 +315,17 @@ const scanComment = (
     const content = html.slice(contentStart, contentEnd).replaceAll(COMMENT_OPENING, COMMENT_OPENING_AS_TEXT)
     let fragment: DefaultTreeAdapterMap['documentFragment']
     try {
-        fragment = parseFragment(content, { ...PARSE_OPTIONS, treeAdapter: nestingLimitedAdapter(limit) })
+        fragment = parseFragment(content, { ...PARSE_OPTIONS, treeAdapter: boundedAdapter(bounds) })
     } catch (error) {
-        // No client shows a link in a plain comment, so one too deep to read is left as written rather than
-        // refusing an email that renders fine.
-        if (error instanceof EmailNestingTooDeepError && !CONDITIONAL_COMMENT.test(content)) {
+        // No client shows a link in a plain comment, so one past the bounds is left as written rather than refusing
+        // an email that renders fine. The elements it built still count, so a run of such comments cannot repeat
+        // the work.
+        if (error instanceof EmailHtmlTooComplexError && !CONDITIONAL_COMMENT.test(content)) {
             return
         }
         throw error
     }
-    scanAnchors(html, fragment, contentStart, true, limit, anchors)
+    scanAnchors(html, fragment, contentStart, true, bounds, anchors)
 }
 
 type Scan = {
@@ -328,11 +357,11 @@ class BodyEndParser extends Parser<DefaultTreeAdapterMap> {
 }
 
 const scanHtml = (html: string): Scan => {
-    const limit = nestingLimitFor(html)
-    const parser = new BodyEndParser({ ...PARSE_OPTIONS, treeAdapter: nestingLimitedAdapter(limit) })
+    const bounds = parseBoundsFor(html)
+    const parser = new BodyEndParser({ ...PARSE_OPTIONS, treeAdapter: boundedAdapter(bounds) })
     parser.tokenizer.write(html, true)
     const anchors = new Map<number, ScannedTag>()
-    scanAnchors(html, parser.document, 0, false, limit, anchors)
+    scanAnchors(html, parser.document, 0, false, bounds, anchors)
     // Tree order is not source order: a link written inside a table moves before it.
     return { anchors: [...anchors.values()].sort((a, b) => a.start - b.start), bodyEnd: parser.bodyEnd }
 }

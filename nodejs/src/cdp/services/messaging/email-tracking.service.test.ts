@@ -53,7 +53,12 @@ import {
     decodeHtmlEntitiesInHref,
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
-import { EmailNestingTooDeepError, MIN_NESTING_LIMIT, NESTING_BUDGET } from './helpers/href-anchors'
+import {
+    EmailNestingTooDeepError,
+    EmailTooManyElementsError,
+    MIN_NESTING_LIMIT,
+    NESTING_BUDGET,
+} from './helpers/href-anchors'
 import { SesWebhookHandler } from './helpers/ses'
 import {
     EmailTrackingCodeSigner,
@@ -533,6 +538,32 @@ describe('EmailTrackingService', () => {
                 it('is sent when the nesting is in a plain comment, whose links stay as written', () => {
                     const hidden = '<a href="https://example.com/hidden">h</a>'
                     const out = sesTrack(`<body>${tags}<!--${deep}${hidden}-->${link}</body>`)
+                    expect(out).toContain(`${hidden}-->`)
+                    expect(out).toContain('<a href="https://example.com/" ses:tags="phl:0">a</a>')
+                })
+            })
+
+            describe('an email whose open formatting tags the parser copies into every block', () => {
+                const link = '<a href="https://example.com/">a</a>'
+                // Each new paragraph closes the tags left open in the first one, and the parser copies them into it.
+                // Distinct attributes keep the parser from merging the copies.
+                const openTags = (count: number): string =>
+                    '<p>' + Array.from({ length: count }, (_, i) => `<b data-i="${i}">`).join('')
+                const blocks = '<p>x</p>'.repeat(1_000)
+
+                it('is refused', () => {
+                    expect(() => sesTrack(`<body>${openTags(300)}${blocks}${link}</body>`)).toThrow(
+                        EmailTooManyElementsError
+                    )
+                })
+
+                it('is sent when a few tags are left open', () => {
+                    expect(sesTrack(`<body>${openTags(3)}${blocks}${link}</body>`)).toContain('phl:0')
+                })
+
+                it('is sent when the tags are in a plain comment, whose links stay as written', () => {
+                    const hidden = '<a href="https://example.com/hidden">h</a>'
+                    const out = sesTrack(`<body><!--${openTags(300)}${blocks}${hidden}-->${link}</body>`)
                     expect(out).toContain(`${hidden}-->`)
                     expect(out).toContain('<a href="https://example.com/" ses:tags="phl:0">a</a>')
                 })
