@@ -1,7 +1,7 @@
 import './DashboardV2.scss'
 
 import { useActions, useValues } from 'kea'
-import { type RefObject, useEffect, useMemo } from 'react'
+import { type CSSProperties, type RefObject, useEffect, useMemo } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -37,7 +37,7 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTab, hasPermission } = useValues(dashboardV2Logic)
+    const { dashboard, activeTab, hasPermission, gapPx } = useValues(dashboardV2Logic)
     const { undo, redo, setStacked } = useActions(dashboardV2Logic)
     const canUndoRedo = hasPermission('undo')
     const { width, containerRef, mounted } = useContainerWidth()
@@ -72,7 +72,13 @@ function DashboardV2(): JSX.Element {
     }, [canUndoRedo, undo, redo])
 
     return (
-        <div data-quill className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground">
+        <div
+            data-quill
+            className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground"
+            // The tile gap comes from the dashboard's JSON, so CSS reads it from a variable rather than a class.
+            // oxlint-disable-next-line react/forbid-dom-props
+            style={{ '--dv2-gap': `${gapPx}px` } as CSSProperties}
+        >
             <header className="flex flex-wrap items-center justify-between gap-2">
                 <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
                 <DashboardV2Actions />

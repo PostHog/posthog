@@ -55,10 +55,10 @@
     gap: 4px;
     align-items: center;
 
-    // One grid row tall with one grid gap below (GRID.rowPx and GRID.gapPx), which keeps the section's rows on
-    // the rows of the grid around it.
+    // One grid row tall with one tile gap below (GRID.rowPx and the dashboard's tile spacing), which keeps the
+    // section's rows on the rows of the grid around it.
     height: 32px;
-    margin-bottom: 12px;
+    margin-bottom: var(--dv2-gap, 16px);
     border-bottom: 1px solid var(--color-border-primary);
 }
 

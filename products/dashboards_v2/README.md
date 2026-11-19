@@ -76,6 +76,13 @@ It does not decide places: its compactor is `placeTiles`.
 - Undo and redo cover every edit, and a press that moves nothing adds no undo step.
 - Only people who can edit dashboards can change the layout. Everyone else sees it read-only.
 
+## Appearance
+
+`appearance` sits at the root of the dashboard JSON, beside `tabs`. It sets how the whole dashboard looks and never changes a tile's place.
+
+- `tileSpacing` is the gap between tiles: Tight (8px), Compact (12px) or Standard (16px, the default). Editors set it from the Customize menu.
+- A tile always keeps room for its parts. Each content tile has a minimum height made of its header, its footer and the least its body needs, so on a tight dashboard a tile with a footer can get one more row.
+
 ## Narrow screens
 
 Below 768px of canvas width (`GRID.stackBelowPx`), the dashboard is read-only and every tile is full width.

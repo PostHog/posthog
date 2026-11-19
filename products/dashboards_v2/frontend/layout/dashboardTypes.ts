@@ -3,19 +3,33 @@ import type { AccessControlLevel } from '~/types'
 export const GRID = {
     columns: 24,
     rowPx: 32,
-    gapPx: 12,
     /** Rows an open section keeps for its tiles when it has none, so it can still take a drop. */
     emptySectionRows: 2,
     /** Below this width every tile is full width and the layout is read-only, because drag and resize need room. */
     stackBelowPx: 768,
 } as const
 
-export function columnWidthPx(width: number, cols: number): number {
-    return (width - GRID.gapPx * (cols - 1)) / cols
+/** Space between tiles, across and down. The names and sizes match the tile density of v1 dashboards. */
+export type TileSpacing = 'tight' | 'condensed' | 'standard'
+
+export const TILE_SPACING_GAP_PX: Record<TileSpacing, number> = { tight: 8, condensed: 12, standard: 16 }
+
+export const TILE_SPACING_LABELS: Record<TileSpacing, string> = {
+    tight: 'Tight',
+    condensed: 'Compact',
+    standard: 'Standard',
 }
 
-export function spanPx(cells: number, cellPx: number): number {
-    return cells * cellPx + (cells - 1) * GRID.gapPx
+export function gapPxOf(dashboard: Dashboard): number {
+    return TILE_SPACING_GAP_PX[dashboard.appearance?.tileSpacing ?? 'standard']
+}
+
+export function columnWidthPx(width: number, cols: number, gapPx: number): number {
+    return (width - gapPx * (cols - 1)) / cols
+}
+
+export function spanPx(cells: number, cellPx: number, gapPx: number): number {
+    return cells * cellPx + (cells - 1) * gapPx
 }
 
 export interface TilePlace {
@@ -86,7 +100,13 @@ export interface Dashboard {
     title: string
     /** The viewer's access to this dashboard, as v1 dashboards carry it. Missing means the project-wide level. */
     user_access_level?: AccessControlLevel
+    /** How the whole dashboard looks. Every tile on every tab follows it. */
+    appearance?: DashboardAppearance
     tabs: DashboardTab[]
+}
+
+export interface DashboardAppearance {
+    tileSpacing?: TileSpacing
 }
 
 export type SectionTile = Tile & { widget: SectionWidget }

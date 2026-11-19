@@ -1,5 +1,5 @@
 import { applyEdit, dropIntoGrid, findTile, settleDashboard, stackTiles, withFolds } from './dashboardEdits'
-import type { Dashboard, Tile } from './dashboardTypes'
+import { type Dashboard, type Tile, gapPxOf } from './dashboardTypes'
 
 const text = (id: string, x: number, y: number, w: number, h: number): Tile => ({
     id,
@@ -79,7 +79,7 @@ describe('dashboardEdits', () => {
             section('half', 0, 6, 12, []),
         ])
         const wide = findTile(board, 'wide')!
-        const preview = dropIntoGrid([], 12, wide, 0, 0)
+        const preview = dropIntoGrid([], 12, 16, wide, 0, 0)
         const saved = findTile(applyEdit(board, { edit: 'moveTile', id: 'wide', grid: 'half', x: 0, y: 0 }), 'wide')
 
         expect(preview.find((tile) => tile.id === 'wide')).toEqual(saved)
@@ -137,6 +137,30 @@ describe('dashboardEdits', () => {
             'inside@group: 0,0,24,4',
             'below@first: 0,7,12,2',
             'side@first: 0,5,12,2',
+        ])
+    })
+
+    it('sets tile spacing for the whole dashboard and keeps other appearance settings', () => {
+        const board = dashboard([text('a', 0, 0, 12, 2)])
+
+        const tight = applyEdit(board, { edit: 'setAppearance', patch: { tileSpacing: 'tight' } })
+
+        expect(tight.appearance).toEqual({ tileSpacing: 'tight' })
+        expect(gapPxOf(tight)).toBe(8)
+        expect(gapPxOf(board)).toBe(16)
+    })
+
+    it('gives a tile with a header and footer one more row when tight spacing would clip it', () => {
+        const revenue: Tile = {
+            id: 'revenue',
+            place: { x: 0, y: 0, w: 6, h: 3 },
+            widget: { type: 'stat', title: 'Revenue', footer: [{ type: 'updatedAt' }] },
+        }
+        const board = dashboard([revenue])
+
+        expect(allPlaces(board)).toEqual(['revenue@first: 0,0,6,3'])
+        expect(allPlaces(applyEdit(board, { edit: 'setAppearance', patch: { tileSpacing: 'tight' } }))).toEqual([
+            'revenue@first: 0,0,6,4',
         ])
     })
 })
