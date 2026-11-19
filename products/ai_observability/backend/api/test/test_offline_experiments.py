@@ -121,8 +121,11 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         close = self.client.post(self._endpoint(exp_id, "complete"), {})
         self.assertEqual(close.status_code, 200)
         url = self._endpoint(exp_id, f"results/{result_id}")
+        item_url = self._endpoint(exp_id, f"items/{item_id}")
+        before_score_edit = self.client.get(item_url).data["revision"]
         change = {"revision": 0, "status": "ok", "value": True}
         self.assertEqual(self.client.patch(url, change).data, {"revision": 1})
+        self.assertEqual(self.client.delete(f"{item_url}?revision={before_score_edit}").status_code, 409)
         self.assertEqual(self.client.patch(url, change).status_code, 409)
         results_url = self._endpoint(exp_id, f"items/{item_id}/results")
         read = self.client.get(results_url).data["results"]
@@ -131,11 +134,14 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             {"Accurate": ("ok", True), "Total": ("ok", 1.0)},
         )
         payload_url = self._endpoint(exp_id, f"items/{item_id}/payload")
-        self.assertEqual(self.client.patch(payload_url, {"revision": 0, "payload": {"input": "B"}}).status_code, 200)
+        item_revision = self.client.get(item_url).data["revision"]
+        edit = self.client.patch(payload_url, {"revision": item_revision, "payload": {"input": "B"}})
+        self.assertEqual(edit.status_code, 200)
         experiment = OfflineExperiment.objects.for_team(self.team.id).get(pk=exp_id)
         last_edit = experiment.updated_at
         self.assertEqual(self.client.patch(url, {"revision": 1, "error_code": None}).data, {"revision": 1})
         self.assertEqual(self.client.get(results_url).data["results"], read)
+        self.assertEqual(self.client.get(item_url).data["revision"], edit.data["revision"])
         experiment.refresh_from_db()
         self.assertEqual(experiment.updated_at, last_edit)
 
@@ -159,6 +165,27 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             self.client.post(self._endpoint(exp_id, "complete"), {}).data["accepted_result_count"],
             close.data["accepted_result_count"],
         )
+
+    def test_error_code_correction_preserves_score_times_after_an_item_edit(self) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        results_url = self._endpoint(exp_id, f"items/{item_id}/results")
+        before = {row["id"]: row for row in self.client.get(results_url).data["results"]}
+        item_payload_url = self._endpoint(exp_id, f"items/{item_id}/payload")
+        self.assertEqual(
+            self.client.patch(item_payload_url, {"revision": 0, "payload": {"input": "B"}}).status_code, 200
+        )
+
+        result_url = self._endpoint(exp_id, f"results/{result_id}")
+        self.assertEqual(
+            self.client.patch(result_url, {"revision": 0, "error_code": "invalid_input"}).data, {"revision": 1}
+        )
+        after = {row["id"]: row for row in self.client.get(results_url).data["results"]}
+        self.assertEqual(after[result_id]["score_updated_at"], before[result_id]["score_updated_at"])
+        self.assertEqual(after[result_id]["error_code"], "invalid_input")
+        composite_id = next(key for key in before if key != result_id)
+        self.assertEqual(after[composite_id], before[composite_id])
+        retry = self.client.post(self._endpoint(exp_id, "upload"), body)
+        self.assertEqual(retry.data["results"][0]["error_code"], "timeout")
 
     @parameterized.expand(["item", "result"])
     def test_only_direct_api_can_delete_and_reupload_counts_as_new_while_open(self, target: str) -> None:
@@ -221,6 +248,7 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             self.client.patch(payload_url, {"revision": 0, "payload": {"reasoning": "Late addition"}}).data,
             {"revision": 1},
         )
+        self.assertEqual(self.client.delete(f"{item_url}?revision=3").status_code, 409)
         with patch("products.ai_observability.backend.logic.offline_evaluations.mutations.timezone") as clock:
             clock.now.return_value = result.accepted_at + timedelta(days=30)
             self.assertEqual(

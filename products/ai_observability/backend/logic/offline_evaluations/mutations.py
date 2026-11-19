@@ -4,7 +4,7 @@ from typing import Literal, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import F, Q, QuerySet
 from django.utils import timezone
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -41,7 +41,7 @@ type Target = Literal["item", "result", "item_payload", "result_payload"]
 type Owner = OfflineExperimentItem | OfflineEvaluationResult
 
 
-def _save_score(result: OfflineEvaluationResult, computed: OfflineEvaluationResult, scored_at: datetime) -> None:
+def _save_score(result: OfflineEvaluationResult, computed: OfflineEvaluationResult, scored_at: datetime | None) -> None:
     if result.status == "error" and computed.status != "error":
         payload = (
             OfflineEvaluationResultPayload.objects.for_team(result.team_id)
@@ -106,7 +106,9 @@ def _update_score(
         accepted_at=result.accepted_at,
         index=None,
     )
-    if (updated.status, updated.value, updated.error_code) == (result.status, result.value, result.error_code):
+    if (updated.status, updated.value) == (result.status, result.value):
+        if updated.error_code != result.error_code:
+            _save_score(result, updated, result.score_updated_at)
         return
     _save_score(result, updated, now)
     composites = list(
@@ -271,6 +273,8 @@ def mutate_offline_evaluation(
                 setattr(owner, name, changes[name])
         owner.revision += 1
         owner.save(update_fields=[*changes, "revision"])
+    if isinstance(owner, OfflineEvaluationResult):
+        OfflineExperimentItem.objects.for_team(team_id).filter(id=owner.item_id).update(revision=F("revision") + 1)
     experiment.updated_at = now
     experiment.save(update_fields=["updated_at"])
     return owner.revision

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Literal, NoReturn, cast
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -754,6 +754,10 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             ]
         )
         OfflineEvaluationResult.objects.for_team(self.team_id).bulk_create(new_result_rows)
+        existing_items_with_new_results = {row.item_id for row in new_result_rows} - new_item_ids
+        OfflineExperimentItem.objects.for_team(self.team_id).filter(id__in=existing_items_with_new_results).update(
+            revision=F("revision") + 1
+        )
         new_result_ids = {result.id for result in new_result_rows}
         OfflineEvaluationResultPayload.objects.for_team(self.team_id).bulk_create(
             [

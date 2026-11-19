@@ -555,9 +555,11 @@ They work on uploading, completed, and failed experiments.
 Read the item's, result's, or payload's `revision` first. Include it in the PATCH body or the DELETE query string.
 A successful PATCH returns the current revision. A successful DELETE returns HTTP 204. A stale revision returns HTTP 409.
 If a reported score already has the requested status, value, and error code, its revision and score timestamp stay the same. This also preserves the timestamps of its dependent composites.
+Correcting only the error code advances the result revision and preserves the score timestamp. Its dependent composites keep their scores, revisions, and timestamps.
 For example, PATCH a reported result with `{"revision": 0, "status": "ok", "value": false}`.
 For payload edits, use `{"revision": 0, "payload": {"output": null}}`. Omission preserves a field, while JSON null sets it to null.
 An item and its payload share a revision, as do a result and its payload.
+Adding, editing, or deleting a result on an existing item also advances the item revision, as does editing or deleting a result payload. If another writer makes one of these changes after you read the item, read it again before deleting it.
 Recreating an item starts it at a higher revision than its deleted copy. A delayed edit or delete using the old revision returns HTTP 409.
 
 These operations require an evaluation editor with `evaluation:write`. Result operations and item deletion also require `llm_analytics:read` and access to the affected scorers and composite inputs.
@@ -569,7 +571,7 @@ The 30-day window starts at the owner's original acceptance time, even if its fi
 An edit cannot extend the deadline or restore a deleted or expired payload.
 Explicit payload deletion returns a `deleted_at` timestamp on payload reads. A score can still change after its payload expires.
 Changing an item's input, output, or expected output leaves its reported scores in place. The inspector identifies scores that predate the change.
-It compares the item edit time with the score's latest edit, its reported evaluation time, or its upload time, in that order. A composite uses the oldest of its input score times.
+It compares the item edit time with the score's latest status or value change, its reported evaluation time, or its upload time, in that order. A composite uses the oldest of its input score times.
 
 Current summaries and scorer history reflect updates and deletes. Closed experiments retain their closure time and the counts acknowledged at closure.
 Completion of an uploading experiment checks the items and results still present. Updates, recomputation, and deletion do not change billed usage.

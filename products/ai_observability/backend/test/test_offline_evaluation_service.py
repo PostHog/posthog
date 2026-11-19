@@ -338,7 +338,11 @@ class TestOfflineEvaluationService(TestCase):
         self.assertTrue(receipt.results[0].created)
         self.assertFalse(receipt.results[1].created)
         self.assertTrue(receipt.results[2].created)
-        self.assertEqual(OfflineExperimentItem.objects.for_team(self.team.id).count(), 2)
+        self.ingestion.upload(self.experiment.id, self.submission)
+        self.assertEqual(
+            dict(OfflineExperimentItem.objects.for_team(self.team.id).values_list("id", "revision")),
+            {self.item.id: 1, second_item.id: 0},
+        )
         self.assertEqual(OfflineExperimentItemPayload.objects.for_team(self.team.id).count(), 2)
         self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 3)
         self.assertIs(
