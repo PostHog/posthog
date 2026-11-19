@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import RecordingsQuery
 
+from products.replay_vision.backend import observation_ranks
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerDisabledReason,
@@ -19,6 +20,7 @@ from products.replay_vision.backend.scanner_access import (
     snapshot_experiment_scope_q,
 )
 from products.replay_vision.backend.scope import experiment_id_of, scope_for
+from products.replay_vision.backend.scope.load import EXPERIMENT_ID_SNAPSHOT_STORES, snapshot_experiment_id
 from products.replay_vision.backend.temporal.snapshots import ScannerSnapshot
 
 
@@ -163,10 +165,16 @@ class TestSnapshotAccessGate(BaseTest):
         with patch(
             "products.replay_vision.backend.scanner_access.accessible_experiment_ids",
             return_value=set(),
-        ) as accessible:
+        ):
             self.assertFalse(can_read_observation(Mock(), self.team.id, observation))
 
-        self.assertEqual(accessible.call_args.args[2], {77})
+        # Granting that same experiment admits the caller, which is what shows the gate read the
+        # id out of `scope` rather than refusing every snapshot it cannot parse.
+        with patch(
+            "products.replay_vision.backend.scanner_access.accessible_experiment_ids",
+            return_value={77},
+        ):
+            self.assertTrue(can_read_observation(Mock(), self.team.id, observation))
 
     def test_a_snapshot_naming_no_experiment_anywhere_stays_readable(self) -> None:
         # Every observation predating the scope column has none of the three stores set, and must
@@ -176,12 +184,33 @@ class TestSnapshotAccessGate(BaseTest):
 
         self.assertTrue(can_read_observation(Mock(), self.team.id, observation))
 
-    def test_the_snapshot_filter_reads_all_three_stores(self) -> None:
-        rendered = str(snapshot_experiment_scope_q(unrestricted=True, experiment_ids=[5]))
+    @parameterized.expand([(store,) for store in EXPERIMENT_ID_SNAPSHOT_STORES])
+    def test_every_store_is_read_by_every_snapshot_reader(self, store: str) -> None:
+        """Each reader of a frozen snapshot has to know every store an experiment can live in.
 
-        self.assertIn("scanner_snapshot__scope__experiment_id", rendered)
-        self.assertIn("scanner_snapshot__experiment_targeting__experiment_id", rendered)
-        self.assertIn("scanner_snapshot__scanner_config__experiment_id", rendered)
+        Three readers in three languages ask this question, so none can share a function. This is
+        what stops a fourth from hardcoding a subset: a store added to the shared list fails here
+        until every reader covers it. A reader that misses one reads a snapshot held only in that
+        store as naming no experiment, which the rank filters and the access gates both treat as
+        readable by anyone.
+        """
+        snapshot = {store: {"experiment_id": 404}}
+
+        self.assertEqual(snapshot_experiment_id(snapshot), 404, "snapshot_experiment_id misses this store")
+        self.assertIn(
+            f"scanner_snapshot__{store}__experiment_id",
+            str(snapshot_experiment_scope_q(unrestricted=True, experiment_ids=[5])),
+            "the observation access filter misses this store",
+        )
+        self.assertIn(
+            f"{{{store},experiment_id}}",
+            observation_ranks._EXPERIMENT_SQL,
+            "the rank row's experiment column misses this store",
+        )
+
+    def test_a_snapshot_naming_nothing_reads_as_no_experiment(self) -> None:
+        self.assertIsNone(snapshot_experiment_id({"scanner_config": {"prompt": "p"}}))
+        self.assertIsNone(snapshot_experiment_id(None))
 
 
 class TestScopeDualWrite(BaseTest):
