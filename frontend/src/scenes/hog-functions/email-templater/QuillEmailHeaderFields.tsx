@@ -65,12 +65,14 @@ function HeaderField({
     error,
     description,
     stacked,
+    aside,
     children,
 }: {
     label: string
     error?: string | null
     description?: ReactNode
     stacked?: boolean
+    aside?: ReactNode
     children: ReactNode
 }): JSX.Element {
     const note = error ? (
@@ -90,10 +92,13 @@ function HeaderField({
     return (
         <Field
             data-invalid={error ? true : undefined}
-            className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1"
+            className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] items-start gap-x-3 gap-y-0.5"
         >
             <FieldLabel className="flex h-7 items-center">{label}</FieldLabel>
-            <div className="min-w-0">{children}</div>
+            <div className="flex min-w-0 items-center gap-3">
+                <div className="min-w-0 flex-1">{children}</div>
+                {aside}
+            </div>
             {note ? <div className="col-start-2">{note}</div> : null}
         </Field>
     )
@@ -143,14 +148,13 @@ function LiquidInput({
 
 type OptionalFieldKey = 'replyTo' | 'cc' | 'bcc' | 'preheader'
 
-const OPTIONAL_FIELDS: Record<OptionalFieldKey, { label: string; placeholder: string; description?: string }> = {
+const OPTIONAL_FIELDS: Record<OptionalFieldKey, { label: string; placeholder: string }> = {
     replyTo: { label: 'Reply-to', placeholder: 'Where replies go, e.g. support@example.com' },
     cc: { label: 'Cc', placeholder: 'Addresses, separated by commas' },
     bcc: { label: 'Bcc', placeholder: 'Addresses, separated by commas' },
     preheader: {
         label: 'Preview text',
-        placeholder: 'A short summary shown after the subject',
-        description: 'Most inboxes show this next to the subject line.',
+        placeholder: 'Shown next to the subject in most inboxes',
     },
 }
 
@@ -315,9 +319,9 @@ function SenderField(): JSX.Element {
         selected.length || custom ? (
             <Popover open={customOpen} onOpenChange={setCustomOpen}>
                 <PopoverTrigger render={<LinkAction />} data-attr="email-from-custom-sender">
-                    {custom ? 'Edit' : 'Change name or address'}
+                    {custom ? 'Edit name and address' : 'Change name or address'}
                 </PopoverTrigger>
-                <PopoverContent align="start" className="w-96 p-3">
+                <PopoverContent align="end" className="w-96 p-3">
                     <CustomSenderForm senders={senders} onDone={() => setCustomOpen(false)} />
                 </PopoverContent>
             </Popover>
@@ -327,14 +331,8 @@ function SenderField(): JSX.Element {
         <HeaderField
             label="From"
             error={error}
-            description={
-                customize ? (
-                    <span className="flex flex-wrap items-baseline gap-x-2">
-                        {custom ? <span className="min-w-0 truncate">Sends as {custom}</span> : null}
-                        {customize}
-                    </span>
-                ) : undefined
-            }
+            description={custom ? <span className="block truncate">Sends as {custom}</span> : undefined}
+            aside={customize}
         >
             <Select
                 multiple={rotation}
@@ -376,10 +374,10 @@ function SenderField(): JSX.Element {
 function OptionalField({ field }: { field: OptionalFieldKey }): JSX.Element {
     const { emailTemplate, logicProps } = useValues(emailTemplaterLogic)
     const { setEmailTemplateValue, hideAdvancedField } = useActions(emailTemplaterLogic)
-    const { label, placeholder, description } = OPTIONAL_FIELDS[field]
+    const { label, placeholder } = OPTIONAL_FIELDS[field]
     const error = field === 'preheader' ? logicProps.fieldErrors?.preheader : undefined
     return (
-        <HeaderField label={label} error={error} description={description}>
+        <HeaderField label={label} error={error}>
             <LiquidInput
                 value={((emailTemplate as EmailTemplate)[field] as string | undefined) ?? ''}
                 onChange={(value) => setEmailTemplateValue(field, value ?? '')}
@@ -415,7 +413,7 @@ export function QuillEmailHeaderFields(): JSX.Element {
     const to = emailTemplate.to as unknown as { email?: string; name?: string } | undefined
 
     return (
-        <div data-quill className="flex flex-col gap-3 border-b p-4" data-attr="email-header-fields">
+        <div data-quill className="flex flex-col gap-2 border-b px-4 py-3" data-attr="email-header-fields">
             <SenderField />
             <HeaderField label="To" error={errors?.to}>
                 <LiquidInput
