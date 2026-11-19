@@ -798,14 +798,14 @@ WHERE and(
         return {"shape_key": self.shape_key}
 
     def _record_runner_read(self) -> None:
-        if (
-            is_background_warming_request()
-            or get_query_tag_value("feature") == Feature.DIGEST
-            or get_query_tag_value("kind") == "temporal"
-            or not get_instance_setting("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED")
-        ):
-            return
         try:
+            if (
+                is_background_warming_request()
+                or get_query_tag_value("feature") == Feature.DIGEST
+                or get_query_tag_value("kind") == "temporal"
+                or not get_instance_setting("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED")
+            ):
+                return
             record_shape_read(team_id=self.team.pk, shape_key=self.shape_key, at=datetime.now(UTC))
         except Exception:
             logger.exception("web_analytics_shape_read_record_failed", team_id=self.team.pk)

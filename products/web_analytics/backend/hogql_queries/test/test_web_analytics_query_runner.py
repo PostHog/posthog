@@ -368,10 +368,11 @@ class TestWebAnalyticsQueryExecutedEvent(ClickhouseTestMixin, APIBaseTest):
             ("digest_run", {"feature": Feature.DIGEST}, True, False),
             ("scheduled_workflow", {"kind": "temporal"}, True, False),
             ("switched_off", {}, False, False),
+            ("setting_lookup_fails", {}, ConnectionError("database unavailable"), False),
         ]
     )
     def test_only_user_reads_enter_the_shape_read_history(
-        self, name: str, tags: dict[str, Any], enabled: bool, recorded: bool
+        self, name: str, tags: dict[str, Any], enabled: bool | Exception, recorded: bool
     ) -> None:
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="-7d"),
@@ -381,10 +382,18 @@ class TestWebAnalyticsQueryExecutedEvent(ClickhouseTestMixin, APIBaseTest):
         if tags:
             tag_queries(team_id=self.team.pk, **tags)
         try:
-            with override_instance_config("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED", enabled):
-                WebOverviewQueryRunner(team=self.team, query=query).run()
+            with (
+                override_instance_config("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED", enabled is True),
+                mock.patch(
+                    "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_instance_setting",
+                    side_effect=enabled if isinstance(enabled, Exception) else None,
+                    return_value=enabled,
+                ),
+            ):
+                response = WebOverviewQueryRunner(team=self.team, query=query).run()
         finally:
             reset_query_tags()
 
         history = shape_read_hours(team_id=self.team.pk, now=datetime.now(UTC))
+        assert response is not None
         assert (compute_shape_key(query, self.team.timezone, []) in history) is recorded
