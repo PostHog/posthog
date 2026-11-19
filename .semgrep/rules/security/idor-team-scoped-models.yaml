@@ -159,6 +159,9 @@ rules:
                               |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardV2
+                              |DashboardV2Draft
+                              |DashboardV2Version
                               |DashboardWidget
                               |TeamHomeTabDashboardConfig
                               |DataColorTheme
@@ -715,6 +718,9 @@ rules:
                         |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardV2
+                        |DashboardV2Draft
+                        |DashboardV2Version
                         |DashboardWidget
                         |TeamHomeTabDashboardConfig
                         |DataColorTheme
