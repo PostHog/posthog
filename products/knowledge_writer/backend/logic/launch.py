@@ -48,7 +48,7 @@ logger = structlog.get_logger(__name__)
 WRITER_IDLE_TIMEOUT_SECONDS = 120
 SOURCE_DIFF_STORAGE_PREFIX = "knowledge_writer/source_diffs"
 SOURCE_DIFF_TTL_DAYS = "30"
-WRITER_GITHUB_TOKEN_SCOPE = "read"
+WRITER_GITHUB_TOKEN_SCOPE = "clone"
 HEAD_BRANCH_PREFIX = "knowledge-writer/"
 
 
@@ -92,8 +92,8 @@ def change_instruction(
     base_sha: str, docs_folders: tuple[str, ...], docs_url_path: str, routed_page_keys: frozenset[str]
 ) -> str:
     return (
-        f"Start from commit `{base_sha}`: run `git fetch origin {base_sha}` and `git checkout --detach {base_sha}` "
-        "before you edit anything. You cannot push. Do not commit, push or open a pull request.\n\n"
+        f"The checkout is at commit `{base_sha}`; edit it as it is. "
+        "You have no GitHub access. Do not commit, push or open a pull request.\n\n"
         "When your docs change is ready, run this once from the repository root. "
         f"It saves a check script to `{CHANGE_CHECK_SCRIPT_PATH}` and runs it. "
         f"The check lists each problem it finds. Fix them and run `python3 {CHANGE_CHECK_SCRIPT_PATH}` again "
@@ -215,6 +215,7 @@ def start_writer(
             description,
             team=team,
             writer=writer,
+            base_sha=base_sha,
             start_workflow=start_workflow,
             before_task_create=before_task_create,
             before_task_dispatch=None if stored is None else attach_source_diff(team.id, description, stored),
@@ -250,6 +251,7 @@ def create_writer_task(
     *,
     team: Team,
     writer: WriterSettings,
+    base_sha: str,
     start_workflow: bool,
     before_task_create: Callable[[], None] | None,
     before_task_dispatch: Callable[[UUID], dict[str, Any]] | None = None,
@@ -263,7 +265,7 @@ def create_writer_task(
         repository=writer.docs_repository,
         create_pr=False,
         posthog_mcp_scopes=[],
-        extra_run_state=no_store_connectors_run_state(),
+        extra_run_state={**no_store_connectors_run_state(), "clone_commit_sha": base_sha},
         origin_key=request.dedupe_id,
         start_workflow=start_workflow,
         inactivity_timeout_seconds=WRITER_IDLE_TIMEOUT_SECONDS,

@@ -83,7 +83,11 @@
                     "writtenBy": "trusted-author"
                 }
             ],
-            "capabilities": ["github:read token on the docs repository", "network:allowlist", "wake:180min"]
+            "capabilities": [
+                "github:clone-only token on the docs repository, used by provisioning and never in the sandbox",
+                "network:allowlist",
+                "wake:180min"
+            ]
         }
     ],
     "items": {
@@ -157,6 +161,10 @@
             {
                 "kind": "probe",
                 "by": ["readable-credentials"]
+            },
+            {
+                "kind": "prose",
+                "reason": "The AI gateway token stays readable in the sandbox: the tasks platform mints it per run, configured outside this product (see D3). It is capped at the writer profile's max_cost_usd, reaches only the egress allowlist, and anything it produces surfaces only in a reviewed pull request; the readable-credentials probe does not match its phe_ shape."
             }
         ],
         "D3": [

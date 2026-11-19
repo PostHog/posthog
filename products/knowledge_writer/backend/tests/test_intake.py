@@ -608,7 +608,7 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     assert tasks_facade.read_task_state_entry(task.id, team.id, BASE_SHA_STATE_KEY) == BASE_SHA
     assert BASE_SHA in task.description
     run = TaskRun.objects.get(task_id=task.id)
-    assert run.state["github_token_scope"] == "read"
+    assert (run.state["github_token_scope"], run.state["clone_commit_sha"]) == ("clone", BASE_SHA)
     assert run.state["pending_dispatch"]["create_pr"] is False
     assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == []
     assert run.state["inactivity_timeout_seconds"] == WRITER_IDLE_TIMEOUT_SECONDS
