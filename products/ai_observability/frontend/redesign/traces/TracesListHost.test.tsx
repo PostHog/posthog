@@ -36,6 +36,7 @@ const PAGE: TraceListApi = {
     ],
     counts: { total: 2, errors: 1, feedback: 3 },
     nextCursor: null,
+    previousCursor: null,
 }
 
 type Answer = [number, TraceListApi | { detail: string }]

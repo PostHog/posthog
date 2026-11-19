@@ -35,6 +35,7 @@ const PAGE: TraceListApi = {
     ],
     counts: { total: 3, errors: 1, feedback: 0 },
     nextCursor: 'cursor-2',
+    previousCursor: null,
 }
 
 const LIST_MOCK = { '/api/projects/:team_id/ai_observability/traces/': PAGE }

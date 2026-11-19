@@ -35,6 +35,7 @@ const FIRST_PAGE: TraceListApi = {
     ],
     counts: null,
     nextCursor: 'cursor-2',
+    previousCursor: null,
 }
 const SECOND_PAGE = makeTraceListPage(['trace-d'])
 const MODEL_FILTER: AnyPropertyFilter = {

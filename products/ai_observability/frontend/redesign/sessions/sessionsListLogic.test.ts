@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -20,6 +22,7 @@ const LIST_PATH = urls.aiObservabilitySessions()
 const FIRST_PAGE = makeSessionListPage(['session-a', 'session-b'], { nextCursor: 'cursor-2' })
 const SECOND_PAGE = makeSessionListPage(['session-c'])
 const FIRST_PAGE_PARAMS = { date_from: '-7d', filter_test_accounts: 'false', limit: '50' }
+const SEARCH_FLAG = FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH
 const MODEL_FILTER: AnyPropertyFilter = {
     key: '$ai_model',
     value: ['gpt-4'],
@@ -36,7 +39,9 @@ describe('sessionsListLogic', () => {
 
     const ids = (): string[] => logic.values.items.map((item) => item.id)
 
-    async function mountAt(url: string): Promise<void> {
+    async function mountAt(url: string, flags: string[] = []): Promise<void> {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
         router.actions.push(url)
         logic = sessionsListLogic()
         logic.mount()
@@ -73,12 +78,16 @@ describe('sessionsListLogic', () => {
         expect(logic.values).toMatchObject({ state: 'ready', canShowNext: true, canShowPrevious: false })
     })
 
-    it('reads the filters in the url without a trace view or search the sessions endpoint does not take', async () => {
+    it.each([
+        ['sends', [SEARCH_FLAG], { search: 'refund' }],
+        ['leaves out', [], {}],
+    ])('%s the search in the url by the search flag, and never the trace view', async (_name, flags, search) => {
         await mountAt(
-            `${LIST_PATH}?filters=${encodeURIComponent(JSON.stringify([MODEL_FILTER]))}&view=errors&trace_search=refund`
+            `${LIST_PATH}?filters=${encodeURIComponent(JSON.stringify([MODEL_FILTER]))}&view=errors&trace_search=refund`,
+            flags
         )
 
-        expect(requests).toEqual([{ ...FIRST_PAGE_PARAMS, properties: JSON.stringify([MODEL_FILTER]) }])
+        expect(requests).toEqual([{ ...FIRST_PAGE_PARAMS, properties: JSON.stringify([MODEL_FILTER]), ...search }])
     })
 
     it('next page uses nextCursor and keeps the pages it has', async () => {
@@ -154,11 +163,12 @@ describe('sessionsListLogic', () => {
     it.each([
         ['nothing narrows the selection', '', 'empty'],
         ['a property filter is on', `filters=${encodeURIComponent(JSON.stringify([MODEL_FILTER]))}`, 'empty-filtered'],
+        ['a search is on', 'trace_search=refund', 'empty-filtered'],
         ['test accounts are filtered out', 'filter_test_accounts=true', 'empty-filtered'],
     ])('shows an empty first page as %s', async (_name, query, state) => {
         answer = () => [200, makeSessionListPage([])]
 
-        await mountAt(`${LIST_PATH}?${query}`)
+        await mountAt(`${LIST_PATH}?${query}`, [SEARCH_FLAG])
 
         expect(logic.values.state).toEqual(state)
     })

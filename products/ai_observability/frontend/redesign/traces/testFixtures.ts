@@ -49,6 +49,7 @@ export function makeTraceListPage(ids: string[], overrides: Partial<TraceListApi
         items: ids.map((id) => makeTraceListItem({ id })),
         counts: null,
         nextCursor: null,
+        previousCursor: null,
         ...overrides,
     }
 }
