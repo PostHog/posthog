@@ -1262,7 +1262,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if insert_in_clickhouse:
             # An explicit addition undoes an earlier removal, so a repair must not delete these members.
             clear_static_cohort_member_removals(cohort_id=self.pk, person_uuids=person_uuids)
-            replace_in_flight = self._replace_in_flight()
+            replace_in_flight = self.refresh_replace_state()
             # A replace in flight removes every member without a row at or after its marker, so a re-add
             # during it writes a fresh row even for an existing member, and the existing rows needn't be read.
             # Readers use DISTINCT, so the duplicate row is harmless.
@@ -1280,7 +1280,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
 
-    def _replace_in_flight(self) -> bool:
+    def refresh_replace_state(self) -> bool:
         # Read from the database: the caller's instance may predate a claim or the finish of a prior replace.
         # Refreshing last_replace_marker and last_replace_floor here ensures the ClickHouse membership check ignores
         # lingering rows from a replace that finished after this instance was loaded.

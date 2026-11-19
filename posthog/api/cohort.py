@@ -2634,8 +2634,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     "csv" if import_from_csv else "query",
                     mode=population_mode,
                 )
-                cohort.save(update_fields=update_fields)
-            elif cohort.is_static:
+            if cohort.is_static:
                 cohort.save(update_fields=update_fields)
             else:
                 dynamic_update_fields = [*update_fields, "is_calculating"]
@@ -3207,7 +3206,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise StaticCohortReplacingUnavailable() from err
         finally:
             try:
-                if cohort._replace_in_flight():
+                if cohort.refresh_replace_state():
                     schedule_static_cohort_count_refresh(team_id=self.team_id, cohort_id=cohort.id)
                 else:
                     _recount_static_cohort(team_id=self.team_id, cohort_id=cohort.id)

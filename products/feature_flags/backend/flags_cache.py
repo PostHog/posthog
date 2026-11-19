@@ -70,7 +70,7 @@ from posthog.storage.hypercache_manager import (
     get_cache_stats as get_cache_stats_generic,
 )
 
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import COHORT_RECALCULATION_FIELDS, Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
 from products.experiments.backend.facade.change_signals import connect_experiment_changed
 from products.experiments.backend.facade.contracts import ExperimentChanged
@@ -227,30 +227,18 @@ def _omit_unsupported_flags(team_id: int, flags: list[FeatureFlag]) -> list[Feat
 # NOTE: cohort_type is included because calculate_people_ch() always saves it in
 # update_fields even when unchanged. The rare actual cohort_type change (realtime
 # exceeding person limit) uses Cohort.objects.filter().update() which bypasses signals.
-_COHORT_RECALCULATION_FIELDS = frozenset(
-    [
-        "count",
+_COHORT_RECALCULATION_FIELDS = COHORT_RECALCULATION_FIELDS | frozenset(
+    {
         "version",
         "pending_version",
-        "is_calculating",
-        "last_calculation",
         "last_calculation_duration_ms",
-        "errors_calculating",
-        "last_error_at",
-        "last_import_total_count",
-        "last_import_unmatched_count",
-        "pending_population_mode",
-        "population_marker",
-        "population_claimed_at",
-        "last_replace_marker",
-        "last_replace_floor",
         # NOTE: `groups` is the legacy cohort-condition field (deprecated in favour of
         # `filters`).  calculate_people_ch() always saves it in update_fields even when
         # unchanged (see cohort.py:347).  Real definition changes go through a full save
         # (update_fields=None), so they still trigger invalidation.
         "groups",
         "cohort_type",
-    ]
+    }
 )
 
 

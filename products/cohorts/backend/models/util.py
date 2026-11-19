@@ -1461,67 +1461,75 @@ def insert_actors_into_cohort_by_query(
     yet are inserted, at the current time.
     """
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-    insert_sql = (
-        INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE
-        if replace_marker is not None
-        else INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID
-    )
-    # Rows a replace removes, or rows a failed first replace left before cleanup, can linger until ClickHouse
-    # deletes them. An append must not read them as membership, or it would skip inserting a person the delete
-    # then removes.
-    kept_marker = cohort.last_replace_marker if replace_marker is None else None
-    kept_filter = (
-        f" AND {REPLACE_KEEPS_ROW}"
-        if kept_marker is not None
-        else (" AND _offset != %(replace_offset)s" if replace_marker is None else "")
-    )
-    kept_params = (
-        replace_keeps_row_params(kept_marker, cohort.last_replace_floor)
-        if kept_marker is not None
-        else ({"replace_offset": REPLACE_ROW_OFFSET} if replace_marker is None else {})
-    )
-    def _execute_insert() -> Any:
-        return sync_execute(
-            insert_sql.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query, kept_filter=kept_filter),
-            {
-                **kept_params,
-                "cohort_id": cohort.pk,
-                "_timestamp": replace_marker if replace_marker is not None else population_timestamp_now(),
-                "team_id": team_id,
-                # Only the replace insert reads it; the append insert writes 0.
-                **({"_offset": REPLACE_ROW_OFFSET} if replace_marker is not None else {}),
-                **context.values,
-                **params,
-            },
-            settings={
-                **COHORT_QUERY_TIMEOUT_SETTINGS,
-                **COHORT_QUERY_SPILL_SETTINGS,
-                # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
-                # trims it so the query can be embedded), so the native read settings travel on the INSERT.
-                **events_read_settings(context.uses_new_events_schema()),
-                # Flush Distributed writes from a satellite cluster synchronously so quorum reads on data see every row.
-                **(
-                    {**REPLACE_INSERT_QUORUM_SETTINGS, "insert_distributed_sync": 1}
-                    if replace_marker is not None
-                    else {}
-                ),
-            },
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.COHORTS,
-            team_id=team_id,
-        )
-
+    base_settings: dict[str, Any] = {
+        **COHORT_QUERY_TIMEOUT_SETTINGS,
+        **COHORT_QUERY_SPILL_SETTINGS,
+        # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
+        # trims it so the query can be embedded), so the native read settings travel on the INSERT.
+        **events_read_settings(context.uses_new_events_schema()),
+    }
     if replace_marker is not None:
+        formatted_sql = INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE.format(
+            cohort_table=PERSON_STATIC_COHORT_TABLE, query=query
+        )
+        insert_params: dict[str, Any] = {
+            "cohort_id": cohort.pk,
+            "_timestamp": replace_marker,
+            "team_id": team_id,
+            "_offset": REPLACE_ROW_OFFSET,
+            **context.values,
+            **params,
+        }
+        # Flush Distributed writes from a satellite cluster synchronously so quorum reads on data see every row.
+        insert_settings: dict[str, Any] = {
+            **base_settings,
+            **REPLACE_INSERT_QUORUM_SETTINGS,
+            "insert_distributed_sync": 1,
+        }
         # With insert_quorum_parallel=0, code 286 fails before writing anything, so retrying in place cannot
         # duplicate rows. Code 319 (unknown insert status) is deliberately not retried here because a part may have
         # committed; letting it reach the task retry mints a fresh marker instead.
         written = _retry_on_clickhouse_code(
-            _execute_insert,
+            lambda: sync_execute(
+                formatted_sql,
+                insert_params,
+                settings=insert_settings,
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.COHORTS,
+                team_id=team_id,
+            ),
             code=CLICKHOUSE_QUORUM_LOCKED_CODE,
             waits=REPLACE_INSERT_QUORUM_LOCK_RETRY_WAITS_SECONDS,
         )
     else:
-        written = _execute_insert()
+        # Rows a replace removes, or rows a failed first replace left before cleanup, can linger until ClickHouse
+        # deletes them. An append must not read them as membership, or it would skip inserting a person the delete
+        # then removes.
+        if cohort.last_replace_marker is not None:
+            kept_filter = f" AND {REPLACE_KEEPS_ROW}"
+            kept_params = replace_keeps_row_params(cohort.last_replace_marker, cohort.last_replace_floor)
+        else:
+            kept_filter = " AND _offset != %(replace_offset)s"
+            kept_params = {"replace_offset": REPLACE_ROW_OFFSET}
+        formatted_sql = INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(
+            cohort_table=PERSON_STATIC_COHORT_TABLE, query=query, kept_filter=kept_filter
+        )
+        insert_params = {
+            **kept_params,
+            "cohort_id": cohort.pk,
+            "_timestamp": population_timestamp_now(),
+            "team_id": team_id,
+            **context.values,
+            **params,
+        }
+        written = sync_execute(
+            formatted_sql,
+            insert_params,
+            settings=base_settings,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.COHORTS,
+            team_id=team_id,
+        )
     # sync_execute returns the written row count for an insert that wrote rows, and an empty result otherwise.
     return written if isinstance(written, int) else 0
 
@@ -1647,7 +1655,6 @@ def _copy_static_cohort_rows_to_pg(
     counted_since = written_since or "1970-01-01 00:00:00"
     new_rows_read = 0
     exhausted = False
-    counted_in_batch: set[str] = set()
     any_counted_resolved = False
 
     # Pages are read in the sort key's order with a plain LIMIT, and both the keep rule and the grouping by person
@@ -1656,15 +1663,15 @@ def _copy_static_cohort_rows_to_pg(
     # in-order scan to the end before merging. Either way the copy's reads grow with the square of the cohort's
     # size. Unfiltered, every part's read stops at the limit. A full page holds back its last person, whose rows
     # may continue on the next page, and the next page starts at that person.
-    def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
+    def fetch_batch(cursor: str, batch_size: int) -> tuple[list[tuple[str, bool]], str]:
         while not exhausted:
             persons, cursor = _read_page(cursor, batch_size)
             if persons:
                 return persons, cursor
         return [], cursor
 
-    def _read_page(cursor: str, batch_size: int) -> tuple[list[str], str]:
-        nonlocal new_rows_read, exhausted, counted_in_batch
+    def _read_page(cursor: str, batch_size: int) -> tuple[list[tuple[str, bool]], str]:
+        nonlocal new_rows_read, exhausted
         if replace_marker is not None:
             require_current_population_marker(cohort.pk, replace_marker)
         # Tagged per page, because the batch writer between pages may retag.
@@ -1723,15 +1730,17 @@ def _copy_static_cohort_rows_to_pg(
                 cohort_id=cohort.pk,
                 written_at={person: by_person[person][2] for person in kept_persons},
             )
-        counted_persons = [person for person in kept_persons if by_person[person][1]]
-        new_rows_read += len(counted_persons)
-        counted_in_batch = {_normalize_uuid(person) for person in counted_persons}
-        return kept_persons, cursor
+        page_items = [(person, by_person[person][1]) for person in kept_persons]
+        new_rows_read += sum(1 for _, is_counted in page_items if is_counted)
+        return page_items, cursor
 
-    def insert_batch(batch: list[str]) -> None:
+    def insert_batch(batch: list[tuple[str, bool]]) -> None:
         nonlocal any_counted_resolved
-        resolved = cohort._insert_batch_via_personhog(batch, insert_in_clickhouse=False, team_id=team_id)
-        # Only this attempt's counted rows have no other ClickHouse row, so kept adds alone do not block cleanup.
+        person_uuids = [person_uuid for person_uuid, _ in batch]
+        counted_in_batch = {_normalize_uuid(person_uuid) for person_uuid, is_counted in batch if is_counted}
+        resolved = cohort._insert_batch_via_personhog(person_uuids, insert_in_clickhouse=False, team_id=team_id)
+        # Only this attempt's own rows call on_pg_write. If the attempt fails and on_pg_write never ran, the task
+        # deletes the attempt's ClickHouse rows. Copying a member who was added since the request doesn't stop that.
         counted_resolved = resolved & counted_in_batch
         if counted_resolved and on_pg_write is not None:
             on_pg_write()
@@ -2113,6 +2122,35 @@ def _static_cohort_delete_settings() -> dict[str, str]:
     return {"mutations_sync": "0", "lightweight_deletes_sync": "0"}
 
 
+def _delete_static_cohort_rows(
+    sql: str,
+    params: dict[str, Any],
+    *,
+    cohort_id: int,
+    team_id: int,
+    name: str,
+    query_type: str,
+) -> None:
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name=name,
+        feature=Feature.COHORT,
+        query_type=query_type,
+    )
+    # The default user, as the manual remove uses: the cohorts user's grants live outside this repo, so its
+    # right to delete can't be checked here.
+    with _static_cohort_data_route():
+        sync_execute(
+            sql,
+            {"team_id": team_id, "cohort_id": cohort_id, **params},
+            settings=_static_cohort_delete_settings(),
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        )
+
+
 def prune_stale_static_cohort_rows(
     cohort_id: int, *, team_id: int, marker: datetime, floor: datetime | None = None
 ) -> None:
@@ -2121,54 +2159,26 @@ def prune_stale_static_cohort_rows(
 
     Scoped by team and cohort, because two cohorts can mint the same marker second.
     """
-    tag_queries(
-        product=ProductKey.COHORTS,
+    _delete_static_cohort_rows(
+        DELETE_STALE_STATIC_COHORT_ROWS,
+        replace_keeps_row_params(marker, floor),
         cohort_id=cohort_id,
         team_id=team_id,
         name="prune_stale_static_cohort_rows",
-        feature=Feature.COHORT,
         query_type="static_cohort_replace_prune",
     )
-    # The default user, as the manual remove uses: the cohorts user's grants live outside this repo, so its
-    # right to delete can't be checked here.
-    with _static_cohort_data_route():
-        sync_execute(
-            DELETE_STALE_STATIC_COHORT_ROWS,
-            {
-                "team_id": team_id,
-                "cohort_id": cohort_id,
-                **replace_keeps_row_params(marker, floor),
-            },
-            settings=_static_cohort_delete_settings(),
-            workload=Workload.OFFLINE,
-            team_id=team_id,
-        )
 
 
 def delete_failed_replace_attempt_rows(cohort_id: int, *, team_id: int, marker: datetime) -> None:
     """Delete ClickHouse rows left at ``marker`` by a failed replace attempt that wrote nothing to Postgres."""
-    tag_queries(
-        product=ProductKey.COHORTS,
+    _delete_static_cohort_rows(
+        DELETE_STATIC_COHORT_ROWS_AT_MARKER,
+        {"marker": marker, "replace_offset": REPLACE_ROW_OFFSET},
         cohort_id=cohort_id,
         team_id=team_id,
         name="delete_failed_replace_attempt_rows",
-        feature=Feature.COHORT,
         query_type="static_cohort_replace_cleanup",
     )
-    # Uses the default user and data cluster routing matching prune_stale_static_cohort_rows.
-    with _static_cohort_data_route():
-        sync_execute(
-            DELETE_STATIC_COHORT_ROWS_AT_MARKER,
-            {
-                "team_id": team_id,
-                "cohort_id": cohort_id,
-                "marker": marker,
-                "replace_offset": REPLACE_ROW_OFFSET,
-            },
-            settings=_static_cohort_delete_settings(),
-            workload=Workload.OFFLINE,
-            team_id=team_id,
-        )
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────

@@ -4567,6 +4567,34 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.save(update_fields=[field])
         mock_task.delay.assert_not_called()
 
+    def test_recalculation_fields_match_expected_set(self):
+        from products.feature_flags.backend.flags_cache import _COHORT_RECALCULATION_FIELDS
+
+        self.assertEqual(
+            _COHORT_RECALCULATION_FIELDS,
+            frozenset(
+                {
+                    "count",
+                    "version",
+                    "pending_version",
+                    "is_calculating",
+                    "last_calculation",
+                    "last_calculation_duration_ms",
+                    "errors_calculating",
+                    "last_error_at",
+                    "last_import_total_count",
+                    "last_import_unmatched_count",
+                    "pending_population_mode",
+                    "population_marker",
+                    "population_claimed_at",
+                    "last_replace_marker",
+                    "last_replace_floor",
+                    "groups",
+                    "cohort_type",
+                }
+            ),
+        )
+
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     def test_skips_cohort_type_only_save(self, mock_task):
