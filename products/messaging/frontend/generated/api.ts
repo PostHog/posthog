@@ -113,7 +113,7 @@ export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. Read again a few seconds later. Until then the email waits to go out, as `queued`, or as `scheduled` for a scheduled send.
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. That 404 doesn't say whether the email went out yet, so read again a few seconds later.
  * @summary Get a transactional email's status
  */
 export const messagingEmailsRetrieve = async (
