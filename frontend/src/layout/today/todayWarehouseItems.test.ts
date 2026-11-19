@@ -4,7 +4,7 @@ import { WAREHOUSE_ITEMS, hrefPath, isWarehouseToolHref, warehouseItemForLocatio
 
 describe('todayWarehouseItems', () => {
     test.each([
-        ...DEFINITIONS_TABS.map((tab) => [hrefPath(tab.url), 'definitions']),
+        ...DEFINITIONS_TABS.map((tab): [string, string | null] => [hrefPath(tab.url), 'definitions']),
         ['/sql', 'sql_editor'],
         ['/data-management/sources/abc/schemas', 'sources'],
         ['/models', 'models'],

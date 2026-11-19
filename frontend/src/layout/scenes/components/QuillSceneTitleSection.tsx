@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { Button, cn } from '@posthog/quill'
 
 import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
 import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
-import { useMaxTool } from 'scenes/max/useMaxTool'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -22,6 +22,10 @@ import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotFilled } from './SceneM
 import { sceneResourceIcon } from './sceneResourceIcon'
 import type { SceneMainTitleProps } from './SceneTitleSection'
 import { SceneTitleSettingsButton } from './SceneTitleSettingsButton'
+
+const MaxToolRegistration = lazyWithRetry(() =>
+    import('scenes/max/MaxToolRegistration').then((m) => ({ default: m.MaxToolRegistration }))
+)
 
 export function QuillSceneTitleSection({
     name,
@@ -56,7 +60,13 @@ export function QuillSceneTitleSection({
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const { phoneHeaderShown, sidebarBreadcrumbShown, currentWarehouseItem, warehouseHeaderShown } =
         useValues(todayShellLogic)
-    useMaxTool({ ...(maxToolProps ?? { identifier: 'read_data' }), active: !!maxToolProps && warehouseHeaderShown })
+    // The warehouse header holds no scene title, so the scene's PostHog AI tool registers here. Both returns render it
+    // first, so a switch between them keeps the tool registered.
+    const maxToolRegistration = !!maxToolProps && warehouseHeaderShown && (
+        <Suspense fallback={null}>
+            <MaxToolRegistration maxToolProps={maxToolProps} />
+        </Suspense>
+    )
     // The phone header shows the title, so this row keeps only the actions. A new resource keeps its name field.
     const titleInPhoneHeader = phoneHeaderShown && !forceEdit
     const releaseStageSceneId = sceneId ?? activeSceneId
@@ -99,16 +109,20 @@ export function QuillSceneTitleSection({
     const titleInWarehouseHeader = !!currentWarehouseItem && !forceBackTo && breadcrumbs.length <= 2 && !forceEdit
     if (titleInWarehouseHeader) {
         return (
-            <div data-quill className={cn('flex flex-wrap items-center justify-end gap-1 empty:hidden', className)}>
-                {actions}
-                <div ref={setMenuBarSlot} className="flex min-w-0 items-center empty:hidden" />
-                {!menuBarShown && <SceneTitleSettingsButton />}
-            </div>
+            <>
+                {maxToolRegistration}
+                <div data-quill className={cn('flex flex-wrap items-center justify-end gap-1 empty:hidden', className)}>
+                    {actions}
+                    <div ref={setMenuBarSlot} className="flex min-w-0 items-center empty:hidden" />
+                    {!menuBarShown && <SceneTitleSettingsButton />}
+                </div>
+            </>
         )
     }
 
     return (
         <>
+            {maxToolRegistration}
             <QuillSceneHeader
                 className={cn(
                     'z-30 bg-[var(--scene-layout-background)] @2xl/main-content:sticky -top-[calc(var(--spacing)*4)]',
