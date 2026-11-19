@@ -14,7 +14,6 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scope_resolution import note_user_scope
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
@@ -198,7 +197,6 @@ class TeamViewSet(
     def safely_get_object(self, queryset):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            note_user_scope(self.request)
             team = getattr(self.request.user, "team", None)
             if team is None:
                 raise exceptions.NotFound()

@@ -16,7 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.scope_resolution import ScopeSource, note_flat_route, note_scope_source, note_user_scope
+from posthog.api.scope_resolution import CURRENT_ALIAS, is_flat_route, note_flat_route, record_scope_resolution
 from posthog.api.utils import get_token
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -371,11 +371,16 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         Path parameters are parsed after super().initial(), so an
         authentication or permission error wins over a 404 for a malformed id.
         """
-        # Marked before authentication so refused calls count too. BillingViewset clears the flag in its own
-        # initial() before this runs, when the request names its organization.
+        # Read per request rather than per class, because a view can clear it for a request that names its scope.
         if self.param_derived_from_user_current_team:
             note_flat_route(request)
-        super().initial(request, *args, **kwargs)
+        try:
+            super().initial(request, *args, **kwargs)
+        finally:
+            # Recorded even when a permission check refuses the call, the case a caller following the user hits most.
+            flat_route = is_flat_route(request)
+            if flat_route or CURRENT_ALIAS in self.kwargs.values():
+                record_scope_resolution(request, flat_route=flat_route)
         self._parse_path_parameters()
         self._team_scope_token = None
         if self._is_team_view or self._is_project_view:
@@ -684,10 +689,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self._is_project_view:
             team_id = self.project_id  # KLUDGE: This is just for the period of transition to project environments
         elif team_from_token := self._get_team_from_request():
-            note_scope_source(self.request, ScopeSource.TOKEN)
             team_id = team_from_token.id
         elif self.param_derived_from_user_current_team == "team_id":
-            note_user_scope(self.request)
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
@@ -700,17 +703,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     @cached_property
     def team(self) -> Team:
         if team_from_token := self._get_team_from_request():
-            note_scope_source(self.request, ScopeSource.TOKEN)
             team = team_from_token
         elif psak_team := self._get_team_from_project_secret_api_key():
-            note_scope_source(self.request, ScopeSource.CREDENTIAL)
             team = psak_team
         elif self._is_project_view:
             team = Team.objects.select_related("organization").get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
         elif self.param_derived_from_user_current_team == "team_id":
-            note_user_scope(self.request)
             user = cast(User, self.request.user)
             assert user.team is not None
             team = user.team
@@ -742,11 +742,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     @cached_property
     def project_id(self) -> int:
         if team_from_token := self._get_team_from_request():
-            note_scope_source(self.request, ScopeSource.TOKEN)
             project_id = team_from_token.project_id
 
         elif self.param_derived_from_user_current_team == "project_id":
-            note_user_scope(self.request)
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
@@ -760,7 +758,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     @cached_property
     def project(self) -> Project:
         if self.param_derived_from_user_current_team == "project_id":
-            note_user_scope(self.request)
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
@@ -796,7 +793,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             elif self._is_project_view:
                 current_organization_id = self.project.organization_id
             elif user:
-                note_user_scope(self.request)
                 current_organization_id = user.current_organization_id
 
             if not current_organization_id:
@@ -857,10 +853,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self.param_derived_from_user_current_team:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
-            if team_from_request:
-                note_scope_source(self.request, ScopeSource.TOKEN)
-            else:
-                note_user_scope(self.request)
             current_team = team_from_request or self.request.user.team
             if current_team is None:
                 raise ValidationError("This endpoint requires the current project to be set on your account.")
@@ -875,7 +867,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             if query_value == "@current":
                 if not self.request.user.is_authenticated:
                     raise AuthenticationFailed()
-                note_user_scope(self.request)
                 if query_lookup == "team_id":
                     current_team = self.request.user.team
                     if current_team is None:
@@ -896,8 +887,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                         raise NotFound("Organization not found.")
                     query_value = current_organization.id
             elif query_lookup == "team_id":
-                if team_from_request:
-                    note_scope_source(self.request, ScopeSource.TOKEN)
                 try:
                     query_value = team_from_request.id if team_from_request else int(query_value)
                 except ValueError:
@@ -905,8 +894,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                     # Keep in sync with SCOPE_NOT_FOUND_DETAILS in frontend/src/lib/api-error.ts.
                     raise NotFound("Project not found.")
             elif query_lookup == "project_id":
-                if team_from_request:
-                    note_scope_source(self.request, ScopeSource.TOKEN)
                 try:
                     query_value = team_from_request.project_id if team_from_request else int(query_value)
                 except ValueError:

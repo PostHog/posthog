@@ -8,7 +8,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
-from posthog.api.scope_resolution import is_flat_route, scope_resolution
+from posthog.api.scope_resolution import CURRENT_ALIAS, is_flat_route, scope_resolution
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.dataclasses import frozen
@@ -20,7 +20,6 @@ logger = structlog.get_logger(__name__)
 
 dedupe_cache = caches["current_alias_usage"]
 
-CURRENT_ALIAS = "@current"
 CURRENT_ALIAS_REQUESTS_METRIC = "api.current_alias.requests"
 CURRENT_ALIAS_USED_EVENT = "api current alias used"
 FLAT_ROUTE_REQUESTS_METRIC = "api.flat_route.requests"
@@ -68,26 +67,19 @@ def current_alias_scope(path: str) -> CurrentAliasScope | None:
     return _SCOPE_BY_COLLECTION.get(segments[1])
 
 
-def record_current_alias_use(request: HttpRequest, *, route: str, status_class: str) -> None:
-    scope = current_alias_scope(request.path)
-    if scope is None:
+def record_scope_usage(request: HttpRequest, *, route: str, status_class: str) -> None:
+    """Report a request that names its scope as `@current`, or reaches a route that takes the project from the user."""
+    if scope := current_alias_scope(request.path):
+        report = _CURRENT_ALIAS_REPORT
+    elif is_flat_route(request):
+        report, scope = _FLAT_ROUTE_REPORT, CurrentAliasScope.PROJECT
+    else:
         return
     # Analytics must never fail the request it observes.
     try:
-        _record(request, report=_CURRENT_ALIAS_REPORT, scope=scope, route=route, status_class=status_class)
+        _record(request, report=report, scope=scope, route=route, status_class=status_class)
     except Exception:
-        logger.warning("current_alias_usage_record_failed", exc_info=True)
-
-
-def record_flat_route_use(request: HttpRequest, *, route: str, status_class: str) -> None:
-    if not is_flat_route(request):
-        return
-    try:
-        _record(
-            request, report=_FLAT_ROUTE_REPORT, scope=CurrentAliasScope.PROJECT, route=route, status_class=status_class
-        )
-    except Exception:
-        logger.warning("flat_route_usage_record_failed", exc_info=True)
+        logger.warning("scope_usage_record_failed", exc_info=True)
 
 
 def _oauth_application_id() -> str | None:
