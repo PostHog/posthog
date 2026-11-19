@@ -276,6 +276,7 @@ export const FEATURE_FLAGS = {
     AUTORESEARCH_REPORT_NOTEBOOK: 'autoresearch-report-notebook', // owner: @andrewm4894 #team-platform-features, gates the training run report notebook
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
+    BATCH_EXPORTS_NEW_EVENTS_SCHEMA: 'batch-exports-new-events-schema', // owner: #team-batch-exports, shows the switch that moves one events export to the new events table
     BILLING_ALERTS: 'billing-alerts', // owner: #team-billing, gates the Billing > Alerts tab
     BILLING_REAL_TIME_USAGE: 'billing-real-time-usage', // owner: #team-billing, gates the Real-time usage scene
     BROADCASTS_AI_FIRST_NEW: 'broadcasts-ai-first-new', // owner: @dmarchuk #team-workflows
