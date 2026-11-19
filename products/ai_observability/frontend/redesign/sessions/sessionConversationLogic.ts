@@ -176,6 +176,9 @@ export interface sessionConversationLogicActions {
     openRow: (row: TraceListRow) => {
         row: TraceListRow
     } // traceDrawerLogic
+    stepTo: (direction: import('../trace/traceDrawerLogic').TraceStepDirection) => {
+        direction: import('../trace/traceDrawerLogic').TraceStepDirection
+    } // traceDrawerLogic
     loadConversationPage: ({ params }: ConversationPageRequest) => ConversationPageRequest
     loadConversationPageFailure: (
         error: string,
@@ -269,7 +272,7 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
     ]),
     connect(() => ({
         values: [traceDrawerLogic({ listId: SESSION_TURNS_LIST }), ['openTraceId']],
-        actions: [traceDrawerLogic({ listId: SESSION_TURNS_LIST }), ['openRow']],
+        actions: [traceDrawerLogic({ listId: SESSION_TURNS_LIST }), ['openRow', 'stepTo']],
     })),
     actions({
         reload: true,
@@ -429,21 +432,31 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
             actions.loadConversationPage({ direction, params: { ...sessionPageParams(props), ...cursor } })
         }
 
-        // The drawer steps through the loaded turns only, so a turn open at either end brings in the page past it.
+        // The drawer steps through the loaded turns only, so the last one open brings in the page after it. Earlier
+        // turns load only on a step up: they go above the reader, and would move the turn they opened.
         const loadPastOpenTurn = (): void => {
-            const openIndex = values.rows.findIndex((row) => row.traceId === values.openTraceId)
-            if (openIndex === -1) {
-                return
-            }
-            if (openIndex === values.rows.length - 1 && values.newerEdge === 'more') {
+            const lastRow = values.rows[values.rows.length - 1]
+            if (lastRow && lastRow.traceId === values.openTraceId && values.newerEdge === 'more') {
                 actions.loadNewer()
-            } else if (openIndex === 0 && values.olderEdge === 'more') {
-                actions.loadOlder()
             }
         }
 
         return {
             [router.actionTypes.locationChanged]: loadPastOpenTurn,
+            stepTo: ({ direction }) => {
+                const firstRow = values.rows[0]
+                if (
+                    direction === 'previous' &&
+                    firstRow?.traceId === values.openTraceId &&
+                    values.olderEdge === 'more'
+                ) {
+                    cache.openBeforeTraceId = firstRow.traceId
+                    actions.loadOlder()
+                }
+            },
+            loadConversationPageFailure: () => {
+                cache.openBeforeTraceId = null
+            },
             reload: () => loadPage('first', props.aroundTraceId ? { around: props.aroundTraceId } : {}),
             loadOlder: () => {
                 if (values.olderCursor && !values.pageLoading) {
@@ -456,6 +469,13 @@ export const sessionConversationLogic: LogicWrapper<sessionConversationLogicType
                 }
             },
             loadConversationPageSuccess: async ({ page, payload }) => {
+                if (payload?.direction === 'older' && cache.openBeforeTraceId) {
+                    const index = values.rows.findIndex((row) => row.traceId === cache.openBeforeTraceId)
+                    cache.openBeforeTraceId = null
+                    if (index > 0) {
+                        actions.openRow(values.rows[index - 1])
+                    }
+                }
                 loadPastOpenTurn()
                 const rowsWaitMs = Math.round(performance.now() - cache.pageRequestedAt)
                 const traceIds = page.items.map((item) => item.id)

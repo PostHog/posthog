@@ -51,6 +51,13 @@ describe('SessionPageHost', () => {
         const drawer = traceDrawerLogic({ listId: 'session-turns' })
         expect(drawer.values.openTraceId).toEqual('trace-4')
         expect(drawer.values.position).toEqual({ index: 1, total: 2 })
+
+        router.actions.push(combineUrl(urls.aiObservabilitySession('session-1'), { trace: 'trace-3' }).url)
+
+        // The drawer may step up from the first loaded turn, because the session has earlier turns to load.
+        await waitFor(() => expect(drawer.values.canStepPrevious).toBe(true))
+        expect(drawer.values.previousTrace).toBeNull()
+        expect(pageRequests).toHaveLength(1)
     })
 
     it('unknown session shows the not-found state with a way back to the sessions list', async () => {

@@ -9,9 +9,11 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceListApi, TraceTurnListApi } from '../../generated/api.schemas'
+import { traceDrawerLogic } from '../trace/traceDrawerLogic'
 import type { ConversationTurn } from '../trace/types'
 import {
     SessionConversationLogicProps,
+    SESSION_TURNS_LIST,
     SESSION_TURNS_PAGE_SIZE,
     sessionConversationLogic,
 } from './sessionConversationLogic'
@@ -199,42 +201,58 @@ describe('sessionConversationLogic', () => {
         expect(logic.values).toMatchObject({ olderEdge: 'end', newerEdge: 'end' })
     })
 
+    async function openTurnAt(traceId: string): Promise<void> {
+        router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id, trace: traceId }).url)
+        await expectLogic(logic).toFinishAllListeners()
+    }
+
+    async function mountOnSessionsPath(): Promise<void> {
+        router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id }).url)
+        await mount()
+    }
+
+    it('the drawer on the last loaded turn loads the next page, so it can step on', async () => {
+        answerPage = (params) =>
+            params.has('cursor')
+                ? [200, makeSessionTurnsPage([9])]
+                : [200, makeSessionTurnsPage([1, 2], { nextCursor: 'cursor-next' })]
+        await mountOnSessionsPath()
+
+        await openTurnAt('trace-2')
+
+        expect(pageRequests).toEqual([FIRST_PAGE_PARAMS, { ...FIRST_PAGE_PARAMS, cursor: 'cursor-next' }])
+        expect(logic.values.rows.map((row) => row.traceId)).toEqual(['trace-1', 'trace-2', 'trace-9'])
+    })
+
     it.each([
-        ['last', 'trace-2', makeSessionTurnsPage([1, 2], { nextCursor: 'cursor-next' }), { cursor: 'cursor-next' }],
-        [
-            'first',
-            'trace-1',
-            makeSessionTurnsPage([1, 2], { previousCursor: 'cursor-before' }),
-            { before_cursor: 'cursor-before' },
-        ],
-    ])(
-        'the drawer on the %s loaded turn loads the page past it, so it can step on',
-        async (_edge, traceId, page, cursor) => {
-            answerPage = (params) =>
-                params.has('cursor') || params.has('before_cursor') ? [200, makeSessionTurnsPage([9])] : [200, page]
-            router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id }).url)
-            await mount()
-
-            router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id, trace: traceId }).url)
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(pageRequests).toEqual([FIRST_PAGE_PARAMS, { ...FIRST_PAGE_PARAMS, ...cursor }])
-            expect(logic.values.rows.map((row) => row.traceId)).toContain('trace-9')
-        }
-    )
-
-    it('the drawer on a middle turn loads nothing more', async () => {
+        ['the first', 'trace-1'],
+        ['a middle', 'trace-2'],
+    ])('opening %s loaded turn loads no earlier page', async (_name, traceId) => {
         answerPage = () => [
             200,
             makeSessionTurnsPage([1, 2, 3], { nextCursor: 'cursor-next', previousCursor: 'cursor-before' }),
         ]
-        router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id }).url)
-        await mount()
+        await mountOnSessionsPath()
 
-        router.actions.push(combineUrl(urls.aiObservabilitySessions(), { session: SESSION.id, trace: 'trace-2' }).url)
-        await expectLogic(logic).toFinishAllListeners()
+        await openTurnAt(traceId)
 
         expect(pageRequests).toEqual([FIRST_PAGE_PARAMS])
+    })
+
+    it('stepping up from the first loaded turn loads the earlier page and opens the turn before it', async () => {
+        answerPage = (params) =>
+            params.has('before_cursor')
+                ? [200, makeSessionTurnsPage([0])]
+                : [200, makeSessionTurnsPage([1, 2], { previousCursor: 'cursor-before' })]
+        await mountOnSessionsPath()
+        await openTurnAt('trace-1')
+
+        traceDrawerLogic({ listId: SESSION_TURNS_LIST }).actions.stepTo('previous')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(pageRequests).toEqual([FIRST_PAGE_PARAMS, { ...FIRST_PAGE_PARAMS, before_cursor: 'cursor-before' }])
+        expect(readyTurns().map((turn) => turn.id)).toEqual(['trace-0', 'trace-1', 'trace-2'])
+        expect(router.values.searchParams).toMatchObject({ session: SESSION.id, trace: 'trace-0' })
     })
 
     it('a failed turns read shows an error per turn, not an empty turn', async () => {

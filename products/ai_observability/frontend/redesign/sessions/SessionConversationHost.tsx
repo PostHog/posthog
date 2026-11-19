@@ -54,7 +54,7 @@ export function SessionConversationHost({
                 onRetryTurns={retryTurns}
                 onReload={reload}
             />
-            <TraceDrawerRowsSync listId={SESSION_TURNS_LIST} rows={rows} />
+            <TraceDrawerRowsSync listId={SESSION_TURNS_LIST} rows={rows} rowsBefore={olderEdge === 'more'} />
         </div>
     )
 }
