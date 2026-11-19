@@ -49,6 +49,7 @@ const FAKE_RUNNER = `#!/usr/bin/env bash
 run="$XDG_CACHE_HOME/posthog-scenarios/${RUNNER_RUN_ID}"
 mkdir -p "$run"
 [ -z "\${FAKE_LIVE:-}" ] || printf '%s\\n%s' '${START}' '${TICK.slice(0, 14)}' >>"$run/live.jsonl"
+[ -z "\${FAKE_CARD_SECONDS:-}" ] || sleep "$FAKE_CARD_SECONDS"
 if [ -n "\${FAKE_HOLD:-}" ]; then
     while [ ! -e "$FAKE_RELEASE" ]; do sleep 0.02; done
 fi
@@ -57,12 +58,16 @@ exit "\${FAKE_CARD_EXIT:-0}"
 `
 
 type Run = { dir: string; wrapper: ChildProcess; exited: Promise<number | null> }
+type LiveLogOnHost = { runnerRunId: string; content: string; modifiedAt: Date }
+
+const liveLogIn = (dir: string, runnerRunId: string): string =>
+    path.join(dir, 'host', 'cache', 'posthog-scenarios', runnerRunId, 'live.jsonl')
 
 describe('host-live-copy.sh, run by host-run-card.sh', () => {
     let root: string
     const runs: Run[] = []
 
-    function start(name: string, env: NodeJS.ProcessEnv): Run {
+    function start(name: string, env: NodeJS.ProcessEnv, onHost?: LiveLogOnHost): Run {
         const dir = path.join(root, name)
         const bin = path.join(dir, 'bin')
         const host = path.join(dir, 'host')
@@ -73,6 +78,12 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         writeFileSync(path.join(host, 'pooler', 'urls'), 'postgres://127.0.0.1:6432/cyclotron_node\n')
         writeFileSync(path.join(bin, 'aws'), FAKE_AWS, { mode: 0o755 })
         writeFileSync(path.join(bin, 'node'), FAKE_RUNNER, { mode: 0o755 })
+        if (onHost) {
+            const liveLog = liveLogIn(dir, onHost.runnerRunId)
+            mkdirSync(path.dirname(liveLog), { recursive: true })
+            writeFileSync(liveLog, onHost.content)
+            utimesSync(liveLog, onHost.modifiedAt, onHost.modifiedAt)
+        }
         const wrapper = spawn('bash', [WRAPPER], {
             cwd: dir,
             env: {
@@ -97,8 +108,6 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     }
 
     const object = (run: Run, key: string): string => path.join(run.dir, 's3', BUCKET, 'runs', RUN_ID, key)
-    const liveLogOf = (run: Run, runnerRunId = RUNNER_RUN_ID): string =>
-        path.join(run.dir, 'host', 'cache', 'posthog-scenarios', runnerRunId, 'live.jsonl')
     const release = (run: Run): void => writeFileSync(path.join(run.dir, 'release'), '')
 
     async function until(check: () => boolean, what: string): Promise<void> {
@@ -158,15 +167,17 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     it('makes a final copy when the card ends between two copies', async () => {
         const run = start('run', { FAKE_LIVE: '1', FAKE_HOLD: '1', SCENARIO_LIVE_COPY_SECONDS: '600' })
 
-        await until(() => existsSync(liveLogOf(run)), 'the live log')
+        await until(() => existsSync(liveLogIn(run.dir, RUNNER_RUN_ID)), 'the live log')
         release(run)
         await run.exited
 
-        expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(readFileSync(liveLogOf(run), 'utf8'))
+        expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(
+            readFileSync(liveLogIn(run.dir, RUNNER_RUN_ID), 'utf8')
+        )
     })
 
     it.each([
-        ['every live log copy fails', { FAKE_LIVE: '1', FAKE_LIVE_FAILS: '1' }],
+        ['every live log copy fails', { FAKE_LIVE: '1', FAKE_LIVE_FAILS: '1', FAKE_CARD_SECONDS: '1' }],
         ['the card ends before the first copy', { FAKE_LIVE: '1' }],
         ['the card writes no live log', {}],
     ])('ends the run as it would without live copy when %s', async (_, env) => {
@@ -192,17 +203,16 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     })
 
     it('stops at once with a copy in flight, and bounds its final copy', async () => {
-        const run = start('run', {
-            FAKE_HOLD: '1',
-            FAKE_LIVE_HANGS: '1',
-            SCENARIO_LIVE_COPY_SECONDS: '600',
-            SCENARIO_LIVE_COPY_FINAL_SECONDS: '1',
-        })
-        const liveLog = liveLogOf(run)
-        mkdirSync(path.dirname(liveLog), { recursive: true })
-        writeFileSync(liveLog, `${START}\n`)
-        const later = new Date(Date.now() + 60_000)
-        utimesSync(liveLog, later, later)
+        const run = start(
+            'run',
+            {
+                FAKE_HOLD: '1',
+                FAKE_LIVE_HANGS: '1',
+                SCENARIO_LIVE_COPY_SECONDS: '600',
+                SCENARIO_LIVE_COPY_FINAL_SECONDS: '1',
+            },
+            { runnerRunId: RUNNER_RUN_ID, content: `${START}\n`, modifiedAt: new Date(Date.now() + 60_000) }
+        )
 
         await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
         release(run)
@@ -226,12 +236,15 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     })
 
     it('never copies the live log of an earlier run on the same host', async () => {
-        const run = start('run', {})
-        const earlier = liveLogOf(run, EARLIER_RUNNER_RUN_ID)
-        mkdirSync(path.dirname(earlier), { recursive: true })
-        writeFileSync(earlier, `${START}\n${END}\n`)
-        const hourAgo = new Date(Date.now() - 3_600_000)
-        utimesSync(earlier, hourAgo, hourAgo)
+        const run = start(
+            'run',
+            {},
+            {
+                runnerRunId: EARLIER_RUNNER_RUN_ID,
+                content: `${START}\n${END}\n`,
+                modifiedAt: new Date(Date.now() - 3_600_000),
+            }
+        )
 
         await run.exited
 
