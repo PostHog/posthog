@@ -230,6 +230,7 @@ export interface taskTrackerSceneLogicValues {
     autoPublishCloudRuns: boolean
     cloudTargetEnabled: boolean
     composerAdapter: string
+    composerFocused: boolean
     consentBlocked: boolean
     customImages: SandboxCustomImageDTOApi[] | null
     defaultRepositoryConfig: PersistedRepositoryConfig
@@ -421,6 +422,9 @@ export interface taskTrackerSceneLogicActions {
     ) => {
         environments: SandboxEnvironmentDTOApi[] | null
         images: SandboxCustomImageDTOApi[] | null
+    }
+    setComposerFocused: (focused: boolean) => {
+        focused: boolean
     }
     setDefaultRepositoryConfig: (config: PersistedRepositoryConfig) => {
         config: PersistedRepositoryConfig
@@ -635,6 +639,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Pulls any pending `composerSeedLogic` seed into the composer (prefill + optional auto-submit).
         applyComposerSeed: true,
         noteNewTaskDraft: true,
+        setComposerFocused: (focused: boolean) => ({ focused }),
         pickCloudTarget: (cloudTarget: string | null) => ({ cloudTarget }),
         toggleFavoriteCloudTarget: (cloudTarget: string) => ({ cloudTarget }),
         setCloudTargets: (
@@ -644,6 +649,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     reducers({
+        composerFocused: [false, { setComposerFocused: (_, { focused }) => focused }],
         newTaskData: [
             EMPTY_TASK_FORM as TaskCreateForm,
             {
@@ -956,6 +962,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         setCloudTargets: () => {
             actions.noteNewTaskDraft()
         },
+        setComposerFocused: () => {
+            actions.noteNewTaskDraft()
+        },
         noteNewTaskDraft: () => {
             if (values.activeCreation || !values.dataProcessingAccepted) {
                 return
@@ -968,8 +977,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 values.selectedCloudTargetIds
             )
             if (request) {
-                const hasText = values.newTaskData.description.trim().length > 0
-                actions.noteDraft(hasText, request, !usesChatGptPlan(values.composerAdapter))
+                const shouldWarm = values.composerFocused || values.newTaskData.description.trim().length > 0
+                actions.noteDraft(shouldWarm, request, !usesChatGptPlan(values.composerAdapter))
             } else if (values.effectiveRepositoryConfig.repositoryIntegrationId) {
                 // A sandbox warmed for an earlier GitHub pick can't serve a GitLab task.
                 actions.releaseWarm()

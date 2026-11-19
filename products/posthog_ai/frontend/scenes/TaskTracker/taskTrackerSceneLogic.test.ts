@@ -129,7 +129,54 @@ describe('taskTrackerSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         toolEvents?.unmount()
+        jest.useRealTimers()
     })
+
+    it.each(['', 'Explain this funnel'])(
+        'warms before typing and releases an unfocused empty draft (draft: %s)',
+        async (description) => {
+            const warmBodies: Record<string, unknown>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/warm/': async ({ request }) => {
+                        warmBodies.push((await request.json()) as Record<string, unknown>)
+                        return [200, { task_id: 'warm-task', run_id: 'warm-run' }]
+                    },
+                },
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const warm = taskWarmLogic({ panelId: undefined })
+            expect(warm.values.warmLease).toBeNull()
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(true)
+            jest.advanceTimersByTime(700)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+
+            expect(warmBodies).toEqual([
+                expect.objectContaining({ repository: null, github_integration: null, branch: null }),
+            ])
+            expect(warm.values.warmLease).toMatchObject({ taskId: 'warm-task', runId: 'warm-run' })
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(true)
+            logic.actions.setNewTaskData({ description })
+            jest.advanceTimersByTime(5000)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+            expect(warmBodies).toHaveLength(1)
+            expect(cancelledWarmRuns).toEqual([])
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(false)
+            jest.advanceTimersByTime(5000)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+            expect(cancelledWarmRuns).toEqual(description ? [] : ['warm-run'])
+        }
+    )
 
     it.each([true, false])('resets the warm budget only after a successful cold run (success: %s)', async (success) => {
         let warmCalls = 0
@@ -921,6 +968,7 @@ describe('taskTrackerSceneLogic', () => {
         blockedLogic.mount()
 
         await expectLogic(blockedLogic, () => {
+            blockedLogic.actions.setComposerFocused(true)
             blockedLogic.actions.setNewTaskData({ description: 'do the thing' })
             blockedLogic.actions.submitNewTask()
         })
