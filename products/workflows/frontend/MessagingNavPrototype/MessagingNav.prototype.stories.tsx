@@ -58,6 +58,8 @@ function hogFlowsFor(url: URL): { count: number; results: typeof HOG_FLOWS } {
     return { count: results.length, results }
 }
 
+let appliedForStory: string | null = null
+
 const meta: Meta = {
     component: App,
     title: 'Prototypes/Email & Messaging navigation',
@@ -65,12 +67,24 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/hog_flows/': ({ request }) => hogFlowsFor(new URL(request.url)),
+                '/api/projects/:team_id/hog_flows/email_sending_suspension/': { suspended: false },
+                '/api/projects/:team_id/hog_flow_templates/': { count: 0, results: [] },
+                '/api/projects/:team_id/messaging_categories/': { count: 0, results: [] },
+                '/api/projects/:team_id/messaging_templates/': { count: 0, results: [] },
+                '/api/projects/:team_id/health_issues/summary/': {},
+            },
+            post: {
+                '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Users/Alex Example' },
             },
         }),
-        (Story, { parameters }) => {
+        (Story, { id, parameters }) => {
             // The shell reads the variant while it maps the first URL to a pane, so it is set before the first render.
+            // Once per story, so a later render never undoes a switch made with the bar.
             messagingNavPrototypeLogic.mount()
-            messagingNavPrototypeLogic.actions.setVariant(parameters.variant as MessagingNavVariant)
+            if (appliedForStory !== id) {
+                appliedForStory = id
+                messagingNavPrototypeLogic.actions.setVariant(parameters.variant as MessagingNavVariant)
+            }
             return (
                 <>
                     <Story />

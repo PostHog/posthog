@@ -1,5 +1,6 @@
 // PROTOTYPE, never merged: PostHog/michaelr-context#419. Rendered only by the prototype story, never by the app.
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
@@ -39,6 +40,20 @@ function isEditable(target: EventTarget | null): boolean {
 
 export function MessagingNavPrototypeSwitcher(): JSX.Element {
     const { variant } = useValues(messagingNavPrototypeLogic)
+    const { location } = useValues(router)
+
+    // Email & Messaging sits low in the Products pane, so bring the open row into view for whoever opens the link.
+    useEffect(() => {
+        let tries = 0
+        const interval = window.setInterval(() => {
+            const row = document.querySelector('.TodayShell__sidebar [aria-current="page"]')
+            row?.scrollIntoView({ block: 'center' })
+            if (row || ++tries > 20) {
+                window.clearInterval(interval)
+            }
+        }, 300)
+        return () => window.clearInterval(interval)
+    }, [location.pathname, variant])
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent): void => {

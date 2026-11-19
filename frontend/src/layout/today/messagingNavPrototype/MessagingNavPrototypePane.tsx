@@ -4,8 +4,7 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
-
-import { urls } from 'scenes/urls'
+import { Button } from '@posthog/quill'
 
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
@@ -42,14 +41,14 @@ export function MessagingNavPrototypePane(): JSX.Element {
                     !search && (
                         // B has no rail item, so the pane needs its own way back to where you came from.
                         <div className="flex flex-col gap-px pb-2">
-                            <SidebarRow
-                                value="back"
-                                label="All products"
-                                icon={<IconArrowLeft />}
-                                to={urls.tools()}
+                            <Button
+                                className="w-full justify-start text-muted-foreground"
                                 onClick={() => pickPane('products')}
-                                dataAttr="messaging-prototype-back"
-                            />
+                                data-attr="messaging-prototype-back"
+                            >
+                                <IconArrowLeft />
+                                All products
+                            </Button>
                         </div>
                     )}
                 {MESSAGING_NAV_GROUPS.map((group, index) => {
