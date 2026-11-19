@@ -33,6 +33,7 @@ from products.workflows.backend.facade.writes import destroy_workflow
 
 # `run_failed` is the failure the whole run writes, which ranks below the email step's own failure.
 RANK = {
+    "scheduled": 0,
     "queued": 0,
     "run_failed": 1,
     "failed": 2,
@@ -83,6 +84,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         domain: str = "mail.example.com",
         keyed: bool = False,
         status_consumer_behind: bool = False,
+        first: str = "queued",
     ) -> str:
         queued_at = NOW - timedelta(minutes=minutes_ago)
         message_id = (
@@ -90,7 +92,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             if keyed
             else str(UUIDT(unix_time_ms=int(queued_at.timestamp() * 1000)))
         )
-        rows = [("queued", 0, ""), *statuses]
+        rows = [(first, 0, ""), *statuses]
         if keyed and not status_consumer_behind:
             # Both tables read the same topic, and a keyed id is found through email_status's sort key.
             sync_execute(
@@ -130,8 +132,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                     "created_at": queued_at,
                     "status_at": queued_at + timedelta(seconds=seconds),
                     "reason": reason,
-                    "recipient": recipient if row_status == "queued" else "",
-                    "function_id": (workflow_id or self.workflow_id) if row_status == "queued" else "",
+                    "recipient": recipient if row_status == first else "",
+                    "function_id": (workflow_id or self.workflow_id) if row_status == first else "",
                     "sending_domain": domain if row_status == "sent" else "",
                     "_timestamp": queued_at,
                     "_offset": 0,
@@ -298,6 +300,35 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         body = self.client.get(self._url(f"{message_id}/")).json()
 
         assert [event["kind"] for event in body["timeline"]] == ["queued", "sent", "clicked", "clicked"]
+
+    @parameterized.expand(
+        [
+            (f"{case}_{name}", statuses, name, shown_as, timeline)
+            for case, statuses, shown_as, timeline in (
+                ("waiting", [], "queued", ["queued"]),
+                ("sent", [("sent", 3600, "")], "sent", ["queued", "sent"]),
+            )
+            for name in ("default_list", "recipient_search", "workflow_filter", "status_filter")
+        ]
+    )
+    def test_lists_a_scheduled_send_as_waiting_until_it_goes_out(
+        self, _flag, _name, statuses, listed_by, shown_as, timeline
+    ):
+        message_id = self._send(10, "jane@example.com", statuses, first="scheduled")
+        params = {
+            "default_list": {},
+            "recipient_search": {"search": "jane"},
+            "workflow_filter": {"workflow_id": str(self.workflow_id)},
+            "status_filter": {"status": shown_as},
+        }[listed_by]
+
+        listed = self.client.get(self._url(), params).json()["results"]
+        detail = self.client.get(self._url(f"{message_id}/")).json()
+
+        assert [(r["message_id"], r["status"], r["recipient"]) for r in listed] == [
+            (message_id, shown_as, "jane@example.com")
+        ]
+        assert [event["kind"] for event in detail["timeline"]] == timeline
 
     def test_a_queued_row_delivered_twice_takes_one_place_on_a_page(self, _flag):
         self._send(20, "older@example.com", [("queued", 0, "")])
