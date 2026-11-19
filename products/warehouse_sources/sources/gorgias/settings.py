@@ -63,6 +63,9 @@ class GorgiasEndpointConfig:
     # into one row per child item. Costs one request per parent row, so only for collections
     # the parent list does not embed.
     child_path: str | None = None
+    # Per-row child list (`{id}` is the row id of `path`) that pages with `meta.next_items` links.
+    # Its rows are walked one parent at a time, and resume state records the parent and the link.
+    paged_child_path: str | None = None
 
 
 GORGIAS_ENDPOINTS: dict[str, GorgiasEndpointConfig] = {
@@ -187,6 +190,16 @@ GORGIAS_ENDPOINTS: dict[str, GorgiasEndpointConfig] = {
         sortable_datetime_fields=frozenset({CREATED, UPDATED}),
         primary_keys=("customer_id", "field_id"),
         child_path="/customers/{id}/custom-fields",
+    ),
+    # The tickets each saved view holds. Full refresh: a ticket that leaves a view has no row
+    # left to delete it on merge.
+    "view_items": GorgiasEndpointConfig(
+        name="view_items",
+        path="/views",
+        partition_key=f"ticket_{CREATED}",
+        sortable_datetime_fields=frozenset({CREATED}),
+        primary_keys=("view_id", "ticket_id"),
+        paged_child_path="/views/{id}/items",
     ),
 }
 
