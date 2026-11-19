@@ -200,7 +200,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_data.is_valid(raise_exception=True)
         return self._update_metadata(request, request_data.validated_data["updates"])
 
-    def _update_metadata(self, request: request.Request, rows: list[dict]) -> response.Response:
+    def _update_metadata(self, request: request.Request, rows: Iterable[dict[str, Any]]) -> response.Response:
         for row in rows:
             instance = get_group_type_mapping_instance(
                 self.team.project_id,
