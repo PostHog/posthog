@@ -46,6 +46,8 @@ from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
     ChannelAssignment,
     CheckObservation,
     Dismissal,
@@ -80,11 +82,13 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.personal_ranking.candidates import recommended_order
 from products.signals.backend.ranking.cache import refresh_report_ranking_cache
+from products.signals.backend.report_actionability_update import INBOX_ACTIONABILITY_EXPLANATION
 from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_checks import CheckComparison
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_repository import INBOX_REPOSITORY_REASON
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 from products.signals.backend.serializers import ReportMetricListSerializer
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
@@ -5637,6 +5641,182 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
     def test_priority_edit_rejects_invalid_values(self, priority: str | None) -> None:
         report = self._create_report()
         response = self.client.put(self._url(str(report.id)) + "priority/", {"priority": priority}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not report.artefacts.exists()
+
+    @parameterized.expand(
+        [
+            ("agent_named_a_repository", "acme/website", True),
+            ("agent_found_no_repository", None, False),
+        ]
+    )
+    def test_repository_edit_appends_attributed_selection_and_keeps_research_context(
+        self, _name: str, previous_repository: str | None, expected_autostart_eligible: bool
+    ) -> None:
+        report = self._create_report()
+        previous = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(
+                repository=previous_repository,
+                reason="Stack trace paths match this repository.",
+                research_context={"mode": "code", "repository_status": "available"},
+                autostart_eligible=True,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        url = self._url(str(report.id)) + "repository/"
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/website", "acme/checkout"],
+        ):
+            response = self.client.put(url, {"repository": "Acme/Checkout"}, format="json")
+            repeat = self.client.put(url, {"repository": "acme/checkout"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["repo_slug"] == "acme/checkout"
+        assert body["decisions"]["repository"]["value"] == "acme/checkout"
+        assert body["decisions"]["repository"]["reason"] == INBOX_REPOSITORY_REASON
+        assert body["decisions"]["repository"]["set_by"]["kind"] == "user"
+        assert body["decisions"]["repository"]["set_by"]["user"]["id"] == self.user.id
+        assert repeat.status_code == status.HTTP_200_OK
+        first, correction = report.artefacts.filter(type="repo_selection").order_by("created_at")
+        assert first.id == previous.id
+        assert correction.created_by_id == self.user.id
+        assert RepoSelectionResult.model_validate_json(correction.content).model_dump(exclude={"reason"}) == {
+            "repository": "acme/checkout",
+            "research_context": {"mode": "code", "repository_status": "available"},
+            "task_id": None,
+            "autostart_eligible": expected_autostart_eligible,
+        }
+
+    @parameterized.expand(
+        [
+            ("unreachable", "acme/other"),
+            ("not_owner_repo", "checkout"),
+            ("blank", ""),
+        ]
+    )
+    def test_repository_edit_rejects_repositories_the_integration_cannot_use(self, _name: str, repository: str) -> None:
+        report = self._create_report()
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/checkout"],
+        ):
+            response = self.client.put(
+                self._url(str(report.id)) + "repository/", {"repository": repository}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "repository"
+        assert not report.artefacts.exists()
+
+    def test_retrieve_returns_decisions_with_reason_and_setter_but_list_does_not(self) -> None:
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=PriorityAssessment(priority=ReportPriority.P1, explanation="Breaks checkout for many users."),
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps(
+                {"actionability": "made_up", "already_addressed": True, "explanation": "A fix PR is open."}
+            ),
+            actor_kind="user",
+            created_by=self.user,
+        )
+
+        decisions = self.client.get(self._url(str(report.id))).json()["decisions"]
+
+        assert decisions["repository"] is None
+        assert decisions["priority"]["value"] == "P1"
+        assert decisions["priority"]["reason"] == "Breaks checkout for many users."
+        assert decisions["priority"]["set_by"] == {"kind": "system", "user": None, "agent": None, "task_id": None}
+        assert decisions["actionability"]["value"] is None
+        assert decisions["already_addressed"]["value"] is True
+        assert decisions["already_addressed"]["reason"] == "A fix PR is open."
+        assert decisions["already_addressed"]["set_by"]["user"]["id"] == self.user.id
+        listed = self.client.get(f"/api/projects/{self.team.id}/signals/reports/").json()["results"]
+        assert next(row for row in listed if row["id"] == str(report.id))["decisions"] is None
+
+    @parameterized.expand(
+        [
+            (
+                "ready_needs_input",
+                "ready",
+                "immediately_actionable",
+                {"actionability": "requires_human_input"},
+                "pending_input",
+            ),
+            (
+                "needs_input_ready",
+                "pending_input",
+                "requires_human_input",
+                {"actionability": "immediately_actionable"},
+                "ready",
+            ),
+            (
+                "not_actionable_stays_in_inbox",
+                "pending_input",
+                "requires_human_input",
+                {"actionability": "not_actionable"},
+                "ready",
+            ),
+            (
+                "dismissed_stays_dismissed",
+                "suppressed",
+                "immediately_actionable",
+                {"actionability": "requires_human_input"},
+                "suppressed",
+            ),
+            ("already_addressed_moves_nothing", "ready", "requires_human_input", {"already_addressed": True}, "ready"),
+        ]
+    )
+    def test_actionability_edit_records_person_judgment_and_moves_inbox_status(
+        self, _name: str, initial_status: str, previous: str, payload: dict, expected_status: str
+    ) -> None:
+        report = self._create_report(report_status=SignalReport.Status(initial_status))
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ActionabilityAssessment(
+                explanation="Agent reason.", actionability=ActionabilityChoice(previous), already_addressed=False
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        url = self._url(str(report.id)) + "actionability/"
+
+        response = self.client.put(url, payload, format="json")
+        repeat = self.client.put(url, payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert repeat.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["status"] == expected_status
+        assert body["actionability"] == payload.get("actionability", previous)
+        assert body["already_addressed"] is payload.get("already_addressed", False)
+        decision = body["decisions"]["actionability"]
+        assert decision["reason"] == INBOX_ACTIONABILITY_EXPLANATION
+        assert (decision["set_by"]["kind"], decision["set_by"]["user"]["id"]) == ("user", self.user.id)
+        assert report.artefacts.filter(type="actionability_judgment").count() == 2
+        report.refresh_from_db()
+        assert report.status == expected_status
+        assert report.latest_actionability == payload.get("actionability", previous)
+
+    @parameterized.expand(
+        [
+            ("nothing_to_set", {}),
+            ("unknown_actionability", {"actionability": "maybe"}),
+            ("no_judgment_to_keep_actionability_from", {"already_addressed": True}),
+        ]
+    )
+    def test_actionability_edit_rejects_incomplete_changes(self, _name: str, payload: dict) -> None:
+        report = self._create_report()
+        response = self.client.put(self._url(str(report.id)) + "actionability/", payload, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not report.artefacts.exists()
 

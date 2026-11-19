@@ -1,11 +1,11 @@
 import { useFocusEffect, useRouter } from 'expo-router'
-import { type ReactElement, useCallback, useEffect, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
 import { FlatList, Linking, RefreshControl, Text, View } from 'react-native'
 import { changeNavPin } from '@/features/tabs/navPinActions'
 import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import { useIsNavPinned } from '@/features/tabs/navPinStore'
+import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
-import { useTabHeader } from '@/features/tabs/tabHeaderStore'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
 import { ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
@@ -61,6 +61,7 @@ export function ReplayListScreen({ chrome }: { chrome: 'tab' | 'stack' }): React
 function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     const colors = useColors()
     const styles = useStyles()
+    const listRef = useRef<FlatList<Row>>(null)
     const router = useRouter()
     const insets = useScreenInsets()
     const tabBottom = useTabBottomOffset()
@@ -125,8 +126,10 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
                 <View style={styles.content}>{header}</View>
                 <StateView
                     icon={<RecordingIcon size={iconSizes.empty} color={colors.tertiary} />}
-                    title="Sessions aren't in the demo"
-                    message="Sign in to see your project's recordings."
+                    title="Sample sessions"
+                    message="Explore recordings from the demo workspace."
+                    actionLabel="Watch sample sessions"
+                    onAction={() => router.push('/replay/feed')}
                     testID="replay-demo"
                 />
             </View>
@@ -170,6 +173,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     } else {
         body = (
             <FlatList
+                ref={listRef}
                 onScroll={scrollTitle.onScroll}
                 scrollEventThrottle={16}
                 data={rows}
@@ -225,7 +229,13 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
 
     return (
         <View style={styles.fill}>
-            {chrome === 'tab' ? <TabHeaderPublisher status={status} /> : null}
+            {chrome === 'tab' ? (
+                <TabHeaderPublisher
+                    tab="replay"
+                    status={status}
+                    scrollToTop={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+                />
+            ) : null}
             {body}
             {chrome === 'stack' ? (
                 <>
@@ -269,15 +279,6 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
             />
         </View>
     )
-}
-
-/**
- * The pinned tab's status line in the shared tabs header. Its own component, so a pushed Sessions screen never writes
- * the tab's header slot, and never clears it when it closes.
- */
-function TabHeaderPublisher({ status }: { status: string | null }): null {
-    useTabHeader('replay', { hint: null, status, editing: null, editPins: null, filter: null })
-    return null
 }
 
 const useStyles = createStyles(({ colors }) => ({

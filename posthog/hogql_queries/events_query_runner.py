@@ -517,7 +517,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     where_exprs.append(self._action_steps_where_expr())
             if self.query.personId:
                 with self.timings.measure("person_id"), personhog_caller_tag("persons/events-query"):
-                    where_exprs.append(self._person_where_expr(self.query.personId))
+                    where_exprs.extend(self._person_where_exprs(self.query.personId, table))
             if self.query.filterTestAccounts:
                 with self.timings.measure("test_account_filters"):
                     where_exprs.extend(
@@ -565,20 +565,32 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         ]
         return steps_to_expr(steps, self.team)
 
-    def _person_where_expr(self, person_id: str) -> ast.Expr:
+    def _person_where_exprs(self, person_id: str, table: EventsListTable) -> list[ast.Expr]:
         person: Person | None = get_person_by_pk_or_uuid(
             self.team.pk, person_id, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
         )
-        return ast.CompareOperation(
-            left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
-            right=ast.Tuple(
-                exprs=[
-                    ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
-                    for id in get_distinct_ids_for_subquery(person, self.team)
-                ]
-            ),
-            op=ast.CompareOperationOp.In,
-        )
+        distinct_ids = get_distinct_ids_for_subquery(person, self.team)
+        # The hashed predicate matches the sort key of both tables.
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
+                right=ast.Tuple(
+                    exprs=[ast.Call(name="cityHash64", args=[ast.Constant(value=id)]) for id in distinct_ids]
+                ),
+                op=ast.CompareOperationOp.In,
+            )
+        ]
+        if table is FLAG_EVALUATIONS_LIST_TABLE:
+            # flag_evaluations has a bloom filter index on distinct_id.
+            # ClickHouse cannot use that index to skip granules for a hashed comparison.
+            where_exprs.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["distinct_id"]),
+                    right=ast.Tuple(exprs=[ast.Constant(value=id) for id in distinct_ids]),
+                    op=ast.CompareOperationOp.In,
+                )
+            )
+        return where_exprs
 
     def _timestamp_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:
         with self.timings.measure("timestamps"):

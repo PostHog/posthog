@@ -34,10 +34,11 @@ from products.alerts.backend.logic.destinations import (
 from products.alerts.backend.logic.insight_alert_destinations import with_secret_inputs
 from products.alerts_platform.backend.facade.api import (
     has_firing_instance,
+    link_source_destination,
     list_source_destinations,
     lock_source_configuration,
+    lock_source_destination_row,
     restore_source_destination,
-    take_source_destination_row,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
@@ -66,11 +67,11 @@ def customize_source_destination(
     build_configs: ConfigBuilder,
     created_by_id: int,
 ) -> CustomizableDestination:
-    """Gives the destination HogFunctions to edit and removes its row.
+    """Gives the destination HogFunctions to edit, keeping its row and the row's id.
 
-    A row that copies HogFunctions which still exist was skipped by delivery, so they keep sending and
+    A row that copies HogFunctions which still exist is skipped by delivery, so they keep sending and
     nothing new is written. A row with none gets them built by `build_configs` from its stored settings,
-    for the event kinds it heard."""
+    for the event kinds it heard, and copies them from then on, so delivery skips it while they exist."""
     with transaction.atomic():
         lock_source_configuration(team_id=team_id, public_id=alert_id)
         listed = _listed(
@@ -84,18 +85,17 @@ def customize_source_destination(
         if destination_type not in allowed_destination_types:
             raise AlertDestinationValidationError("This destination's message can't be customized.", field="type")
         _refuse_incident_move_while_firing(team_id, alert_id, destination_type)
-        taken = None
-        if listed.destination_id is not None:
-            taken = take_source_destination_row(
-                team_id=team_id, public_id=alert_id, destination_id=listed.destination_id
-            )
-            if taken is None:
-                raise AlertDestinationValidationError(_GONE)
         if listed.hog_function_ids:
             return CustomizableDestination(
                 hog_function_ids=listed.hog_function_ids, destination_type=destination_type, created=False
             )
-        assert taken is not None
+        taken = (
+            lock_source_destination_row(team_id=team_id, public_id=alert_id, destination_id=listed.destination_id)
+            if listed.destination_id is not None
+            else None
+        )
+        if taken is None:
+            raise AlertDestinationValidationError(_GONE)
         data = cast(AlertDestinationData, {**taken.data, "type": destination_type})
         configs = [
             _kept_secret(config, data, enabled=taken.enabled) for config in build_configs(data, taken.event_kinds)
@@ -109,6 +109,7 @@ def customize_source_destination(
             alert_id=str(alert_id),
             allowed_event_ids=allowed_event_ids,
         )
+        link_source_destination(team_id=team_id, destination_id=taken.id, hog_function_ids=created)
     return CustomizableDestination(hog_function_ids=created, destination_type=destination_type, created=True)
 
 
@@ -121,10 +122,11 @@ def reset_source_destination(
     hog_function_ids: Collection[UUID],
     row_event_kinds: Callable[[DestinationType], Collection[AlertEventKind]],
 ) -> ResetDestination:
-    """Retires the destination's HogFunctions and adds a row that sends the standard message instead.
+    """Retires the destination's HogFunctions and makes its row send the standard message instead, under
+    the same id; a destination that never had a row gets one.
 
     The HogFunctions are retired with a queryset update, which the receiver that deletes copying rows
-    never hears, and the new row copies none of them, so it outlives them either way."""
+    never hears, and the row stops copying them, so it outlives them either way."""
     with transaction.atomic():
         lock_source_configuration(team_id=team_id, public_id=alert_id)
         # Locked before the read, so a concurrent edit cannot change the settings the row restores.

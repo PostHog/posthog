@@ -21,7 +21,7 @@ function KeyReads({ apiKey }: { apiKey: KnowledgeKeyApi }): JSX.Element {
 }
 
 export function ConnectAgentKeysTable(): JSX.Element | null {
-    const { listedKeys: keys, keysLoading } = useValues(connectAgentLogic)
+    const { listedKeys: keys, keysLoading, fixedLibraryId } = useValues(connectAgentLogic)
     const { loadKeys } = useActions(connectAgentLogic)
 
     if (!keys) {
@@ -47,10 +47,15 @@ export function ConnectAgentKeysTable(): JSX.Element | null {
                         title: 'Value',
                         render: (_, apiKey) => <code>{apiKey.mask_value}</code>,
                     },
-                    {
-                        title: 'Reads',
-                        render: (_, apiKey) => <KeyReads apiKey={apiKey} />,
-                    },
+                    // On a library page every listed key reads that library.
+                    ...(fixedLibraryId
+                        ? []
+                        : [
+                              {
+                                  title: 'Reads',
+                                  render: (_: unknown, apiKey: KnowledgeKeyApi) => <KeyReads apiKey={apiKey} />,
+                              },
+                          ]),
                     {
                         title: 'Last used',
                         render: (_, apiKey) => (apiKey.last_used_at ? <TZLabel time={apiKey.last_used_at} /> : 'Never'),

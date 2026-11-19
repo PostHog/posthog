@@ -1,3 +1,5 @@
+import { MOCK_ORGANIZATION_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -116,11 +118,11 @@ describe('billingUsageLogic loader', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/usage/timeseries/': () => [
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
                     200,
                     { count: 0, next: null, previous: null, results: [] },
                 ],
-                '/api/organizations/@current/billing/projects/': () => [
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/projects/`]: () => [
                     200,
                     {
                         count: 2,
@@ -160,11 +162,11 @@ describe('billingUsageLogic loader', () => {
                     return [200, series]
                 },
                 '/api/billing/usage/team_options/': () => [200, { team_id_options: [] }],
-                '/api/organizations/@current/billing/usage/timeseries/': () => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => {
                     requested.push('organization series')
                     return [200, series]
                 },
-                '/api/organizations/@current/billing/projects/': () => [
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/projects/`]: () => [
                     200,
                     { count: 0, next: null, previous: null, results: [] },
                 ],
@@ -190,7 +192,7 @@ describe('billingUsageLogic loader', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => {
                     endDates.push(new URL(request.url).searchParams.get('end_date') ?? '')
                     return [200, { count: 0, next: null, previous: null, results: [] }]
                 },
@@ -232,7 +234,8 @@ describe('billingUsageLogic loader', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/usage/timeseries/': () => answer as [number, unknown],
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () =>
+                    answer as [number, unknown],
             },
         })
 
@@ -267,7 +270,7 @@ describe('billingUsageLogic series toggling', () => {
     const mocksFor = (results: BillingUsageResponse['results']): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/organizations/@current/billing/usage/timeseries/': () => [
+            [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
                 200,
                 { count: results.length, next: null, previous: null, results } as BillingUsageResponse,
             ],
@@ -341,7 +344,7 @@ describe('billingUsageLogic chart type', () => {
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/organizations/@current/billing/usage/timeseries/': () => [
+            [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
                 200,
                 { count: 0, next: null, previous: null, results: [] },
             ],
@@ -465,7 +468,7 @@ describe('billingUsageLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
                 },
@@ -481,7 +484,7 @@ describe('billingUsageLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, { ...empty, results: seriesFor('1') }]
                 },
@@ -499,7 +502,7 @@ describe('billingUsageLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
                 },
@@ -523,7 +526,7 @@ describe('billing section URL scoping', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/usage/timeseries/': () => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => {
                     usageRequests += 1
                     return [200, { count: 0, next: null, previous: null, results: [] }]
                 },
@@ -575,7 +578,7 @@ describe('billingUsageLogic export', () => {
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/organizations/@current/billing/usage/timeseries/': () => [
+            [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/usage/timeseries/`]: () => [
                 200,
                 { count: 0, next: null, previous: null, results: [] },
             ],

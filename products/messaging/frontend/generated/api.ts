@@ -56,7 +56,9 @@ import type {
     SupabaseAuthEmailSettingsApi,
     TopicPreferencesApi,
     TransactionalEmailActivityApi,
+    TransactionalEmailImpactApi,
     TransactionalEmailLogDetailApi,
+    TransactionalEmailLogImpactRetrieveParams,
     TransactionalEmailLogListApi,
     TransactionalEmailLogListParams,
     TransactionalEmailLogResultsRetrieveParams,
@@ -111,7 +113,7 @@ export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. Treat that 404 as `queued` and read again a few seconds later.
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. That 404 doesn't say whether the email went out yet, so read again a few seconds later.
  * @summary Get a transactional email's status
  */
 export const messagingEmailsRetrieve = async (
@@ -1250,6 +1252,40 @@ export const transactionalEmailLogActivityRetrieve = async (
     options?: RequestInit
 ): Promise<TransactionalEmailActivityApi> => {
     return apiMutator<TransactionalEmailActivityApi>(getTransactionalEmailLogActivityRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogImpactRetrieveUrl = (
+    projectId: string,
+    params: TransactionalEmailLogImpactRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/impact/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/impact/`
+}
+
+/**
+ * Count one email's sends that were sent, delivered, opened and clicked. With an event, also count the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.
+ * @summary Get how far a transactional email's sends got
+ */
+export const transactionalEmailLogImpactRetrieve = async (
+    projectId: string,
+    params: TransactionalEmailLogImpactRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailImpactApi> => {
+    return apiMutator<TransactionalEmailImpactApi>(getTransactionalEmailLogImpactRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -175,8 +175,11 @@ class TestRecommendIncrementalFields(SimpleTestCase):
             patch(f"{MODULE}.groups", return_value={}),
             patch(f"{MODULE}.ph_scoped_capture") as scoped,
             patch(f"{MODULE}.report_team_action") as report,
+            patch(f"{MODULE}.get_instance_region", return_value="EU"),
         ):
             recommend_incremental_fields([_open_schema()], team=self.team, path=SYNC_FORM_PATH)
+
+        scoped.assert_called_once_with(event_region="EU")
 
         capture = scoped.return_value.__enter__.return_value
         assert capture.call_args.kwargs["event"] == "incremental field model answered"

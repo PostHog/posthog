@@ -1,98 +1,132 @@
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
-from contextlib import suppress
-from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+import base64
+import hashlib
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import UUID
 
-if TYPE_CHECKING:
-    from products.tasks.backend.logic.services.agent_egress import AgentEgressRegistry
-    from products.tasks.backend.models import AgentEgressRegistration
+from django.conf import settings
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import ExtendedKeyUsageOID
+from pydantic import BaseModel, ConfigDict, Field
+
+from posthog.dataclasses import frozen
+
+from products.tasks.backend.logic.services.run_actor import get_task_run_credential_user, user_has_current_team_access
+from products.tasks.backend.models import TaskRun
 
 AGENT_EGRESS_CAPABILITY_REFRESH_SECONDS = 180
 
 
-class AgentEgressProbeStoppedError(RuntimeError):
-    pass
+class AgentEgressProbeConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    team_id: int = Field(gt=0)
+    run_id: UUID
+    endpoint: str
+    relay_image_id: str
+    server_ca_file: Path
+    client_ca_file: Path
+    client_ca_key_file: Path
+    duration_seconds: int = Field(default=60, ge=1, le=600)
+    concurrency: int = Field(default=4, ge=1, le=32)
+    requests_per_round: int = Field(default=16, ge=1, le=256)
+    dev_proxy_ipv4: str | None = None
+    sandbox_id: str | None = None
+
+    @classmethod
+    def load(cls, path: Path) -> AgentEgressProbeConfig:
+        if not settings.DEBUG or settings.SANDBOX_PROVIDER != "MODAL_DOCKER":
+            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER")
+        if not settings.AGENT_EGRESS_PROBE_CONFIG_DIR:
+            raise ValueError("Set AGENT_EGRESS_PROBE_CONFIG_DIR to a dedicated probe configuration directory")
+        try:
+            directory = Path(settings.AGENT_EGRESS_PROBE_CONFIG_DIR).resolve(strict=True)
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(directory):
+                raise ValueError("The probe configuration is outside its directory")
+            return cls.model_validate_json(resolved.read_bytes())
+        except (OSError, ValueError):
+            raise ValueError("Invalid egress probe configuration") from None
+
+    def eligible_run(self) -> TaskRun:
+        if not settings.DEBUG or settings.SANDBOX_PROVIDER != "MODAL_DOCKER":
+            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER")
+        run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=self.run_id, team_id=self.team_id)
+        if (
+            run.is_terminal
+            or run.environment != TaskRun.Environment.CLOUD
+            or run.task.deleted
+            or run.task.team_id != run.team_id
+            or not run.matches_task_ownership(run.task)
+            or (run.state or {}).get("cancel_requested_at")
+        ):
+            raise ValueError("Use an active development run without repositories or an existing sandbox")
+        if self.sandbox_id is None:
+            if (
+                run.task.repository
+                or run.task.repositories
+                or any((run.state or {}).get(key) for key in ("sandbox_id", "sandbox_environment_id"))
+            ):
+                raise ValueError("Use an active development run without repositories or an existing sandbox")
+        elif (run.state or {}).get("sandbox_id") != self.sandbox_id or (run.state or {}).get(
+            "sandbox_backend", "modal"
+        ) != "modal":
+            raise ValueError("The observed sandbox does not belong to this run")
+        actor = get_task_run_credential_user(run.task, run.state, raise_on_error=True)
+        if actor is None or not user_has_current_team_access(actor, run.task.team, raise_on_error=True):
+            raise ValueError("The run has no eligible actor")
+        return run
 
 
-class AgentEgressProbeSession:
-    def __init__(
-        self,
-        *,
-        registry: AgentEgressRegistry,
-        team_id: int,
-        run_id: UUID,
-        actor_id: int,
-        authority: str,
-        relay_key_sha256: str,
-        publish_capability: Callable[[str], None],
-        monotonic: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self.registry = registry
-        self.team_id = team_id
-        self.run_id = run_id
-        self.actor_id = actor_id
-        self.authority = authority
-        self.relay_key_sha256 = relay_key_sha256
-        self.execution_id = uuid4()
-        self._publish_capability = publish_capability
-        self._monotonic = monotonic
-        self._refresh_at = 0.0
-        self._started = False
-        self._stopped = False
+@frozen
+class AgentEgressProbeCertificate:
+    certificate: str
+    relay_key_sha256: str
 
-    def _renew(self) -> AgentEgressRegistration:
-        registration = self.registry.renew(team_id=self.team_id, run_id=self.run_id, execution_id=self.execution_id)
-        if registration is None:
-            raise AgentEgressProbeStoppedError("The execution no longer has egress authority")
-        return registration
 
-    def _publish(self) -> AgentEgressRegistration:
-        capability = self.registry.issue_capability(
-            team_id=self.team_id, run_id=self.run_id, execution_id=self.execution_id
+class AgentEgressProbeIssuer:
+    def __init__(self, *, certificate: bytes, private_key: bytes) -> None:
+        self.certificate = x509.load_pem_x509_certificate(certificate)
+        key = serialization.load_pem_private_key(private_key, password=None)
+        if not isinstance(key, rsa.RSAPrivateKey) or key.key_size < 2048:
+            raise ValueError("The development issuer requires an RSA key of at least 2048 bits")
+        self.key = key
+        if self.key.public_key().public_bytes(
+            serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+        ) != self.certificate.public_key().public_bytes(
+            serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+        ):
+            raise ValueError("The development issuer certificate and key do not match")
+        if not self.certificate.extensions.get_extension_for_class(x509.BasicConstraints).value.ca:
+            raise ValueError("The development issuer certificate must be a CA")
+
+    def issue(self, csr_pem: str) -> AgentEgressProbeCertificate:
+        csr = x509.load_pem_x509_csr(csr_pem.encode())
+        public_key = csr.public_key()
+        if not csr.is_signature_valid or not isinstance(public_key, rsa.RSAPublicKey) or public_key.key_size < 2048:
+            raise ValueError("Invalid relay certificate request")
+        now = datetime.now(UTC)
+        if not self.certificate.not_valid_before_utc <= now < self.certificate.not_valid_after_utc:
+            raise ValueError("The development issuer certificate is not valid")
+        certificate = (
+            x509.CertificateBuilder()
+            .subject_name(csr.subject)
+            .issuer_name(self.certificate.subject)
+            .public_key(public_key)
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(seconds=3))
+            .not_valid_after(min(now + timedelta(minutes=15), self.certificate.not_valid_after_utc))
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), critical=True)
+            .sign(self.key, hashes.SHA256())
         )
-        self._publish_capability(capability)
-        registration = self._renew()
-        self._refresh_at = self._monotonic() + AGENT_EGRESS_CAPABILITY_REFRESH_SECONDS
-        return registration
-
-    def stop(self) -> None:
-        self._stopped = True
-        if self._started:
-            self.registry.revoke(team_id=self.team_id, run_id=self.run_id, execution_id=self.execution_id)
-
-    def start(self) -> AgentEgressRegistration:
-        if self._started or self._stopped:
-            raise AgentEgressProbeStoppedError("Create a new probe session to enroll a new execution")
-        self._started = True
-        try:
-            previous = self.registry.latest(team_id=self.team_id, run_id=self.run_id)
-            self.registry.register(
-                team_id=self.team_id,
-                run_id=self.run_id,
-                execution_id=self.execution_id,
-                actor_id=self.actor_id,
-                authority=self.authority,
-                relay_key_sha256=self.relay_key_sha256,
-                previous_execution_id=previous.execution_id if previous else None,
-            )
-            return self._publish()
-        except BaseException:
-            with suppress(Exception):
-                self.stop()
-            raise
-
-    def tick(self) -> AgentEgressRegistration:
-        if not self._started or self._stopped:
-            raise AgentEgressProbeStoppedError("The probe session is not active")
-        try:
-            registration = self._renew()
-            if self._monotonic() >= self._refresh_at:
-                return self._publish()
-            return registration
-        except BaseException:
-            with suppress(Exception):
-                self.stop()
-            raise
+        spki = public_key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        fingerprint = base64.urlsafe_b64encode(hashlib.sha256(spki).digest()).decode().rstrip("=")
+        return AgentEgressProbeCertificate(
+            certificate=certificate.public_bytes(serialization.Encoding.PEM).decode(), relay_key_sha256=fingerprint
+        )

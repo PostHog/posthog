@@ -141,11 +141,6 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
         company_id_required=True,
         supports_created_after=True,
     ),
-    "leads": WhopEndpointConfig(
-        path="/leads",
-        company_id_required=True,
-        supports_created_after=True,
-    ),
     "experiences": WhopEndpointConfig(
         path="/experiences",
         company_id_required=True,
@@ -200,6 +195,16 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
         page_size_param="limit",
         cursor_param="cursor",
         versions=WHOP_DATED_API_VERSIONS,
+    ),
+}
+
+# Tables Whop no longer serves. Leaving WHOP_ENDPOINTS drops them from discovery; the reason here
+# is what a job already scheduled against one of them fails with, instead of a KeyError.
+RETIRED_ENDPOINTS: dict[str, str] = {
+    "leads": (
+        "Whop retired the leads endpoint and moved existing leads to members, so syncing for the leads table "
+        "has stopped. Sync the members table instead. A member that was a lead has the lead's ID in its "
+        "metadata as lead_id."
     ),
 }
 

@@ -125,4 +125,32 @@ describe('playerSettingsLogic', () => {
             }).toMatchValues({ skipInactivitySetting: false })
         })
     })
+
+    describe('overview hint', () => {
+        type Logic = ReturnType<typeof playerSettingsLogic.build>
+        beforeEach(() => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_WATCH_LAYOUT]: 'compact' })
+        })
+
+        it.each<[string, ((l: Logic) => void)[], boolean]>([
+            ['waits for the dev mode hint to be dismissed', [], false],
+            ['shows once the dev mode hint is dismissed', [(l) => l.actions.dismissDebugHint()], true],
+            ['shows once dev mode has been turned on', [(l) => l.actions.setDebugMode(true)], true],
+            [
+                'hides once dismissed',
+                [(l) => l.actions.dismissDebugHint(), (l) => l.actions.dismissOverviewHint()],
+                false,
+            ],
+        ])('%s', (_, steps, shown) => {
+            steps.forEach((step) => step(logic))
+            expect(logic.values.overviewHintShown).toBe(shown)
+        })
+
+        it('stays hidden in the classic layout', () => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            logic.actions.dismissDebugHint()
+            expect(logic.values.overviewHintShown).toBe(false)
+        })
+    })
 })

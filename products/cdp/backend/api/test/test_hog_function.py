@@ -23,7 +23,7 @@ from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
-    comparable_content,
+    HogFunctionViewSet,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
@@ -35,6 +35,7 @@ from products.cdp.backend.models.hog_functions.hog_function import (
     HogFunctionState,
 )
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
+from products.cdp.backend.services.hog_function_content import comparable_content
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -1302,6 +1303,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self.client.get(f"/api/projects/{self.team.id}/hog_functions/{id}").status_code == status.HTTP_200_OK
+
+    def test_an_edit_that_loaded_the_function_before_a_delete_does_not_undelete_it(self, *args):
+        id = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**EXAMPLE_FULL}).json()["id"]
+        route_to_draft = HogFunctionViewSet._should_route_to_draft
+
+        # A queryset soft delete commits after the request loaded the function and before it takes the row lock.
+        def deleted_meanwhile(viewset: HogFunctionViewSet, serializer: Any) -> bool:
+            HogFunction.objects.filter(id=id).update(deleted=True)
+            return route_to_draft(viewset, serializer)
+
+        with patch.object(HogFunctionViewSet, "_should_route_to_draft", deleted_meanwhile):
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{id}/", data={"name": "Renamed"})
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert HogFunction.objects.get(id=id).deleted
 
     def test_inputs_required(self, *args):
         payload = {

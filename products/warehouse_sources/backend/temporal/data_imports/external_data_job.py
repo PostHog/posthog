@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    CANCELLED_METRIC_STATUS,
     failure_streak_label,
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
@@ -1022,6 +1023,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         source_type = None
         # The finally block reads it, so it must exist when job creation itself fails.
         failed_runs_in_a_row = 0
+        run_cancelled = False
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
@@ -1544,6 +1546,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 raise
             else:
                 # Handle other activity errors normally
+                run_cancelled = isinstance(e.cause, exceptions.CancelledError)
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
                 update_inputs.latest_error = _customer_facing_error(e.cause, e.activity_type)
@@ -1563,10 +1566,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             finished_status = update_inputs.status.lower()
+            # A cancelled run is a person or our own teardown stopping it, not the source failing.
+            # The job still records Failed, but counting it as a failure lets one action that
+            # cancels every schema of a source page the failure-rate alert.
+            metric_status = CANCELLED_METRIC_STATUS if run_cancelled else finished_status
             get_data_import_finished_metric(
                 source_type=source_type,
-                status=finished_status,
-                streak=failure_streak_label(finished_status, failed_runs_in_a_row),
+                status=metric_status,
+                streak=failure_streak_label(metric_status, failed_runs_in_a_row),
             ).add(1)
 
             # This run still owns the v3 lock when no batch reached the loader (extraction failed

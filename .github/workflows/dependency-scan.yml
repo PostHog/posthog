@@ -7,8 +7,10 @@ on:
             - '**/uv.lock'
             - '**/Cargo.lock'
             - '**/go.mod'
-            - .github/scripts/dependency_scan.py
-            - .github/scripts/dependency_scan.py.lock
+            # The CLI that runs the scanner imports the whole package.
+            - tools/change-prover/change_prover/**
+            - tools/change-prover/pyproject.toml
+            - tools/change-prover/uv.lock
             - .github/scripts/post-dependency-scan-section.mjs
             - .github/workflows/dependency-scan.yml
 
@@ -31,8 +33,7 @@ jobs:
                   fetch-depth: 2
                   filter: blob:none
                   sparse-checkout: |
-                      .github/scripts/dependency_scan.py
-                      .github/scripts/dependency_scan.py.lock
+                      tools/change-prover
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -46,7 +47,7 @@ jobs:
                   FINDINGS_FILE: dependency-scan/findings.json
               run: |
                   mkdir -p dependency-scan
-                  uv run --frozen --script .github/scripts/dependency_scan.py
+                  uv run --frozen --project tools/change-prover --group scan python -I tools/change-prover/change_prover/__main__.py scan-report
 
             - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ !cancelled() }}

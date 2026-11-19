@@ -15,10 +15,12 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Collection, Sequence
+from datetime import timedelta
 from enum import StrEnum
 from uuid import UUID
 
 from django.db import transaction
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
@@ -35,6 +37,7 @@ from products.alerts.backend.facade.destinations import (
 from products.alerts_platform.backend.facade.api import (
     copied_by_source_rows,
     delete_source_destination_rows,
+    legacy_events_emitted_since,
     list_source_destinations,
     record_source_destination,
     runtime_by_public_id,
@@ -52,6 +55,10 @@ from products.logs.backend.models import LogsAlertConfiguration
 
 _KIND_BY_EVENT_ID: dict[str, EventKind] = {spec.event_id: kind for kind, spec in EVENT_KIND_CONFIG.items()}
 
+# An emitted event waits in the internal events queue until the CDP consumer picks its HogFunctions, so
+# retiring them sooner loses a message the platform already counted as delivered.
+LEGACY_EVENTS_QUIET_PERIOD = timedelta(minutes=15)
+
 
 class GroupOutcome(StrEnum):
     CONVERTED = "converted"
@@ -60,6 +67,7 @@ class GroupOutcome(StrEnum):
     # A HogFunction opened the firing's incident under a key the row's resolve would not match, so the
     # alert waits for a run after the firing ends.
     FIRING = "firing"
+    RECENTLY_EMITTED = "recently_emitted"
     # Some of the group's HogFunctions are switched off. A row is on or off for every kind it hears.
     PARTLY_ENABLED = "partly_enabled"
     # A row copies only some of the group, so a second row would send to the same place twice.
@@ -109,6 +117,17 @@ def _convert_alert(alert_id: UUID, *, apply: bool) -> list[GroupConversion]:
                 return [
                     GroupConversion(
                         alert_id=alert.id, hog_function_ids=group.hog_function_ids, outcome=GroupOutcome.FIRING
+                    )
+                    for group, _ in candidates
+                ]
+            if legacy_events_emitted_since(
+                team_id=alert.team_id, public_id=alert.id, since=timezone.now() - LEGACY_EVENTS_QUIET_PERIOD
+            ):
+                return [
+                    GroupConversion(
+                        alert_id=alert.id,
+                        hog_function_ids=group.hog_function_ids,
+                        outcome=GroupOutcome.RECENTLY_EMITTED,
                     )
                     for group, _ in candidates
                 ]

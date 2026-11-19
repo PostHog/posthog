@@ -1,7 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
@@ -25,7 +24,6 @@ import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
-import { ReplayHintPopover } from 'scenes/session-recordings/components/ReplayHintPopover'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { ReplayLayout, STAFF_REPLAY_LAYOUTS, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { teamLogic } from 'scenes/teamLogic'
@@ -60,9 +58,8 @@ const STAFF_REPLAY_LAYOUT_LABELS: Partial<Record<ReplayLayout, string>> = {
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { watchLayoutOffered, replayLayout, canOverrideLayout, layoutHintShown } = useValues(playerSettingsLogic)
-    const { setPreferClassicReplayLayout, setStaffLayoutOverride, dismissLayoutHint } = useActions(playerSettingsLogic)
-    const [layoutSwitch, setLayoutSwitch] = useState<HTMLElement | null>(null)
+    const { watchLayoutOffered, replayLayout, canOverrideLayout } = useValues(playerSettingsLogic)
+    const { setPreferClassicReplayLayout, setStaffLayoutOverride } = useActions(playerSettingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { createCollection: handleNewPlaylist, creating: loading } = useNewCollection()
@@ -71,7 +68,7 @@ function Header(): JSX.Element {
         <div className="flex items-center gap-2">
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
-                    <span ref={setLayoutSwitch} className="flex">
+                    <span className="flex">
                         {canOverrideLayout ? (
                             <LemonSegmentedButton
                                 size="small"
@@ -95,16 +92,6 @@ function Header(): JSX.Element {
                             />
                         ) : null}
                     </span>
-                    {layoutHintShown && (
-                        <ReplayHintPopover
-                            anchor={layoutSwitch}
-                            onDismiss={dismissLayoutHint}
-                            compact
-                            dataAttr="replay-layout-hint"
-                        >
-                            We're rolling out a new replay layout. You can switch back to Legacy here any time.
-                        </ReplayHintPopover>
-                    )}
                     <LiveRecordingsCount />
                     <ScenePanel>
                         <ScenePanelActionsSection>

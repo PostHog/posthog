@@ -8,7 +8,7 @@ card only when its reasoning also shows it is broken.
 import copy
 import difflib
 import hashlib
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -29,6 +29,7 @@ from products.ai_observability.backend.logic.eval_suggestions.coverage_queries i
 )
 from products.ai_observability.backend.models.eval_suggestions import EvalSuggestion, EvalSuggestionStatus
 from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 
 from . import catalog
 from .call_review import REVIEW_TEMPLATE_KEY, EarlierCard
@@ -474,6 +475,13 @@ def dismissed_dedupe_keys(team: Team) -> frozenset[str]:
     )
 
 
+def managed_prompt_names(team: Team, names: Collection[str]) -> frozenset[str]:
+    """The names among `names` that the team manages as a prompt that is not deleted."""
+    return frozenset(
+        LLMPrompt.objects.filter(team_id=team.pk, name__in=list(names), deleted=False).values_list("name", flat=True)
+    )
+
+
 def earlier_review_cards(team: Team) -> list[EarlierCard]:
     """The latest card of each check the call review suggested or the team decided on within DISMISSAL_MEMORY,
     newest first. A dismissal counts from its decision, as in dismissed_dedupe_keys."""
@@ -490,7 +498,7 @@ def earlier_review_cards(team: Team) -> list[EarlierCard]:
             dedupe_key=dedupe_key,
             status=status,
             title=str(draft.get("name", "")),
-            checks=str(draft.get("description", "")),
+            rule=str(draft.get("description", "")),
         )
         for dedupe_key, status, draft, _ in sorted(rows, key=lambda row: row[3], reverse=True)
     ]

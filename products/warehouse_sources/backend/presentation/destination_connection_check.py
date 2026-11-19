@@ -99,8 +99,8 @@ def _query_deadline(connection: psycopg.Connection, timeout_seconds: float) -> I
 def check_postgres_destination(integration: IntegrationRecord, config: dict[str, str] | None) -> None:
     """Connect to the destination with a short timeout and check that a writer can create tables.
 
-    Raises `DestinationConnectionCheckError`. The writer runs `CREATE SCHEMA IF NOT EXISTS`, so a
-    schema that does not exist yet needs the CREATE privilege on the database instead.
+    Raises `DestinationConnectionCheckError`. The writer creates a schema that does not exist yet,
+    so a missing schema needs the CREATE privilege on the database instead.
     """
     config = config or {}
     database = config.get("database") or DEFAULT_DATABASE

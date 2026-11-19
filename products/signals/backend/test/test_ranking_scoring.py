@@ -36,6 +36,7 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
     FeatureSet,
 )
@@ -133,6 +134,7 @@ class FakeObjectStore:
         thresholds: Mapping[str, float] | None = None,
         onnx_fixture: str = "report.onnx",
         project_vector_kinds: Sequence[str] = (),
+        zeroed_feature_groups: Sequence[str] = (),
     ) -> ServingManifestEntry:
         key = model_key(model_name, version)
         prefix = serving_model_prefix(PREFIX, key)
@@ -160,6 +162,8 @@ class FakeObjectStore:
         }
         if project_vector_kinds:
             metadata["project_vector_kinds"] = list(project_vector_kinds)
+        if feature_set.late_feature_groups:
+            metadata["zeroed_feature_groups"] = list(zeroed_feature_groups)
         if onnx:
             metadata["output_heads"] = list(ONNX_OUTPUT_HEADS)
             self.objects[f"{prefix}/{ONNX_MODEL_FILE}"] = (ONNX_FIXTURES / onnx_fixture).read_bytes()
@@ -872,14 +876,22 @@ class TestScorerRecordsFacts(ClickhouseTestMixin, _ScorerTestMixin, BaseTest):
             content=json.dumps({"actionability": actionability, "already_addressed": False}),
         )
 
-    def _ml_features_challenger(self, roles: Sequence[str] = (CROSS_FAMILY_ROLE,)) -> ServingManifestEntry:
-        feature_names = REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET.feature_names
+    def _ml_features_challenger(
+        self,
+        roles: Sequence[str] = (CROSS_FAMILY_ROLE,),
+        *,
+        model_name: str = "nn_with_prio_ml_features",
+        feature_set: FeatureSet = REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET,
+        label_column: str = "actionability_immediately_actionable",
+        zeroed_feature_groups: Sequence[str] = (),
+    ) -> ServingManifestEntry:
+        feature_names = feature_set.feature_names
         x = pd.DataFrame(np.zeros((40, len(feature_names))), columns=list(feature_names))
-        x["actionability_immediately_actionable"] = np.arange(40) % 2
+        x[label_column] = np.arange(40) % 2
         x["emb_0"] = np.random.default_rng(0).normal(size=40)
-        booster = xgb.XGBClassifier(n_estimators=3, max_depth=2).fit(x, x["actionability_immediately_actionable"])
+        booster = xgb.XGBClassifier(n_estimators=3, max_depth=2).fit(x, x[label_column])
         entry = self.store.publish_model(
-            "nn_with_prio_ml_features", REPORT_EMBEDDINGS_PRIORITY_ML_FEATURES_FEATURE_SET, roles=roles
+            model_name, feature_set, roles=roles, zeroed_feature_groups=zeroed_feature_groups
         )
         for head in HEADS:
             self.store.objects[f"{entry.prefix}/{head}.ubj"] = bytes(booster.get_booster().save_raw("ubj"))
@@ -971,6 +983,27 @@ class TestScorerRecordsFacts(ClickhouseTestMixin, _ScorerTestMixin, BaseTest):
             for event in captured.events
             if event["event"] == REPORT_FACTS_EVENT
         } == {actionable: "immediately_actionable", not_actionable: "not_actionable"}
+
+    def test_a_late_group_the_fit_zeroed_is_zeroed_for_that_version_only(self) -> None:
+        feature_set = REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET
+        trained, masked = (
+            self._ml_features_challenger(
+                model_name=name, feature_set=feature_set, label_column="content_recorded", zeroed_feature_groups=zeroed
+            )
+            for name, zeroed in (("trained_content", ()), ("zeroed_content", ("content",)))
+        )
+        self.store.publish_manifest([self._served(), trained, masked])
+        report = self._report(self.team, title="A")
+
+        events = self._pass({self.team.id: [report]})
+
+        p_open = {
+            event["properties"]["model_key"]: event["properties"]["p_open"]
+            for event in events
+            if event["event"] == REPORT_SCORED_EVENT and event["properties"]["status"] == "scored"
+        }
+        # The pass records the report's content, so only the version whose fit zeroed it reads a zero.
+        assert p_open[masked.key] < p_open[trained.key]
 
     @parameterized.expand([("read_fails", True), ("turned_off", False)])
     def test_without_facts_the_scores_still_persist_and_no_facts_event_is_captured(

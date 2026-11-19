@@ -8,7 +8,7 @@ workspace = true
 
 [dependencies]
 metrics = { workspace = true }
-posthog-rs = { workspace = true }
+posthog = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -16,3 +16,4 @@ tracing = { workspace = true }
 [dev-dependencies]
 httpmock = { workspace = true }
 metrics-util = { workspace = true }
+uuid = { workspace = true }

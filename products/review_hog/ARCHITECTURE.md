@@ -2,9 +2,10 @@
 
 ## Terms
 
-**PostHog Review** is the product name on every outward surface: GitHub comments, MCP tools, API docs, and UI prose.
-**Code review** is the name of the in-app page and its nav entry only.
-**ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
+**PostHog Review** is the product name in prose (GitHub comments, MCP category, API docs).
+**Code review** is the page name and the identifier namespace (`code_review` in the API and scopes, `code-review` in MCP tool names).
+**ReviewHog** and **Stamphog** are internal code names; Stamphog is also the name of the GitHub app.
+Code, logs, metric names, keys, and developer docs use the code names.
 An `@posthog review` comment starts a Standard review, and `@posthog review --deep` starts a Deep review. No label starts a review.
 The comment is the primary GitHub-side trigger.
 Requesting the `posthog-review` GitHub team as a reviewer is an optional shortcut (`review_team_requests.py`, trigger source `review_request`).
@@ -309,6 +310,12 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
 - **Follow-up prompts name the changed lines.** On a follow-up turn that reviews the whole PR, every session's prompt
   lists the lines changed since the last reviewed head and says which levels the `old_code` drop discards elsewhere
   (P2 and P3 on an automatic turn, P3 on a requested one).
+- **Repository rules come from the base commit.** Every session's prompt says that the `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `REVIEW.md`, and `SKILL.md` files, every file under `.agents/` or `.claude/`, and the guides they route to, apply as they are at the PR's merge base, and that a change to one is diff content to review.
+  It names the rule files the whole PR changes (`is_rule_file`), a delta turn included, and gives the `git show` command that reads each one at the merge base.
+  A renamed file counts under its old name too (`PRFile.previous_filename`), so renaming a rule file away is listed.
+  A rule file path with a character outside `[A-Za-z0-9._/-]` is counted, not named, so PR-authored text never reaches the instruction sentence or the quoted `git show` command.
+  Without a merge base, the session applies a changed rule file's removed lines and ignores its added lines.
+- **Repository hooks do not run.** Every ReviewHog sandbox context sets `disable_repo_hooks`, so the Claude runtime ignores hooks from the checkout's `.claude/settings*.json`.
 - **The devex lens session** (`DEVEX_LENS`, `lens_devex.md`) reviews the changed files that the devex team owns.
   It is not in `FLASH_LENSES`.
   It runs only when the repository's `owners.yaml` files give a changed file to `DEVEX_OWNER_TEAM` and the per-PR flag `reviewhog-devex-lens` is on.
@@ -985,7 +992,7 @@ also carries the review-without-resolving, resolve-only, and **Flash** variants;
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
 a PR is not reviewed, and the PR must sit in the task's own repository because `output.pr_url` is written by
 whoever controls the run, the sandbox agent included), **MCP tools**
-(`review-hog-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
+(`code-review-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
 `review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token, and **automatic authored-PR Flash reviews**.
 The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for the ownership, identity, and rule checks.
 It accepts `opened`, `synchronize`, and `ready_for_review` for open PRs whose head and base belong to the delivery's repository, including drafts.
@@ -1003,8 +1010,8 @@ The Stamphog handoff queues `process_stamphog_handoff`, which finds the project 
 The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; a running resolution drops the handoff.
 Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
-The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
-retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
+The UI and MCP paths are one surface: the viewset carries the grantable `code_review` scope (`code_review:read` for list /
+retrieve / perspective_stats, `code_review:write` for trigger). Both require the `review-hog` feature flag,
 and the trigger action checks the URL, GitHub App access, fork status, and open state regardless of caller.
 The trigger action and the `@posthog review` comment (`facade/reviews.py`) both call `requested_reviews.request_pr_review()`, which applies the owner rule for resolution and the no-Flash-after-Full refusal.
 Settings: an automatic review follows the owner's rules (Flash reads no personal settings), the UI / MCP Review button

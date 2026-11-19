@@ -35,7 +35,7 @@ from products.signals.dags.inbox_ranking.common import (
     s3_client,
     skip_unconfigured,
 )
-from products.signals.dags.inbox_ranking.nn.dag import NN_ASSET_KWARGS, NN_EXAMPLES_TABLE, train_candidate
+from products.signals.dags.inbox_ranking.nn.dag import NN_ASSET_KWARGS, NN_EXAMPLES_TABLE, skip_family, train_candidate
 from products.signals.dags.inbox_ranking.nn.pair_lane import train_pair_candidate
 from products.signals.dags.inbox_ranking.nn.pairs import NN_PAIR_EXAMPLES_TABLE
 from products.signals.dags.inbox_ranking.training.dag import _object_exists
@@ -45,6 +45,7 @@ from products.signals.dags.inbox_ranking.training.families import (
     ModelFamily,
     experiment_families,
 )
+from products.signals.dags.inbox_ranking.training.telemetry import FamilySkipReason
 
 # The report-grain experiments keep the asset name they had before pair grain, so their Dagster
 # history continues.
@@ -83,12 +84,15 @@ def run_experiments(
         if family.expired(day):
             context.log.info(f"{family.name} expired on {family.expires}; skipped for dt={partition_key}")
             metadata[f"{family.name}_skipped"] = dagster.MetadataValue.text(f"expired on {family.expires}")
+            skip_family(context, partition_key, family, FamilySkipReason.EXPIRED)
     live = live_experiments(families, day)
     if not live:
         return {**metadata, "skipped": dagster.MetadataValue.bool(True)}
     examples_key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, NN_EXAMPLES_TABLE, partition_key)
     if not _object_exists(client, bucket, examples_key):
         context.log.warning(f"no nn examples for dt={partition_key}; every experiment skips this partition")
+        for family in live:
+            skip_family(context, partition_key, family, FamilySkipReason.MISSING_EXAMPLES)
         return {**metadata, "skipped": dagster.MetadataValue.bool(True)}
     for family in live:
         train = train_pair_candidate if family.grain == PAIR_GRAIN else train_candidate

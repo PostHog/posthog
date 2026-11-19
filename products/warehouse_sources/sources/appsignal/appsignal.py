@@ -557,6 +557,63 @@ query LogSources($appId: String!) {
 """
 
 
+# `headers` is left out: it holds the request headers the monitor sends, which can carry credentials
+# for the monitored endpoint.
+_UPTIME_MONITORS_QUERY = """
+query UptimeMonitors($appId: String!) {
+  app(id: $appId) {
+    uptimeMonitors {
+      id
+      name
+      url
+      description
+      warmupDuration
+      checkBodyContent
+      monitorSslExpiration
+      regions
+      notifierIds
+    }
+  }
+}
+"""
+
+_CHECK_IN_TRIGGERS_QUERY = """
+query CheckInTriggers($appId: String!) {
+  app(id: $appId) {
+    checkIns {
+      triggers {
+        id
+        kind
+        identifier
+        syntax
+        description
+        waitTimeMinutes
+        timezone
+        lastState
+        lastErrorAt
+        lastSuccessAt
+        lastUpdateAt
+      }
+    }
+  }
+}
+"""
+
+
+def _fetch_app_node(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    query: str,
+    logger: FilteringBoundLogger,
+) -> dict[str, Any]:
+    body = _fetch_graphql(session, api_token, query, {"appId": app_id}, logger)
+    app = (body.get("data") or {}).get("app")
+    if app is None:
+        raise Exception("AppSignal app not found: check that the app ID matches your AppSignal app")
+    return app
+
+
 def _get_app_rows(
     session: requests.Session,
     api_token: str,
@@ -567,10 +624,7 @@ def _get_app_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    body = _fetch_graphql(session, api_token, _APPS_QUERY, {"appId": app_id}, logger)
-    app_node = (body.get("data") or {}).get("app")
-    if app_node is None:
-        raise Exception("AppSignal app not found: check that the app ID matches your AppSignal app")
+    app_node = _fetch_app_node(session, api_token, app_id, _APPS_QUERY, logger)
 
     # Scoped to the organization that owns the configured app. A personal token often reaches
     # several organizations, and syncing those would expose apps this connection never named.
@@ -589,17 +643,46 @@ def _get_app_rows(
         yield rows
 
 
+def _get_uptime_monitor_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    app = _fetch_app_node(session, api_token, app_id, _UPTIME_MONITORS_QUERY, logger)
+    rows = [monitor for monitor in app.get("uptimeMonitors") or [] if isinstance(monitor, dict) and monitor.get("id")]
+    if rows:
+        yield rows
+
+
+def _get_check_in_trigger_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    app = _fetch_app_node(session, api_token, app_id, _CHECK_IN_TRIGGERS_QUERY, logger)
+    triggers = (app.get("checkIns") or {}).get("triggers") or []
+    rows = [trigger for trigger in triggers if isinstance(trigger, dict) and trigger.get("id")]
+    if rows:
+        yield rows
+
+
 def _get_log_source_ids(
     session: requests.Session,
     api_token: str,
     app_id: str,
     logger: FilteringBoundLogger,
 ) -> list[str]:
-    body = _fetch_graphql(session, api_token, _LOG_SOURCES_QUERY, {"appId": app_id}, logger)
-    app = (body.get("data") or {}).get("app")
-    if app is None:
-        raise Exception("AppSignal app not found: check that the app ID matches your AppSignal app")
-
+    app = _fetch_app_node(session, api_token, app_id, _LOG_SOURCES_QUERY, logger)
     sources = ((app.get("logs") or {}).get("sources")) or []
     return [source["id"] for source in sources if isinstance(source, dict) and source.get("id")]
 
@@ -1404,9 +1487,219 @@ def _get_slow_event_action_rows(
         buckets_done += 1
 
 
+def _fetch_window_error_digests(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    window: TimeWindow,
+    logger: FilteringBoundLogger,
+) -> list[str]:
+    rows = _fetch_tracing_range_or_empty_if_aged_out(
+        session,
+        api_token,
+        "/tracing/errors",
+        logger,
+        body={"site_id": app_id, "from": _to_iso(window.since), "to": _to_iso(window.before)},
+    )
+    return sorted({row["incident_digest"] for row in rows if isinstance(row, dict) and row.get("incident_digest")})
+
+
+def _digest_window_error_traces(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    digest: str,
+    window: TimeWindow,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    """Collect one incident's error traces that started inside a window.
+
+    `traces/errors` takes no time range, only a keyset cursor on trace time, so the walk starts the
+    cursor at the window's start and stops at the first page that reaches its end. Whether the
+    cursor instant itself is returned is undocumented, so traces are kept by ID, and a full page
+    that cannot move the cursor steps past that instant instead of requesting it again.
+    """
+    since = datetime.fromtimestamp(window.since, tz=UTC)
+    before = datetime.fromtimestamp(window.before, tz=UTC)
+    cursor = since
+    traces: dict[str, dict[str, Any]] = {}
+
+    while True:
+        try:
+            page = (
+                _fetch_v2(
+                    session,
+                    api_token,
+                    "/tracing/traces/errors",
+                    logger,
+                    body={
+                        "site_ids": [app_id],
+                        "digests": [digest],
+                        "pagination": {
+                            "per_page": V2_PAGE_SIZE,
+                            "order": "ASC",
+                            "cursor": {"time": _format_iso(cursor)},
+                        },
+                    },
+                )
+                or []
+            )
+        except requests.HTTPError as error:
+            # Same terminal statuses as the other tracing reads: the incident's trace data aged
+            # out of retention between the digest listing and this query.
+            if error.response is None or error.response.status_code not in (404, 422):
+                raise
+            page = []
+        rows = [row for row in page if isinstance(row, dict)]
+
+        for row in rows:
+            started = _parse_iso(row.get("time"))
+            trace_id = row.get("trace_id")
+            if trace_id and started is not None and since <= started < before:
+                traces.setdefault(trace_id, {**row, "digest": digest})
+
+        if len(rows) < V2_PAGE_SIZE:
+            break
+        last = _parse_iso(rows[-1].get("time"))
+        if last is None or last >= before:
+            break
+        if last > cursor:
+            cursor = last
+        else:
+            logger.warning(
+                f"AppSignal: more than {V2_PAGE_SIZE} error traces for digest {digest} share timestamp "
+                f"{_format_iso(cursor)}, skipping the rest of that instant"
+            )
+            cursor = cursor + timedelta(milliseconds=1)
+
+    return list(traces.values())
+
+
+def _get_error_trace_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    now = int(datetime.now(UTC).timestamp())
+    start = _resolve_walk_start(
+        config,
+        resumable_source_manager,
+        logger,
+        now,
+        TRACES_INITIAL_LOOKBACK_SECONDS,
+        1,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+    )
+
+    for window in _iter_windows(start, now, TRACES_WINDOW_SECONDS):
+        traces: list[dict[str, Any]] = []
+        for digest in _fetch_window_error_digests(session, api_token, app_id, window, logger):
+            traces.extend(_digest_window_error_traces(session, api_token, app_id, digest, window, logger))
+
+        resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
+        if not traces:
+            resumable_source_manager.safe_point()
+            continue
+        # Digests are walked one after the other, so the window's traces only come out in time
+        # order once they are sorted together.
+        traces.sort(key=lambda trace: _parse_iso(trace["time"]) or datetime.min.replace(tzinfo=UTC))
+        yield traces
+
+
+def _fetch_kubernetes_snapshots(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    path: str,
+    key_fields: tuple[str, ...],
+    window: TimeWindow,
+    bucket: str,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    rows = (
+        _fetch_v2(
+            session,
+            api_token,
+            path,
+            logger,
+            body={"site_id": app_id, "from": _to_iso(window.since), "to": _to_iso(window.before)},
+        )
+        or []
+    )
+    return [
+        {**row, "snapshot_timestamp": row.get("timestamp"), "timestamp": bucket}
+        for row in rows
+        if isinstance(row, dict) and all(row.get(field) for field in key_fields)
+    ]
+
+
+def _get_kubernetes_node_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    def build_rows(window: TimeWindow, bucket: str) -> list[dict[str, Any]]:
+        return _fetch_kubernetes_snapshots(
+            session, api_token, app_id, "/kubernetes/nodes", ("node_name",), window, bucket, logger
+        )
+
+    yield from _walk_aggregate_windows(
+        config,
+        resumable_source_manager,
+        logger,
+        AGGREGATE_BUCKET_SECONDS,
+        AGGREGATE_INITIAL_LOOKBACK_SECONDS,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        build_rows,
+    )
+
+
+def _get_kubernetes_pod_rows(
+    session: requests.Session,
+    api_token: str,
+    app_id: str,
+    config: AppsignalEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[AppsignalResumeConfig],
+    logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    def build_rows(window: TimeWindow, bucket: str) -> list[dict[str, Any]]:
+        return _fetch_kubernetes_snapshots(
+            session, api_token, app_id, "/kubernetes/pods", ("pod_namespace", "pod_name"), window, bucket, logger
+        )
+
+    yield from _walk_aggregate_windows(
+        config,
+        resumable_source_manager,
+        logger,
+        AGGREGATE_BUCKET_SECONDS,
+        AGGREGATE_INITIAL_LOOKBACK_SECONDS,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        build_rows,
+    )
+
+
 _WALKERS = {
     "apps": _get_app_rows,
+    "check_in_triggers": _get_check_in_trigger_rows,
     "deploy_stats": _get_deploy_stats_rows,
+    "error_traces": _get_error_trace_rows,
+    "kubernetes_nodes": _get_kubernetes_node_rows,
+    "kubernetes_pods": _get_kubernetes_pod_rows,
     "log_lines": _get_log_line_rows,
     "metric_names": _get_metric_name_rows,
     "metric_timeseries": _get_metric_timeseries_rows,
@@ -1416,6 +1709,7 @@ _WALKERS = {
     "slow_events": _get_slow_event_rows,
     "slow_event_actions": _get_slow_event_action_rows,
     "trace_spans": _get_trace_span_rows,
+    "uptime_monitors": _get_uptime_monitor_rows,
 }
 
 
