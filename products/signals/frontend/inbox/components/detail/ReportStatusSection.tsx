@@ -10,10 +10,14 @@ import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type { ReportPriorityApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { PRIORITY_MEANING, PRIORITY_TAG_TYPE } from '../../filterOptions'
-import { SignalReport } from '../../types'
+import { ACTIONABILITY_LABEL, PRIORITY_MEANING, PRIORITY_TAG_TYPE } from '../../filterOptions'
+import { SignalReport, SignalReportActionability } from '../../types'
 import { reportClaimant } from '../../utils/reportClaim'
-import type { ReportDecisionAttribution, ReportDecisionAttributions } from '../../utils/reportDecisions'
+import type {
+    ReportActionabilityChange,
+    ReportDecisionAttribution,
+    ReportDecisionAttributions,
+} from '../../utils/reportDecisions'
 import { safeHttpUrl } from '../../utils/reportPresentation'
 import { reportPullRequests } from '../../utils/reportPullRequests'
 import { STATUS_LABELS } from '../badges/SignalReportStatusBadge'
@@ -37,6 +41,27 @@ const PRIORITY_OPTIONS: LemonSelectOptionLeaf<ReportPriorityApi>[] = Object.entr
         ),
     })
 )
+
+const ACTIONABILITY_OPTIONS: LemonSelectOptionLeaf<SignalReportActionability>[] = Object.entries(
+    ACTIONABILITY_LABEL
+).map(([actionability, label]) => ({ value: actionability as SignalReportActionability, label }))
+
+type AlreadyAddressedValue = 'true' | 'false'
+
+const ALREADY_ADDRESSED_LABEL: Record<AlreadyAddressedValue, string> = { true: 'Yes', false: 'No' }
+
+const ALREADY_ADDRESSED_OPTIONS: LemonSelectOptionLeaf<AlreadyAddressedValue>[] = [
+    { value: 'false', label: ALREADY_ADDRESSED_LABEL.false },
+    { value: 'true', label: ALREADY_ADDRESSED_LABEL.true },
+]
+
+function actionabilityLabel(value: string): string {
+    return ACTIONABILITY_LABEL[value as SignalReportActionability] ?? value
+}
+
+function alreadyAddressedLabel(value: string): string {
+    return ALREADY_ADDRESSED_LABEL[value as AlreadyAddressedValue] ?? value
+}
 
 function StatusRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {
     return (
@@ -117,6 +142,8 @@ export function ReportStatusSection({
     prioritySaving = false,
     onRepositoryChange,
     repositorySaving = false,
+    onActionabilityChange,
+    actionabilitySaving = false,
     decisionAttributions = null,
     selectedPullRequestUrl = null,
     onSelectPullRequest,
@@ -128,6 +155,8 @@ export function ReportStatusSection({
     prioritySaving?: boolean
     onRepositoryChange?: (repository: string) => void
     repositorySaving?: boolean
+    onActionabilityChange?: (change: ReportActionabilityChange) => void
+    actionabilitySaving?: boolean
     /** Null before the report's detail loads. */
     decisionAttributions?: ReportDecisionAttributions | null
     selectedPullRequestUrl?: string | null
@@ -139,6 +168,11 @@ export function ReportStatusSection({
     const pullRequests = reportPullRequests(report)
     const selectable = pullRequests.length > 1 && !!onSelectPullRequest
     const trackerUrl = safeHttpUrl(report.tracker_issue_url ?? '')
+    const hasAgentDecisions = !!(
+        report.repo_slug ||
+        report.actionability ||
+        typeof report.already_addressed === 'boolean'
+    )
 
     return (
         <DetailSection icon={<IconInfo />} title="Status" rightSlot={rightSlot} collapsible>
@@ -184,19 +218,57 @@ export function ReportStatusSection({
                     )}
                 </dl>
                 {editableDecisions &&
-                    report.repo_slug && (
+                    hasAgentDecisions && (
                         // A wrong repository matters most before a pull request exists, so the group starts open then.
                         <ReportAgentDecisions
-                            values={[report.repo_slug]}
+                            values={[
+                                report.repo_slug,
+                                report.actionability && actionabilityLabel(report.actionability),
+                                report.already_addressed ? 'Already addressed' : null,
+                            ]}
                             defaultExpanded={pullRequests.length === 0}
                             onToggleCollapsed={onToggleAgentDecisions}
                         >
-                            <ReportRepositoryDecisionRow
-                                repository={report.repo_slug}
-                                attribution={decisionAttributions?.repository ?? null}
-                                onChange={onRepositoryChange}
-                                saving={repositorySaving}
-                            />
+                            {report.repo_slug && (
+                                <ReportRepositoryDecisionRow
+                                    repository={report.repo_slug}
+                                    attribution={decisionAttributions?.repository ?? null}
+                                    onChange={onRepositoryChange}
+                                    saving={repositorySaving}
+                                />
+                            )}
+                            {report.actionability && (
+                                <ReportDecisionRow<SignalReportActionability>
+                                    label="Actionability"
+                                    value={report.actionability}
+                                    attribution={decisionAttributions?.actionability ?? null}
+                                    options={ACTIONABILITY_OPTIONS}
+                                    onChange={
+                                        onActionabilityChange
+                                            ? (actionability) => onActionabilityChange({ actionability })
+                                            : undefined
+                                    }
+                                    saving={actionabilitySaving}
+                                    formatValue={actionabilityLabel}
+                                    data-attr="report-actionability-select"
+                                />
+                            )}
+                            {typeof report.already_addressed === 'boolean' && (
+                                <ReportDecisionRow<AlreadyAddressedValue>
+                                    label="Already addressed"
+                                    value={report.already_addressed ? 'true' : 'false'}
+                                    attribution={decisionAttributions?.already_addressed ?? null}
+                                    options={ALREADY_ADDRESSED_OPTIONS}
+                                    onChange={
+                                        onActionabilityChange
+                                            ? (value) => onActionabilityChange({ alreadyAddressed: value === 'true' })
+                                            : undefined
+                                    }
+                                    saving={actionabilitySaving}
+                                    formatValue={alreadyAddressedLabel}
+                                    data-attr="report-already-addressed-select"
+                                />
+                            )}
                         </ReportAgentDecisions>
                     )}
             </div>

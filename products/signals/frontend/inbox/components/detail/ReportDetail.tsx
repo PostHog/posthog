@@ -252,14 +252,22 @@ export function InboxDetailFrame({
         reportChecksError,
         prioritySaving,
         repositorySaving,
+        actionabilitySaving,
         decisionAttributions,
         reportClaimant,
         isClaimedByMe,
         report: currentReport,
         selectedPullRequest,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority, updateRepository, selectPullRequest } =
-        useActions(inboxReportDetailLogic(logicProps))
+    const {
+        setDetailTab,
+        expandEvidence,
+        collapseEvidence,
+        updatePriority,
+        updateRepository,
+        updateActionability,
+        selectPullRequest,
+    } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     const { linkImplementReportId } = useValues(inboxSceneLogic)
@@ -502,6 +510,8 @@ export function InboxDetailFrame({
                             prioritySaving={prioritySaving}
                             onRepositoryChange={updateRepository}
                             repositorySaving={repositorySaving}
+                            onActionabilityChange={updateActionability}
+                            actionabilitySaving={actionabilitySaving}
                             decisionAttributions={decisionAttributions}
                             selectedPullRequestUrl={selectedPullRequest.url}
                             onSelectPullRequest={(url) => {

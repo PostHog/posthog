@@ -123,7 +123,11 @@ describe('ReportStatusSection', () => {
 
     it.each([
         { flag: false, pullRequests: [], labels: ['Report status', 'Priority'] },
-        { flag: true, pullRequests: [], labels: ['Report status', 'Priority', 'Repository'] },
+        {
+            flag: true,
+            pullRequests: [],
+            labels: ['Report status', 'Priority', 'Repository', 'Actionability', 'Already addressed'],
+        },
         { flag: true, pullRequests: [pullRequest(42)], labels: ['Report status', 'Priority', 'Pull requests'] },
     ])(
         'orders the rows when editable decisions is $flag with $pullRequests.length pull requests',
@@ -133,7 +137,13 @@ describe('ReportStatusSection', () => {
             })
             const { container } = render(
                 <ReportStatusSection
-                    report={makeReport({ priority: 'P2', repo_slug: 'example/app', pull_requests: pullRequests })}
+                    report={makeReport({
+                        priority: 'P2',
+                        actionability: 'requires_human_input',
+                        already_addressed: false,
+                        repo_slug: 'example/app',
+                        pull_requests: pullRequests,
+                    })}
                     onPriorityChange={() => {}}
                 />
             )
@@ -143,23 +153,31 @@ describe('ReportStatusSection', () => {
         }
     )
 
-    it('shows the repository in collapsed agent decisions and expands to its row', async () => {
+    it('summarizes collapsed agent decisions and expands to their rows', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS], {
             [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: true,
         })
         const { container } = render(
             <ReportStatusSection
-                report={makeReport({ priority: 'P2', repo_slug: 'example/app', pull_requests: [pullRequest(42)] })}
+                report={makeReport({
+                    priority: 'P2',
+                    actionability: 'requires_human_input',
+                    already_addressed: false,
+                    repo_slug: 'example/app',
+                    pull_requests: [pullRequest(42)],
+                })}
             />
         )
 
-        await userEvent.click(screen.getByText('example/app'))
+        await userEvent.click(screen.getByText('example/app · Needs input'))
 
         expect(Array.from(container.querySelectorAll('dt'), (dt) => dt.textContent)).toEqual([
             'Report status',
             'Priority',
             'Pull requests',
             'Repository',
+            'Actionability',
+            'Already addressed',
         ])
     })
 
