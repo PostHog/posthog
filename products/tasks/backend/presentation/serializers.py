@@ -5343,7 +5343,7 @@ class SlackThreadContextRepoResearchSerializer(serializers.Serializer):
     task_view_url = serializers.CharField(
         help_text="Absolute URL to the research task detail page (carries `?ph_debug=true`).",
     )
-    log_url = serializers.CharField(
+    log_entries_url = serializers.CharField(
         allow_null=True,
         help_text=(
             "Absolute URL to the run log API for the research run, which returns its JSONL log transcript. "
@@ -5397,7 +5397,7 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         help_text="Full Temporal Web UI URL for the mention dispatch workflow; null when unavailable.",
     )
     task_view_url = serializers.CharField(help_text="Absolute URL to the task detail page focused on this run.")
-    log_url = serializers.CharField(
+    log_entries_url = serializers.CharField(
         help_text=(
             "Absolute URL to the run log API for this run. It returns the run's JSONL log transcript, "
             "preceded by the logs of any runs it resumed from."

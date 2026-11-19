@@ -180,7 +180,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         assert run_payload["task_view_url"].endswith(
             f"/project/{self.team.id}/tasks/{task.id}?runId={run.id}&ph_debug=true"
         )
-        assert run_payload["log_url"] == (
+        assert run_payload["log_entries_url"] == (
             f"http://testserver/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/log_entries/"
         )
         assert run_payload["admin_url"].endswith(f"/admin/tasks/taskrun/{run.id}/change/")
@@ -302,7 +302,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         assert research["task_view_url"].endswith(
             f"/project/{self.team.id}/tasks/{research_task.id}?runId={research_run.id}&ph_debug=true"
         )
-        assert research["log_url"] == (
+        assert research["log_entries_url"] == (
             f"http://testserver/api/projects/{self.team.id}/tasks/{research_task.id}/runs/{research_run.id}/log_entries/"
         )
 
@@ -322,4 +322,4 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         assert research["run_id"] == "22222222-2222-2222-2222-222222222222"
         assert research["status"] is None
         assert research["sandbox_url"] is None
-        assert research["log_url"] is None
+        assert research["log_entries_url"] is None

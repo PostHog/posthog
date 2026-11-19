@@ -253,7 +253,7 @@ function SlackTaskContextRunCard({ run, index }: { run: SlackThreadContextRunApi
                     ],
                     [
                         'Logs',
-                        <Link key="log" to={run.log_url} target="_blank">
+                        <Link key="log" to={run.log_entries_url} target="_blank">
                             Download JSONL
                         </Link>,
                     ],
@@ -322,8 +322,8 @@ function RepoResearchBlock({ research }: { research: SlackThreadContextRepoResea
                     ],
                     [
                         'Logs',
-                        research.log_url ? (
-                            <Link key="rr-log" to={research.log_url} target="_blank">
+                        research.log_entries_url ? (
+                            <Link key="rr-log" to={research.log_entries_url} target="_blank">
                                 Download JSONL
                             </Link>
                         ) : (

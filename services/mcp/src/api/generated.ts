@@ -119231,7 +119231,7 @@ export namespace Schemas {
          * Absolute URL to the run log API for the research run, which returns its JSONL log transcript. Null when the research run row is gone.
          * @nullable
          */
-      log_url: string | null;
+      log_entries_url: string | null;
     }
 
     /**
@@ -119346,7 +119346,7 @@ export namespace Schemas {
       /** Absolute URL to the task detail page focused on this run. */
       task_view_url: string;
       /** Absolute URL to the run log API for this run. It returns the run's JSONL log transcript, preceded by the logs of any runs it resumed from. */
-      log_url: string;
+      log_entries_url: string;
       /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
       repo_research: SlackThreadContextRepoResearch | null;
       /** Absolute URL to the TaskRun row in Django admin (includes a log download action). */

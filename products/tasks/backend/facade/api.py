@@ -11150,12 +11150,12 @@ def _slack_repo_research_dto(
         return None
     research_run = repo_research_runs_by_id.get(research_run_id)
     sandbox_url = None
-    log_url = None
+    log_entries_url = None
     run_status = None
     if research_run is not None:
         sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
         run_status = research_run.status
-        log_url = _task_run_log_entries_url(research_run, build_url=build_url)
+        log_entries_url = _task_run_log_entries_url(research_run, build_url=build_url)
     # Prefer the run's actual id (prefixed dispatches persist it); fall back to derived when the row is gone.
     workflow_id = (
         research_run.workflow_id
@@ -11170,7 +11170,7 @@ def _slack_repo_research_dto(
         task_processing_workflow_url=_temporal_workflow_url(workflow_id),
         sandbox_url=sandbox_url,
         task_view_url=build_url(f"/project/{team_id}/tasks/{research_task_id}?runId={research_run_id}&ph_debug=true"),
-        log_url=log_url,
+        log_entries_url=log_entries_url,
     )
 
 
@@ -11246,7 +11246,7 @@ def resolve_slack_thread_context(
                 mention_workflow_id=mention_workflow_id,
                 mention_workflow_url=_temporal_workflow_url(mention_workflow_id),
                 task_view_url=build_url(f"/project/{task.team_id}/tasks/{task.id}?runId={run.id}&ph_debug=true"),
-                log_url=_task_run_log_entries_url(run, build_url=build_url),
+                log_entries_url=_task_run_log_entries_url(run, build_url=build_url),
                 repo_research=_slack_repo_research_dto(
                     task.team_id, state, repo_research_runs_by_id, build_url=build_url
                 ),

@@ -675,7 +675,7 @@ class SlackThreadContextRepoResearchDTO:
     task_processing_workflow_url: str | None
     sandbox_url: str | None
     task_view_url: str
-    log_url: str | None
+    log_entries_url: str | None
 
 
 @dataclass(frozen=True)
@@ -694,7 +694,7 @@ class SlackThreadContextRunDTO:
     mention_workflow_id: str | None
     mention_workflow_url: str | None
     task_view_url: str
-    log_url: str
+    log_entries_url: str
     admin_url: str
     repo_research: SlackThreadContextRepoResearchDTO | None = None
 
