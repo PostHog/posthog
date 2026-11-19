@@ -274,6 +274,30 @@ class TestSelection(SimpleTestCase):
         self.assertEqual(self.states[0]["user_request"], request)
         self.assertEqual("thread" in self.states[0], origin == Task.OriginProduct.SLACK)
 
+    @parameterized.expand(
+        [("named", "see /phs activation-guide", True), ("not_named", "how is activation defined?", False)]
+    )
+    def test_a_skill_named_in_the_request_is_injected_without_the_rerank(
+        self, name: str, prompt: str, named: bool
+    ) -> None:
+        self.selector = ContextSelector(
+            self.run_record, self.selector.actor, SelectionInput(message_id="m", prompt=prompt), "Bearer fake"
+        )
+
+        def decide(*, state: dict[str, JsonValue], questions: dict[str, Question]) -> SystemOneResult:
+            self.states.append(state)
+            answers = {key: {"noul": 0.95 if key == "useful" else 0.1} for key in questions}
+            return parse_system_one_response({"model": "test", "answers": answers}, questions)
+
+        self.model.decide.side_effect = decide
+        with patch("products.context_layer.backend.selection.posthoganalytics.capture") as capture:
+            result = self.selector.prepare(time.monotonic() + 60)
+        self.assertEqual("activation-guide" in result.context, named)
+        reranked = [c["id"] for state in self.states for c in state.get("candidates", {}).values()]
+        self.assertEqual("activation-guide" in reranked, not named)
+        explicit = [c["score"] for c in capture.call_args.kwargs["properties"]["candidates"] if c.get("explicit")]
+        self.assertEqual(explicit, [1.0] if named else [])
+
     @parameterized.expand([(403,), (404,), (429,), (503,), (302,)])
     def test_denied_or_failed_sources_preserve_other_results(self, status: int) -> None:
         self.status = status
