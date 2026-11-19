@@ -96,6 +96,7 @@ from products.signals.backend.report_search import (
     ReportMatchKind,
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
+from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.signals.backend.source_filters import (
     SourceFilterPreviewStatus,
@@ -3502,11 +3503,10 @@ class SignalReportListSerializer(SignalReportSerializer):
         help_text=(
             "Sort key from the ranker named by the list response's ranker field, for sort=recommended and "
             "sort=personal only. Lower keys rank first, so rows from several requests merge in the order of one "
-            "request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from "
-            "0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses "
-            "the priority rank only, from 0 (P0) to 5 (no priority). For the personal ranker, a report in the "
-            "stored personal ranking gets its position in that ranking from 0, and every other report gets the "
-            "number of those positions plus its key from the recommended ranker. Null for every other sort."
+            "request. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). For the "
+            "personal ranker, a report in the stored personal ranking gets its position in that ranking from 0, "
+            "and every other report gets the number of those positions plus its priority rank. Null for every "
+            "other sort."
         ),
     )
     personal_tier = serializers.SerializerMethodField(
@@ -3547,11 +3547,9 @@ class SignalReportListSerializer(SignalReportSerializer):
         return dict(ReportMonitoringSummarySerializer(summary).data)
 
     def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
-        ranker = self.context.get("inbox_ranker")
-        if ranker is None:
+        if not self.context.get("ranked_inbox_sort"):
             return None
-        score = None if ranker == "priority" else getattr(obj, f"inbox_ranking_{ranker}_score", None)
-        key = inbox_merge_key(ranker, score, getattr(obj, "inbox_priority_sort_rank", None))
+        key = inbox_merge_key(getattr(obj, "inbox_priority_sort_rank", None))
         personal_order: PersonalListOrder | None = self.context.get("personal_order")
         if personal_order is None:
             return key
@@ -3589,6 +3587,17 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
             "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
         ),
     )
+    tags = RepeatedOrCommaSeparatedListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        max_length=SignalReport.MAX_TAGS,
+        help_text=(
+            "Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, "
+            "for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` "
+            f"matches `on-call`. At most {SignalReport.MAX_TAGS}. Omit for reports with any tags or none."
+        ),
+    )
     include_unlisted = serializers.BooleanField(
         required=False,
         default=False,
@@ -3599,12 +3608,20 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
         ),
     )
 
+    def validate_tags(self, value: list[str]) -> list[str]:
+        if not value:
+            return []
+        tags = sorted({slug for raw in value if (slug := slugify_tag(raw))})
+        if not tags:
+            raise serializers.ValidationError("No usable tags in the filter once normalized to lowercase slugs.")
+        return tags
+
 
 class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
     ranking_id = serializers.UUIDField(
         required=False,
         help_text=(
-            "For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the "
+            "For sort=recommended and sort=personal when the ranker is personal: the ranking_id of the "
             "first page. Pass it on later pages, so a new personal "
             "ranking does not reorder them. When that ranking no longer exists, the latest one applies."
         ),

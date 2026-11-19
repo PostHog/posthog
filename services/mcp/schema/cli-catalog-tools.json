@@ -28093,6 +28093,11 @@
                     "csv": false
                 },
                 {
+                    "param": "tags",
+                    "key": "tags",
+                    "csv": false
+                },
+                {
                     "param": "task_id",
                     "key": "task_id",
                     "csv": false
@@ -28137,6 +28142,7 @@
                     "title",
                     "summary",
                     "metrics",
+                    "tags",
                     "status",
                     "priority",
                     "actionability",
@@ -37703,6 +37709,11 @@
                     "param": "search",
                     "key": "search",
                     "csv": false
+                },
+                {
+                    "param": "search_values",
+                    "key": "search_values",
+                    "csv": false
                 }
             ],
             "body": null,
@@ -42250,6 +42261,14 @@
                     "key": "write_scopes"
                 },
                 {
+                    "param": "report_actions",
+                    "key": "report_actions"
+                },
+                {
+                    "param": "max_report_actions_per_day",
+                    "key": "max_report_actions_per_day"
+                },
+                {
                     "param": "lifecycle_locked",
                     "key": "lifecycle_locked"
                 },
@@ -42549,6 +42568,14 @@
                 {
                     "param": "write_scopes",
                     "key": "write_scopes"
+                },
+                {
+                    "param": "report_actions",
+                    "key": "report_actions"
+                },
+                {
+                    "param": "max_report_actions_per_day",
+                    "key": "max_report_actions_per_day"
                 },
                 {
                     "param": "precheck_query",
@@ -45072,6 +45099,14 @@
                     "key": "write_scopes"
                 },
                 {
+                    "param": "report_actions",
+                    "key": "report_actions"
+                },
+                {
+                    "param": "max_report_actions_per_day",
+                    "key": "max_report_actions_per_day"
+                },
+                {
                     "param": "lifecycle_locked",
                     "key": "lifecycle_locked"
                 },
@@ -45334,6 +45369,14 @@
                 {
                     "param": "write_scopes",
                     "key": "write_scopes"
+                },
+                {
+                    "param": "report_actions",
+                    "key": "report_actions"
+                },
+                {
+                    "param": "max_report_actions_per_day",
+                    "key": "max_report_actions_per_day"
                 },
                 {
                     "param": "precheck_query",
