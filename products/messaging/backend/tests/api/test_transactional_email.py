@@ -2282,6 +2282,10 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("a_cut_off_body", '{"to": "user@example.com", "template_key": '),
             ("bytes_that_are_not_utf_8", b'{"to": "user@example.com", "template_key": "\xff"}'),
+            (
+                "a_send_cut_off_inside_a_character",
+                b'{"to": "user@example.com", "distinct_id": "user-1", "template_key": "welcome", "subject": "Hi", "html": "<p>Hi</p>"}\xe2\x82',
+            ),
         ]
     )
     def test_a_send_refuses_a_body_that_is_not_json(self, mock_post, _flag, _capture, _name, body: str | bytes):
@@ -2290,7 +2294,7 @@ class TestTransactionalEmail(APIBaseTest):
                 self.send_email_url, body, content_type="application/json"
             )
 
-        assert (response.status_code, response.json()["code"]) == (status.HTTP_400_BAD_REQUEST, "parse_error")
+        assert (response.status_code, response.json().get("code")) == (status.HTTP_400_BAD_REQUEST, "parse_error")
         assert cdp.received == []
 
     def test_a_body_over_the_request_cap_from_a_key_of_another_project_is_denied(self, mock_post, _flag, capture):

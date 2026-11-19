@@ -1,13 +1,12 @@
 import re
 import time
-import codecs
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
 from types import SimpleNamespace
-from typing import IO, TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from django.core.exceptions import (
@@ -674,11 +673,10 @@ class SendBodyJSONParser(JSONParser):
     def parse(self, stream: Any, media_type: str | None = None, parser_context: Mapping[str, Any] | None = None) -> Any:
         encoding = get_encoding(parser_context or {})
         try:
-            decoded_stream = cast(IO[str], codecs.getreader(encoding)(stream))
+            # A stream reader drops a character cut off at the end of the body, so the body is decoded whole.
+            text = stream.read().decode(encoding)
             parse_constant = drf_json.strict_constant if self.strict else None
-            return drf_json.load(
-                decoded_stream, parse_constant=parse_constant, object_pairs_hook=_JsonObject.from_pairs
-            )
+            return drf_json.loads(text, parse_constant=parse_constant, object_pairs_hook=_JsonObject.from_pairs)
         except ValueError as exc:
             raise ParseError(f"JSON parse error - {exc}")
 
