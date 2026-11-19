@@ -253,7 +253,7 @@ def fetch_first_email_sends(
               AND sent_at >= toDateTime64(%(after)s, 6) AND sent_at < toDateTime64(%(before)s, 6)
               AND distinct_id != ''
             GROUP BY distinct_id
-            ORDER BY first_sent_at DESC
+            ORDER BY first_sent_at DESC, distinct_id DESC
             LIMIT %(limit)s
             """,
             {

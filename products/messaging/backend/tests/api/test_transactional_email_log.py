@@ -57,9 +57,9 @@ IMPACT_COUNTS = {
     "window_days": 7,
 }
 LONG_ID_SENDS = 20
-TIED_SENDS = 8
+TIED_SENDS = 12
 SPLIT_LOOKUP_OTHERS = 11
-TIED_SENDS_FOLLOWED = 4
+TIED_SENDS_FOLLOWED = 6
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 
 
@@ -712,24 +712,43 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert impact["without_click"] == {"sends": LONG_ID_SENDS, "converted": LONG_ID_SENDS}
 
-    def test_impact_follows_the_same_sends_when_several_tie_at_the_cap(self, _flag):
-        sends = []
-        for index in range(TIED_SENDS):
-            name = f"tied-{index}"
+    @parameterized.expand(
+        [
+            ("impact", lambda body: body["without_click"], {"sends": TIED_SENDS_FOLLOWED, "converted": 0}),
+            (
+                "results",
+                lambda body: body,
+                {"recipients": TIED_SENDS_FOLLOWED, "converted": 0, "revenue": 0.0, "median_hours_to_convert": None},
+            ),
+        ]
+    )
+    def test_follows_the_same_sends_when_several_tie_at_the_cap(self, _flag, endpoint, counts_of, expected):
+        message_ids = sorted(
+            self._send(60, f"tied-{index}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            for index in range(TIED_SENDS)
+        )
+        for rank, message_id in enumerate(message_ids):
+            name = f"tied-{rank:02d}"
             create_person(team=self.team, distinct_ids=[name])
-            message_id = self._send(60, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
             self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
-            sends.append((message_id, name))
-        for _, left_out in sorted(sends)[: TIED_SENDS - TIED_SENDS_FOLLOWED]:
-            _create_event(team=self.team, event="purchase", distinct_id=left_out, timestamp=NOW - timedelta(minutes=30))
+            if rank < TIED_SENDS - TIED_SENDS_FOLLOWED:
+                _create_event(team=self.team, event="purchase", distinct_id=name, timestamp=NOW - timedelta(minutes=30))
         flush_persons_and_events()
 
         with patch(
             "products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", TIED_SENDS_FOLLOWED
         ):
-            impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+            response = self.client.get(
+                self._url(f"{endpoint}/"),
+                {
+                    "workflow_id": str(self.workflow_id),
+                    "event": "purchase",
+                    "date_from": (NOW - timedelta(days=1)).isoformat(),
+                },
+            )
 
-        assert impact["without_click"] == {"sends": TIED_SENDS_FOLLOWED, "converted": 0}
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert counts_of(response.json()) == expected
 
     def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
         self._welcomed: list[str] = []
@@ -749,22 +768,19 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
             _create_event(team=self.team, event="purchase", distinct_id=name, timestamp=NOW - timedelta(minutes=30))
         flush_persons_and_events()
-        [(clickhouse_now,)] = sync_execute("SELECT now64(6)")
+        [(since_micros,)] = sync_execute("SELECT toUnixTimestamp64Micro(now64(6))")
 
         impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert impact["without_click"] == {"sends": len(self._welcomed), "converted": len(self._welcomed)}
         sync_execute("SYSTEM FLUSH LOGS")
-        # With the limit off, ClickHouse logs these queries without their tags. They are found by the table they read and
-        # by this run's distinct ids, because other runs on the same ClickHouse write to the same query log. One query can
-        # have more than one log row, so the query ids are counted.
         [(conversion_queries,)] = sync_execute(
             """
             SELECT uniqExact(query_id) FROM system.query_log
-            WHERE event_time_microseconds >= %(since)s AND current_database = currentDatabase()
+            WHERE event_time_microseconds >= fromUnixTimestamp64Micro(%(since_micros)s) AND current_database = currentDatabase()
               AND has(tables, concat(currentDatabase(), '.events')) AND position(query, %(run_token)s) > 0
             """,
-            {"since": clickhouse_now, "run_token": self._run_token},
+            {"since_micros": since_micros, "run_token": self._run_token},
         )
         return conversion_queries
 

@@ -578,12 +578,9 @@ def transactional_email_results(
         first_send[person] = min(first_send.get(person, sent_at), sent_at)
         distinct_ids_of[person].append(distinct_id)
 
-    # A recipient's distinct ids stay in one batch, so each recipient's conversions come back from one query. The size
-    # estimate assumes that every byte needs escaping, so a batch can take the whole limit. At the default limit, a
-    # capped request then splits only when its distinct ids are long.
     conversions: dict[str, _Conversion] = {}
     recipients = list(distinct_ids_of.items())
-    for batch in _batches_by_query_size(team.id, recipients, _recipient_query_bytes, limit_share=1):
+    for batch in _batches_by_query_size(team.id, recipients, _recipient_query_bytes, limit_divisor=1):
         batch_first_send = {recipient: first_send[recipient] for recipient, _ in batch}
         conversions |= _conversions(
             team,
@@ -594,7 +591,6 @@ def transactional_email_results(
             batch_first_send,
             window,
             min(batch_first_send.values()),
-            # The events range ends before its bound, while a conversion may land on the last second of the window.
             max(batch_first_send.values()) + window + timedelta(seconds=1),
         )
     converted_at = {person: conversion.first_at for person, conversion in conversions.items()}
@@ -694,7 +690,6 @@ class _FollowedSend:
 
 
 def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _Period) -> list[_FollowedSend]:
-    # The message id breaks a tie in queue time, so every load follows the same sends at the cap.
     rows = _execute(
         team.id,
         f"""
@@ -743,30 +738,30 @@ def _converted_sends(team: Team, user: User | None, event: str, sends: list[_Fol
     return converted
 
 
-# ClickHouse reads a size setting as an integer with an optional plus sign and k, K, M, G or T suffix, and an `i` after
-# the suffix makes it a power of two: "16K" is 16000 and "16Ki" is 16384.
-_CLICKHOUSE_SIZE = re.compile(r"\+?(\d+)(?:([kKMGT])(i?))?")
+_CLICKHOUSE_SIZE_SETTING = re.compile(r"\+?(\d+)(?:([kKMGT])(i?))?")
 _SIZE_SUFFIX_POWER = {"k": 1, "K": 1, "M": 2, "G": 3, "T": 4}
 
 
 def _max_query_size(team_id: int) -> int:
-    # Per-team settings come from JSON, so a number can arrive as text. Zero turns the ClickHouse limit off, so it falls
-    # back to the default limit, as does a value ClickHouse itself would refuse.
-    override = CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
-    size = _CLICKHOUSE_SIZE.fullmatch(str(override)) if isinstance(override, int | str) else None
-    team_limit = 0
-    if size:
-        number, suffix, binary = size.groups()
-        power = _SIZE_SUFFIX_POWER.get(suffix, 0)
-        team_limit = int(number) * (1024**power if binary else 1000**power)
-    return team_limit if team_limit > 0 else clickhouse_execute.default_settings()["max_query_size"]
+    team_limit = _clickhouse_size_in_bytes(
+        CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
+    )
+    return team_limit or clickhouse_execute.default_settings()["max_query_size"]
+
+
+def _clickhouse_size_in_bytes(setting: object) -> int:
+    size = _CLICKHOUSE_SIZE_SETTING.fullmatch(str(setting)) if isinstance(setting, int | str) else None
+    if not size:
+        return 0
+    number, suffix, binary = size.groups()
+    power = _SIZE_SUFFIX_POWER.get(suffix, 0)
+    return int(number) * (1024**power if binary else 1000**power)
 
 
 def _batches_by_query_size[T](
-    team_id: int, items: list[T], query_bytes_of: Callable[[T], int], *, limit_share: int = 4
+    team_id: int, items: list[T], query_bytes_of: Callable[[T], int], *, limit_divisor: int = 4
 ) -> Iterator[list[T]]:
-    # The default quarter of the limit leaves room for the rest of the query.
-    budget = _max_query_size(team_id) // limit_share
+    budget = _max_query_size(team_id) // limit_divisor
     batch: list[T] = []
     batch_bytes = 0
     for item in items:
