@@ -79,6 +79,7 @@ TTL_SECONDS: dict[str, int] = {
     "default": 35 * 24 * 60 * 60,
 }
 MAX_WINDOW_DAYS = 7
+LATE_EVENTS_SETTLING_SECONDS = 60 * 60
 MAX_RANGE_DAYS = 366
 
 _BUCKET_EXPRS: dict[str, str] = {
@@ -199,7 +200,12 @@ def _ensure(runner: TrendsQueryRunner, *, start: datetime, end: datetime, run_in
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=start,
         time_range_end=end,
-        ttl_seconds=parse_ttl_schedule(TTL_SECONDS, runner.team.timezone, max_window_days=MAX_WINDOW_DAYS),
+        ttl_seconds=parse_ttl_schedule(
+            TTL_SECONDS,
+            runner.team.timezone,
+            max_window_days=MAX_WINDOW_DAYS,
+            settling_period_seconds=LATE_EVENTS_SETTLING_SECONDS,
+        ),
         table=LazyComputationTable.SERIES_VALUES_PREAGGREGATED,
         placeholders={
             "event_filter": (
