@@ -145,7 +145,11 @@ def apply_ses_tenant_state(
             # Inside the transaction: the after-commit notification can raise, and a retry sees the
             # state unchanged and returns early, so a row written after it would be lost for good.
             log_email_sending_tier_change(
-                config.team, previous_tier=previous_tier, new_tier=MIN_EMAIL_SENDING_TIER, reason="ses_tenant_paused"
+                config.team,
+                previous_tier=previous_tier,
+                new_tier=MIN_EMAIL_SENDING_TIER,
+                reason="ses_tenant_paused",
+                pin_change=(False, False),
             )
         logger.info(
             "SES tenant state changed",
