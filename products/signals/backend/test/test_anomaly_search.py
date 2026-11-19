@@ -13,6 +13,8 @@ from parameterized import parameterized
 
 from posthog.schema import IntervalType
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -412,6 +414,21 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         body = self._get("search").json()
 
         assert (body["scored_days"], body["scored_history_ready"]) == (13, False)
+
+    def test_search_reuses_the_cached_scored_days_of_the_team(self) -> None:
+        for day in range(18, 23):
+            self._score(_day(day), score=0.99, flag=1)
+        assert self._get("search", date_from="2026-10-19").json()["scored_days"] == 5
+        for day in range(9, 18):
+            self._score(_day(day), score=0.1, flag=0)
+
+        with patch(
+            "products.signals.backend.anomaly_scores.read.execute_hogql_query", wraps=execute_hogql_query
+        ) as query:
+            body = self._get("search", date_from="2026-10-19").json()
+
+        assert (len(body["series"]), body["scored_days"], body["scored_history_ready"]) == (1, 5, False)
+        assert "AnomalyScoresScoredDays" not in [call.kwargs["query_type"] for call in query.call_args_list]
 
     @parameterized.expand(
         [
