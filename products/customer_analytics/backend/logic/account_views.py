@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Properties": "Properties",
     "Notes": "Notes",
+    "Context": "Context",
     "Automations": "Automations",
     "Tasks": "Tasks",
     "Users": "Users",

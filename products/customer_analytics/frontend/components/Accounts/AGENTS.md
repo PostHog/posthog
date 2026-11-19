@@ -268,6 +268,15 @@ Step names come from the current workflow definition when the retained logs iden
 The empty state explains that older runs may no longer be available.
 `AutomationsViewed`, `AutomationsLoaded`, `AutomationsLoadFailed`, and `AutomationWorkflowOpened` track entry, loading, failure, and workflow navigation without account data.
 
+`AccountContextPane` and its keyed `accountContextLogic` render the Context system tab and view widget.
+`customer-analytics-context-pane` gates the tab, the widget picker, and saved widgets through the shared component registry.
+The flag payload names the context source with `project_id`, `endpoint`, and `account_variable`. Without a valid payload, the pane shows a setup state and sends no request.
+The logic runs that endpoint through the generated `endpointsRunCreate` client with the account's external ID.
+`accountContextData.ts` turns the returned rows into facts, signals, and internal Slack threads with plain-language labels.
+The pane stores nothing in Customer analytics, so no account read, MCP tool, or agent context returns its rows. Its root carries `ph-no-capture`.
+The confirmed and inferred split, the filters, and pagination run client-side over one response. Write actions render disabled until write-back exists.
+`ContextViewed`, `ContextLoaded`, and `ContextLoadFailed` track entry, loading, and failure with counts only, never account data.
+
 `AccountsTable.useExpandable()` makes expansion controlled by `accountsExpansionLogic`. Expanded rows show `AccountPinnedPropertiesExpansion`.
 `accountViewComponents.tsx` owns the system-tab kinds and component registry. `AccountDetailNavigation` renders system tabs through `AccountViewComponent`.
 Each account-view tile passes its own `instanceId` to keep widget state separate.

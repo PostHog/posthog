@@ -13,6 +13,7 @@ import { AccountPropertiesWidgetConfiguration } from '../../scenes/CustomerAnaly
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
 import { AccountAutomationsExpansion } from './AccountAutomationsExpansion'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
+import { AccountContextPane } from './AccountContextPane'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
 import { AccountDotMatrixTile } from './AccountDotMatrixTile'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
@@ -36,6 +37,7 @@ import { AccountsEvents } from './constants'
 
 export type AccountSystemTabKind =
     | 'notes'
+    | 'context'
     | 'tasks'
     | 'users'
     | 'relationships'
@@ -189,6 +191,21 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
                 accountId={props.accountId}
                 embedded={props.embedded}
                 {...getTileLogicProps(props)}
+            />
+        ),
+    },
+    {
+        kind: 'context',
+        tagName: 'Context',
+        label: 'Context',
+        systemTabId: 'system:context',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CONTEXT_PANE,
+        Component: (props) => (
+            <AccountContextPane
+                accountId={props.accountId}
+                externalId={props.externalId}
+                instanceId={props.instanceId}
+                embedded={props.embedded}
             />
         ),
     },
