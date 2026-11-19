@@ -85,6 +85,9 @@ class FakeResend:
         if self.failures.get(path):
             status, headers = self.failures[path].pop(0)
             return self._response(status, {"name": "rate_limit_exceeded", "message": "Too many"}, headers)
+        if match := re.fullmatch(r"/segments/([^/]+)/contacts", path):
+            members = set(self.data["segment_contacts"].get(match.group(1), []))
+            return self._page([row for row in self.data["contacts"] if row["id"] in members], params)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)
         if match := re.fullmatch(r"/contacts/([^/]+)", path):
@@ -729,11 +732,38 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         runs.close_stale_runs()
 
         run.refresh_from_db()
-        [plan] = run.progress["contacts"]["people_imports"]
-        cohort = Cohort.objects.get(id=plan["cohort_id"])
+        plans = run.progress["contacts"]["people_imports"]
+        cohorts = Cohort.objects.filter(id__in=[plan["cohort_id"] for plan in plans])
         assert (run.status, run.progress["contacts"]["status"]) == ("failed", "failed")
-        assert (cohort.is_calculating, cohort.errors_calculating) == (False, 1)
+        assert len(plans) == 2
+        assert {(cohort.is_calculating, cohort.errors_calculating) for cohort in cohorts} == {(False, 1)}
         assert self.people.stored == {}
+
+    def test_a_segment_id_cannot_reach_another_resend_endpoint(self) -> None:
+        self.resend.data["segments"] = [{**self.resend.data["segments"][0], "id": "s/../../api-keys"}]
+
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/segments/s%2F..%2F..%2Fapi-keys/contacts" in self.resend.calls
+
+    def test_segments_stay_unfilled_when_the_contacts_cohort_cannot_be_imported(self) -> None:
+        Cohort.objects.create(
+            team_id=self.team.id, name="Resend contacts", description="Imported from Resend contacts.", deleted=True
+        )
+
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "new_people"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+        run.refresh_from_db()
+
+        assert self.people.imports == []
+        everyone, *segments = run.progress["contacts"]["items"]
+        assert everyone["status"] == "failed"
+        assert segments and all(item["status"] == "skipped" for item in segments)
 
     @parameterized.expand(
         [
@@ -765,7 +795,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         run.refresh_from_db()
         # The workflow sends the stored list once the step completes. A contact who unsubscribed becomes a person but
         # stays out of the cohort.
-        [plan] = run.progress["contacts"]["people_imports"]
+        plan, segment_plan = run.progress["contacts"]["people_imports"]
         people = self.people.people(plan)
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
@@ -775,6 +805,9 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert run.progress["contacts"]["counts"] == counts
         segment_cohorts = Cohort.objects.filter(team_id=self.team.id, description="Imported from Resend segment seg-1.")
         assert segment_cohorts.count() == 1
+        # The segment's list only sets its cohort's members, so its contacts' events go out once, with the list above.
+        assert (segment_plan["cohort_id"], segment_plan["send_events"]) == (segment_cohorts.get().id, False)
+        assert [person["distinct_id"] for person in self.people.people(segment_plan)] == ["user-hal"]
         workflow = get_workflow(
             team_id=self.team.id,
             workflow_id=next(

@@ -77,6 +77,7 @@ from products.messaging.backend.services.resend_client import (
     ResendRateLimited,
 )
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH, resend_segment_description
 from products.workflows.backend.facade.workflow_imports import import_resend_automation, reuse_import_access
 from products.workflows.backend.facade.writes import defer_hog_flow_reloads
 
@@ -119,10 +120,7 @@ class ResendImportProvider(ImportProvider):
         "afterward if you'd like."
     )
     api_key_url = "https://resend.com/api-keys"
-    not_imported = (
-        "A segment an automation adds people to becomes an empty static cohort. API keys, webhooks, send history and "
-        "stats stay in Resend, so rebuild what you need."
-    )
+    not_imported = "API keys, webhooks, send history and stats stay in Resend, so rebuild what you need."
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
         "this needs new records. Leave your Resend records in place, because both tools can sign mail for one domain "
@@ -186,9 +184,9 @@ class ResendImportProvider(ImportProvider):
             label="Contacts",
             description=(
                 "Matches each contact to a person in PostHog by email and fills in their first and last name where "
-                "PostHog has none. Fills a cohort with all your contacts. Each person updated counts as one event. "
-                "Needs Suppression list, Unsubscribed contacts and Topic preferences selected too, so no one who left in "
-                "Resend gets marketing email."
+                "PostHog has none. Fills a cohort with all your contacts and one with each segment's contacts. Each "
+                "person updated counts as one event. Needs Suppression list, Unsubscribed contacts and Topic "
+                "preferences selected too, so no one who left in Resend gets marketing email."
             ),
             count_labels=CONTACT_COUNT_LABELS,
             requires=("suppressions", "opt_outs", "topic_opt_outs"),
@@ -421,6 +419,27 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             for contact in page.data
             if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
         )
+    segments = []
+    for page in client.pages("/segments"):
+        for segment in page.data:
+            segment_id = str(segment.get("id") or "")
+            if not segment_id:
+                continue
+            name = str(segment.get("name") or segment_id)
+            members = [
+                row
+                for members_page in client.pages(f"/segments/{quote(segment_id, safe='')}/contacts")
+                for row in _collect(contacts, members_page.data)
+            ]
+            segments.append(
+                ContactList(
+                    cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Resend)",
+                    cohort_description=resend_segment_description(segment_id),
+                    source=f'the Resend segment "{name}"',
+                    rows=tuple(members),
+                )
+            )
+    # Read last, so a contact who joined a segment after the contact list was read still becomes a person.
     everyone = contacts.everyone
     yield ImportPage(
         processed=len(everyone),
@@ -428,7 +447,8 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             save_contact_lists,
             context,
             replace(_everyone(everyone), non_members=frozenset(unsubscribed)),
-            (),
+            # Unsubscribed contacts stay out of every cohort, as they do for the cohort of all contacts.
+            [replace(segment, non_members=frozenset(unsubscribed)) for segment in segments],
             contacts.other_spellings,
         ),
     )
@@ -827,6 +847,7 @@ def _save_automations(
                 emails,
                 step_emails=_step_emails(automation, senders),
                 segments={segment_id: segments[segment_id] for segment_id in _segment_references(automation)},
+                segment_members_imported="contacts" in context.steps,
             )
             counts["already_present" if result.status == "skipped" else result.status] += 1
             items.append(
