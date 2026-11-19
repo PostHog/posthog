@@ -30,7 +30,7 @@ export const TextImages: StoryObj<typeof NotebookAppBlock> = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(canvas.getByRole('link', { name: /Preview/ })).toHaveAttribute(
+        await expect(await canvas.findByRole('link', { name: /Preview/ })).toHaveAttribute(
             'href',
             'https://example.com/preview.png'
         )
