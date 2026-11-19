@@ -412,7 +412,6 @@ export const FEATURE_FLAGS = {
     LOGS_NATURAL_LANGUAGE_SEARCH: 'logs-natural-language-search', // owner: @jonmcwest #team-logs
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
     LOGS_SERVICES_VIEW_V2: 'logs-services-view-v2', // owner: #team-logs
-    LOGS_SESSION_ERROR_BADGES: 'logs-session-error-badges', // owner: #team-logs
     LOGS_SETTINGS_CUSTOM_RETENTION: 'logs-settings-custom-retention', // owner: #team-logs
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
     LOGS_SETTINGS_PII_SCRUB: 'logs-settings-pii-scrub', // owner: #team-logs
@@ -588,7 +587,6 @@ export const FEATURE_FLAGS = {
     TRACING_SCENE_TABS: 'tracing-scene-tabs', // owner: #team-apm — gates the Viewer and SQL tabs in the tracing scene
     TRACING_SETTINGS_RETENTION: 'tracing-settings-retention', // owner: #team-apm — gates the traces retention setting; mirrored by `TRACES_RETENTION_FLAG` in posthog/api/team.py
     TRACING_SETTINGS_RETENTION_RULES: 'tracing-settings-retention-rules', // owner: #team-apm — gates the span retention rules in tracing settings
-    TRACING_SPAN_ERROR_BADGES: 'tracing-span-error-badges', // owner: #team-apm, badges span rows whose session hit errors and adds the Errors tab to the trace drawer
     TRACING_TRACE_DIALOG: 'tracing-trace-dialog', // owner: #team-apm — opens traces in a dialog over the current page instead of navigating to tracing
     TRACING_UI_V2: 'tracing-ui-v2',
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
