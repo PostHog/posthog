@@ -11,7 +11,6 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.ai_observability.backend.composite_formula import CompositeFormula
 from products.ai_observability.backend.composite_scorers import CompositeScorers
 from products.ai_observability.backend.models.offline_evaluations import (
-    OfflineDeletedIdentity,
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
     OfflineExperiment,
@@ -188,24 +187,7 @@ def _write_payload(owner: Owner, *, patch: dict[str, JSONValue] | None, now: dat
 
 
 def _delete_resource(experiment: OfflineExperiment, owner: Owner, affected: QuerySet[OfflineEvaluationResult]) -> None:
-    if experiment.status == OfflineExperiment.Status.UPLOADING:
-        if isinstance(owner, OfflineExperimentItem):
-            OfflineDeletedIdentity.objects.for_team(experiment.team_id).filter(
-                experiment=experiment, item_id=owner.id
-            ).delete()
-            OfflineDeletedIdentity.objects.for_team(experiment.team_id).create(
-                team_id=experiment.team_id, experiment=experiment, item_id=owner.id
-            )
-        else:
-            OfflineDeletedIdentity.objects.for_team(experiment.team_id).bulk_create(
-                [
-                    OfflineDeletedIdentity(
-                        team_id=experiment.team_id, experiment=experiment, item_id=item_id, scorer_version_id=version_id
-                    )
-                    for item_id, version_id in affected.values_list("item_id", "scorer_version_id")
-                ]
-            )
-    elif experiment.closed_item_count is None:
+    if experiment.status != OfflineExperiment.Status.UPLOADING and experiment.closed_item_count is None:
         counts = _experiment_counts(experiment)
         experiment.closed_item_count = counts.accepted_item_count
         experiment.closed_result_count = counts.accepted_result_count

@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import timedelta
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -31,7 +31,6 @@ from products.ai_observability.backend.api.offline_experiments import OfflineExp
 from products.ai_observability.backend.api.score_definitions import ScoreDefinitionViewSet
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
-    OfflineDeletedIdentity,
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
     OfflineEvaluationUsageLedger,
@@ -163,21 +162,25 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         )
 
     @parameterized.expand(["item", "result"])
-    def test_only_direct_api_can_delete_and_upload_cannot_recreate(self, target: str) -> None:
+    def test_only_direct_api_can_delete_and_reupload_counts_as_new_while_open(self, target: str) -> None:
         exp_id, item_id, result_id, body = self._mutable_run()
         key = f"items/{item_id}" if target == "item" else f"results/{result_id}"
         url = self._endpoint(exp_id, key) + "?revision=0"
         self._authenticate("personal_key", ["evaluation:write", "llm_analytics:read"])
         self.assertEqual(self.client.delete(url, HTTP_USER_AGENT=MCP_USER_AGENT_MARKER).status_code, 403)
         self.assertEqual(self.client.delete(url).status_code, 204)
+        self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
         self.assertEqual(self.client.post(self._endpoint(exp_id, "upload"), body).status_code, 403)
         self._authenticate("project_key")
-        replay = self.client.post(self._endpoint(exp_id, "upload"), body)
-        self.assertEqual(replay.status_code, 409)
-        self.assertEqual(replay.data["code"], "identity_deleted")
-        self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
+        upload = self._endpoint(exp_id, "upload")
+        recreated = self.client.post(upload, body)
+        self.assertEqual(recreated.status_code, 200, recreated.data)
+        self.assertEqual(recreated.data["items"][0]["created"], target == "item")
+        self.assertEqual([row["created"] for row in recreated.data["results"]], [True, True])
+        retry = self.client.post(upload, body)
+        self.assertEqual([row["created"] for row in retry.data["results"]], [False, False])
         self.assertEqual(
-            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [1]
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [1, 1]
         )
 
     def test_payload_update_uses_original_deadline_and_cannot_restore_deleted_data(self) -> None:
@@ -207,7 +210,7 @@ class TestOfflineExperimentsAPI(APIBaseTest):
                 self.client.patch(payload_url, {"revision": 1, "payload": {"reasoning": "Overdue"}}).status_code, 409
             )
 
-    def test_delete_composite_keeps_reported_input_and_blocks_only_the_deleted_identity(self) -> None:
+    def test_deleted_composite_keeps_its_input_and_cannot_be_reuploaded_after_close(self) -> None:
         exp_id, item_id, _, body = self._mutable_run()
         composite = OfflineEvaluationResult.objects.for_team(self.team.id).get(input_result_ids__isnull=False)
         url = self._endpoint(exp_id, f"results/{composite.pk}") + "?revision=0"
@@ -215,11 +218,7 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(self.client.get(self._endpoint(exp_id, f"items/{item_id}/results")).data["count"], 1)
         upload = self._endpoint(exp_id, "upload")
         self.assertEqual(self.client.post(upload, {"results": body["results"][:1]}).status_code, 200)
-        self.assertEqual(self.client.post(upload, body).data["code"], "identity_deleted")
         self.assertEqual(self.client.post(self._endpoint(exp_id, "complete"), {}).data["accepted_result_count"], 1)
-        self.assertFalse(
-            OfflineDeletedIdentity.objects.for_team(self.team.id).filter(experiment_id=UUID(exp_id)).exists()
-        )
         self.assertEqual(self.client.post(upload, body).data["code"], "experiment_closed")
 
     def test_mutating_a_source_requires_access_to_affected_composite(self) -> None:

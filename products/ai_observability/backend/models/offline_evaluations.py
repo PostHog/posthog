@@ -253,24 +253,6 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
         return self.categorical_values
 
 
-class OfflineDeletedIdentity(UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    experiment = models.ForeignKey(OfflineExperiment, on_delete=models.CASCADE, related_name="+")
-    item_id = models.UUIDField()
-    scorer_version_id = models.UUIDField(null=True)
-
-    objects = EnvironmentScopedManager()
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["experiment", "item_id", "scorer_version_id"],
-                nulls_distinct=False,
-                name="aio_offline_deleted_identity",
-            ),
-        ]
-
-
 class OfflineEvaluationUsageLedger(UUIDModel):
     team_id = models.BigIntegerField(editable=False)
     organization_id = models.UUIDField(editable=False)

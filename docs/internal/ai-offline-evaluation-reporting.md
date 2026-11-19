@@ -523,7 +523,7 @@ Existing `llma` event names and attributes remain unchanged so saved actions and
 Newly accepted reported Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
 Each upload transaction that inserts reported results writes one entry with a quantity equal to the number of new reported results, including error, skipped, and not-applicable outcomes. Computed composite results add no ledger quantity.
 Results, payloads, and usage commit together; a ledger write failure rolls back the upload.
-Exact retries add no usage, including retries split or regrouped into different requests.
+Retries of retained results add no usage, including retries split or regrouped into different requests.
 Mixed uploads count only new results, and changed content still returns a conflict.
 
 Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
@@ -537,9 +537,8 @@ Independent scalar identifiers prevent product deletion cascades from deleting u
 `editable=False`, environment scoping, and server-assigned fields are application protections, not database immutability: privileged SQL and ORM bulk updates/deletes can still change the ledger.
 
 Retry deduplication uses retained result identities, not the batch ledger. Payload expiry preserves these identities.
-Use the API to delete items and results. It reserves deleted identities in uploading experiments to prevent a replay from creating another result or usage unit.
-Closing the experiment releases those identifiers because a closed experiment already rejects new uploads.
-Direct database deletion bypasses that check.
+While an experiment is uploading, submitting a deleted item or result again creates it anew, even when the submission is an exact retry.
+Each recreated reported result counts as another usage unit. Computed composites add no usage. Once the experiment closes, it rejects uploads that would recreate deleted data.
 
 ### Updating and deleting offline evaluation data
 
@@ -560,12 +559,12 @@ For payload edits, use `{"revision": 0, "payload": {"output": null}}`. Omission 
 An item and its payload share a revision, as do a result and its payload.
 
 These operations require an evaluation editor with `evaluation:write`. Result operations and item deletion also require `llm_analytics:read` and access to the affected scorers and composite inputs.
-Enable `ai-observability-offline-evaluation-mutations` for a project after all ingestion servers in its region support deleted identities and original receipts.
+Enable `ai-observability-offline-evaluation-mutations` for a project after all ingestion servers in its region support original upload receipts after edits.
 MCP exposes the four updates. Deletes are available only through the direct API.
 An ingestion-only key can still acknowledge an original upload after an edit. That retry returns the original outcome.
 Calculating a new composite from an edited input, or retrying that calculation, requires stored-result read access.
 
-The 30-day window starts at the owner's original acceptance time, even if its first payload arrives later.
+The 30-day window starts at the owner's original acceptance time, even if its first payload arrives later. Recreating a hard-deleted item or result starts a new window for that record.
 An edit cannot extend the deadline or restore a deleted or expired payload.
 Explicit payload deletion returns a `deleted_at` timestamp on payload reads. A score can still change after its payload expires.
 Changing an item's input, output, or expected output leaves its reported scores in place. The inspector identifies scores that predate the change.

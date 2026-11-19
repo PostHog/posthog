@@ -23,7 +23,6 @@ from products.ai_observability.backend.dataset_queries import dataset_item_versi
 from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
-    OfflineDeletedIdentity,
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
     OfflineEvaluationUsageLedger,
@@ -300,8 +299,6 @@ class OfflineExperimentService(_OfflineEvaluationService):
             experiment.closed_item_count = counts.accepted_item_count
             experiment.closed_result_count = counts.accepted_result_count
             experiment.save(update_fields=["status", "finished_at", "closed_item_count", "closed_result_count"])
-            if experiment.updated_at is not None:
-                OfflineDeletedIdentity.objects.for_team(self.team_id).filter(experiment=experiment).delete()
             receipt = ExperimentReceipt(experiment=experiment, counts=counts, status_changed=True)
         return receipt
 
@@ -607,16 +604,6 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         new_item_submissions = [item for item in submission.items if item.id not in items]
         if (new_item_submissions or new_results) and experiment.status != OfflineExperiment.Status.UPLOADING:
             raise OfflineEvaluationConflict("experiment_closed", "This experiment is closed to new items and results.")
-        if new_results and experiment.updated_at is not None:
-            deleted = OfflineDeletedIdentity.objects.for_team(self.team_id).filter(experiment=experiment)
-            reserved = Q(scorer_version_id__isnull=True, item_id__in={result.item_id for _, result in new_results})
-            items_by_version: dict[UUID, list[UUID]] = {}
-            for _, result in new_results:
-                items_by_version.setdefault(result.scorer_version_id, []).append(result.item_id)
-            for version_id, version_item_ids in items_by_version.items():
-                reserved |= Q(scorer_version_id=version_id, item_id__in=version_item_ids)
-            if deleted.filter(reserved).exists():
-                raise OfflineEvaluationConflict("identity_deleted", "This item or result was deleted.")
         if any(not result.calculate for _, result in new_results):
             api_token = Team.objects.values_list("api_token", flat=True).get(id=self.team_id)
             if is_team_limited(api_token, QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
