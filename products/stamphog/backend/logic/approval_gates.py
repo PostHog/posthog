@@ -40,6 +40,7 @@ from products.stamphog.backend.logic.engine_pregate import (
 )
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import reviewable_repo_config
+from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation
 from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
@@ -129,6 +130,11 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
         folder_policy_future = submit(fetch_folder_policy_files, client, repo, head_sha, files)
 
         policy_files = {path: text for path, future in policy_futures.items() if (text := future.result()) is not None}
+        # Read as the review path reads them: each manifest the policy names, as the blob at its path. An absent
+        # one leaves its attestation entry unusable, so it lifts nothing here either.
+        for path in issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT)):
+            if (manifest := client.get_default_branch_blob_text(repo, path)) is not None:
+                policy_files[path] = manifest
         author_team_slugs = author_teams_future.result()
         if author_team_slugs is None:
             # A deny category can exempt the teams that own it, and a failed lookup reads as "on no team", which

@@ -5,6 +5,7 @@ The filters give the same SQL as the current access rules' own filters.
 """
 
 from typing import TYPE_CHECKING, TypeVar
+from uuid import UUID
 
 from django.db.models import Model, Q, QuerySet
 
@@ -51,7 +52,7 @@ def filter_queryset(
     where the call site passes it today. `subject=None` means the request's user.
     """
     if resource.type == ResourceType.PROJECT:
-        raise ValueError("A project list also reads memberships, so use `list_objects` for projects.")
+        raise ValueError("A project list also reads memberships, so use `filter_projects` for projects.")
     # QUERY is the list filter with every row for an org admin, which is what `include_all_if_admin` asks for.
     result = api.list_objects(
         resource=resource,
@@ -74,6 +75,36 @@ def filter_queryset(
     if creator is not None:
         return queryset.filter(Q(id__in=result.ids) | creator)
     return queryset.filter(id__in=result.ids)
+
+
+def filter_projects(
+    queryset: QuerySet[Team], *, organization_id: UUID, subject: Subject | None = None
+) -> QuerySet[Team]:
+    """Keep the projects that the subject may view, the rows that `visible_teams_for_user` returns.
+
+    `queryset` must hold only projects of `organization_id`. `subject=None` means the request's user.
+    """
+    result = api.list_objects(
+        resource=Resource(type=ResourceType.PROJECT, organization_id=organization_id),
+        action=Action.VIEW,
+        subject=subject,
+    )
+    if not result.complete:
+        return queryset.none()
+    team_ids = [int(team_id) for team_id in result.ids]
+    return queryset.exclude(id__in=team_ids) if result.excluded else queryset.filter(id__in=team_ids)
+
+
+def filter_visible_projects(queryset: QuerySet[M], *, subject: Subject | None = None) -> QuerySet[M]:
+    """Keep the rows whose project the subject may view, in every organization the subject belongs to.
+
+    The rows are teams, or projects keyed by their main team's id, the ids that `team_ids_visible_for_user`
+    lists. `subject=None` means the request's user.
+    """
+    result = api.list_objects(resource=Resource(type=ResourceType.PROJECT), action=Action.VIEW, subject=subject)
+    if not result.complete:
+        return queryset.none()
+    return queryset.filter(pk__in=[int(team_id) for team_id in result.ids])
 
 
 def filter_file_system_queryset(

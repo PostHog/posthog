@@ -284,6 +284,7 @@ class Team(UUIDTClassicModel):
                 condition=models.Q(conversations_enabled=True),
                 name="posthog_team_widget_token_idx",
             ),
+            models.Index(fields=["updated_at"], name="posthog_team_updated_at_idx"),
         ]
         constraints = [
             models.CheckConstraint(

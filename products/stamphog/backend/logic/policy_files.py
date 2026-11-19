@@ -9,6 +9,7 @@ from __future__ import annotations
 import yaml
 import structlog
 
+from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
 from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
     STAMPHOG_POLICY_ENTRYPOINT,
@@ -55,4 +56,7 @@ def effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str,
     }
     if STAMPHOG_POLICY_ENTRYPOINT in effective:
         effective[STAMPHOG_POLICY_ENTRYPOINT] = checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
+    for path in issuer_manifest_paths(effective.get(STAMPHOG_POLICY_ENTRYPOINT)):
+        if path in policy_files:
+            effective[path] = policy_files[path]
     return effective
