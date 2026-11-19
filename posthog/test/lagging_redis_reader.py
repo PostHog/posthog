@@ -16,10 +16,17 @@ def lagging_reader_caches(key_prefix: str, primary_location: str | None = None) 
     reader_db = 14 if int(parse_url(settings.REDIS_URL).get("db", 0)) == 15 else 15
     query = [(name, value) for name, value in parse_qsl(primary.query) if name != "db"]
     reader = f"{primary.scheme}://{primary.netloc}{primary.path}?" + urlencode([*query, ("db", str(reader_db))])
+    timeout = settings.THROTTLE_HISTORY_SOCKET_TIMEOUT_SECONDS
     return {
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
             "LOCATION": [primary_location or settings.REDIS_URL, reader],
             "KEY_PREFIX": key_prefix,
-        }
+        },
+        "throttle_history": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": primary_location or settings.REDIS_URL,
+            "KEY_PREFIX": key_prefix,
+            "OPTIONS": {"SOCKET_CONNECT_TIMEOUT": timeout, "SOCKET_TIMEOUT": timeout},
+        },
     }

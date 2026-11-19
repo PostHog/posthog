@@ -1,5 +1,6 @@
 import json
 import time
+import socket
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from datetime import timedelta
@@ -1227,7 +1228,10 @@ class TestReserveUnits(BaseTest):
             self._singles_allowed(_PSAKThrottleForTest, 2)
             unreachable = RedisCache("redis://127.0.0.1:1/0", {})
 
-            with patch.object(_PSAKTeamThrottleForTest, "cache", unreachable):
+            with (
+                patch.object(_PSAKTeamThrottleForTest, "cache", unreachable),
+                patch.object(_PSAKTeamThrottleForTest, "primary_cache", unreachable),
+            ):
                 with self.assertRaises(exceptions.Throttled) as refusal:
                     rate_limit.reserve_units(throttles, self._request(), self.view, 2)
 
@@ -1357,43 +1361,50 @@ class TestReserveUnits(BaseTest):
         ):
             try:
                 self._singles_allowed(_PSAKThrottleForTest, spent)
-                with failing as failing_cache, patch.object(_PSAKThrottleForTest, "cache", failing_cache):
+                with (
+                    failing as failing_cache,
+                    patch.object(_PSAKThrottleForTest, "cache", failing_cache),
+                    patch.object(_PSAKThrottleForTest, "primary_cache", failing_cache),
+                ):
                     self._reserve([_PSAKThrottleForTest], 2)
 
                 self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, len(singles_after)), singles_after)
             finally:
                 shared.delete_pattern("*")
 
-    def test_a_primary_reading_throttle_passes_a_request_it_keys_to_nothing_without_an_error(self):
-        with (
-            patch.object(_PSAKThrottleForTest, "reads_history_from_primary", True),
-            patch.object(_PSAKThrottleForTest, "get_cache_key", return_value=None),
-            patch("posthog.rate_limit.capture_exception") as reported,
-        ):
-            self.assertTrue(_PSAKThrottleForTest().allow_request(self._request(), self.view))
+    @contextmanager
+    def _stalled_redis(self) -> Iterator[str]:
+        with socket.create_server(("127.0.0.1", 0)) as listener:
+            yield f"redis://127.0.0.1:{listener.getsockname()[1]}/0"
 
-        reported.assert_not_called()
-
-    @parameterized.expand([("single", 1), ("batch", 3)])
-    def test_a_send_passes_when_the_primary_read_fails(self, _name, recipients):
+    @parameterized.expand([("unreachable",), ("stalled",)])
+    def test_a_send_reads_the_replica_when_the_primary_read_fails(self, failure):
+        now = time.time()
         reader_only = self._lagging_reader_caches(
             primary_location=self._lagging_reader_caches()["default"]["LOCATION"][1]
         )
-        with patch.object(TransactionalEmailBurstThrottle, "rate", "3/minute"):
+        failing_primary = nullcontext("redis://127.0.0.1:1/0") if failure == "unreachable" else self._stalled_redis()
+        with (
+            patch.object(TransactionalEmailBurstThrottle, "rate", "3/minute"),
+            patch.object(TransactionalEmailBurstThrottle, "timer", lambda _throttle: now),
+        ):
             try:
                 with override_settings(CACHES=reader_only):
                     self.assertEqual(
                         self._singles_allowed(TransactionalEmailBurstThrottle, 4), [True, True, True, False]
                     )
-                with override_settings(CACHES=self._lagging_reader_caches(primary_location="redis://127.0.0.1:1/0")):
-                    outcome = self._send([TransactionalEmailBurstThrottle], recipients)
+                with (
+                    failing_primary as primary_location,
+                    override_settings(CACHES=self._lagging_reader_caches(primary_location=primary_location)),
+                ):
+                    outcome = self._send([TransactionalEmailBurstThrottle], 1)
             finally:
                 with override_settings(CACHES=reader_only):
                     caches["default"].delete(
                         TransactionalEmailBurstThrottle().get_cache_key(self._request(), self.view)
                     )
 
-        self.assertIsNone(outcome)
+        self.assertEqual(outcome, "60")
 
 
 class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):

@@ -879,6 +879,18 @@ CACHES["aeo_prompt_suggestions"] = {
     "LOCATION": REDIS_URL,
 }
 
+THROTTLE_HISTORY_SOCKET_TIMEOUT_SECONDS = 0.2
+
+CACHES["throttle_history"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SOCKET_CONNECT_TIMEOUT": THROTTLE_HISTORY_SOCKET_TIMEOUT_SECONDS,
+        "SOCKET_TIMEOUT": THROTTLE_HISTORY_SOCKET_TIMEOUT_SECONDS,
+    },
+}
+
 # The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
 CACHES["current_alias_usage"] = {
     **CACHES["default"],
@@ -958,6 +970,7 @@ if TEST:
     CACHES["warehouse_destination_connect"] = CACHES["default"]
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
+    CACHES["throttle_history"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
     CACHES["current_alias_usage"] = CACHES["default"]
 
