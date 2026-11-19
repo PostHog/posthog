@@ -40,7 +40,7 @@ Cycle between these moves; skip what's not useful.
 
 ### Get oriented
 
-- `scout-scratchpad-search` (`text=insight_alerts`, list then read by key as your prompt's *Scratchpad keys* section describes) — your durable steering: the baseline, which alerts you've already surfaced (`dedupe:`), which are known flappy/test (`noise:`), which the team has muted or fixed (`addressed:`/`allowlist:`), which report covers a firing (`report:`), and who owns an alert (`reviewer:`).
+- `scout-scratchpad-search` (`text=insight_alerts`, list then read by key as your prompt's _Scratchpad keys_ section describes) — your durable steering: the baseline, which alerts you've already surfaced (`dedupe:`), which are known flappy/test (`noise:`), which the team has muted or fixed (`addressed:`/`allowlist:`), which report covers a firing (`report:`), and who owns an alert (`reviewer:`).
 - `scout-runs-list` (last 7d) — what prior runs of this scout surfaced and ruled out, so you don't re-file yesterday's digest.
 - `alerts-list` — the cheap triage layer over **every** alert at once. Read each row's `state`, `enabled`, `snoozed_until`, `last_notified_at`, `last_checked_at`, `last_value`, `calculation_interval`, and threshold/`condition`/`detector_config`. This is your candidate funnel — don't pull per-alert history for all of them.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`=the specific alert or insight name) — the reports already in the inbox. Your own report-channel reports persist their backing signals under `source_product=signals_scout`, so don't filter by product — you'd miss every report you authored. A firing on an alert you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring.

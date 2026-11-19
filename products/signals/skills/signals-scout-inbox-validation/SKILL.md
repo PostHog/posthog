@@ -71,7 +71,7 @@ A scheduled run attaches checks, then spot-checks a couple of settled fixes. A d
 
 ### Get oriented
 
-- `scout-scratchpad-search` (`text=inbox_validation`, list then read by key as your prompt's *Scratchpad keys* section describes) — what prior runs ruled out, and the reviewer and dedupe memory you keep.
+- `scout-scratchpad-search` (`text=inbox_validation`, list then read by key as your prompt's _Scratchpad keys_ section describes) — what prior runs ruled out, and the reviewer and dedupe memory you keep.
 - `scout-runs-list` (`skill_name=signals-scout-inbox-validation`, last 7d) — what prior runs covered.
 - `inbox-reports-list {"status": "resolved", "ordering": "-updated_at", "limit": 20}` — the watched surface. If the whole page is already covered and its oldest row is still inside the 14-day window, page with `offset` until you cross the window boundary — otherwise resolved report #21 silently ages out uncovered.
 
