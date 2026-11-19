@@ -153,6 +153,7 @@ describe('llma-parser-recipe-create handler', () => {
             }),
             captures: 0,
         },
+        { error: apiError(400, '{"code":"invalid"}'), captures: 1 },
         { error: apiError(429, '{"code":"throttled"}'), captures: 0 },
     ])('keeps a parser that passed when only the save fails ($error.message)', async ({ error, captures }) => {
         const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
