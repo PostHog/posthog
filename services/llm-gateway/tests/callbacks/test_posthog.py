@@ -102,7 +102,7 @@ class TestPostHogCallback:
                 "test-key",
                 host="https://test.posthog.com",
                 sync_mode=True,
-                max_retries=0,
+                max_retries=1,
                 capture_ai_timeout=15,
                 enable_local_evaluation=False,
                 enable_full_ai_capture=True,
@@ -1235,10 +1235,13 @@ class TestPostHogCallback:
 
 
 class TestCaptureDelivery:
-    def test_a_failed_capture_is_attempted_once_within_the_analytics_timeout(self):
+    def test_a_failed_capture_is_retried_once_within_the_analytics_timeout(self):
         callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
 
-        with patch.object(requests.Session, "post", return_value=_unavailable()) as post:
+        with (
+            patch.object(requests.Session, "post", return_value=_unavailable()) as post,
+            patch("posthoganalytics.capture_send.time.sleep"),
+        ):
             callback._capture_sync(
                 distinct_id="user-1",
                 event="$ai_generation",
@@ -1246,9 +1249,10 @@ class TestCaptureDelivery:
                 groups={},
             )
 
-        assert post.call_count == 1
-        assert post.call_args.args[0] == "https://test.posthog.com/i/v1/ai/events"
-        assert post.call_args.kwargs["timeout"] == 15
+        assert [(call.args[0], call.kwargs["timeout"]) for call in post.call_args_list] == [
+            ("https://test.posthog.com/i/v1/ai/events", 15),
+            ("https://test.posthog.com/i/v1/ai/events", 15),
+        ]
 
 
 class TestNormalizeTraceId:
