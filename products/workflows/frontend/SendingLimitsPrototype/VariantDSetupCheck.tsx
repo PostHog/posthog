@@ -8,6 +8,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { BroadcastShell } from './BroadcastShell'
+import { PrototypeNote } from './PrototypeNote'
 import { ReputationShell } from './ReputationShell'
 import {
     DOMAIN_CHECKS,
@@ -124,6 +125,10 @@ export function VariantDSetupCheck({ surface, state, domainProfile, setDomainPro
             >
                 {state.key === 'new' && <ProfilePicker value={domainProfile} onChange={setDomainProfile} />}
                 <DomainCheckCard check={{ ...check, domain }} checkedOn={checkedOn} />
+                <PrototypeNote>
+                    The check sits on the ready step, next to today's sending tips (below). Account history uses the
+                    same signal as the automatic lift for paying teams with clean rates.
+                </PrototypeNote>
             </SetupShell>
         )
     }

@@ -8,6 +8,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { BroadcastShell } from './BroadcastShell'
+import { PrototypeNote } from './PrototypeNote'
 import { ReputationShell } from './ReputationShell'
 import { BOUNCE_LIMIT, COMPLAINT_LIMIT, SendingState, SurfaceKey, sendDays } from './sendingLimitsPrototypeData'
 import { SetupShell } from './SetupShell'
@@ -120,7 +121,18 @@ function WarmUpCard({ state }: { state: SendingState }): JSX.Element {
             <div className="text-sm">
                 <strong>What happens next: </strong>
                 <NextStep state={state} />
+                {state.key !== 'blocked' && (
+                    <>
+                        {' '}
+                        Need more sooner?{' '}
+                        <Link data-attr="workflows-request-sending-tier-increase">Request a higher allowance</Link>.
+                    </>
+                )}
             </div>
+            <PrototypeNote>
+                The "Request a higher allowance" button stays (flag workflows-sending-tier-requests), now next to the
+                reason it is needed. It asks staff for a higher limit, as today.
+            </PrototypeNote>
             <div className="flex flex-col gap-2">
                 <span className="text-secondary text-xs">Why your allowance changed</span>
                 {[...state.moves].reverse().map((move) => (

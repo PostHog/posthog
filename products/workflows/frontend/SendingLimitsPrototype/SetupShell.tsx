@@ -58,6 +58,16 @@ export function SetupShell({ domain, tone = 'success', title, lead, children }: 
                         ),
                         content: <span className="text-secondary">DKIM, SPF and DMARC records.</span>,
                     },
+                    {
+                        key: 'tips',
+                        header: <span>Keep your emails out of spam</span>,
+                        content: (
+                            <span className="text-secondary">
+                                Today's sending tips: start small, only email people who asked, make it easy to
+                                unsubscribe.
+                            </span>
+                        ),
+                    },
                 ]}
             />
         </div>

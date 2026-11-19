@@ -325,9 +325,11 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
             { label: 'DMARC', ok: true, detail: 'Published, policy quarantine' },
             { label: 'Blocklists', ok: true, detail: 'Not listed' },
             { label: 'Already sends email', ok: true, detail: 'SPF names 2 other email services' },
+            { label: 'Account history', ok: true, detail: 'Paid plan, no sending problems on record' },
         ],
         startPerDay: 10000,
-        verdict: 'Your domain has a long, clean history, so you start at 10,000 emails per day.',
+        verdict:
+            'Your domain has a long, clean history and your account is on a paid plan, so you start at 10,000 emails per day.',
     },
     default: {
         key: 'default',
@@ -338,6 +340,7 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
             { label: 'DMARC', ok: 'warn', detail: 'Not published' },
             { label: 'Blocklists', ok: true, detail: 'Not listed' },
             { label: 'Already sends email', ok: 'warn', detail: 'No other email services in SPF' },
+            { label: 'Account history', ok: 'warn', detail: 'No paid plan yet' },
         ],
         startPerDay: 1000,
         verdict: 'You start at 1,000 emails per day. Publish a DMARC record to start higher.',
@@ -351,6 +354,7 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
             { label: 'DMARC', ok: 'warn', detail: 'Not published' },
             { label: 'Blocklists', ok: true, detail: 'Not listed' },
             { label: 'Already sends email', ok: 'warn', detail: 'No other email services in SPF' },
+            { label: 'Account history', ok: 'warn', detail: 'No paid plan yet' },
         ],
         startPerDay: 100,
         verdict: 'Inboxes distrust new domains, so you start at 100 emails per day. This grows as you send.',
@@ -364,6 +368,7 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
             { label: 'DMARC', ok: true, detail: 'Published, policy none' },
             { label: 'Blocklists', ok: false, detail: 'Listed on Spamhaus DBL' },
             { label: 'Already sends email', ok: true, detail: 'SPF names 1 other email service' },
+            { label: 'Account history', ok: true, detail: 'Paid plan' },
         ],
         startPerDay: null,
         verdict:

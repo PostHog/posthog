@@ -6,6 +6,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { BroadcastShell } from './BroadcastShell'
+import { PrototypeNote } from './PrototypeNote'
 import { ReputationShell } from './ReputationShell'
 import { SendingState, SurfaceKey } from './sendingLimitsPrototypeData'
 import { SetupShell } from './SetupShell'
@@ -19,7 +20,19 @@ export function VariantAHide({ surface, state }: { surface: SurfaceKey; state: S
     }
     if (surface === 'reputation') {
         // No allowance card at all. The real page keeps its rates, findings and paused banner.
-        return <ReputationShell renderKey={`A-${state.key}`} state={state} allowance={() => null} />
+        return (
+            <ReputationShell
+                renderKey={`A-${state.key}`}
+                state={state}
+                allowance={() => (
+                    <PrototypeNote>
+                        The allowance card is gone, and with it the "Request a higher allowance" button and its MCP tool
+                        (flag workflows-sending-tier-requests). Nothing to request when there is no visible limit. Staff
+                        can still set a limit by hand from the admin console.
+                    </PrototypeNote>
+                )}
+            />
+        )
     }
 
     const { broadcast } = state
