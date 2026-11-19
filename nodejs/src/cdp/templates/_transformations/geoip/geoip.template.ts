@@ -76,11 +76,12 @@ fun roundCoordinate(value, precision) {
     return floor(value * factor + 0.5) / factor
 }
 let coordinatePrecision := inputs.coordinatePrecision ?? 'full'
+if (coordinatePrecision == 'remove') {
+    location['latitude'] := null
+    location['longitude'] := null
+}
 if (response.location) {
-    if (coordinatePrecision == 'remove') {
-        location['latitude'] := null
-        location['longitude'] := null
-    } else {
+    if (coordinatePrecision != 'remove') {
         location['latitude'] := roundCoordinate(response.location?.latitude, coordinatePrecision)
         location['longitude'] := roundCoordinate(response.location?.longitude, coordinatePrecision)
     }

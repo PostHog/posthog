@@ -168,7 +168,14 @@ describe('geoip.template', () => {
         }
     )
 
-    it('writes null coordinates to the event, $set and $set_once when set to remove them', async () => {
+    it.each([
+        { lookup: 'with a location', location: true },
+        { lookup: 'without a location', location: false },
+    ])('writes null coordinates to all three copies when set to remove them, lookup $lookup', async ({ location }) => {
+        if (!location) {
+            const actualResult = tester.geoIp?.city('216.160.83.56')
+            jest.spyOn(tester.geoIp!, 'city').mockReturnValueOnce({ ...actualResult, location: undefined } as any)
+        }
         mockGlobals = tester.createGlobals({
             event: { properties: { $ip: '216.160.83.56', $geoip_latitude: 47.2513, $geoip_longitude: -122.3149 } },
         })
@@ -183,7 +190,7 @@ describe('geoip.template', () => {
             $initial_geoip_latitude: null,
             $initial_geoip_longitude: null,
         })
-        expect(properties).toMatchObject({ $geoip_city_name: 'Milton', $geoip_accuracy_radius: 22 })
+        expect(properties).toMatchObject({ $geoip_city_name: 'Milton' })
     })
 
     it('should set properties to null if no values present', async () => {

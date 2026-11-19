@@ -13,7 +13,7 @@ const GEOIP_TEMPLATE_ID = 'template-geoip'
 const NOOP_SOURCE_HASHES = new Set([
     'c60a2c9cf0d2f82812392c3c682f4223e17082f109e02fbf5467fbb0069d0770', // shipped 2025-01-30
     '936b06d7d65914d43e5b9f45d8eecda36450e0c128bbfb522020fc0600261175', // shipped 2026-01-08
-    'd156313a14d146d8a41fc580bf40beeffe16459689c63a853413b2749d717f4b', // shipped 2026-11-19
+    '68a1b5ac63040c207fc46fc053149648d4346d4a9d741c4388fd2201f07660f8', // shipped 2026-11-19
 ])
 
 export const hogTransformationGeoipNoopSkips = new Counter({
