@@ -41,6 +41,12 @@ const TILE_PARTS: { key: keyof ContentWidgetParts; label: string }[] = [
     { key: 'footer', label: 'Footer' },
 ]
 
+const HAS_PART: Record<keyof ContentWidgetParts, (widget: ContentWidget) => boolean> = {
+    header: (widget) => !!widget.title,
+    description: (widget) => !!widget.description,
+    footer: (widget) => !!widget.footer?.length,
+}
+
 export function useContentTileActions(id: string, widget: ContentWidget): TileAction[] {
     const { dashboard, activeTab, disabledReasonFor } = useValues(dashboardV2Logic)
     const { applyDashboardEdit } = useActions(dashboardV2Logic)
@@ -63,26 +69,29 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
         })
     }
     const partsDisabledReason = disabledReasonFor('setTileParts')
-    actions.push({
-        key: 'parts',
-        label: 'Show',
-        dataAttr: 'dashboard-v2-tile-parts',
-        disabledReason: partsDisabledReason,
-        submenu: TILE_PARTS.filter(({ key }) => key !== 'footer' || widget.footer).map(({ key, label }) => {
-            const shown = showsPart(widget, key)
-            const needsHeader = key === 'description' && !showsPart(widget, 'header')
-            return {
-                key,
-                label,
-                dataAttr: `dashboard-v2-tile-parts-${key}`,
-                // The description lives in the header, so it cannot be turned on while the header is off.
-                disabledReason: partsDisabledReason ?? (needsHeader ? 'Show the header first' : null),
-                checked: shown,
-                onSelect: () =>
-                    applyDashboardEdit({ edit: 'setTileParts', id, parts: { ...widget.parts, [key]: !shown } }),
-            }
-        }),
-    })
+    const parts = TILE_PARTS.filter(({ key }) => HAS_PART[key](widget))
+    if (parts.length > 0) {
+        actions.push({
+            key: 'parts',
+            label: 'Show',
+            dataAttr: 'dashboard-v2-tile-parts',
+            disabledReason: partsDisabledReason,
+            submenu: parts.map(({ key, label }) => {
+                const shown = showsPart(widget, key)
+                const needsHeader = key === 'description' && !showsPart(widget, 'header')
+                return {
+                    key,
+                    label,
+                    dataAttr: `dashboard-v2-tile-parts-${key}`,
+                    // The description lives in the header, so it cannot be turned on while the header is off.
+                    disabledReason: partsDisabledReason ?? (needsHeader ? 'Show the header first' : null),
+                    checked: shown,
+                    onSelect: () =>
+                        applyDashboardEdit({ edit: 'setTileParts', id, parts: { ...widget.parts, [key]: !shown } }),
+                }
+            }),
+        })
+    }
     actions.push({
         key: 'remove',
         label: 'Remove tile',
