@@ -224,6 +224,7 @@ pub struct LabelCardinality {
     candidate_count: AtomicUsize,
     candidates_per_token: DashMap<u64, usize>,
     protected: HashSet<(Scope, u64)>,
+    skipped: DashMap<u64, i64>,
 }
 
 impl LabelCardinality {
@@ -244,6 +245,7 @@ impl LabelCardinality {
         protected.insert((Scope::Resource, key_hash(SERVICE_NAME_RESOURCE)));
         Self {
             protected,
+            skipped: DashMap::new(),
             settings,
             clock,
             new_series: DashMap::new(),
@@ -253,6 +255,15 @@ impl LabelCardinality {
             candidate_count: AtomicUsize::new(0),
             candidates_per_token: DashMap::new(),
         }
+    }
+
+    /// Marks the current window of `token` as incomplete, so it is not judged.
+    pub fn skip(&self, token: &str) {
+        if self.settings.mode == Mode::Off || self.candidates.is_empty() {
+            return;
+        }
+        let window = self.window_index((self.clock)());
+        self.skipped.insert(token_key(token), window);
     }
 
     fn window_index(&self, now: i64) -> i64 {
@@ -564,6 +575,13 @@ impl LabelCardinality {
     /// The second test skips a key, such as a pod name, whose series repeat.
     fn evaluate(&self, candidate: &mut Candidate) {
         candidate.flagged.clear();
+        if self
+            .skipped
+            .get(&candidate.token_hash)
+            .is_some_and(|window| *window == candidate.window)
+        {
+            return;
+        }
         let series = candidate.series.estimate();
         for ((scope, key), entry) in &candidate.keys {
             let distinct = entry.sketch.estimate();
@@ -618,6 +636,7 @@ impl LabelCardinality {
             false
         });
         self.tracked_per_token.retain(|_, count| *count > 0);
+        self.skipped.retain(|_, skipped| *skipped >= window - 1);
         gauge!("capture_metrics_label_cardinality_candidates")
             .set(self.candidate_count.load(Ordering::Acquire) as f64);
     }
@@ -912,6 +931,21 @@ mod tests {
             rule_keys(&detector),
             HashSet::from([rule_key("jobs", Scope::Attribute, "request_id")])
         );
+    }
+
+    #[test]
+    fn a_window_with_skipped_requests_is_not_judged() {
+        let (detector, now) = detector(Mode::Shadow);
+        let rows = remote_write_rows(1000, true);
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.skip(TOKEN);
+        end_window(&detector, &now);
+        assert!(rule_keys(&detector).is_empty());
+
+        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        detector.observe(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&detector, &now);
+        assert!(rule_keys(&detector).contains(&rule_key("latency", Scope::Attribute, "user_id")));
     }
 
     #[test]

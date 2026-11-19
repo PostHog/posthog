@@ -186,7 +186,9 @@ pub async fn export_metrics_http(
     let gate = &service.series_label_gate;
     let labelled = gate.classify(token, &rows);
     // A full cache reports every uncached series as new, which would look like one-off series.
-    if !gate.cache_full(token) {
+    if gate.cache_full(token) {
+        detector.skip(token);
+    } else {
         detector.observe(token, &rows, labelled.new_series_rows(), &source);
         detector.note_new_series(token, &rows, labelled.new_series_rows(), &source);
     }
