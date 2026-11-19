@@ -5315,6 +5315,8 @@ export interface AppContext {
     /** The project the URL asked for, as an id or a token, when the server refused to switch to it. */
     project_access_denied?: string | null
     livestream_host?: string
+    /** Origin of `UPLOADED_MEDIA_PUBLIC_URL` when uploaded media is served from its own host. */
+    uploaded_media_origin?: string | null
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
     oauth_mcp_consent?: OAuthMcpConsentContext

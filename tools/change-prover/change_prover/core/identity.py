@@ -52,6 +52,18 @@ def author_lane(pr: dict[str, Any], paths: list[str]) -> str | None:
     return lane
 
 
+def pick_any_pull_request(pulls: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The one pull request at the head, by any author, or None when there is none.
+
+    A revert proof is about the content of the change, so it admits every author.
+    """
+    if not pulls:
+        return None
+    if len(pulls) > 1:
+        raise Refused(f"{len(pulls)} pull requests have this head")
+    return pulls[0]
+
+
 def check_head_repository(pr: dict[str, Any], repository: str) -> None:
     if (pr["head"].get("repo") or {}).get("full_name") != repository:
         raise Refused("the head branch is not in this repository")
@@ -62,11 +74,19 @@ def check_pusher(pr: dict[str, Any], pusher_id: int | None) -> None:
         raise Refused("the head commit was not pushed by the pull request author")
 
 
-def check_handover(pull_request: str, merge_base: str, lane: str) -> None:
+def check_handover(pull_request: str, merge_base: str) -> None:
     """Refuse the identification job's outputs unless every value has its exact shape."""
     if not PULL_REQUEST_NUMBER.fullmatch(pull_request):
         raise Refused("the pull request number is not a positive integer")
     if not COMMIT_SHA.fullmatch(merge_base):
         raise Refused("the merge base is not a commit id")
+
+
+def check_lane_handover(lane: str) -> None:
     if lane not in LANE_FILES:
         raise Refused("the lane is not one this proof knows")
+
+
+def check_reverted_handover(reverted: str) -> None:
+    if not COMMIT_SHA.fullmatch(reverted):
+        raise Refused("the reverted commit is not a commit id")

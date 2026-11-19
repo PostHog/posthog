@@ -1,0 +1,226 @@
+{
+  "account_token": "account-token-1111",
+  "domains": [
+    {
+      "ID": 501,
+      "Name": "acme.example.com",
+      "SPFVerified": true,
+      "SPFHost": "acme.example.com",
+      "SPFTextValue": "v=spf1 a mx include:spf.mtasv.net ~all",
+      "DKIMVerified": true,
+      "WeakDKIM": false,
+      "DKIMHost": "20240101pm._domainkey.acme.example.com",
+      "DKIMTextValue": "k=rsa;p=invented",
+      "DKIMPendingHost": "",
+      "DKIMPendingTextValue": "",
+      "DKIMRevokedHost": "",
+      "DKIMRevokedTextValue": "",
+      "SafeToRemoveRevokedKeyFromDNS": false,
+      "DKIMUpdateStatus": "Verified",
+      "ReturnPathDomain": "pm-bounces.acme.example.com",
+      "ReturnPathDomainVerified": true,
+      "ReturnPathDomainCNAMEValue": "pm.mtasv.net"
+    },
+    {
+      "ID": 502,
+      "Name": "news.example.com",
+      "SPFVerified": false,
+      "SPFHost": "news.example.com",
+      "SPFTextValue": "v=spf1 a mx include:spf.mtasv.net ~all",
+      "DKIMVerified": false,
+      "WeakDKIM": false,
+      "DKIMHost": "",
+      "DKIMTextValue": "",
+      "DKIMPendingHost": "20241105pm._domainkey.news.example.com",
+      "DKIMPendingTextValue": "k=rsa;p=invented",
+      "DKIMRevokedHost": "",
+      "DKIMRevokedTextValue": "",
+      "SafeToRemoveRevokedKeyFromDNS": false,
+      "DKIMUpdateStatus": "Pending",
+      "ReturnPathDomain": "feedback.news.example.com",
+      "ReturnPathDomainVerified": false,
+      "ReturnPathDomainCNAMEValue": "pm.mtasv.net"
+    }
+  ],
+  "senders": [
+    {
+      "ID": 601,
+      "EmailAddress": "hello@acme.example.com",
+      "Name": "Acme Team",
+      "ReplyToEmailAddress": "support@acme.example.com",
+      "Domain": "acme.example.com",
+      "Confirmed": true
+    },
+    {
+      "ID": 602,
+      "EmailAddress": "zoë@news.example.com",
+      "Name": "Zoë 🦔",
+      "ReplyToEmailAddress": "",
+      "Domain": "news.example.com",
+      "Confirmed": false
+    }
+  ],
+  "servers": [
+    {
+      "ID": 1001,
+      "Name": "Production",
+      "ApiTokens": ["server-token-production"],
+      "Color": "Green",
+      "SmtpApiActivated": true,
+      "RawEmailEnabled": false,
+      "DeliveryType": "Live",
+      "ServerLink": "https://account.postmarkapp.com/servers/1001/streams",
+      "InboundAddress": "abc@inbound.postmarkapp.com",
+      "InboundHookUrl": "",
+      "BounceHookUrl": "",
+      "OpenHookUrl": "",
+      "DeliveryHookUrl": "",
+      "PostFirstOpenOnly": false,
+      "InboundDomain": "",
+      "InboundHash": "abc",
+      "InboundSpamThreshold": 0,
+      "TrackOpens": true,
+      "TrackLinks": "None",
+      "IncludeBounceContentInHook": true,
+      "ClickHookUrl": "",
+      "EnableSmtpApiErrorHooks": false,
+      "streams": [
+        {"ID": "outbound", "Name": "Default Transactional Stream", "Description": "Receipts", "MessageStreamType": "Transactional", "ArchivedAt": null},
+        {"ID": "broadcast", "Name": "Default Broadcast Stream", "Description": null, "MessageStreamType": "Broadcasts", "ArchivedAt": null},
+        {"ID": "product-news", "Name": "Product news", "Description": "Monthly changelog", "MessageStreamType": "Broadcasts", "ArchivedAt": null},
+        {"ID": "inbound", "Name": "Default Inbound Stream", "Description": null, "MessageStreamType": "Inbound", "ArchivedAt": null},
+        {"ID": "old-news", "Name": "Old news", "Description": null, "MessageStreamType": "Broadcasts", "ArchivedAt": "2026-10-01T10:00:00-04:00"}
+      ],
+      "suppressions": {
+        "outbound": [
+          {"EmailAddress": "gone@example.com", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-01-02T08:58:33-05:00"},
+          {"EmailAddress": "tx-complainer@example.com", "SuppressionReason": "SpamComplaint", "Origin": "Recipient", "CreatedAt": "2026-01-03T08:58:33-05:00"},
+          {"EmailAddress": "both-streams@example.com", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-01-04T08:58:33-05:00"},
+          {"EmailAddress": "tx-manual@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Customer", "CreatedAt": "2026-01-05T08:58:33-05:00"}
+        ],
+        "broadcast": [
+          {"EmailAddress": "complainer@example.com", "SuppressionReason": "SpamComplaint", "Origin": "Recipient", "CreatedAt": "2026-02-01T08:58:33-05:00"},
+          {"EmailAddress": "both-streams@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Recipient", "CreatedAt": "2026-02-02T08:58:33-05:00"},
+          {"EmailAddress": "Mixed.Case.Unsub@Example.com", "SuppressionReason": "ManualSuppression", "Origin": "Recipient", "CreatedAt": "2026-02-03T08:58:33-05:00"},
+          {"EmailAddress": "added-by-team@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Customer", "CreatedAt": "2026-02-04T08:58:33-05:00"},
+          {"EmailAddress": "added-by-postmark@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Admin", "CreatedAt": "2026-02-05T08:58:33-05:00"},
+          {"EmailAddress": "jürgen+🦔@example.com", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-02-06T08:58:33-05:00"},
+          {"EmailAddress": "not-an-address", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-02-07T08:58:33-05:00"}
+        ],
+        "product-news": [
+          {"EmailAddress": "news-only-unsub@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Recipient", "CreatedAt": "2026-03-01T08:58:33-05:00"},
+          {"EmailAddress": "MIXED.case.unsub@example.com", "SuppressionReason": "ManualSuppression", "Origin": "Recipient", "CreatedAt": "2026-03-03T08:58:33-05:00"}
+        ],
+        "old-news": [
+          {"EmailAddress": "archived-only@example.com", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-03-02T08:58:33-05:00"}
+        ]
+      },
+      "templates": [
+        {
+          "TemplateId": 2001, "Name": "Base layout", "Alias": "base-layout", "TemplateType": "Layout", "LayoutTemplate": null, "Active": true, "AssociatedServerId": 1001,
+          "Subject": null,
+          "HtmlBody": "<html><head><style>.cta{color:#0a7}</style></head><body><h1>{{product_name}}</h1>{{{ @content }}}<footer>{{{ pm:unsubscribe }}}</footer></body></html>",
+          "TextBody": "{{product_name}}\n\n{{{ @content }}}\n\nUnsubscribe: {{{ pm:unsubscribe }}}"
+        },
+        {
+          "TemplateId": 2002, "Name": "Receipt", "Alias": "receipt", "TemplateType": "Standard", "LayoutTemplate": "base-layout", "Active": true, "AssociatedServerId": 1001,
+          "Subject": "Receipt for {{customer.name}}",
+          "HtmlBody": "{{#customer}}<p class=\"cta\">Hi {{name}}, thanks from {{../product_name}}</p>{{/customer}}<ul>{{#each lines}}<li>{{sku}} for {{../../currency}}{{price}}</li>{{/each}}</ul>{{^lines}}<p>Nothing bought</p>{{/lines}}{{{ note_html }}}",
+          "TextBody": "Hi {{customer.name}}\n{{#each lines}}- {{sku}}\n{{/each}}"
+        },
+        {
+          "TemplateId": 2003, "Name": "Password reset", "Alias": "password.reset", "TemplateType": "Standard", "LayoutTemplate": null, "Active": true, "AssociatedServerId": 1001,
+          "Subject": "Reset your password",
+          "HtmlBody": "<a href=\"{{ reset_url }}\">Reset</a><a href=\"{{{ pm:unsubscribe }}}\">Stop these</a>",
+          "TextBody": null
+        },
+        {
+          "TemplateId": 2004, "Name": "Plain notice 🦔", "Alias": null, "TemplateType": "Standard", "LayoutTemplate": null, "Active": false, "AssociatedServerId": 1001,
+          "Subject": "Notice",
+          "HtmlBody": null,
+          "TextBody": "Text only for {{ name }}"
+        },
+        {
+          "TemplateId": 2005, "Name": "Missing layout", "Alias": "lost-layout", "TemplateType": "Standard", "LayoutTemplate": "gone-layout", "Active": true, "AssociatedServerId": 1001,
+          "Subject": "Hello",
+          "HtmlBody": "<p>{{#if plan}}On {{plan}}{{else}}No plan{{/if}} {{this.name}} {{> partial}}</p>",
+          "TextBody": null
+        }
+      ],
+      "webhooks": [
+        {
+          "ID": 701,
+          "Url": "https://user:hook-secret@hooks.example.com/postmark?key=hook-secret",
+          "MessageStream": "outbound",
+          "HttpAuth": {"Username": "user", "Password": "hook-secret"},
+          "HttpHeaders": [{"Name": "X-Secret", "Value": "hook-secret"}],
+          "Triggers": {
+            "Open": {"Enabled": true, "PostFirstOpenOnly": false},
+            "Click": {"Enabled": false},
+            "Delivery": {"Enabled": false},
+            "Bounce": {"Enabled": true, "IncludeContent": false},
+            "SpamComplaint": {"Enabled": false, "IncludeContent": false},
+            "SubscriptionChange": {"Enabled": false}
+          }
+        }
+      ]
+    },
+    {
+      "ID": 1002,
+      "Name": "Staging",
+      "ApiTokens": ["server-token-staging"],
+      "Color": "Blue",
+      "SmtpApiActivated": false,
+      "RawEmailEnabled": false,
+      "DeliveryType": "Live",
+      "TrackOpens": false,
+      "TrackLinks": "None",
+      "streams": [
+        {"ID": "outbound", "Name": "Default Transactional Stream", "Description": null, "MessageStreamType": "Transactional", "ArchivedAt": null}
+      ],
+      "suppressions": {
+        "outbound": [
+          {"EmailAddress": "staging-bounce@example.com", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-04-01T08:58:33-05:00"},
+          {"EmailAddress": "complainer@example.com", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-04-02T08:58:33-05:00"}
+        ]
+      },
+      "templates": [
+        {
+          "TemplateId": 3001, "Name": "Receipt on staging", "Alias": "receipt", "TemplateType": "Standard", "LayoutTemplate": null, "Active": true, "AssociatedServerId": 1002,
+          "Subject": "Staging receipt",
+          "HtmlBody": "<p>Staging</p>",
+          "TextBody": null
+        }
+      ],
+      "webhooks": []
+    },
+    {
+      "ID": 1003,
+      "Name": "Sandbox",
+      "ApiTokens": ["server-token-sandbox"],
+      "Color": "Grey",
+      "SmtpApiActivated": false,
+      "RawEmailEnabled": false,
+      "DeliveryType": "Sandbox",
+      "TrackOpens": false,
+      "TrackLinks": "None",
+      "streams": [
+        {"ID": "outbound", "Name": "Default Transactional Stream", "Description": null, "MessageStreamType": "Transactional", "ArchivedAt": null}
+      ],
+      "suppressions": {
+        "outbound": [
+          {"EmailAddress": "sandbox-only@example.com", "SuppressionReason": "HardBounce", "Origin": "Recipient", "CreatedAt": "2026-05-01T08:58:33-05:00"}
+        ]
+      },
+      "templates": [
+        {
+          "TemplateId": 4001, "Name": "Sandbox template", "Alias": "sandbox-template", "TemplateType": "Standard", "LayoutTemplate": null, "Active": true, "AssociatedServerId": 1003,
+          "Subject": "Sandbox",
+          "HtmlBody": "<p>Sandbox</p>",
+          "TextBody": null
+        }
+      ],
+      "webhooks": []
+    }
+  ]
+}

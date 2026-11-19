@@ -420,7 +420,7 @@ def test_a_refusal_is_logged_while_the_runner_reads_no_commands(
     stopped, refusal, resumed = capsys.readouterr().out.splitlines()
     assert refusal == "Refused: ##[set-output name=eligible]true"
     assert resumed == f"::{stopped.removeprefix('::stop-commands::')}::"
-    assert (tmp_path / "output").read_text() == "pr=0\nmerge_base=\nlane=\neligible=false\nrefused=true\n"
+    assert (tmp_path / "output").read_text() == "pr=0\nmerge_base=\neligible=false\nlane=\nrefused=true\n"
 
 
 def test_a_replayed_command_gets_no_runner_file_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

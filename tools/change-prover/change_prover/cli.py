@@ -1,4 +1,4 @@
-"""The commands the Dependency proof and Dependency scan workflows run.
+"""The commands the Dependency proof, Dependency scan and Revert proof workflows run.
 
 This is the only module that reads the environment. Each command turns it into one typed value
 and passes that down.
@@ -10,14 +10,21 @@ import re
 import sys
 import json
 import secrets
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from change_prover import prove, scan
+from change_prover import prove, prove_revert, scan
 from change_prover.core import conclusion, identity
 from change_prover.core.policy import Refused
+
+NOT_IDENTIFIED = {"pr": "0", "merge_base": "", "eligible": "false"}
+NOT_DEPENDENCY_IDENTIFIED = {**NOT_IDENTIFIED, "lane": ""}
+NOT_REVERT_IDENTIFIED = {**NOT_IDENTIFIED, "reverted": ""}
+NOT_PROVED = {"files": "[]", "blobs": "{}"}
+# A step's summary line and its outputs.
+StepAnswer = tuple[str, dict[str, str]]
 
 
 @dataclass(frozen=True)
@@ -35,13 +42,24 @@ def identify_request(env: Mapping[str, str]) -> prove.IdentifyRequest:
 def prove_request(env: Mapping[str, str]) -> prove.ProveRequest:
     """The prove job's request, refused unless the identification job handed over well-formed values."""
     merge_base, lane = env["MERGE_BASE"], env["LANE"]
-    identity.check_handover(env["PULL_REQUEST"], merge_base, lane)
+    identity.check_handover(env["PULL_REQUEST"], merge_base)
+    identity.check_lane_handover(lane)
     return prove.ProveRequest(
         head_sha=env["HEAD_SHA"],
         workflow_sha=env["WORKFLOW_SHA"],
         merge_base=merge_base,
         merge_base_dir=Path(env["MERGE_BASE_DIR"]),
         lane=lane,
+    )
+
+
+def revert_prove_request(env: Mapping[str, str]) -> prove_revert.RevertProveRequest:
+    """The revert prove job's request, refused unless the identification job handed over well-formed values."""
+    merge_base, reverted = env["MERGE_BASE"], env["REVERTED"]
+    identity.check_handover(env["PULL_REQUEST"], merge_base)
+    identity.check_reverted_handover(reverted)
+    return prove_revert.RevertProveRequest(
+        head_sha=env["HEAD_SHA"], workflow_sha=env["WORKFLOW_SHA"], merge_base=merge_base, reverted=reverted
     )
 
 
@@ -64,7 +82,8 @@ def scan_gate_request(env: Mapping[str, str]) -> scan.GateRequest:
     )
 
 
-def publish_inputs(env: Mapping[str, str]) -> conclusion.PublishInputs:
+def publish_inputs(env: Mapping[str, str], *, scanned: bool) -> conclusion.PublishInputs:
+    """The other jobs' results from the environment. A lane with a scan job must pass its results too."""
     return conclusion.PublishInputs(
         head_sha=env["HEAD_SHA"],
         workflow_sha=env["WORKFLOW_SHA"],
@@ -78,14 +97,14 @@ def publish_inputs(env: Mapping[str, str]) -> conclusion.PublishInputs:
         prove_files=env["PROVE_FILES"],
         prove_blobs=env["PROVE_BLOBS"],
         prove_refused=env["PROVE_REFUSED"],
-        scan_result=env["SCAN_RESULT"],
-        scan_clean=env["SCAN_CLEAN"],
+        scan_result=env["SCAN_RESULT"] if scanned else None,
+        scan_clean=env["SCAN_CLEAN"] if scanned else None,
     )
 
 
-def run_conclude(env: Mapping[str, str]) -> int:
-    """Prints the check run to post, and exits 1 when the update went unproved."""
-    decided = conclusion.conclude(publish_inputs(env))
+def run_conclude(inputs: conclusion.PublishInputs, lane: conclusion.Lane) -> int:
+    """Prints the lane's check run to post, and exits 1 when the change went unproved."""
+    decided = conclusion.conclude(inputs, lane)
     sys.stdout.write(json.dumps(decided.check_run) + "\n")
     return 1 if decided.unproved else 0
 
@@ -99,48 +118,67 @@ def log(line: str) -> None:
     sys.stdout.flush()
 
 
-def run_prover(command: str, env: Mapping[str, str]) -> int:
-    """Runs `identify` or `prove`, and writes the answer, a refusal included, to the step outputs."""
+def run_step(heading: str, refused: dict[str, str], work: Callable[[], StepAnswer], env: Mapping[str, str]) -> int:
+    """Runs one identify or prove step, and writes its answer, a refusal included, to the step outputs.
+
+    `refused` holds the outputs the step writes when it refuses.
+    """
     step_files = StepFiles(output=Path(env["GITHUB_OUTPUT"]), summary=Path(env["GITHUB_STEP_SUMMARY"]))
-    outputs = (
-        {"pr": "0", "merge_base": "", "lane": "", "eligible": "false"}
-        if command == "identify"
-        else {"files": "[]", "blobs": "{}"}
-    )
-    # Package names and paths from the pull request reach the log, in pnpm's output and in a refusal,
-    # so the runner must not read commands from it.
+    # Package names, paths and commit messages from the pull request reach the log, in a tool's
+    # output and in a refusal, so the runner must not read commands from it.
     token = secrets.token_hex(16)
     log(f"::stop-commands::{token}")
     try:
-        if command == "identify":
-            request = identify_request(env)
-            found = prove.identify(request, prove.GitHub(request.repository, env["GITHUB_TOKEN"]))
-            if found is None:
-                summary = "No pull request at this head is eligible for a proof"
-            else:
-                outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "lane": found.lane, "eligible": "true"}
-                summary = f"Pull request {found.pr} is eligible for a proof"
-        else:
-            proof = prove.prove(
-                prove_request(env),
-                prove.Git(Path.cwd()),
-                prove.registry_metadata,
-                prove.PyPI(),
-                prove.run_command,
-                datetime.now(UTC),
-            )
-            outputs = {"files": json.dumps(proof.files), "blobs": json.dumps(proof.blobs)}
-            summary = f"Attested {', '.join(proof.files)}"
+        summary, outputs = work()
     except Refused as refusal:
         # A refusal is an answer, so the job passes. Only a failure of the prover itself fails the run.
-        summary, outputs = f"Refused: {refusal}", {**outputs, "refused": "true"}
+        summary, outputs = f"Refused: {refusal}", {**refused, "refused": "true"}
     log(printable(summary))
     log(f"::{token}::")
     with step_files.output.open("a") as handle:
         handle.writelines(f"{key}={value}\n" for key, value in outputs.items())
     with step_files.summary.open("a") as handle:
-        handle.write(f"### Dependency proof\n\n{printable(summary)}\n")
+        handle.write(f"### {heading}\n\n{printable(summary)}\n")
     return 0
+
+
+def identify_dependency(env: Mapping[str, str]) -> StepAnswer:
+    request = identify_request(env)
+    found = prove.identify(request, prove.GitHub(request.repository, env["GITHUB_TOKEN"]))
+    if found is None:
+        return "No pull request at this head is eligible for a proof", NOT_DEPENDENCY_IDENTIFIED
+    outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "lane": found.lane, "eligible": "true"}
+    return f"Pull request {found.pr} is eligible for a proof", outputs
+
+
+def prove_dependency(env: Mapping[str, str]) -> StepAnswer:
+    proof = prove.prove(
+        prove_request(env),
+        prove.Git(Path.cwd()),
+        prove.registry_metadata,
+        prove.PyPI(),
+        prove.run_command,
+        datetime.now(UTC),
+    )
+    return f"Attested {', '.join(proof.files)}", {"files": json.dumps(proof.files), "blobs": json.dumps(proof.blobs)}
+
+
+def identify_revert(env: Mapping[str, str]) -> StepAnswer:
+    request = identify_request(env)
+    github = prove.GitHub(request.repository, env["GITHUB_TOKEN"])
+    found = prove_revert.identify(request, github, datetime.now(UTC))
+    if found is None:
+        return "No open pull request has this head", NOT_REVERT_IDENTIFIED
+    if found.reverted is None:
+        outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "eligible": "false", "reverted": ""}
+        return f"Pull request {found.pr} reverts no commit", outputs
+    outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "eligible": "true", "reverted": found.reverted}
+    return f"Pull request {found.pr} reverts {found.reverted}", outputs
+
+
+def prove_reverted(env: Mapping[str, str]) -> StepAnswer:
+    proof = prove_revert.prove(revert_prove_request(env), prove.Git(Path.cwd()))
+    return f"Attested {', '.join(proof.files)}", {"files": json.dumps(proof.files), "blobs": json.dumps(proof.blobs)}
 
 
 def main(argv: list[str], env: Mapping[str, str]) -> int:
@@ -149,8 +187,16 @@ def main(argv: list[str], env: Mapping[str, str]) -> int:
         return scan.report(scan_report_request(env))
     if command == "scan-gate":
         return scan.gate(scan_gate_request(env))
-    if command in ("identify", "prove"):
-        return run_prover(command, env)
+    if command == "identify":
+        return run_step("Dependency proof", NOT_DEPENDENCY_IDENTIFIED, lambda: identify_dependency(env), env)
+    if command == "prove":
+        return run_step("Dependency proof", NOT_PROVED, lambda: prove_dependency(env), env)
     if command == "conclude":
-        return run_conclude(env)
+        return run_conclude(publish_inputs(env, scanned=True), conclusion.DEPENDENCY)
+    if command == "revert-identify":
+        return run_step("Revert proof", NOT_REVERT_IDENTIFIED, lambda: identify_revert(env), env)
+    if command == "revert-prove":
+        return run_step("Revert proof", NOT_PROVED, lambda: prove_reverted(env), env)
+    if command == "revert-conclude":
+        return run_conclude(publish_inputs(env, scanned=False), conclusion.REVERT)
     raise SystemExit(f"unknown command: {command}")
