@@ -59,6 +59,18 @@ Circular dependencies fail with a query error. Soft saves skip column inference 
 Query preparation shares a 60-second cooperative deadline across parsing, resolution, transformations, and printing.
 AST visitors check the deadline while walking; native parser calls are checked when they return, rather than interrupted mid-call.
 
+## Embedding text
+
+`embedText(text, model)` requires string literals for both arguments and a team in the query context.
+For example, use `embedText('example text', 'text-embedding-3-small-1536')`.
+A missing or invalid model raises a HogQL `QueryError` that lists the valid model names.
+Other argument validation failures also raise `QueryError`, so query APIs and AI SQL validation can expose them to the caller.
+
+## Person query limits
+
+Queries that join from `persons` apply their row limit after the join.
+The persons V2 deduplication optimization only pushes a limit into the inner person scan when no join can filter or reshape those rows.
+
 ## Disabling projection optimization
 
 Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.
@@ -150,7 +162,23 @@ Every `SharingQuery` carries a caller-validated context key. Compiler preparatio
 
 `SharingQuery.sharing_enabled` defaults to `False`. Compiler preparation populates it from `hogql-query-sharing`; the planner excludes disabled inputs from every sharing rule. Synthetic fixtures and syntax-only planning explicitly opt in without consulting a project flag. They do not execute against application tables.
 
-This path remains a local experimental comparison. It does not change dashboard loading, caching, cancellation, retries or error isolation. A shared execution failure propagates to the comparison; the future dashboard adapter must provide independent scheduling and guarded fallback.
+The standalone comparison propagates shared execution failures. It does not exercise dashboard caching, cancellation, or retries.
+
+### Experimental dashboard integration
+
+Authenticated dashboard refreshes can opt into shared execution behind `hogql-query-sharing`, checked by both the browser and backend. The flag is off by default. Public/shared dashboards, embedded placements, and refreshes outside 2–32 insight tiles keep the existing loading path.
+
+The dashboard sends one streaming request with its effective filters and variable overrides. Up to four workers use the existing insight serializer and query runner, preserving per-insight permissions, cache keys, refresh modes, and rate limits. Cached tiles return without entering the planner. Eligible SQL queries wait up to 50 ms for a compatible partner; unsupported queries execute immediately. Matching is opportunistic within that window, not a global optimization across every tile.
+
+The adapter supports the planner's same-aggregation top-N pairs and scalar `count()` / `count(column)` pairs. It removes positive pagination limits only from supported scalar counts, which always return one row. Paginated daily counts remain separate. Other insight types continue through their normal query runners.
+
+Each tile streams as soon as it completes. A failed or incomplete shared query falls back to the original queries independently, and one tile's query error does not fail its siblings. A broken stream retries only undelivered tiles through the existing refresh path. Disconnecting or starting another refresh cancels queued work and requests ClickHouse cancellation for that batch.
+
+Monitor `posthog_dashboard_sharing_executions_total` for separate executions, shared groups, and fallback groups. Sharing reduces duplicate work only when compatible, uncached queries meet during the matching window; it does not guarantee lower dashboard latency.
+
+With the flag enabled, expand **Query sharing debug** below the dashboard filters to inspect the latest refresh. It shows participating tiles, sharing rules, reasons for separate execution and fallback, and cache hits. Work totals count measured ClickHouse queries, rows read, and summed execution time once per executing worker, including measured lookups and failed attempts. On older ClickHouse protocols, time falls back to client round-trip time. A shared execution is counted once, not once per consumer. Bytes read, dashboard wall time, and savings against a separate-execution baseline are not measured.
+
+Diagnostics arrive progressively with tile results and stay in page memory, outside insight caches. Cancelled or interrupted refreshes show partial totals; normal-path retries and unfinished workers are not included. Refreshes outside the sharing batch size show why they used the normal path. The endpoint includes diagnostics only when requested with `debug=true`, limits execution details to 64 records per worker, and does not collect SQL text or query results in diagnostics. Sharing is within one dashboard refresh, not across dashboards.
 
 ## Pattern matching during query preparation
 
@@ -165,6 +193,9 @@ SQL LIKE and ILIKE patterns sent to ClickHouse are not subject to these VM limit
 For non-nullable materialized columns, patterns above 16,384 characters skip the optional sentinel-based rewrite and use the normal property read.
 
 ## ClickHouse query errors
+
+HogQL query API errors include metadata diagnostics with the same `values` bindings used for execution.
+A missing column reports that column's error even when the query contains placeholders.
 
 `posthog/errors.py` maps ClickHouse error codes to exceptions. Query APIs expose `ExposedCHQueryError` messages and hide `InternalCHQueryError` messages.
 For additional user-correctable errors, set `ErrorCodeMeta.user_safe` to a fixed explanation with a next step.
@@ -279,18 +310,28 @@ If you access `poe.properties.$browser`, we will actually access the field `pers
 
 In practice, you should avoid both and access `person.properties.$browser`, which will choose the right approach for you.
 
+A `FieldTraverser` can use `..` to reach its parent table, followed by the target field.
+The resolver raises a `QueryError` if there is no parent or if the chain ends at `..`.
+
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
+An equality or inequality between a Boolean constant and a String or untyped property compares with the string `'true'` or `'false'`, because ClickHouse cannot compare text with a Boolean.
+The legacy table does the same only for an equality on a key it keeps in a property-group map, and fails on the other forms.
 Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type, including the empty string and text that starts with `[` or `{`.
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
 DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only a comparison with the empty string alone compares as text, and an `IN` list that also holds dates keeps the conversion.
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
-For String and untyped properties, constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
-Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
-Empty property names, including nested path segments, use bound `getSubcolumn` calls because ClickHouse rejects empty SQL identifiers.
-Bound sub-object paths escape backticks with backslashes rather than SQL identifier quoting.
+The native table stores every object and array as a string of JSON text with no whitespace and with the keys of every object sorted.
+Two events that hold the same object therefore hold the same string, so grouping by the property or comparing it compares the content.
+A single-property read returns that text, and a constant starting with `[` or `{` compares with it like any other constant.
+A read of a value inside an object or an array extracts it from the property's text, as the legacy table extracts it from the raw document.
+`IS NULL` and `IS NOT NULL` on a String or untyped property test the path without reading its value.
+Whole-document reads put each stored object and array back and still remove declared defaults.
+A string that is a valid JSON object or array reads as that object or array, because nothing records whether the cleaner stored it or the SDK sent that text.
+An empty property name uses a bound `getSubcolumn` call because ClickHouse rejects empty SQL identifiers.
 A JSON function on the native `properties` column needs JSON text, and rebuilding the whole document as text from every path is the slowest way to get it.
 A call with a constant first key, such as `JSONLength(properties, 'details')`, serializes only that key's value and runs the function on it. This includes calls through `toString(properties)` and keys stored among the temporary properties.
+A call with more path after the first key, such as `JSONExtractString(properties, 'details', 'name')`, runs on the stored text of that key.
 String, floating-point and Boolean extraction skip the serialization as well: they read the native value and apply the function's conversion and missing-value rules, independently of property-definition types. A stored floating-point value keeps the parser for string extraction, because JSON number formatting decides the result. It reads as false for Boolean extraction and as `Double` for `JSONType`, because the serialized form of an integral value is an integer token.
 Integer extraction keeps ClickHouse's JSON parser on the serialized value, because its coercion rules cost more SQL than the parse saves.
 `JSONHas`, a key computed per row and a call with no key still rebuild the whole document.
@@ -306,8 +347,8 @@ A key that a JSON function parses, as in `JSONExtractRaw(t.properties, 'key')`, 
 A user-written `toJSONString(t.properties.key)` exports the JSON text for a key without a property definition and the stored value for a key with one, so the definition's conversion applies before the serialization as in a direct read.
 In the clauses of a grouped query that run after grouping, the select list, `GROUP BY`, `HAVING` and `ORDER BY`, every key is exported as its stored value, because a direct read there serializes the value too, and a `GROUP BY` key then shares its column with the serialized read of the same key.
 The whole `properties` document is exported only where the outer query reads it whole, and each wrapped table decides this on its own.
-Raw SQL property readers preserve backslashes before forward slashes whether ClickHouse's `output_format_json_escape_forward_slashes` setting is enabled or disabled.
-Native queries disable forward-slash escaping so object and array text retains `/`.
+Raw SQL property readers return the stored text, so they do not depend on ClickHouse's `output_format_json_escape_forward_slashes` setting.
+Native queries disable forward-slash escaping so a rebuilt document retains `/`.
 
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.
 

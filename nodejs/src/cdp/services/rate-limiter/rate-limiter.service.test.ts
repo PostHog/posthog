@@ -211,6 +211,31 @@ describe('RateLimiterService', () => {
             expect(await limiter.claimUpTo({ key: AON_KEY, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
         })
 
+        it.each([
+            ['a raise grants the new allowance minus what was spent', [1000], 970],
+            ['a cut clamps the pool to the smaller allowance', [50], 50],
+            ['switching back after a cut grants no allowance twice', [50, 100], 50],
+            ['a lower capacity after a raise clamps the pool for good', [1000, 100, 1000], 100],
+        ])('%s', async (_case, capacities, expectedGrant) => {
+            const bucket = (capacity: number) => ({ key: AON_KEY, capacity, refillPerSecond: 0 })
+            await limiter.claimAllOrNothing({ ...bucket(100), requested: 30 }, 600_000)
+            for (const capacity of capacities.slice(0, -1)) {
+                await limiter.claimUpTo({ ...bucket(capacity), requested: 0 })
+            }
+            const finalBucket = bucket(capacities[capacities.length - 1])
+
+            expect(
+                await limiter.claimAllOrNothing({ ...finalBucket, requested: expectedGrant + 1 }, 600_000)
+            ).toMatchObject({
+                granted: false,
+            })
+            expect(
+                await limiter.claimAllOrNothing({ ...finalBucket, requested: expectedGrant }, 600_000)
+            ).toMatchObject({
+                granted: true,
+            })
+        })
+
         it('consumes nothing on denial, so retries cannot starve the bucket', async () => {
             // The bucket cannot cover the request, so the claim must leave the pool untouched.
             // Without that, a rescheduled multi-recipient send would burn the refill on every

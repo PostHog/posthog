@@ -13,6 +13,7 @@ from posthog.schema import (
     LogPropertyFilterType,
     LogsQuery,
     LogsQueryResponse,
+    PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyGroupsMode,
     PropertyOperator,
@@ -255,8 +256,19 @@ def _validated_attribute_group(group: PropertyGroupFilterValue) -> PropertyGroup
         raise QueryError("Nested filter groups in logs queries must contain at least one filter")
     for leaf in group.values:
         if not isinstance(leaf, LogPropertyFilter) or leaf.type != LogPropertyFilterType.LOG_ATTRIBUTE:
-            raise QueryError("Nested filter groups in logs queries support only log_attribute filters")
+            leaf_type = "nested group" if isinstance(leaf, PropertyGroupFilterValue) else f"{leaf.type} filter"
+            raise QueryError(
+                f"Nested filter groups in logs queries support only log_attribute filters, not a {leaf_type}. "
+                "Move that filter out of the nested group."
+            )
     return group
+
+
+def validate_nested_filter_groups(filter_group: PropertyGroupFilter) -> None:
+    for property_group in filter_group.values:
+        for nested_group in property_group.values:
+            if isinstance(nested_group, PropertyGroupFilterValue):
+                _validated_attribute_group(nested_group)
 
 
 class LogsFilterBuilder:
@@ -756,13 +768,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     def validate_query_runner_access(self, user: "User") -> bool:
         # LogsQuery is registered in get_query_runner solely for server-side CSV export.
         # The export runs via ExportedAsset + Celery and attributes the read to the export
-        # owner (LimitContext.EXPORT), which must be allowed through. Block everything else —
-        # i.e. user-initiated queries via the generic /api/projects/:id/query/ endpoint —
-        # until the LogsQuery schema is stable and ready to be a public API.
-        if self.limit_context == LimitContext.EXPORT:
-            return True
+        # owner (LimitContext.EXPORT). That owner still needs viewer access to logs, the same
+        # access the logs API asks for. Block everything else, i.e. user-initiated queries via
+        # the generic /api/projects/:id/query/ endpoint, until the LogsQuery schema is stable
+        # and ready to be a public API.
+        from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 
-        from products.access_control.backend.facade.user_access_control import UserAccessControlError
+        if self.limit_context == LimitContext.EXPORT:
+            return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("logs", "viewer")
 
         raise UserAccessControlError("logs", "viewer")
 

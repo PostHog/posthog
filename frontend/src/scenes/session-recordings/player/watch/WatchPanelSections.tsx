@@ -4,6 +4,8 @@ import { ReactNode, useEffect, useRef } from 'react'
 import { IconBug, IconInfo, IconSidePanel, IconSparkles } from '@posthog/icons'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, Badge, Button } from '@posthog/quill'
 
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { ReplayHintPopover } from 'scenes/session-recordings/components/ReplayHintPopover'
 import { WatchPanelSection, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { PlayerSidebarTab } from 'scenes/session-recordings/player/sidebar/PlayerSidebarTab'
@@ -26,13 +28,21 @@ export interface ObservationsSection {
 export function WatchPanelSections({
     observations,
     debug,
+    hintAnchor,
 }: {
     observations?: ObservationsSection
     debug: boolean
+    hintAnchor: HTMLElement | null
 }): JSX.Element {
-    const { watchPanelOpenSections, watchPanelFocusRequest } = useValues(playerSettingsLogic)
-    const { setWatchPanelOpenSections, openWatchPanelSection, setWatchDebugDock, clearWatchPanelFocus } =
-        useActions(playerSettingsLogic)
+    const { watchPanelOpenSections, watchPanelFocusRequest, overviewHintShown } = useValues(playerSettingsLogic)
+    const {
+        setWatchPanelOpenSections,
+        openWatchPanelSection,
+        setWatchDebugDock,
+        clearWatchPanelFocus,
+        dismissOverviewHint,
+    } = useActions(playerSettingsLogic)
+    const floatingContainer = useFloatingContainer()
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const linkedIssuesAvailable = useLinkedIssuesAvailable()
@@ -58,6 +68,13 @@ export function WatchPanelSections({
     const debugTab = debugTabs.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
 
     const itemRefs = useRef<Partial<Record<WatchPanelSection, HTMLDivElement | null>>>({})
+    const overviewOpen = open.includes('overview')
+    useEffect(() => {
+        if (overviewHintShown && overviewOpen) {
+            dismissOverviewHint()
+        }
+    }, [overviewHintShown, overviewOpen, dismissOverviewHint])
+
     useEffect(() => {
         if (!watchPanelFocusRequest) {
             return
@@ -81,6 +98,19 @@ export function WatchPanelSections({
                         Overview
                     </span>
                 </AccordionTrigger>
+                {overviewHintShown && !overviewOpen && (
+                    <ReplayHintPopover
+                        anchor={hintAnchor}
+                        onDismiss={dismissOverviewHint}
+                        side="top"
+                        align="end"
+                        container={floatingContainer}
+                        compact
+                        dataAttr="watch-panel-overview-hint"
+                    >
+                        Session, person, device and experiment details are under Overview now.
+                    </ReplayHintPopover>
+                )}
                 <AccordionContent className="-mx-2">
                     <RecordingOverviewPanels />
                 </AccordionContent>
@@ -92,9 +122,10 @@ export function WatchPanelSections({
                         itemRefs.current.observations = el
                     }}
                 >
-                    <div className="flex items-center gap-1 [&>h3]:m-0 [&>h3]:min-w-0 [&>h3]:flex-1 [&>h3]:font-[inherit]">
+                    {/* Subgrid puts the action between the trigger's label and chevron. */}
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center [&>h3]:col-span-full [&>h3]:row-start-1 [&>h3]:grid [&>h3]:grid-cols-subgrid [&>h3]:m-0 [&>h3]:font-[inherit]">
                         <AccordionTrigger
-                            className="min-w-0 [&>span]:min-w-0 [&>span]:flex-1"
+                            className="col-span-full grid grid-cols-subgrid items-center gap-0 [&>span]:min-w-0 [&>svg]:col-start-3"
                             data-attr="watch-panel-section-observations"
                         >
                             <span className="flex items-center gap-1.5 min-w-0">
@@ -103,7 +134,9 @@ export function WatchPanelSections({
                                 {observations.count > 0 && <Badge className="shrink-0">{observations.count}</Badge>}
                             </span>
                         </AccordionTrigger>
-                        {observations.action && <div className="shrink-0 pr-2">{observations.action}</div>}
+                        {observations.action && (
+                            <div className="relative col-start-2 row-start-1 px-2">{observations.action}</div>
+                        )}
                     </div>
                     <AccordionContent>{observations.content}</AccordionContent>
                 </AccordionItem>

@@ -138,7 +138,7 @@ def capture_event(event: str, *, distinct_id: str, properties: dict[str, Any]) -
     )
 
 
-# Note: If the task fails and is retried, events may be sent multiple times. This is handled by Customer.io when consuming the events.
+# A retry of this task sends the events again, so consumers of these events must tolerate duplicates.
 @shared_task(ignore_result=True, max_retries=3)
 @skip_team_scope_audit
 def send_events_for_early_access_feature_stage_change(feature_id: str, from_stage: str, to_stage: str) -> None:

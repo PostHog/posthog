@@ -108,6 +108,16 @@ APP_STORE_CONNECT_READ_FORBIDDEN_ERROR = (
     "Admin, Finance, or Sales role that can read it, then reconnect."
 )
 
+# 403 with Apple's `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED` code, on any call. Apple
+# blocks every key on the account until the Account Holder accepts its updated agreements, so no
+# role change helps. Checked before the role messages, which would point the user at the wrong fix.
+APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR = (
+    "App Store Connect blocked this API key because a required Apple agreement is missing or has "
+    "expired. The Account Holder must sign in to App Store Connect and accept the latest agreements, "
+    "then run the sync again."
+)
+_APPLE_AGREEMENT_REQUIRED_CODE = "FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED"
+
 # 403 on `POST /v1/analyticsReportRequests`. Apple lets only an Admin key create an analytics
 # report request, so a Finance or Sales key reads reports and still loses this create. Named
 # separately so the message points at Admin rather than the read roles the key already holds.
@@ -346,9 +356,12 @@ def _get(
             apple_title=apple_error.title,
             apple_detail=apple_error.detail,
         )
-        raise AppStoreConnectPermissionError(
-            f"{APP_STORE_CONNECT_READ_FORBIDDEN_ERROR} ({_apple_error_suffix(apple_error, 403)})"
+        message = (
+            APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR
+            if apple_error.code == _APPLE_AGREEMENT_REQUIRED_CODE
+            else APP_STORE_CONNECT_READ_FORBIDDEN_ERROR
         )
+        raise AppStoreConnectPermissionError(f"{message} ({_apple_error_suffix(apple_error, 403)})")
 
     if not response.ok:
         logger.error(
@@ -1287,11 +1300,12 @@ def _create_report_request(
             apple_title=apple_error.title,
             apple_detail=apple_error.detail,
         )
-        message = (
-            APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR
-            if saw_stopped
-            else APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR
-        )
+        if apple_error.code == _APPLE_AGREEMENT_REQUIRED_CODE:
+            message = APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR
+        elif saw_stopped:
+            message = APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR
+        else:
+            message = APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR
         raise AppStoreConnectPermissionError(f"{message} ({_apple_error_suffix(apple_error, 403)})")
     if response.status_code == 409:
         return None

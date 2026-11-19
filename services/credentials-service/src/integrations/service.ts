@@ -979,6 +979,7 @@ export class IntegrationsService {
     ): AuditEntry {
         return {
             actor: caller.actor,
+            occurredAt: new Date(),
             operation,
             outcome,
             ownerType: row.ownerType,

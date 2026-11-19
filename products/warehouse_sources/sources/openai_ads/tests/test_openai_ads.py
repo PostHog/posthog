@@ -315,3 +315,20 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None and message_fragment in message
+
+    @parameterized.expand(
+        [
+            ("trailing_newline", "oa-ads-test\n"),
+            ("leading_space", " oa-ads-test"),
+            ("inner_space", "oa-ads test"),
+            ("zero_width_space", "oa-ads-test\u200b"),
+            ("curly_quote", "\u201coa-ads-test\u201d"),
+            ("control_character", "oa-ads-test\x00"),
+        ]
+    )
+    def test_key_with_unsupported_character_is_rejected_before_probing(self, _name: str, api_key: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
+            is_valid, message = validate_credentials(api_key)
+        assert network.requests_log == []
+        assert is_valid is False
+        assert message is not None and "unsupported character" in message

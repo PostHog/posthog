@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isGitlabRun } from "@posthog/git/gitlab";
 import type { z } from "zod";
 import { isCloudRun } from "../cloud-run";
 import { resolveGithubToken } from "../github-token";
@@ -12,7 +13,7 @@ import { listClones } from "./clone-repo";
 
 /**
  * Factory for the cloud-only GitHub tools (git_signed_commit / git_signed_rewrite /
- * gh_stack). Resolves the token lazily (live /tmp/agent-env first, so a mid-session
+ * gh_stack), which GitLab runs do not get. Resolves the token lazily (live /tmp/agent-env first, so a mid-session
  * credential refresh takes effect) and the optional `cwd` arg against the session cwd,
  * then delegates to the tool's `run`. Kept past ToolSearch via alwaysLoad by default.
  */
@@ -28,7 +29,7 @@ export function defineSignedGitTool<S extends z.ZodRawShape, R>(opts: {
     description: opts.description,
     schema: opts.schema,
     alwaysLoad: opts.alwaysLoad ?? true,
-    isEnabled: (_ctx, meta) => isCloudRun(meta),
+    isEnabled: (_ctx, meta) => isCloudRun(meta) && !isGitlabRun(),
     handler: (ctx, args) => {
       const token = resolveGithubToken() ?? ctx.token;
       if (!token) {

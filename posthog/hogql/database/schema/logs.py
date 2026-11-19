@@ -11,6 +11,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
+from posthog.hogql.database.schema.traffic_type import log_traffic_fields
 from posthog.hogql.parser import parse_expr
 
 from posthog.clickhouse.workload import Workload
@@ -126,7 +127,11 @@ class LogsTable(InternalLogsAccessTable):
         "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
         "_bytes_uncompressed": IntegerDatabaseField(name="_bytes_uncompressed", nullable=True, hidden=True),
         "mat_body_ipv4_matches": StringJSONDatabaseField(name="mat_body_ipv4_matches", nullable=True, hidden=True),
+        **log_traffic_fields(),
     }
+
+    def avoid_asterisk_fields(self) -> list[str]:
+        return list(log_traffic_fields())
 
     def to_printed_clickhouse(self, context):
         return "logs_distributed"

@@ -8,7 +8,7 @@ from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, quote, urlparse
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -387,6 +387,28 @@ SESSION_LOG_PAGE_MAX_BYTES = 16 * 1024 * 1024
 SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
 
 
+def _task_done_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": str(tasks_facade.TaskDoneError())}).data,
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
+def _run_in_progress_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": str(tasks_facade.TaskRunAlreadyLiveError())}).data,
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
+def _wake_refusal_response(code: str | None) -> Response | None:
+    if code == "task_done":
+        return _task_done_response()
+    if code == "run_in_progress":
+        return _run_in_progress_response()
+    return None
+
+
 def _is_internal_debug_team(team_id: int | None) -> bool:
     if settings.DEBUG and not settings.TEST:
         return team_id == 1
@@ -577,8 +599,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         *,
         partial: bool = False,
         serializer_class: type[TaskWriteSerializer] = TaskWriteSerializer,
+        instance=None,
     ) -> TaskWriteSerializer:
         serializer = serializer_class(
+            instance=instance,
             data=data,
             partial=partial,
             context={"team": self.team, "team_id": self.team.id, "request": self.request},
@@ -1114,9 +1138,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             and authenticator.access_token.sandbox_task_id is not None
         ):
             raise PermissionDenied("Task agents cannot move tasks between channels.")
-        serializer = self._write_serializer(request.data, partial=True)
+        if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
+            raise NotFound()
+        current = tasks_facade.get_task_repository_state(pk, self.team_id, self._user_id())
+        if current is None:
+            raise NotFound()
+        serializer = self._write_serializer(request.data, partial=True, instance=current)
         task = tasks_facade.update_task(
-            pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
+            pk,
+            self.team_id,
+            self._user_id(),
+            validated_data=dict(serializer.validated_data),
+            expected_repository_state=(
+                current.repository,
+                current.repositories,
+                current.github_integration,
+                current.github_user_integration,
+                current.repository_integration,
+            ),
         )
         if task is None:
             raise NotFound()
@@ -1256,6 +1295,50 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task = tasks_facade.handoff_task(pk, self.team_id, user_id, target_user_id=request.validated_data["user"])
         except tasks_facade.TaskHandoffError as e:
             raise ValidationError({"user": str(e)}) from e
+        if task is None:
+            raise NotFound()
+        return Response(TaskSerializer(task).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: TaskSerializer,
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Closing is not available for this task yet."
+            ),
+            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Only a user may close a task."),
+            404: OpenApiResponse(description="Task not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is not idle."),
+        },
+        summary="Close a task",
+        description=(
+            "Mark an idle task as done. A done task refuses new runs and follow-up messages, so start a new task "
+            "to keep working on it."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="close", required_scopes=["task:write"])
+    def close(self, request, pk=None, **kwargs):
+        if is_sandbox_oauth_request(request) or is_mcp_built_in_agent_oauth_request(request):
+            raise PermissionDenied("Only a user can close a task. Sign in to continue.")
+        user_id = self._user_id()
+        if user_id is None:
+            raise NotFound()
+        outcome = tasks_facade.close_task(pk, self.team_id, user_id)
+        if outcome == "not_found":
+            raise NotFound()
+        if outcome == "not_enabled":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Closing isn't available for this task yet."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "not_idle":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "Only an idle task can be closed. Wait for the current run to finish."}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        task = tasks_facade.get_task_detail(pk, self.team_id, user_id)
         if task is None:
             raise NotFound()
         return Response(TaskSerializer(task).data)
@@ -1557,6 +1640,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ),
             ),
             404: OpenApiResponse(description="Task not found"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -1895,7 +1982,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
-        return Response(WarmTaskResponseSerializer({"task_id": result.task_id, "run_id": result.run_id}).data)
+        return Response(
+            WarmTaskResponseSerializer(
+                {
+                    "task_id": result.task_id,
+                    "run_id": result.run_id,
+                    "permission_mode_mutable": origin_product
+                    in (
+                        tasks_facade.TaskOriginProduct.USER_CREATED,
+                        tasks_facade.TaskOriginProduct.POSTHOG_AI,
+                    ),
+                }
+            ).data
+        )
 
     @extend_schema(operation_id="tasks_warm_resume_create")
     @validated_request(
@@ -1978,6 +2077,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if error.missing_artifact_ids is not None:
                 body["missing_artifact_ids"] = error.missing_artifact_ids
             return Response(body, status=status.HTTP_400_BAD_REQUEST)
+        if (refusal := _wake_refusal_response(error.code)) is not None:
+            return refusal
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2064,6 +2165,16 @@ def is_sandbox_agent_request(request, task_id: str) -> bool:
 
 # Command methods that inject caller-authored content and drive a new model turn.
 _HUMAN_STEERING_COMMAND_METHODS = frozenset({"user_message", "side_question"})
+_PI_TURN_COMMAND_TYPES = frozenset({"prompt", "steer", "follow_up"})
+
+
+def _command_starts_a_turn(method: str, params: object) -> bool:
+    if method == "side_question":
+        return True
+    if method != "pi/rpc" or not isinstance(params, dict):
+        return False
+    command = params.get("command")
+    return isinstance(command, dict) and command.get("type") in _PI_TURN_COMMAND_TYPES
 
 
 @extend_schema(tags=["task-runs", "tasks"])
@@ -2331,6 +2442,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _validation_error_response(self, error: tasks_contracts.TaskRunValidationError) -> Response:
         if error.kind == "detail":
             return Response({"detail": error.detail}, status=status.HTTP_400_BAD_REQUEST)
+        if (refusal := _wake_refusal_response(error.code)) is not None:
+            return refusal
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2344,6 +2457,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
+            ),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
             ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
@@ -2388,6 +2505,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
             404: OpenApiResponse(description="Task run not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -2477,6 +2595,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if outcome == "task_done":
+            return _task_done_response()
 
         if started_task_id is None:
             raise NotFound()
@@ -3793,6 +3913,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
 
+        if _command_starts_a_turn(method, params):
+            try:
+                tasks_facade.check_wake_by_task_id(task_id, source="command")
+            except tasks_facade.TaskDoneError:
+                return _task_done_response()
+
         # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
         if method == "side_question":
@@ -3815,6 +3941,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return access_response
 
         if method == "user_message":
+            if request_id is None:
+                request_id = str(uuid4())
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
             if artifact_ids:
@@ -3845,10 +3973,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             except ComputeBillingLimitExceeded as error:
                 return compute_quota_limit_response(error.reason)
+            except tasks_facade.TaskDoneError:
+                return _task_done_response()
+            except tasks_facade.TaskRunAlreadyLiveError:
+                return _run_in_progress_response()
             except Exception:
                 logger.warning("Failed to queue user message for task run %s", pk)
                 return Response(
-                    TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
+                    TaskRunErrorResponseSerializer(
+                        {"error": "Failed to queue user message for task run", "id": request_id}
+                    ).data,
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
             if signal_result is None:
@@ -4285,6 +4419,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -4321,6 +4459,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
         if outcome == "not_found":
             raise NotFound()
+        if (refusal := _wake_refusal_response(outcome)) is not None:
+            return refusal
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
@@ -4460,13 +4600,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # the generator, after SSE admission, off the event loop.
         thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
         backlog_serve_after: int | None = None
-        backlog_log_urls: list[str] = []
+        backlog_logs: list[tasks_facade.TaskRunLog] = []
         if thin_tail:
             if not last_event_id:
                 backlog_serve_after = -1
             else:
                 backlog_serve_after = parse_log_cursor(last_event_id)
-            backlog_log_urls = tasks_facade.get_task_run_log_urls(pk, task_id, self.team_id) or []
+            backlog_logs = tasks_facade.get_task_run_logs(pk, task_id, self.team_id) or []
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
@@ -4516,9 +4656,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     backlog_reserved = 0
                     try:
                         try:
-                            backlog_bytes = await asyncio.to_thread(
-                                tasks_facade.get_task_run_log_size, backlog_log_urls
-                            )
+                            backlog_bytes = await asyncio.to_thread(tasks_facade.get_task_run_log_size, backlog_logs)
                             observe_stream_backlog_bytes(origin_product, backlog_bytes)
                             backlog_oversized = backlog_bytes > settings.TASK_RUN_STREAM_BACKLOG_MAX_BYTES
                             if backlog_oversized:
@@ -4547,7 +4685,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             else:
                                 backlog_reserved = backlog_bytes
                                 log_content = await asyncio.to_thread(
-                                    tasks_facade.read_task_run_log_content, backlog_log_urls
+                                    tasks_facade.read_task_run_log_content, backlog_logs
                                 )
                             backlog_entries, backlog_index = await asyncio.to_thread(_parse_backlog, log_content)
                             del log_content

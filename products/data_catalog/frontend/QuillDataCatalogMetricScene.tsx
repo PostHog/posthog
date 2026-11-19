@@ -94,7 +94,6 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
         metric,
         mutating,
         running: runResultLoading,
-        biModeEnabled: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         isMaxAvailable,
         handlers: {
             approve: approveMetric,
@@ -116,6 +115,7 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
                 <SceneTitleSection
                     name={metric.display_name || metric.name}
                     description={metric.description}
+                    descriptionAlwaysVisible
                     resourceType={{ type: 'data_warehouse' }}
                     canEdit
                     onNameChange={(value) => updateMetric({ display_name: value })}

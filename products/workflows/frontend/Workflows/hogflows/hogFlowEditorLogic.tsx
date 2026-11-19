@@ -313,7 +313,16 @@ export interface hogFlowEditorLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -1257,7 +1266,16 @@ export interface hogFlowEditorLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -2230,6 +2248,9 @@ export interface hogFlowEditorLogicActions {
     resetFlowFromHogFlow: (hogFlow: HogFlow) => {
         hogFlow: HogFlow
     }
+    selectTrigger: () => {
+        value: true
+    }
     setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => {
         dropzoneNodes: DropzoneNode[]
     }
@@ -2363,6 +2384,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNodesRaw: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setEdges: (edges: HogFlowActionEdge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
+        selectTrigger: true,
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event?: DragEvent, targetEdge?: HogFlowEdge, joinEdges?: HogFlowEdge[]) => ({
@@ -2925,6 +2947,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
                 actions.onDrop()
                 actions.stopCopyingNode()
+            },
+            selectTrigger: () => {
+                // Workflows created through the API or MCP can give the trigger any id, not only TRIGGER_NODE_ID.
+                const trigger = values.workflow.actions.find((action) => action.type === 'trigger')
+                actions.setSelectedNodeId(trigger?.id ?? null)
             },
             startMovingNode: () => {
                 actions.showDropzones()

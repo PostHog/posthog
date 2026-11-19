@@ -1,7 +1,5 @@
-# This layer defines LOGS role metric storage. Nothing ingests into the metrics2
-# tables now. They stay until their TTL clears the rows.
-# Patches in roles/logs/shared restore the cloud ZK paths.
-# The prod codec deltas sit in roles/logs/prod.
+# This layer defines the legacy metrics1 and metrics2 storage. Only the local logs
+# stack composes it: migration 0381 dropped these tables from the cloud logs nodes.
 # The local codec deltas for value and count sit in roles/logs/local.
 database "posthog" {
   table "metric_attributes" {

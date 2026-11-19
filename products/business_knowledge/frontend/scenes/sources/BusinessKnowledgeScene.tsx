@@ -36,6 +36,7 @@ import { LibraryRow } from './LibraryRow'
 import { LibrarySummary } from './LibrarySummary'
 import { RefreshStatusCell } from './RefreshStatusCell'
 import { SourceLibrariesCell } from './SourceLibrariesCell'
+import { SourceUsageCell } from './SourceUsageCell'
 
 export const scene: SceneExport = {
     component: BusinessKnowledgeScene,
@@ -198,6 +199,12 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                     ? `${pages.toLocaleString()} / ${row.chunk_count.toLocaleString()}`
                                     : row.chunk_count.toLocaleString()
                             },
+                        },
+                        {
+                            title: 'Cited in',
+                            key: 'cited_run_count',
+                            tooltip: 'Support agent runs that cited this source.',
+                            render: (_, row) => <SourceUsageCell source={row} />,
                         },
                         {
                             title: 'Added',

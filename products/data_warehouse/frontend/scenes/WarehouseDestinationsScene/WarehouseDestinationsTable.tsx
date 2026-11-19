@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
+import { IconNotification, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumn, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { urls } from 'scenes/urls'
 
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -20,6 +21,8 @@ export interface WarehouseDestinationsTableProps {
     loading: boolean
     onEdit: (destination: ExternalDataDestinationApi) => void
     onDelete: (destination: ExternalDataDestinationApi) => void
+    /** Starts a new alert that watches the destination. Unset hides the action. */
+    onCreateAlert?: (destination: ExternalDataDestinationApi) => void
     /** The destination currently being deleted, so its row cannot fire a second request. */
     deletingId?: string | null
     /** Rendered when the list has loaded and holds nothing. */
@@ -31,6 +34,7 @@ export function WarehouseDestinationsTable({
     loading,
     onEdit,
     onDelete,
+    onCreateAlert,
     deletingId,
     emptyState,
 }: WarehouseDestinationsTableProps): JSX.Element {
@@ -47,13 +51,13 @@ export function WarehouseDestinationsTable({
             sorter: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
             render: (_, destination) => (
                 <div className="flex flex-col items-start">
-                    {/* The managed warehouse row has nothing to edit, so its name stays text. */}
+                    {/* The managed warehouse has no delivery health of its own, so its name stays text. */}
                     {destination.is_posthog_warehouse ? (
                         <span className="font-semibold">{destination.name}</span>
                     ) : (
                         <Link
                             className="font-semibold"
-                            onClick={() => onEdit(destination)}
+                            to={urls.warehouseDestination(destination.id)}
                             data-attr="warehouse-destination-scene-open"
                         >
                             {destination.name}
@@ -118,6 +122,17 @@ export function WarehouseDestinationsTable({
                                 >
                                     Edit
                                 </LemonButton>
+                                {onCreateAlert ? (
+                                    <LemonButton
+                                        fullWidth
+                                        icon={<IconNotification />}
+                                        onClick={() => onCreateAlert(destination)}
+                                        data-attr="warehouse-destination-scene-create-alert"
+                                        disabledReason={managedReason}
+                                    >
+                                        Create alert
+                                    </LemonButton>
+                                ) : null}
                                 <LemonButton
                                     fullWidth
                                     status="danger"

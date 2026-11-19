@@ -1,4 +1,12 @@
-import { DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
+import type { ReactNode } from 'react'
+
+import {
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+} from '@posthog/quill'
 
 import type { InsightCardMenuPlacement } from 'lib/components/Cards/InsightCard/insightCardMenu'
 import { QuillDashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/QuillDashboardWidgetPlacementMenus'
@@ -12,6 +20,7 @@ export function QuillDashboardTileMenuItems({
     duplicateDataAttr,
     onRemove,
     removeDataAttr,
+    displayOptions,
 }: {
     editLabel: string
     editDataAttr: string
@@ -21,12 +30,21 @@ export function QuillDashboardTileMenuItems({
     duplicateDataAttr: string
     onRemove?: () => void
     removeDataAttr: string
+    displayOptions?: ReactNode
 }): JSX.Element {
     return (
         <>
             <DropdownMenuItem onClick={onEdit} data-attr={editDataAttr}>
                 {editLabel}
             </DropdownMenuItem>
+            {displayOptions && (
+                <DropdownMenuSub>
+                    <DropdownMenuSubTrigger data-attr="dashboard-tile-display-options">
+                        Display options
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="px-2 py-1">{displayOptions}</DropdownMenuSubContent>
+                </DropdownMenuSub>
+            )}
             <QuillDashboardWidgetPlacementMenus {...placement} />
             <DropdownMenuItem onClick={onDuplicate} data-attr={duplicateDataAttr}>
                 Duplicate

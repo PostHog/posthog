@@ -68,6 +68,10 @@ export const SIDEBAR_PAGES: Record<AnalyticsPageApi, ResolvedSidebarTarget> = {
             'Keep related analytics together where your team can find it. Pin a collection to show it in this sidebar.',
         example: 'Keep all the growth team’s dashboards and insights in one collection.',
     }),
+    dashboards: sidebarPage('Dashboards', <IconDashboard />, urls.dashboards(), {
+        description: 'Browse every dashboard in your project and open the ones your team watches.',
+        example: 'Open the weekly product metrics dashboard.',
+    }),
     alerts: sidebarPage('Alerts', <IconBell />, urls.alerts(), {
         description: 'Watch the metrics in your insights and get a notification when a value crosses a threshold.',
         example: 'Get an email when daily signups drop below 100.',
@@ -84,7 +88,7 @@ export const SIDEBAR_PAGES: Record<AnalyticsPageApi, ResolvedSidebarTarget> = {
         },
         urls.subscriptions()
     ),
-    product_analytics: sidebarPage('Product analytics', <IconGraph />, urls.analyticsProductHome()),
+    product_analytics: sidebarPage('Product analytics', <IconGraph />, urls.insights()),
     web_analytics: sidebarPage('Web analytics', <IconPieChart />, urls.webAnalytics()),
     sql_editor: sidebarPage('SQL editor', <IconDatabase />, urls.sqlEditor()),
     new_insight: sidebarPage('New insight', <IconPlus />, urls.insightNew()),

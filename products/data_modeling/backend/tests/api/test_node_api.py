@@ -436,6 +436,34 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.get(detail).json()["suspended"], {})
 
+    def _view_node(self, name: str, *job_statuses: str) -> Node:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=name, team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        for minutes_ago, job_status in enumerate(reversed(job_statuses)):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=job_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+                last_run_at=timezone.now() - timedelta(minutes=minutes_ago),
+            )
+        return Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.VIEW)
+
+    def test_attention_count_counts_failed_and_suspended_models_once(self):
+        self._view_node("failing", DataModelingJob.Status.COMPLETED, DataModelingJob.Status.FAILED)
+        self._view_node("recovered", DataModelingJob.Status.FAILED, DataModelingJob.Status.COMPLETED)
+        self._suspend(self._view_node("failing_and_suspended", DataModelingJob.Status.FAILED))
+        self._suspend(self._view_node("suspended"))
+        legacy = self._view_node("legacy_failure")
+        legacy.properties = {"system": {"last_run_status": "Failed"}}
+        legacy.save(update_fields=["properties"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_modeling_nodes/attention_count/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"count": 4})
+
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_resumes_every_node_it_was_asked_to_run(self, mock_sync_connect):
         # A suspended node is skipped by ExecuteDAGWorkflow, so without this the button is a no-op.
@@ -520,6 +548,33 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
         self.assertEqual(call_args.kwargs["retry_policy"].maximum_attempts, 1)
+
+    @parameterized.expand(
+        [
+            ("materialize", "post", "materialize/", None),
+            ("set_a_cadence", "patch", "", {"sync_frequency": "24hour"}),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_view_that_names_the_window_start_passes_the_read_access_check(
+        self, _name, method, path, payload, mock_sync_connect, _reconcile
+    ):
+        mock_sync_connect.return_value = AsyncMock()
+        self.saved_query.query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT event, timestamp FROM events "
+            "WHERE timestamp >= ifNull({incremental_window_start}, toDateTime('1970-01-01'))",
+        }
+        self.saved_query.save()
+
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/{path}",
+            data=payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     @parameterized.expand(
         [
@@ -649,6 +704,28 @@ class TestNodeViewSet(APIBaseTest):
         self.assertIn(str(self.view_node.id), node_ids)
         self.assertIn(str(view_b.id), node_ids)
         self.assertIn(str(view_c.id), node_ids)
+
+    def test_lineage_query_count_does_not_grow_with_nodes_or_depth(self):
+        view_b = self._view_node("view_b")
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=view_b)
+        parent = self._view_node("child_0")
+        Edge.objects.create(team=self.team, dag=self.dag, source=view_b, target=parent)
+        url = f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={view_b.id}"
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as baseline:
+            self.client.get(url)
+
+        for index in range(1, 4):
+            child = self._view_node(f"child_{index}")
+            Edge.objects.create(team=self.team, dag=self.dag, source=parent, target=child)
+            parent = child
+        with CaptureQueriesContext(connection) as larger:
+            response = self.client.get(url)
+
+        counts = {node["name"]: (node["upstream_count"], node["downstream_count"]) for node in response.json()["nodes"]}
+        self.assertEqual(counts["view_b"], (1, 4))
+        self.assertEqual(counts["child_0"], (2, 3))
+        self.assertEqual(len(larger.captured_queries), len(baseline.captured_queries))
 
     def test_lineage_no_dependencies(self):
         sq_standalone = DataWarehouseSavedQuery.objects.create(

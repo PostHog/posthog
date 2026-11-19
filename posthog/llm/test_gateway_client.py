@@ -31,6 +31,7 @@ from posthog.llm.gateway_client import (
     get_llm_client,
     private_scout_gateway,
     resolve_ai_gateway_config,
+    resolve_https_ai_gateway_config,
     team_trace_id,
     trace_id_from_seed,
 )
@@ -247,6 +248,23 @@ class TestResolveAIGatewayConfig:
 
         mock_logger.warning.assert_called_once()
         assert reason in str(mock_logger.warning.call_args)
+
+    @pytest.mark.parametrize(
+        "url,usable",
+        [
+            (AI_GATEWAY_URL, True),
+            ("http://ai-gateway.example/v1", False),
+            ("http://localhost:3308/v1", True),
+            ("http://127.0.0.1:3308/v1", True),
+            ("http://[::1]:3308/v1", True),
+            ("http://localhost.example.com/v1", False),
+        ],
+    )
+    def test_https_config_keeps_a_remote_key_off_plain_http(self, url, usable):
+        with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY):
+            config = resolve_https_ai_gateway_config()
+
+        assert config == (AIGatewayConfig(url=url, api_key=AI_GATEWAY_KEY) if usable else None)
 
 
 class TestBuildOpenAIClient:
@@ -559,15 +577,17 @@ class TestBuildAnthropicClient:
 
 
 class TestBuildAIGatewayAnthropicClient:
+    @pytest.mark.parametrize("privacy_mode", [True, False])
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.Anthropic")
-    def test_builds_the_go_gateway_client_with_attribution(self, mock_anthropic, mock_httpx):
+    def test_builds_the_go_gateway_client_with_attribution(self, mock_anthropic, mock_httpx, privacy_mode):
         result = build_ai_gateway_anthropic_client(
             ai_product="aio_stamphog",
             properties={"source_product": "stamphog_digest"},
             distinct_id="team-42",
             team_id=42,
+            privacy_mode=privacy_mode,
         )
 
         kwargs = mock_anthropic.call_args.kwargs
@@ -582,6 +602,7 @@ class TestBuildAIGatewayAnthropicClient:
             "source_product": "stamphog_digest",
             "team_id": "42",
         }
+        assert headers.get("X-PostHog-Privacy-Mode") == ("true" if privacy_mode else None)
         assert result is mock_anthropic.return_value
 
     @pytest.mark.parametrize(

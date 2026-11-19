@@ -20,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.wordpress._config import WordpressSourceConfig
 from products.warehouse_sources.sources.wordpress.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.sources.wordpress.wordpress import (
+    CREDENTIALS_REQUIRED_ERROR,
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
     TLS_CERTIFICATE_ERROR,
@@ -71,9 +72,9 @@ class WordpressSource(ResumableSource[WordpressSourceConfig, WordpressResumeConf
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="WordPress",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Sync posts, pages, comments, media, categories, tags, and users from a self-hosted WordPress site via the core REST API (`/wp-json/wp/v2`).
+            caption="""Sync posts, pages, comments, media, categories, tags, users, post types, taxonomies, and post and page revisions from a self-hosted WordPress site via the core REST API (`/wp-json/wp/v2`).
 
-Enter your site URL (for example `https://example.com`). Public, published content syncs without credentials.
+Enter your site URL (for example `https://example.com`). Public, published content syncs without credentials. Revisions need a username and application password for a user who can edit the content.
 
 To sync private content or authenticate, create an [Application Password](https://wordpress.org/documentation/article/application-passwords/) under **Users > Profile > Application Passwords** and enter your username and that password. Application passwords require WordPress 5.6+ and an HTTPS site.""",
             iconPath="/static/services/wordpress.png",
@@ -115,6 +116,7 @@ To sync private content or authenticate, create an [Application Password](https:
             "403 Client Error": "Your WordPress credentials lack permission to read this data. Check the user's role and try again.",
             "404 Client Error": "WordPress returned 404 (Not Found) for this collection. The REST API or this specific endpoint (for example /users, which security plugins often block to prevent user enumeration) may be disabled or restricted on your site. Enable REST API access for it, or remove this table from the sync.",
             HOST_NOT_ALLOWED_ERROR: "The WordPress site URL is not allowed. Please use a publicly reachable site URL.",
+            CREDENTIALS_REQUIRED_ERROR: "WordPress only shares revisions with signed-in users. Add a username and application password for a user who can edit posts and pages, or remove the revisions tables from the sync.",
             HTTP_NOT_ALLOWED_ERROR: "The WordPress site URL must use HTTPS when credentials are provided. Please update the site URL to use https://.",
             # A 2xx response whose body isn't JSON (an HTML error/login/maintenance page, often from
             # a security or caching plugin) can't be turned into rows by retrying. Matches the stable
