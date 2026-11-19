@@ -4,10 +4,9 @@ Dynamic templates use Handlebars with SendGrid's own helpers:
 https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars. Legacy templates use `-name-` tags:
 https://www.twilio.com/docs/sendgrid/for-developers/sending-email/substitution-tags.
 
-Only plain values and `if` or `each` on a plain value convert, in body text and in quoted attribute values. Any other
-Handlebars keeps the whole template as text with a note, because each other form needs rules of its own to print what
-SendGrid prints. Liquid treats an empty string, 0 and an empty list as true where Handlebars doesn't, so conditions spell
-that out.
+Only plain values convert, in body text and in quoted attribute values. Any other Handlebars, conditions and loops
+included, keeps the whole template as text with a note, because each other form needs rules of its own to print what
+SendGrid prints.
 """
 
 import re
@@ -18,7 +17,6 @@ from functools import partial
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.provider_imports.sendgrid_handlebars import (
-    _Block,
     _Liquid,
     _Malformed,
     _Output,
@@ -77,14 +75,6 @@ class ConvertedSendGridTemplate:
     send_notes: tuple[str, ...] = ()
 
 
-@frozen
-class _Frame:
-    """A level of Handlebars context. Handlebars adds one for `each` and `with`, not for `if`."""
-
-    prefix: str
-    is_loop: bool = False
-
-
 # Conversion -----------------------------------------------------------------------------------------------------------
 
 
@@ -104,19 +94,17 @@ class _Converter:
         self.web_link = False
         self.uses_legacy_slots = False
 
-    def nodes(self, nodes: tuple[object, ...], frames: tuple[_Frame, ...]) -> str:
-        return "".join(self.node(node, frames) for node in nodes)
+    def nodes(self, nodes: tuple[object, ...]) -> str:
+        return "".join(self.node(node) for node in nodes)
 
-    def node(self, node: object, frames: tuple[_Frame, ...]) -> str:
-        if isinstance(node, _Block):
-            return self.block(node, frames)
-        converted = self._leaf(node, frames)
+    def node(self, node: object) -> str:
+        converted = self._leaf(node)
         self._budget -= len(converted)
         if self._budget < 0:
             raise _OutputTooLarge
         return converted
 
-    def _leaf(self, node: object, frames: tuple[_Frame, ...]) -> str:
+    def _leaf(self, node: object) -> str:
         if isinstance(node, _Text):
             # Handlebars prints `{%` as it stands. Liquid would read it as a tag.
             text = node.text.replace("{%", '{{ "{%" }}')
@@ -125,10 +113,10 @@ class _Converter:
         if isinstance(node, _Liquid):
             return node.liquid
         if isinstance(node, _Output):
-            return self.output(node, frames)
+            return self.output(node)
         raise TypeError(type(node).__name__)
 
-    def output(self, node: _Output, frames: tuple[_Frame, ...]) -> str:
+    def output(self, node: _Output) -> str:
         name = node.body
         if name in _UNSUBSCRIBE_VARIABLES:
             self.uses_unsubscribe = True
@@ -140,27 +128,10 @@ class _Converter:
             self.sender_variables.add(name)
         elif self.contact_fields and name in _CONTACT_VARIABLES:
             self.contact_variables.add(name)
-        value = self._path(name, frames)
+        value = f"variables.{name}"
         if self.is_html and not node.raw:
             return f"{{{{ {value}{_AS_TEXT}{_HTML_ESCAPE} | raw }}}}"
         return f"{{{{ {value}{_AS_TEXT}{' | raw' if self.is_html else ''} }}}}"
-
-    def _path(self, name: str, frames: tuple[_Frame, ...]) -> str:
-        prefix = frames[-1].prefix
-        if name == "this":
-            return prefix
-        return ".".join([prefix, *name.removeprefix("this.").split(".")])
-
-    def block(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
-        value = self._path(block.params[0].source, frames)  # type: ignore[attr-defined]
-        otherwise = f"{{% else %}}{self.nodes(block.inverse, frames)}" if block.inverse else ""
-        if block.name == "if":
-            # Handlebars treats an empty string, 0 and an empty list as false, and Liquid doesn't.
-            return f"{{% if {value} and {value} != 0 and {value} != empty %}}{self.nodes(block.body, frames)}{otherwise}{{% endif %}}"
-        depth = sum(1 for frame in frames if frame.is_loop)
-        item = f"item{depth + 1}" if depth else "item"
-        body = self.nodes(block.body, (*frames, _Frame(prefix=item, is_loop=True)))
-        return f"{{% for {item} in {value} %}}{body}{otherwise}{{% endfor %}}"
 
 
 # Whole templates ------------------------------------------------------------------------------------------------------
@@ -187,19 +158,16 @@ def _convert_asm_tags(text: str, is_html: bool, converter: _Converter) -> str:
     return _ASM_TAG.sub(convert, text)
 
 
-# Only these forms convert: a plain value, and `if` or `each` on a plain value. Anything else keeps the whole template
-# as text, because each other form needs rules of its own to print what SendGrid prints.
-_NAME = r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
-_ALLOWED_TAG = re.compile(
-    rf"\{{\{{\{{ *{_NAME} *\}}\}}\}}|\{{\{{ *(?:{_NAME}|#(?:if|each) +{_NAME}|else|/(?:if|each)) *\}}\}}"
-)
-_BLOCK_TAG = re.compile(r"\{\{ *[#/]|\{\{ *else")
+# Only a plain value converts. Anything else keeps the whole template as text, because each other form needs rules of
+# its own to print what SendGrid prints: a condition reads an empty object differently, and a loop reads an object's
+# values where Liquid reads its pairs.
+_NAME = r"(?!this\b)[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
+_ALLOWED_TAG = re.compile(rf"\{{\{{\{{ *{_NAME} *\}}\}}\}}|\{{\{{ *{_NAME} *\}}\}}")
 # An attribute value in quotes, other than an event handler or a style, can hold a value.
 _PLAIN_ATTRIBUTE = re.compile(r"""\s(?!on|style\b)[\w:-]+\s*=\s*(?:"[^"<>]*"|'[^'<>]*')""", re.IGNORECASE)
 _BRACE_BEFORE_ASM = re.compile(r"\{(?:<|&lt;)%")
 _BRACE_BEFORE_SUBSTITUTION = re.compile(r"\{-[A-Za-z_]\w*-")
 _ANGLE_IN_QUOTED_VALUE = re.compile(r"""=\s*(?:"[^"]*[<>][^"]*"|'[^']*[<>][^']*')""")
-_LINK_LABEL = re.compile(r"<a\b[^<>]{0,2000}>((?:(?!<a\b).){0,5000}?)</a\s*>", re.DOTALL | re.IGNORECASE)
 
 
 def _unsupported_reason(source: str, is_html: bool) -> str | None:
@@ -213,8 +181,8 @@ def _unsupported_reason(source: str, is_html: bool) -> str | None:
     while (start := text.find("{{", position)) != -1:
         match = _ALLOWED_TAG.match(text, start)
         if match is None:
-            return "use Handlebars beyond plain values, if and each"
-        held.append(text[position:start] + ("\x02b\x02" if _BLOCK_TAG.match(match.group(0)) else "\x02o\x02"))
+            return "use Handlebars beyond plain values"
+        held.append(text[position:start] + "\x02")
         position = match.end()
     text = "".join(held) + text[position:]
     if not is_html:
@@ -225,17 +193,15 @@ def _unsupported_reason(source: str, is_html: bool) -> str | None:
     if any("\x02" in text[span.start : span.end] for span in _not_content_spans(text)):
         return "sit inside a comment, style, script or head block"
     for tag in _HTML_TAG.finditer(text):
-        if "\x02" in _PLAIN_ATTRIBUTE.sub("", tag.group(0)) or "\x02b" in tag.group(0):
+        if "\x02" in _PLAIN_ATTRIBUTE.sub("", tag.group(0)):
             return "sit inside an HTML tag other than a plain attribute value"
-    if any("\x02b\x02" in label.group(1) for label in _LINK_LABEL.finditer(text)):
-        return "put a condition or loop inside a link"
     return None
 
 
 def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool) -> tuple[str, _Converter]:
     # The placeholders below are marked with NUL, which an email can't hold, so a source with one can't fake them.
     source = (source or "").replace("\x00", "")
-    # Nested loops repeat their output for every item, so output can grow much faster than input.
+    # Each value prints with its escaping filters, so output can grow faster than input.
     converter = _Converter(is_html, contact_fields, budget=max(_MIN_OUTPUT_BUDGET, _OUTPUT_GROWTH_LIMIT * len(source)))
     if not source:
         return "", converter
@@ -244,7 +210,7 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
         return _kept_as_text(source, is_html, contact_fields, reason)
     try:
         tree = _parse_nodes(_tokenize(_convert_asm_placeholders(source), is_html))
-        converted = _restore_asm(converter.nodes(tree, (_Frame(prefix="variables"),)), is_html, converter)
+        converted = _restore_asm(converter.nodes(tree), is_html, converter)
     except (_Malformed, _Unconvertible):
         return _kept_as_text(source, is_html, contact_fields, "don't form valid Handlebars")
     except _OutputTooLarge:

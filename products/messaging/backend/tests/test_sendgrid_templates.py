@@ -25,6 +25,10 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     @parameterized.expand(
         [
             ("unclosed_block", "{{#if a}}unclosed"),
+            ("condition", "<p>{{#if vip}}Hi{{else}}Hello{{/if}}</p>"),
+            ("condition_on_an_empty_object", "{{#if settings}}{{name}}{{/if}}"),
+            ("loop_over_an_object", "{{#each orders}}{{this.name}}{{/each}}"),
+            ("this", "<p>{{this}}</p>"),
             ("stray_close", "{{/if}}"),
             ("partial", "{{> partial}}"),
             ("helper", "{{helper a b}}"),
@@ -78,12 +82,6 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("value", "<p>Hi {{ name }}</p>", "{{ variables.name |"),
             ("raw_value", "<p>{{{ body.html }}}</p>", '{{ variables.body.html | join: "," | raw }}'),
             ("value_in_a_plain_attribute", '<a href="https://example.com/?id={{id}}">Go</a>', "variables.id |"),
-            ("condition_in_text", "<p>{{#if vip}}Hi{{else}}Hello{{/if}}</p>", "{% if variables.vip and"),
-            (
-                "loop_in_text",
-                "<ul>{{#each items}}<li>{{this.name}}</li>{{/each}}</ul>",
-                "{% for item in variables.items %}",
-            ),
             ("unsubscribe_link", '<a href="{{{unsubscribe}}}">Leave</a>', "{{ unsubscribe_url }}"),
             (
                 "unsubscribe_tag_in_an_attribute",
@@ -199,11 +197,6 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         converted = convert_version({"html_content": html})
 
         assert converted.text == f"{{% raw %}}{html[3:-4]}{{% endraw %}}"
-
-    def test_a_loop_converts_as_a_loop_over_a_list(self) -> None:
-        converted = convert_version({"html_content": "{{#each xs}}{{name}}{{/each}}", "generate_plain_content": False})
-
-        assert converted.html.startswith("{% for item in variables.xs %}")
 
     def test_a_legacy_comment_with_a_character_that_lowercases_longer_keeps_tags_as_text(self) -> None:
         converted = convert_version(
