@@ -30,6 +30,13 @@ Its `question` is the creator's own message, read from the `SLACK_DISCUSSION` ac
 Slack flow wrote when it linked the task, never from the task description, which a `task:write`
 credential can rewrite. It is returned under the same gate. A Slack user is verified as a PostHog
 user, and has no credential scopes to check.
+
+`started_by` names the task's creator: the person who opened Ask AI, or whose Slack message started
+the task, never the others in a thread. It follows the row, not the steering gate, because it names
+a member the scout can already list with `scout-members-list`, and a discussion from someone who may
+not steer scouts is exactly the one a scout should weigh differently. It is null for a task with no
+creator, and for a creator who no longer has access to the project, so a scout never learns the name
+of someone it could not route a report to. It carries no email: the user UUID matches a member row.
 """
 
 from __future__ import annotations
@@ -76,6 +83,13 @@ class DiscussionSource(models.TextChoices):
 
 
 @frozen
+class DiscussionStarter:
+    user_uuid: str
+    first_name: str
+    last_name: str
+
+
+@frozen
 class ReportDiscussion:
     report_id: str
     report_title: str
@@ -87,6 +101,7 @@ class ReportDiscussion:
     status: str | None
     task_summary: str | None
     question: str | None
+    started_by: DiscussionStarter | None
 
 
 def list_report_discussions(
@@ -141,6 +156,7 @@ def list_report_discussions(
         team,
         (task.created_by_id for task in tasks if task.summary or (task.created_by_id, task.task_id) in slack_questions),
     )
+    starters = _current_members(team, (task.created_by_id for task in tasks))
 
     discussions: list[ReportDiscussion] = []
     for task in tasks:
@@ -162,6 +178,7 @@ def list_report_discussions(
                 status=task.run_status,
                 task_summary=summary[:_MAX_SUMMARY_CHARS] if summary else None,
                 question=question[:_MAX_QUESTION_CHARS] if question else None,
+                started_by=starters.get(task.created_by_id) if task.created_by_id is not None else None,
             )
         )
     return discussions
@@ -216,3 +233,16 @@ def _creators_who_may_steer(team: Team, creator_ids: Iterable[int | None]) -> se
     if not ids:
         return set()
     return {user.id for user in User.objects.filter(id__in=ids) if user_can_steer_scouts(user, team)}
+
+
+def _current_members(team: Team, user_ids: Iterable[int | None]) -> dict[int, DiscussionStarter]:
+    """The users who still have access to this project, keyed by user id."""
+    ids = {user_id for user_id in user_ids if user_id is not None}
+    if not ids:
+        return {}
+    return {
+        user_id: DiscussionStarter(user_uuid=str(uuid), first_name=first_name, last_name=last_name)
+        for user_id, uuid, first_name, last_name in team.all_users_with_access()
+        .filter(id__in=ids)
+        .values_list("id", "uuid", "first_name", "last_name")
+    }
