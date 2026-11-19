@@ -6,7 +6,7 @@ import { tmpdir } from 'os'
 import path from 'path'
 import supertest from 'supertest'
 import type { Application, Request, Response } from 'ultimate-express'
-import { gzipSync } from 'zlib'
+import { brotliCompressSync, deflateSync, gzipSync } from 'zlib'
 
 import { setupExpressApp } from '~/common/api/router'
 
@@ -32,25 +32,41 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
         server.close()
     })
 
-    const holdThreadpool = () => {
+    const threadpoolSize = Number(process.env.UV_THREADPOOL_SIZE ?? 4)
+
+    const holdThreadpool = (threads = threadpoolSize) => {
         const directory = mkdtempSync(path.join(tmpdir(), 'held-threadpool-'))
         const fifo = path.join(directory, 'fifo')
         execFileSync('mkfifo', [fifo])
-        const heldOpens = Array.from({ length: Number(process.env.UV_THREADPOOL_SIZE ?? 4) }, () => open(fifo, 'r'))
+        const heldOpens = Array.from({ length: threads }, () => open(fifo, 'r'))
         return async () => {
-            closeSync(openSync(fifo, 'w'))
+            const writer = openSync(fifo, 'w')
             await Promise.all(heldOpens.map(async (heldOpen) => (await heldOpen).close()))
+            closeSync(writer)
             rmSync(directory, { recursive: true })
         }
     }
 
-    const openGzipUpload = () =>
+    const openUpload = (encoding = 'gzip') =>
         http.request({
             host: '127.0.0.1',
             port: (app as Application & { port: number }).port,
             path: '/echo',
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip', 'Transfer-Encoding': 'chunked' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Encoding': encoding,
+                'Transfer-Encoding': 'chunked',
+            },
+        })
+
+    const responseOf = (req: http.ClientRequest) =>
+        new Promise<{ status: number | undefined; body: string }>((resolve) => {
+            req.on('response', (res) => {
+                const chunks: Buffer[] = []
+                res.on('data', (chunk: Buffer) => chunks.push(chunk))
+                res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }))
+            })
         })
 
     const roundTrip = () => supertest(app).post('/echo').send({ data: 'round trip' })
@@ -60,7 +76,7 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
         const chunk = Buffer.concat(Array(Math.floor((64 * 1024) / emptyMember.length)).fill(emptyMember))
         const chunkCount = 1024
         const releaseThreadpool = holdThreadpool()
-        const req = openGzipUpload()
+        const req = openUpload()
         const status = new Promise<number | undefined>((resolve) => {
             req.on('response', (res) => {
                 res.resume()
@@ -107,10 +123,36 @@ describe('setupExpressApp compressed uploads while decoding is held up', () => {
         expect(outcome).toEqual('stalled')
     }, 30000)
 
+    it.each([
+        ['deflate', deflateSync],
+        ['br', brotliCompressSync],
+    ] as const)('passes a decoded %s body to the route only once the upload ends', async (encoding, compress) => {
+        const releaseThreadpool = holdThreadpool(threadpoolSize - 1)
+        try {
+            const upload = openUpload(encoding)
+            const response = responseOf(upload)
+            let responded = false
+            void response.then(() => (responded = true))
+            upload.write(Buffer.concat([compress(JSON.stringify({ data: 'x' })), Buffer.from('x')]))
+            await roundTrip()
+            const later = openUpload()
+            const laterResponse = responseOf(later)
+            later.end(gzipSync(JSON.stringify({ data: 'later' })))
+            expect((await laterResponse).status).toEqual(200)
+            await roundTrip()
+
+            expect(responded).toBe(false)
+            upload.end()
+            expect(await response).toEqual({ status: 200, body: JSON.stringify({ body: { data: 'x' } }) })
+        } finally {
+            await releaseThreadpool()
+        }
+    })
+
     it('drops a compressed body whose client disconnects while it is decoding', async () => {
         const releaseThreadpool = holdThreadpool()
         try {
-            const req = openGzipUpload()
+            const req = openUpload()
             req.on('error', () => {})
             req.end(gzipSync(JSON.stringify({ data: 'x' })))
             await roundTrip()

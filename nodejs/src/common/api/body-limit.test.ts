@@ -7,7 +7,6 @@ import { brotliCompressSync, deflateSync, gzipSync } from 'zlib'
 
 import { createTextBodyParser } from '~/common/api/middleware/compressed-body'
 import { ModifiedRequest, setupExpressApp } from '~/common/api/router'
-import { parseJSON } from '~/common/utils/json-parse'
 
 const compressors = {
     gzip: gzipSync,
@@ -49,12 +48,12 @@ describe('setupExpressApp request body handling', () => {
         return req
     }
 
-    const openCompressedUpload = (path: string, contentType: string, encoding = 'gzip') => {
+    const openCompressedUpload = (path: string, contentType: string) => {
         const req = http.request({
             port: (app as Application & { port: number }).port,
             path,
             method: 'POST',
-            headers: { 'Content-Type': contentType, 'Content-Encoding': encoding, 'Transfer-Encoding': 'chunked' },
+            headers: { 'Content-Type': contentType, 'Content-Encoding': 'gzip', 'Transfer-Encoding': 'chunked' },
         })
         const response = new Promise<{ status: number | undefined; body: string }>((resolve) => {
             req.on('response', (res) => {
@@ -157,25 +156,6 @@ describe('setupExpressApp request body handling', () => {
             upload.req.destroy()
 
             expect(status).toEqual(413)
-        }
-    )
-
-    it.each(['deflate', 'br'] as const)(
-        'passes a decoded %s body to the route only once the upload ends',
-        async (encoding) => {
-            const upload = openCompressedUpload('/echo', 'application/json', encoding)
-            let responded = false
-            void upload.response.then(() => (responded = true))
-            upload.req.write(Buffer.concat([compressors[encoding]('{"data":"x"}'), Buffer.from('x')]))
-            for (let roundTrip = 0; roundTrip < 20 && !responded; roundTrip++) {
-                await supertest(app).post('/echo').send({ data: 'y' })
-            }
-
-            expect(responded).toBe(false)
-            upload.req.end()
-            const res = await upload.response
-            expect(res.status).toEqual(200)
-            expect(parseJSON(res.body)).toEqual({ body: { data: 'x' }, rawBody: '{"data":"x"}' })
         }
     )
 
