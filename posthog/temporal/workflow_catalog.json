@@ -930,6 +930,11 @@
     "task_queues": "MCPA_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "messaging-provider-contacts-import",
+    "product": "messaging",
+    "task_queues": "MESSAGING_IMPORT_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "messaging-provider-import",
     "product": "messaging",
     "task_queues": "MESSAGING_IMPORT_TASK_QUEUE"
