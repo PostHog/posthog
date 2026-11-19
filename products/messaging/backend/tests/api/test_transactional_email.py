@@ -1419,8 +1419,10 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_a_send_retried_with_the_same_key_replays_the_first_send(
-        self, mock_post, _flag, _capture, _name, starts_on_the_sandbox, change, retry_warned
+        self, mock_post, _flag, capture, _name, starts_on_the_sandbox, change, retry_warned
     ):
+        analytics = FakeAnalytics()
+        capture.side_effect = analytics.capture
         own_sender_id = self.sender.id
         if starts_on_the_sandbox:
             self._without_a_verified_sender(unverified_sender=False)
@@ -1448,6 +1450,11 @@ class TestTransactionalEmail(APIBaseTest):
         }
         first_sender = self._sandbox_senders()[0].id if starts_on_the_sandbox else own_sender_id
         assert [email["from"] for email in cdp.emails()] == [{"integrationId": first_sender}]
+        first_kind = "sandbox" if starts_on_the_sandbox else "own_domain"
+        assert [event["sender_kind"] for event in analytics.properties_of("transactional email api send")] == [
+            first_kind,
+            first_kind,
+        ]
 
     @parameterized.expand(
         [

@@ -11,7 +11,6 @@ from posthog.models import User
 
 from products.workflows.backend.facade.sandbox_email import (
     SandboxSenderUnavailable,
-    has_verified_own_sender,
     sandbox_sender_status,
     set_up_sandbox_sender,
 )
@@ -52,8 +51,7 @@ class WorkflowEmailSandboxViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(operation_id="workflow_email_sandbox_status", responses={200: WorkflowEmailSandboxStatusSerializer})
     @action(detail=False, methods=["get"])
     def status(self, request: Request, **kwargs: Any) -> Response:
-        offered = not has_verified_own_sender(self.team.id)
-        sender_status = sandbox_sender_status(self.team, self._user(), report_exposure=offered)
+        sender_status = sandbox_sender_status(self.team, self._user(), report_exposure=True)
         return Response(WorkflowEmailSandboxStatusSerializer(sender_status).data)
 
     @extend_schema(

@@ -138,7 +138,7 @@ class TestWorkflowEmailSandbox(APIBaseTest):
     @parameterized.expand(
         [
             ("status", "status", "get", False, True),
-            ("status_with_a_verified_own_sender", "status", "get", True, False),
+            ("status_with_a_verified_own_sender", "status", "get", True, True),
             ("provision", "provision", "post", False, False),
         ]
     )

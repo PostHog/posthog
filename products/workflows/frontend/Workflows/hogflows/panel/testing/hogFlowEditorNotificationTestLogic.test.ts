@@ -491,13 +491,19 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             ],
         ])('records the test email events when %s', async (_, step, mocked, response, expected) => {
             const events: { event: string; properties: unknown }[] = []
+            const submitted: Record<string, any>[] = []
             jest.mocked(posthog.capture).mockImplementation((event, properties) => {
                 events.push({ event, properties })
                 return undefined
             })
             useMocks({
                 get: { '/api/organizations/@current/members/': { results: MEMBERS, next: null } },
-                post: { '/api/environments/:team_id/hog_flows/:id/invocations': () => [200, response] },
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        submitted.push((await request.json()) as Record<string, any>)
+                        return [200, response]
+                    },
+                },
             })
             await expectLogic(workflowLogicInstance).toDispatchActions(['loadWorkflowSuccess'])
             workflowLogicInstance.actions.setWorkflowValues({ actions: [step] })
@@ -510,6 +516,9 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
             await expectLogic(logic, () => logic.actions.submitTestInvocation()).toFinishAllListeners()
 
+            expect(submitted.map((body) => [body.current_action_id, body.mock_async_functions])).toEqual([
+                ['email', mocked],
+            ])
             expect(events.filter(({ event }) => event.startsWith('workflows') && event.includes('test'))).toEqual(
                 expected
             )

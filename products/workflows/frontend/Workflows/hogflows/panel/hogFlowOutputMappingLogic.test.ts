@@ -1,8 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -620,13 +618,24 @@ describe('hogFlowOutputMappingLogic', () => {
                     config: { inputs: {} },
                 } as HogFlowAction
                 const node = { ...makeActionNode('email'), data: email }
-                jest.spyOn(api.hogFlows, 'createTestInvocation').mockResolvedValue({
-                    status: 'success',
-                    logs: [],
-                    nextActionId: null,
-                    execResult: {},
-                    emailSendResult: { status: 'accepted' },
-                } as any)
+                const submitted: Record<string, any>[] = []
+                useMocks({
+                    post: {
+                        '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                            submitted.push((await request.json()) as Record<string, any>)
+                            return [
+                                200,
+                                {
+                                    status: 'success',
+                                    logs: [],
+                                    nextActionId: null,
+                                    execResult: {},
+                                    emailSendResult: { status: 'accepted' },
+                                },
+                            ]
+                        },
+                    },
+                })
                 const capture = jest.spyOn(posthog, 'capture')
                 await expectLogic(wfLogic).toFinishAllListeners()
                 wfLogic.actions.setWorkflowValues({ actions: [email] })
@@ -636,6 +645,9 @@ describe('hogFlowOutputMappingLogic', () => {
                 await expectLogic(logic, () => logic.actions.runOutputTest()).toFinishAllListeners()
 
                 expect(logic.values.testError).toBeNull()
+                expect(submitted.map((body) => [body.current_action_id, body.mock_async_functions])).toEqual([
+                    ['email', false],
+                ])
                 expect(capture).toHaveBeenCalledWith('workflows test email sent', {
                     step_type: 'function_email',
                     sender_kind: 'own_domain',
