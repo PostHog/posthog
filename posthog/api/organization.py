@@ -21,7 +21,6 @@ from rest_framework.response import Response
 from posthog import settings
 from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scope_resolution import note_user_scope
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.caching.organization_serializer_cache import (
@@ -822,7 +821,6 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            note_user_scope(self.request)
             organization = cast(User, self.request.user).organization
             if organization is None:
                 raise exceptions.NotFound("Current organization not found.")

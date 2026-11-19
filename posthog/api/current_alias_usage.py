@@ -8,7 +8,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
-from posthog.api.scope_resolution import scope_resolution
+from posthog.api.scope_resolution import CURRENT_ALIAS, scope_resolution
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.event_usage import get_request_analytics_properties, sanitize_header_value
@@ -19,7 +19,6 @@ logger = structlog.get_logger(__name__)
 
 dedupe_cache = caches["current_alias_usage"]
 
-CURRENT_ALIAS = "@current"
 CURRENT_ALIAS_REQUESTS_METRIC = "api.current_alias.requests"
 CURRENT_ALIAS_USED_EVENT = "api current alias used"
 # One event per caller and route each day identifies who to contact; the metric keeps the volume.

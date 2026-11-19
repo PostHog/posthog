@@ -3779,34 +3779,44 @@ class TestCurrentAliasUsage(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unscoped_key_on_project", "/api/projects/@current/", {}, False),
-            ("project_scoped_key_on_project", "/api/projects/@current/", {"scoped_teams": "team"}, True),
-            ("unscoped_key_on_organization", "/api/organizations/@current/members/", {}, False),
+            ("unscoped_key_on_project", "/api/projects/@current/", None, status.HTTP_200_OK, False),
+            ("project_scoped_key_on_project", "/api/projects/@current/", "own_team", status.HTTP_200_OK, True),
+            ("key_scoped_to_another_project", "/api/projects/@current/", "other_team", status.HTTP_403_FORBIDDEN, True),
+            ("unscoped_key_on_organization", "/api/organizations/@current/members/", None, status.HTTP_200_OK, False),
+            (
+                "project_scoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                "own_team",
+                status.HTTP_403_FORBIDDEN,
+                True,
+            ),
             (
                 "organization_scoped_key_on_organization",
                 "/api/organizations/@current/members/",
-                {"scoped_organizations": "organization"},
+                "own_organization",
+                status.HTTP_200_OK,
                 True,
             ),
         ]
     )
     def test_reports_whether_the_credential_pins_the_scope(
-        self, _name: str, path: str, key_scoping: dict[str, str], expected_pins_scope: bool
+        self, _name: str, path: str, key_scope: str | None, expected_status: int, expected_pins_scope: bool
     ) -> None:
-        scoping_values = {"team": [self.team.id], "organization": [str(self.organization.id)]}
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        key_scoping = {
+            None: {},
+            "own_team": {"scoped_teams": [self.team.id]},
+            "other_team": {"scoped_teams": [other_team.id]},
+            "own_organization": {"scoped_organizations": [str(self.organization.id)]},
+        }[key_scope]
         token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            user=self.user,
-            secure_value=hash_key_value(token),
-            scopes=["*"],
-            **{field: scoping_values[kind] for field, kind in key_scoping.items()},
-        )
+        PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"], **key_scoping)
         self.client.logout()
 
         with patch("posthog.event_usage.posthoganalytics.capture") as capture:
             response = self.client.get(path, HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == expected_status
         [event] = self._alias_events(capture)
         assert (event["properties"]["project_from"], event["properties"]["credential_pins_scope"]) == (
             "user",
