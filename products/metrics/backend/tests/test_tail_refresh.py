@@ -181,6 +181,21 @@ class TestMergeSeries(SimpleTestCase):
                 False,
             ),
             (
+                "kept_points_all_zero_and_series_gone_from_tail",
+                [
+                    _series({"pod": "a"}, {"2026-09-19T11:01:00+00:00": 1.0}),
+                    _series({"pod": "b"}, {"2026-09-19T11:01:00+00:00": 0.0}),
+                ],
+                [_series({"pod": "a"}, {"2026-09-19T11:02:00+00:00": 1.0})],
+                False,
+            ),
+            (
+                "unit_changed",
+                [_series({"pod": "a"}, {"2026-09-19T11:01:00+00:00": 1.0}).model_copy(update={"unit": "s"})],
+                [_series({"pod": "a"}, {"2026-09-19T11:02:00+00:00": 1.0}).model_copy(update={"unit": "ms"})],
+                False,
+            ),
+            (
                 "merged_clause_reaches_the_series_cap",
                 [_series({"pod": f"old{i}"}, {"2026-09-19T11:01:00+00:00": 1.0}) for i in range(60)],
                 [_series({"pod": f"new{i}"}, {"2026-09-19T11:02:00+00:00": 1.0}) for i in range(60)],
@@ -336,13 +351,6 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
     def test_tail_refresh_of_gauges_equals_a_full_run(self, _name: str, date_from: str) -> None:
         window_start = self.T0 - dt.timedelta(days=8)
         self._seed_gauges(window_start, self.T0)
-        # Seen only at the old window start, so it slides out of a 1-hour window.
-        seed_metric(
-            team_id=self.team.pk,
-            metric_name="queue_depth",
-            points=[(self.T0 - dt.timedelta(minutes=59, seconds=50), 4.0)],
-            labels={"pod": "expired"},
-        )
         # Stops before the cut, so the tail does not return it.
         seed_metric(
             team_id=self.team.pk,

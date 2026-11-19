@@ -140,6 +140,12 @@ def _magnitude(series: MetricsQuerySeries) -> float:
     return sum(abs(point.value) for point in series.points if point.value is not None)
 
 
+def clause_at_cap(series: Sequence[MetricsQuerySeries]) -> bool:
+    """A clause at the cap keeps the largest series over the whole window, which a splice cannot rank."""
+    clauses = [item.clause for item in series]
+    return any(clauses.count(clause) >= MAX_RAW_SERIES for clause in set(clauses))
+
+
 def merge_series(
     cached: Sequence[MetricsQuerySeries],
     tail: Sequence[MetricsQuerySeries],
@@ -168,8 +174,9 @@ def merge_series(
     # A formula series missing on one side would need the formula of zero-filled inputs there.
     if formula and cached_by_key.keys() != tail_by_key.keys():
         return None
+    # Bounds and unit describe the whole window, and a full run derives them from every sample in it.
     if any(
-        cached_by_key[key].histogramBounds != series.histogramBounds
+        cached_by_key[key].model_dump(exclude={"points"}) != series.model_dump(exclude={"points"})
         for key, series in tail_by_key.items()
         if key in cached_by_key
     ):
@@ -184,10 +191,10 @@ def merge_series(
             if start <= time < cut:
                 kept[time] = point.value
                 grid.setdefault(time, point.time)
-        # Zero-filled points cannot be told from observed zeros. A series with nothing else left in the
-        # window was most likely seen only in the part that moved out, so a full run would not return it.
+        # Zero-filled points cannot be told from observed zeros, so a full run may or may not return
+        # a series whose kept points are all zero.
         if key not in tail_by_key and all(not value for value in kept.values()):
-            del values[key]
+            return None
     for key, series in tail_by_key.items():
         fresh = values.setdefault(key, {})
         for point in series.points:
@@ -323,9 +330,11 @@ class TailRefresh(Generic[R]):
         calculate: Callable[[dt.datetime], R],
         merge: Callable[[R, R, dt.datetime, dt.datetime], R | None],
         compare: Callable[[R, R], ShadowDiff],
+        can_merge: Callable[[R], bool] = lambda _cached: True,
     ) -> R:
         """`calculate` runs the query from a start; `merge` splices (cached, tail, start, cut); `compare` diffs
-        (spliced, full) for the sampled shadow check."""
+        (spliced, full) for the sampled shadow check. `can_merge` rejects a cached result before the tail
+        query runs."""
         tzinfo = self._team.timezone_info
         now = dt.datetime.now(dt.UTC)
         plan = plan_tail(
@@ -333,7 +342,17 @@ class TailRefresh(Generic[R]):
         )
         if isinstance(plan, TailPlan):
             assert self._previous is not None
-            merged = self._merge(response_type, merge, calculate(plan.fetch_from), date_from, interval, plan.cut)
+            cached = self._cached(response_type)
+            merged = (
+                merge(
+                    cached,
+                    calculate(plan.fetch_from),
+                    _align_to_interval(date_from, interval, tzinfo=tzinfo),
+                    plan.cut,
+                )
+                if cached is not None and can_merge(cached)
+                else None
+            )
             if merged is None:
                 plan = FullRunReason.MERGE_REFUSED
             else:
@@ -361,21 +380,11 @@ class TailRefresh(Generic[R]):
         self._state = TailState(date_from=date_from, date_to=date_to, interval=interval, full_at=now)
         return full
 
-    def _merge(
-        self,
-        response_type: type[R],
-        merge: Callable[[R, R, dt.datetime, dt.datetime], R | None],
-        tail: R,
-        date_from: dt.datetime,
-        interval: str,
-        cut: dt.datetime,
-    ) -> R | None:
+    def _cached(self, response_type: type[R]) -> R | None:
         try:
-            cached = response_type.model_validate(self._previous_entry, extra="ignore")
+            return response_type.model_validate(self._previous_entry, extra="ignore")
         except ValueError:
             return None
-        start = _align_to_interval(date_from, interval, tzinfo=self._team.timezone_info)
-        return merge(cached, tail, start, cut)
 
     def entry_record(self) -> dict[str, Any] | None:
         return {_STATE_KEY: self._state.to_record()} if self._state else None

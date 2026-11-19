@@ -60,6 +60,7 @@ from products.metrics.backend.facade.enums import (
 from products.metrics.backend.hogql_queries.tail_refresh import (
     TailRefresh,
     TailRefreshMixin,
+    clause_at_cap,
     compare_series,
     merge_series,
 )
@@ -318,6 +319,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
             calculate=calculate,
             merge=merge,
             compare=lambda spliced, full: compare_series(spliced.results, full.results),
+            can_merge=lambda cached: not clause_at_cap(cached.results),
         )
 
     @cached_property
