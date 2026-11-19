@@ -14,7 +14,7 @@ use personhog_coordination::error::{Error as CoordError, Result as CoordResult};
 use personhog_coordination::types::ChangelogConfig;
 use tokio::task::AbortHandle;
 
-use crate::cache::{CacheLookup, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
+use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};
 use crate::warming::{
     end_offset, follow_source, warm_from_sources, WarmClientPools, WarmingConfig,
 };
@@ -90,20 +90,16 @@ impl Follower {
     pub async fn follow(&self, partition: u32, config: &ChangelogConfig) -> CoordResult<()> {
         self.release(partition);
         let mut sources = warm_sources(config, partition);
-        // The warm marks each record for a leader's changelog recovery. A follower reads
-        // Postgres on a miss, so its marks are dropped with the warm.
-        let marks = DirtyIndex::new(usize::MAX);
         let range = warm_from_sources(
             &self.warming,
             &self.pools,
             &self.cache,
-            &marks,
+            None,
             partition,
             &sources,
             false,
         )
         .await?;
-        drop(marks);
         let live = sources
             .pop()
             .ok_or_else(|| CoordError::invalid_state("a warm has no live source".to_string()))?;
