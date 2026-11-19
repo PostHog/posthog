@@ -90,7 +90,7 @@ class EndpointHealthSerializer(serializers.Serializer):
     span_name = serializers.CharField(help_text="The raw entry span name the row counts, for tracing filters.")
     route_attribute = serializers.CharField(
         allow_null=True,
-        help_text="The span attribute the route came from (http.route or url.template), or null when the label is the span name.",
+        help_text="The span attribute the route came from (http.route, url.template, or for an outgoing call db.system, server.address or net.peer.name), or null when the label is the span name.",
     )
     route = serializers.CharField(allow_null=True, help_text="The route appended to the span name, or null.")
     environment = serializers.CharField(

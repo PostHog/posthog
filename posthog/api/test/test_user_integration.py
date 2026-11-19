@@ -52,6 +52,11 @@ from posthog.models.user_integration import (
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.tasks.backend.facade.access import (
+    DesktopAccessDecision,
+    DesktopAccessResolutionError,
+    PostHogAIAccessDecision,
+)
 
 
 def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuthorization:
@@ -2000,9 +2005,18 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
 class TestUserIntegrationCodexEndpoints(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag = patch("posthog.api.user_integration_codex.posthoganalytics.feature_enabled", return_value=True)
-        self.flag_enabled = flag.start()
+        flag = patch(
+            "posthog.api.user_integration_codex.get_posthog_ai_access_decision",
+            return_value=PostHogAIAccessDecision.GRANDFATHERED,
+        )
+        self.access_decision = flag.start()
         self.addCleanup(flag.stop)
+        desktop_access = patch(
+            "posthog.api.user_integration_codex.get_desktop_access_decision",
+            return_value=DesktopAccessDecision.SIGNUPS_PAUSED,
+        )
+        self.desktop_access_decision = desktop_access.start()
+        self.addCleanup(desktop_access.stop)
         cache.clear()
 
     def _sandbox_client(self) -> APIClient:
@@ -2115,21 +2129,33 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"] == "rt_rotated"
         )
 
-    @parameterized.expand([("flag_off", False, None), ("flag_check_failed", None, RuntimeError("down"))])
-    def test_connect_is_unavailable_without_the_flag(self, _name, enabled, error):
-        self.flag_enabled.return_value = enabled
-        self.flag_enabled.side_effect = error
+    @parameterized.expand(
+        [(decision, desktop) for decision in PostHogAIAccessDecision for desktop in [*DesktopAccessDecision, None]]
+    )
+    def test_connect_follows_product_access(
+        self, decision: PostHogAIAccessDecision, desktop: DesktopAccessDecision | None
+    ) -> None:
+        self.access_decision.return_value = decision
+        if desktop is None:
+            self.desktop_access_decision.side_effect = DesktopAccessResolutionError("unavailable")
+        else:
+            self.desktop_access_decision.return_value = desktop
+        allowed = decision.allowed or (desktop is not None and desktop.allowed)
+        expected_status = (
+            status.HTTP_200_OK
+            if allowed
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+            if desktop is None
+            else status.HTTP_404_NOT_FOUND
+        )
 
-        with patch("requests.request") as request:
-            response = self.client.post(
-                "/api/users/@me/integrations/codex/",
-                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
-                format="json",
-            )
+        response = self._connect()
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        request.assert_not_called()
-        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+            assert response.json()["code"] == "desktop_access_unavailable"
+            assert "Try again" in response.json()["detail"]
+        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is allowed
 
     def test_connect_is_throttled_per_user(self):
         for _ in range(10):
