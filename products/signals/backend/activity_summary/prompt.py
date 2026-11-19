@@ -28,7 +28,7 @@ EMBEDDING_RENDERING = "summary_text"
 # separate `title` from `title_summary`.
 EMBEDDING_RENDERING_PROFILE = "summary_profile"
 
-PROMPT_VERSION = 9
+PROMPT_VERSION = 10
 # Summaries below this rebuild at once, others age in. Raise it only when old summaries must not stay served,
 # for example when a `summary_text` change makes old vectors incomparable.
 MIN_PROMPT_VERSION = 8
@@ -38,6 +38,7 @@ MAX_MODES = 3
 # The computed lists whose refs a theme can cite. A "p" ref is the pages of one product.
 _REF_LISTS = ("owned", "watched", "pages", "tasks", "mcp_sessions")
 _PAGES_REF_PREFIX = "p"
+_OBJECT_REF_PREFIX = "o"
 # Per-field caps, so one runaway field cannot make the stored summary large. A cut ends at a word boundary.
 MAX_LABEL_CHARS = 60
 MAX_RECENT_SHIFT_CHARS = 300
@@ -70,7 +71,7 @@ _SYSTEM_PROMPT = """You write an activity summary: what one person works on and 
 
 The input has these parts:
 - Objects and pages: a list that code computed from the last weeks of activity. Each line starts with a ref. An "o" ref is an object. An object they edited shows the number of days with edits, and "created" when they made it. An object they only opened shows the number of days they opened it, and "not theirs" when someone else made it. An object they edited and opened shows both counts. A "p" ref is the pages of one product. The list ends with the products they work in and the products they only visit.
-- Tasks: work the person gave to PostHog AI or the Slack agent. Each line starts with a "t" ref, then has the day, the tags in brackets and the goal. "(xN)" is the number of runs.
+- Tasks: work the person gave to PostHog AI or the Slack agent. Each line starts with a "t" ref, then has the day, the tags in brackets and the goal. "(xN)" is the number of runs. The agent did this work, not the person. Treat the tasks as the person's questions and interests. Never write that the person built, changed, fixed or shipped something because of them.
 - Things they created or changed in PostHog: each line has the day, the action, the type and the name of the object. "(xN)" is the number of changes. "agent" is the reason their coding agent gave for the change.
 - What their AI agent looked into over MCP: one line per agent session. Each line starts with an "m" ref, then has the day, the number of calls and the intents the agent stated, in order. The agent looked these up for the person, and changed nothing. Treat them as the person's interests and open questions. Never write that the person built or changed something because of them.
 - Reports in the Inbox: the Inbox suggests reports to the person, and each line is one report with the day, the title and what the person did with it, the strongest first. Read the lines as evidence of different strength:
@@ -85,7 +86,8 @@ The tasks and the lines of changes, MCP sessions, Inbox reports and opens cover 
 
 How to write:
 - Be concrete. Name the dashboards, insights, flags, experiments, accounts, features and goals that matter. Use the names that the input uses.
-- Be selective. Write about the work that repeats and the objects the person owns or opens again and again. Leave out one-time visits and setup chores.
+- Only the lines of things they created or changed and the "o" refs of objects they edited or created show that the person built or changed something. When only tasks or MCP sessions show a thread, write it as a question they asked or a topic their agent looked into, in the headline, the themes and the profile.
+- Be selective. Write about the work that repeats and the objects the person owns or opens again and again. When the input shows repeated work, leave out one-time visits and setup chores.
 - Summarize a long list by count and topic, such as "12 insights about checkout conversion".
 - Write plain statements. Do not hedge, and do not write about what the input does not show.
 - Write about the work, not a job title.
@@ -94,15 +96,17 @@ How to write:
 - Never write `<token>` or a numeric id.
 
 Return JSON:
-- `headline`: one or two sentences about what they work on and care about in this project.
+- `headline`: one or two sentences about what they work on and care about in this project. Name the dashboards, insights, flags, experiments or goals that matter. When the input is thin, name the objects it shows by name, or else the products they visit, such as "Opens the Signup funnel insight and visits Session replay and Web analytics." Never write that no work or no thread is evident.
 - `themes`: at most 6 threads of work, the strongest first. A thread is work that repeats or a question the person keeps coming back to. Give only the threads that the input shows. One or two themes, or none, is correct for thin input. Do not add a theme to reach a number. Each theme has:
-  - `label`: the topic of the thread in at most 60 characters, such as "Experiment recalculation reliability". Name the topic, not a list of objects. Not "Feature flag updates": name what the flags are for, such as "Live stream rollout".
-  - `mode`: one of {modes}. `building` is creating or changing objects, including dashboards and alerts. `analyzing` is querying or reading to answer a question, without saving. `monitoring` is opening the same things again and again. `investigating` is finding the cause of a specific problem. `operating` is running day-to-day work, such as tickets. `experimenting` is A/B tests and controlled rollouts.
+  - `label`: the topic of the thread in at most 60 characters, such as "Experiment recalculation reliability". The topic is what the work is for or the question it answers. Find it in the names of the objects and the goals of the tasks.
+    - A label that names only an object type and an action is vague. Not "Feature flag updates", "Production feature-flag management" or "Feature flag maintenance": name what the flags are for, such as "Live stream rollout". Not "Project dashboard monitoring" or "Reviewing experiments": name what the dashboards track or what the experiments test, such as "Signup conversion" or "Pricing page tests".
+    - A list of object names is not a topic. Not "Checkout and pricing-page flags": name the goal that they share, such as "Pricing page redesign rollout".
+  - `mode`: one of {modes}. `building` is creating or changing objects, including dashboards and alerts. Only "o" refs show building, so a `building` theme cites the "o" refs of the objects they edited or created. A thread that only tasks or MCP sessions show is `analyzing` or `investigating`. `analyzing` is querying or reading to answer a question, without saving. `monitoring` is opening the same things again and again. `investigating` is finding the cause of a specific problem. `operating` is running day-to-day work, such as tickets. `experimenting` is A/B tests and controlled rollouts.
   - `strength`: high, medium or low, by how much of the activity is about this thread.
   - `refs`: the refs that show this thread. A ref is the evidence for the theme, so cite only lines that are about this thread. Use the "o" refs of its objects, the "t" refs of its tasks and the "m" refs of its MCP sessions. A "p" ref only shows that the person opened the pages of a product, so cite one only when no other ref shows the thread. Every theme needs at least one ref. Leave out a theme that no ref shows.
 - `modes`: at most {max_modes} modes that describe how they work in this project overall, from the same list, the main one first. Use only modes that a theme has.
 - `profile`: markdown, at most {profile_max_chars} characters, with these sections in this order:
-  - `## Working on`: the threads they build or change, with the objects by name, and the Inbox reports they acted on. A task or MCP session never goes here.
+  - `## Working on`: the threads they build or change, with the objects by name, and the Inbox reports they acted on. A task or MCP session never goes here, also not as one part of a line about an object they changed. Put it under `## Recently asked about`.
   - `## Keeps an eye on`: objects they opened on {min_watched_days} or more days and did not edit. Mention product pages at most once, without counts. Leave out this section when there is nothing to name.
   - `## Recently asked about`: what they asked PostHog AI or the Slack agent, and what their agent looked into over MCP. Only when there are tasks or MCP sessions.
   - `## Earlier context`: what the previous summary says that the new activity does not repeat. Only when there is a previous summary.
@@ -309,7 +313,9 @@ def _mode(value: Any) -> str | None:
 
 
 def _themes(value: Any, computed: Mapping[str, Any] | None) -> list[dict[str, Any]]:
-    """At most `MAX_THEMES` themes. A theme keeps only the refs that `_theme_refs` keeps, and a theme with none is dropped."""
+    """At most `MAX_THEMES` themes. A theme keeps only the refs that `_theme_refs` keeps, and a `building` theme keeps
+    only its "o" refs, because a task, an MCP session or a page visit does not show that the person built something.
+    A theme with no refs is dropped."""
     if not isinstance(value, list):
         return []
     days = ref_days(computed)
@@ -318,14 +324,17 @@ def _themes(value: Any, computed: Mapping[str, Any] | None) -> list[dict[str, An
     for item in value:
         if not isinstance(item, dict) or (label := _clean(item.get("label"), MAX_LABEL_CHARS)) is None:
             continue
+        mode = _mode(item.get("mode"))
         refs = _theme_refs(item.get("refs"), days, page_open_days)
+        if mode == ActivitySummaryMode.BUILDING:
+            refs = [ref for ref in refs if ref.startswith(_OBJECT_REF_PREFIX)]
         if not refs:
             continue
         strength = (_clean(item.get("strength")) or "").lower()
         themes.append(
             {
                 "label": label,
-                "mode": _mode(item.get("mode")),
+                "mode": mode,
                 "strength": strength if strength in STRENGTHS else DEFAULT_STRENGTH,
                 "refs": refs,
                 "last_seen": max(days[ref] for ref in refs),

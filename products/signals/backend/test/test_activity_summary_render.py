@@ -1364,21 +1364,27 @@ def _answer(**overrides: Any) -> str:
         ),
         (
             "a theme keeps only known refs, once each, and its last_seen is the last day of its refs",
-            _answer(themes=[_theme(refs=["o1", "o7", "t1", "o1", 3, "m1", "m9"])]),
+            _answer(themes=[_theme(refs=["o1", "o7", "t1", "o1", 3, "m1", "m9"], mode="analyzing")]),
             False,
-            {"themes": [{**_theme(refs=["o1", "t1", "m1"]), "last_seen": "2026-10-19"}]},
+            {"themes": [{**_theme(refs=["o1", "t1", "m1"], mode="analyzing"), "last_seen": "2026-10-19"}]},
         ),
         (
             "a theme drops its page refs when it has another ref",
-            _answer(themes=[_theme(refs=["p2", "t1"])]),
+            _answer(themes=[_theme(refs=["p2", "t1"], mode="analyzing")]),
             False,
-            {"themes": [{**_theme(refs=["t1"]), "last_seen": "2026-10-17"}]},
+            {"themes": [{**_theme(refs=["t1"], mode="analyzing"), "last_seen": "2026-10-17"}]},
         ),
         (
             "a theme with only page refs keeps the pages opened on enough days",
-            _answer(themes=[_theme("Flags", refs=["p1", "p2"]), _theme("Replay", refs=["p1"])]),
+            _answer(themes=[_theme("Flags", refs=["p1", "p2"], mode="monitoring"), _theme("Replay", refs=["p1"])]),
             False,
-            {"themes": [{**_theme("Flags", refs=["p2"]), "last_seen": "2026-10-15"}]},
+            {"themes": [{**_theme("Flags", refs=["p2"], mode="monitoring"), "last_seen": "2026-10-15"}]},
+        ),
+        (
+            "a building theme keeps only its object refs, and one with no object ref is dropped",
+            _answer(themes=[_theme(refs=["t1", "o1", "m1"]), _theme("Agent only", refs=["t1", "m1", "p2"])]),
+            False,
+            {"themes": [{**_theme(refs=["o1"]), "last_seen": "2026-10-16"}]},
         ),
         (
             "a theme with no known ref or no label is dropped",
