@@ -4832,7 +4832,7 @@ class HogFlowPublishImpactSerializer(serializers.Serializer):
 
 
 def _int_or_none(value: Any) -> Optional[int]:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
 def _step_counts_or_none(value: Any) -> Optional[dict[str, int]]:

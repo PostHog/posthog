@@ -557,13 +557,21 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("service_down", Exception("node service down"), None),
-            ("malformed_counts", None, {"count": "unknown", "by_action": [], "position_unknown": "unknown"}),
-            ("malformed_step_count", None, {"count": 7, "by_action": {"action_1": "unknown"}, "position_unknown": 0}),
+            ("service_down", Exception("node service down"), None, None, None),
+            ("malformed_counts", None, {"count": "unknown", "by_action": [], "position_unknown": -1}, None, None),
+            (
+                "malformed_step_count",
+                None,
+                {"count": 7, "by_action": {"action_1": "unknown"}, "position_unknown": 0},
+                7,
+                0,
+            ),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count")
-    def test_publish_impact_degrades_to_null_counts_when_unavailable(self, _name, error, body, mock_count):
+    def test_publish_impact_degrades_to_null_counts_when_unavailable(
+        self, _name, error, body, in_flight_runs, position_unknown, mock_count
+    ):
         if error is not None:
             mock_count.side_effect = error
         else:
@@ -579,6 +587,8 @@ class TestHogFlowDraftPublish(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
         assert response.status_code == 200, response.json()
         assert response.json()["confirm_token"]
+        assert response.json()["in_flight_runs"] == in_flight_runs
+        assert response.json()["impact"]["position_unknown"] == position_unknown
         # Graph-derived impact still renders; only the counts degrade
         assert response.json()["impact"]["deleted_steps"] == [
             {
