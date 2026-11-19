@@ -176,8 +176,12 @@ def _team_recipe_or_json_side(
         )
         if team_side is not None:
             return _ReadSide(side=team_side, reading=SideReading(recognized=True))
-        with execution_budget():
-            shown = parsed_json_text(value)
+        try:
+            with execution_budget():
+                shown = parsed_json_text(value)
+        except RecipeRuntimeError:
+            # Parsing JSON text only changes how the side looks, so running out of budget is not a recipe failure.
+            shown = value
         return _ReadSide(
             side=contracts.TraceJsonSide(kind="json", value=shown),
             reading=SideReading(recognized=not _is_unreadable_json(value)),

@@ -1,6 +1,7 @@
 import tracemalloc
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -19,9 +20,16 @@ from products.ai_observability.backend.logic.message_normalizer.errors import (
     RecipeTimeoutError,
 )
 from products.ai_observability.backend.logic.message_normalizer.normalizer import RecipeNormalizer
-from products.ai_observability.backend.logic.message_normalizer.run_limits import time_limit
+from products.ai_observability.backend.logic.message_normalizer.run_limits import (
+    OUTPUT_NODES_PER_CLOCK_CHECK,
+    time_limit,
+)
 from products.ai_observability.backend.logic.message_normalizer.values import CompatMessage
-from products.ai_observability.backend.logic.traces.step_messages import UnrenderableValueError, to_messages
+from products.ai_observability.backend.logic.traces.step_messages import (
+    UnrenderableValueError,
+    parsed_json_text,
+    to_messages,
+)
 
 TEAM_ID = 7
 
@@ -479,6 +487,18 @@ def test_validating_a_wide_tool_value_holds_memory_to_its_depth():
 def test_validating_a_wide_tool_value_stops_at_the_deadline():
     with time_limit(0), pytest.raises(RecipeTimeoutError):
         to_messages(WIDE_UNRENDERABLE_ARGUMENTS, id_prefix="out", source_node_id=None, team_id=TEAM_ID)
+
+
+def test_parsing_json_text_in_a_wide_value_stops_when_the_deadline_passes_partway():
+    ticks = iter(range(1_000_000))
+    wide = ["text"] * (2 * OUTPUT_NODES_PER_CLOCK_CHECK)
+
+    with (
+        patch.object(run_limits_module, "time", SimpleNamespace(monotonic=lambda: next(ticks))),
+        time_limit(1.5),
+        pytest.raises(RecipeTimeoutError),
+    ):
+        parsed_json_text(wide)
 
 
 def test_a_tool_result_longer_than_the_parse_cap_stays_its_raw_text():

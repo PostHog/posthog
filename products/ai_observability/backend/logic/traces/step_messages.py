@@ -1,5 +1,6 @@
 import re
 from collections.abc import Iterator, Mapping, Sequence
+from itertools import count
 from typing import overload
 
 from ...facade import contracts
@@ -163,23 +164,24 @@ def parsed_json_text(value: Value) -> Value:
 
     The value comes back unchanged when the parsed result would nest too deeply or not render.
     """
-    parsed = _with_json_text_parsed(value, depth=0)
+    parsed = _with_json_text_parsed(value, depth=0, visits=count(1))
     return parsed if parsed is value or _renders(parsed) else value
 
 
-def _with_json_text_parsed(value: Value, *, depth: int) -> Value:
+def _with_json_text_parsed(value: Value, *, depth: int, visits: Iterator[int]) -> Value:
+    # The walk visits values that no budget has charged yet, so it checks the clock itself.
+    if next(visits) % OUTPUT_NODES_PER_CLOCK_CHECK == 0:
+        check_time_limit()
     if depth >= _MAX_TOOL_VALUE_DEPTH:
         return value
     if isinstance(value, str):
         parsed = _container_of_json_text(value)
-        return value if parsed is value else _with_json_text_parsed(parsed, depth=depth)
+        return value if parsed is value else _with_json_text_parsed(parsed, depth=depth, visits=visits)
     if isinstance(value, Mapping):
-        check_time_limit()
-        children = {key: _with_json_text_parsed(child, depth=depth + 1) for key, child in value.items()}
+        children = {key: _with_json_text_parsed(child, depth=depth + 1, visits=visits) for key, child in value.items()}
         return value if all(children[key] is child for key, child in value.items()) else children
     if isinstance(value, Sequence):
-        check_time_limit()
-        items = [_with_json_text_parsed(child, depth=depth + 1) for child in value]
+        items = [_with_json_text_parsed(child, depth=depth + 1, visits=visits) for child in value]
         return value if all(item is child for item, child in zip(items, value)) else items
     return value
 

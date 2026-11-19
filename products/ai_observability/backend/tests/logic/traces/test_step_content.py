@@ -334,6 +334,16 @@ def test_a_json_span_side_shows_json_text_parsed_at_any_depth():
     assert content.output == contracts.TraceJsonSide(kind="json", value={"answer": "ok"})
 
 
+def test_a_json_side_whose_parse_runs_out_of_budget_shows_the_captured_text_and_is_not_a_recipe_failure():
+    captured = '{"answer": {"text": "ok"}}'
+
+    with patch.object(run_limits_module, "MAX_OUTPUT_NODES", 1):
+        reading = read_step("span", "node-1", {"k": 1}, captured, build_normalizer=RecipeNormalizer, team_id=TEAM_ID)
+
+    assert reading.content.output == contracts.TraceJsonSide(kind="json", value=captured)
+    assert (reading.output.recognized, reading.output.runtime_error) == (True, None)
+
+
 def test_span_failing_side_falls_back_to_the_original_value():
     wrapped = {"messages": REPLY}
 
