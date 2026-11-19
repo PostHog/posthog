@@ -538,7 +538,7 @@ export function captureInboxReportsImpressed(params: {
     rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
-    const personalSort = params.sortField === 'personal' || params.rankerId === 'personal'
+    const personalSort = params.rankerId === 'personal'
     if (params.rankingPill) {
         params.reports
             .filter((report) => rankingPillLifts(report) !== null)
@@ -590,9 +590,9 @@ export function captureInboxReportOpened(
         section: InboxReportSectionKey | null
         /** The ranker of the list the report was opened from. Null for other sorts and for a cold deep-link. */
         rankerId: string | null
-        /** The tier the card showed under the Personalized sort. Null for other sorts and for a cold deep-link. */
+        /** The tier the card showed under the personal order. Null for other orders and for a cold deep-link. */
         personalTier: string | null
-        /** Whether the card showed a personal ranking reason under the Personalized sort. */
+        /** Whether the card showed a personal ranking reason under the personal order. */
         personalReasonShown: boolean
     },
     /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
@@ -694,7 +694,7 @@ export function captureInboxRankingDetailsViewed(params: {
     head: string | null
     state: 'scored' | 'stale' | 'unscored'
     strength: string | null
-    /** The tier the card showed under the Personalized sort. Null for other sorts. */
+    /** The tier the card showed under the personal order. Null for other orders. */
     personalTier?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {

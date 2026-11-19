@@ -115147,6 +115147,18 @@ export namespace Schemas {
     }
 
     /**
+     * The project member who started a discussion.
+     */
+    export interface ScoutDiscussionStarter {
+      /** The member's stable PostHog user UUID, the same `user_uuid` `scout-members-list` returns. */
+      user_uuid: string;
+      /** The member's first name (may be empty). */
+      first_name: string;
+      /** The member's last name (may be empty). */
+      last_name: string;
+    }
+
+    /**
      * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
      *
      * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
@@ -115401,6 +115413,8 @@ export namespace Schemas {
          * @nullable
          */
       question: string | null;
+      /** The member who opened the discussion: who opened Ask AI on an `inbox` discussion, or whose message started a `slack` discussion. Not the author of `task_summary`: any project member can rewrite an `inbox` summary, and others in a Slack thread can shape a `slack` one. Null when the discussion has no creator, or when the creator no longer has access to this project. */
+      started_by: ScoutDiscussionStarter | null;
     }
 
     /**
@@ -129378,6 +129392,77 @@ export namespace Schemas {
       schema_version: number;
       /** Every tool the wizard can detect. */
       tools: WizardCatalogTool[];
+    }
+
+    export interface WorkflowEmailDetail {
+      /** The workflow run that sent the email. */
+      invocation_id: string;
+      /** The email step that sent it. A run can send one email per step. */
+      action_id: string;
+      /** The workflow or broadcast that sent the email. */
+      workflow_id: string;
+      /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
+      distinct_id: string;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
+      subject: string;
+      /** When the email went to the provider. */
+      sent_at: string;
+      /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** Whether the recipient opened the email in the week after the send. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email in the week after the send. */
+      clicked: boolean;
+      /** The send, then deliveries, bounces, opens and clicks in the 7 days after it, oldest first. */
+      timeline: TransactionalEmailLogEvent[];
+    }
+
+    export interface WorkflowEmailSend {
+      /** The workflow run that sent the email. */
+      invocation_id: string;
+      /** The email step that sent it. A run can send one email per step. */
+      action_id: string;
+      /** The workflow or broadcast that sent the email. */
+      workflow_id: string;
+      /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
+      distinct_id: string;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
+      subject: string;
+      /** When the email went to the provider. */
+      sent_at: string;
+      /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** Whether the recipient opened the email in the week after the send. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email in the week after the send. */
+      clicked: boolean;
+    }
+
+    export interface WorkflowEmailList {
+      /** Sends, newest first. */
+      results: WorkflowEmailSend[];
+      /** Whether another page follows. */
+      has_more: boolean;
+      /** Whether the project records engagement events now. Sends made while it was off show no subject, delivery, opens or clicks. */
+      engagement_events_enabled: boolean;
     }
 
     /**
@@ -151829,6 +151914,50 @@ export namespace Schemas {
      * @minLength 1
      */
     workflow_id: string;
+    };
+
+    export type WorkflowEmailLogListParams = {
+    /**
+     * Only sends at or after this time. Defaults to 7 days ago.
+     */
+    date_from?: string;
+    /**
+     * Only sends before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * The workflow or broadcast whose sends to list.
+     */
+    workflow_id: string;
+    };
+
+    export type WorkflowEmailLogRetrieveParams = {
+    /**
+     * The email step that sent the email, the `action_id` of a send.
+     * @minLength 1
+     * @maxLength 200
+     */
+    action_id: string;
+    };
+
+    export type WorkflowEmailLogActivityRetrieveParams = {
+    /**
+     * The email step that sent the email, the `action_id` of a send.
+     * @minLength 1
+     * @maxLength 200
+     */
+    action_id: string;
     };
 
     export type WorkflowImportsForWorkflowRetrieveParams = {
