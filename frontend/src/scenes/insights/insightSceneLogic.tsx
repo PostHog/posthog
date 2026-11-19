@@ -759,9 +759,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
                     }
-                    // A dashboard tile mounts its insight logic under this same key, and its query has the
-                    // dashboard's and the tile's filters applied. The editor would show that query and save
-                    // it, so the filters would become part of the insight.
+                    // A dashboard tile shares this key, and its query carries the dashboard's filters.
+                    // Editing that query would save the filters into the insight.
                     const reusesDashboardTileLogic =
                         values.insightMode === ItemMode.Edit &&
                         insightProps.dashboardId != null &&
@@ -776,7 +775,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     actions.setInsightDataLogicRef(logic2, unmount2)
 
                     if (reusesDashboardTileLogic) {
-                        // Load the insight as it is stored, like switching to edit mode in this scene does
                         logic.actions.loadInsight(
                             insightId as InsightShortId,
                             values.filtersOverride,
