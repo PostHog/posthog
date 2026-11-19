@@ -71,10 +71,10 @@ describe('storyCards', () => {
 
     it.each([
         [9_999, '9,999', null],
-        [14_421, '14,421', 'Over 10,000 tool calls'],
-        [999_999, '999,999', 'Over 100,000 tool calls'],
-        [4_812_655, '4.8M', 'Over 1 million tool calls'],
-        [219_000_000, '219M', 'Over 100 million tool calls'],
+        [14_421, '14,421', '10K club'],
+        [999_999, '999,999', '100K club'],
+        [4_812_655, '4.8M', '1M club'],
+        [219_000_000, '219M', '100M club'],
     ])('shows %i calls as %s with milestone %s', (calls, count, milestone) => {
         expect(formatCallCount(calls)).toBe(count)
         expect(callMilestone(calls)).toBe(milestone)

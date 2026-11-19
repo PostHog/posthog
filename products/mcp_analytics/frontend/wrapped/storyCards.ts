@@ -90,18 +90,18 @@ export function formatCallCount(calls: number): string {
 }
 
 const CALL_MILESTONES: [number, string][] = [
-    [1_000_000_000, '1 billion'],
-    [100_000_000, '100 million'],
-    [10_000_000, '10 million'],
-    [1_000_000, '1 million'],
-    [100_000, '100,000'],
-    [10_000, '10,000'],
+    [1_000_000_000, '1B'],
+    [100_000_000, '100M'],
+    [10_000_000, '10M'],
+    [1_000_000, '1M'],
+    [100_000, '100K'],
+    [10_000, '10K'],
 ]
 
 /** The largest round number the total passed, or null below the first one. */
 export function callMilestone(calls: number): string | null {
     const milestone = CALL_MILESTONES.find(([threshold]) => calls >= threshold)
-    return milestone ? `Over ${milestone[1]} tool calls` : null
+    return milestone ? `${milestone[1]} club` : null
 }
 
 export function formatPercent(share: number): string {

@@ -143,14 +143,14 @@ export function WrappedStoryPlayer(): JSX.Element | null {
             </div>
             <button
                 type="button"
-                className="absolute bottom-0 left-0 top-16 z-[5] w-1/3 cursor-pointer bg-transparent"
+                className="absolute bottom-0 left-0 top-16 z-[5] w-1/3 cursor-pointer bg-transparent outline-none focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-white"
                 onClick={previousCard}
                 aria-label="Previous card"
                 data-attr="mcp-wrapped-previous"
             />
             <button
                 type="button"
-                className="absolute bottom-24 right-0 top-16 z-[5] w-2/3 cursor-pointer bg-transparent"
+                className="absolute bottom-24 right-0 top-16 z-[5] w-2/3 cursor-pointer bg-transparent outline-none focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-white"
                 onClick={nextCard}
                 aria-label="Next card"
                 data-attr="mcp-wrapped-next"
