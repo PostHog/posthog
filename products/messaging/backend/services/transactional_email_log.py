@@ -256,7 +256,7 @@ def list_transactional_emails(
         having.append(_access_condition("message_function_id", access, params))
 
     queued = " AND ".join([period_filter, _FIRST_ROW, *queued_filters])
-    candidates = f"SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
+    candidates = f"SELECT DISTINCT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
     if message_id:
         scope = "AND message_id = %(message_id)s"
     elif status or reason:
@@ -265,8 +265,8 @@ def list_transactional_emails(
         scope = f"AND (created_at, message_id) IN ({candidates})" if search or workflow_id else ""
     else:
         # The page comes from first rows alone, so a long period doesn't group every message to show 50 of them.
-        # Kafka can deliver a first row twice, so this takes extra rows and the grouping below drops the repeats.
-        params["candidates"] = (limit + 1 + offset) * 2
+        # Kafka can deliver a first row twice, and every reschedule writes another, so the limit counts messages.
+        params["candidates"] = limit + 1 + offset
         scope = (
             f"AND (created_at, message_id) IN ({candidates} ORDER BY created_at DESC, message_id DESC"
             " LIMIT %(candidates)s)"

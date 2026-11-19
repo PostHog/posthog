@@ -330,9 +330,19 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         assert [event["kind"] for event in detail["timeline"]] == timeline
 
-    def test_a_queued_row_delivered_twice_takes_one_place_on_a_page(self, _flag):
-        self._send(20, "older@example.com", [("queued", 0, "")])
-        self._send(10, "newer@example.com", [("queued", 0, "")])
+    @parameterized.expand(
+        [
+            ("a_queued_row_delivered_twice", "queued", [("queued", 0, "")]),
+            (
+                "a_send_rescheduled_three_times",
+                "scheduled",
+                [("scheduled", 60, ""), ("scheduled", 120, ""), ("scheduled", 180, "")],
+            ),
+        ]
+    )
+    def test_a_send_with_a_repeated_first_row_takes_one_place_on_a_page(self, _flag, _name, first, repeats):
+        self._send(20, "older@example.com", repeats, first=first)
+        self._send(10, "newer@example.com", repeats, first=first)
 
         first_page = self.client.get(self._url(), {"limit": 1}).json()
         second_page = self.client.get(self._url(), {"limit": 1, "offset": 1}).json()
