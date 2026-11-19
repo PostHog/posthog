@@ -92,6 +92,7 @@ def _inherited_judgments(
     return judgments
 
 
+@transaction.atomic
 def create_layer_reports(
     *, parent: SignalReport, layers: list[ReportLayer], attribution: ArtefactAttribution
 ) -> list[str]:
@@ -106,12 +107,12 @@ def create_layer_reports(
     if not layers:
         return []
     team_id = parent.team_id
+    SignalReport.objects.select_for_update().get(team_id=team_id, id=parent.id)
     if incoming_links(team_id=team_id, report_id=parent.id, kinds=(ReportLinkKind.PART_OF,)):
         return []
     if has_open_or_merged_pull_request(team_id=team_id, report_ids=[str(parent.id)]):
         logger.info("signals.stack_plan.layers_skipped_for_own_pull_request", report_id=str(parent.id), team_id=team_id)
         return []
-    SignalReport.objects.select_for_update().get(team_id=team_id, id=parent.id)
     judgments = _inherited_judgments(parent)
     assignment = ReviewerRules.read_for_report(team_id=team_id, report_id=str(parent.id))
     # A layer does the plan's work, so it keeps the plan's exemption. The scout policy matches only

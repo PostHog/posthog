@@ -81,6 +81,7 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_monitoring_provenance import monitoring_repository_allowed
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.reviewer_exclusions import StandingExclusions
 from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
 from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
@@ -1254,6 +1255,7 @@ def _resolve_autostart_assignee(
     team_default_priority: Priority,
     live_owner_identities: ReviewerIdentitySet | None = None,
     confirmed_research_user_uuids: set[str] | None = None,
+    standing_exclusions: StandingExclusions | None = None,
 ) -> User | None:
     """Return the first suggested reviewer whose effective priority threshold allows auto-start.
 
@@ -1332,13 +1334,17 @@ def _resolve_autostart_assignee(
     }
 
     for user in candidate_users:
+        if standing_exclusions is not None and not standing_exclusions.allows_user(str(user.uuid)):
+            continue
         if report_rank <= _priority_rank(_effective_threshold(configs.get(user.id), team_default_priority)):
             return user
 
     return None
 
 
-def _resolve_autostart_fallback_user(team_id: int) -> User | None:
+def _resolve_autostart_fallback_user(
+    team_id: int, standing_exclusions: StandingExclusions | None = None
+) -> User | None:
     """Assignee for an actionable report whose suggested reviewers don't resolve to a member.
 
     Suggested reviewers are advisory — a report can be immediately actionable with a clear fix
@@ -1349,7 +1355,10 @@ def _resolve_autostart_fallback_user(team_id: int) -> User | None:
     The task mints a PostHog OAuth token as this user, which is why `resolve_signals_enabler` only
     returns active org members.
     """
-    return resolve_signals_enabler(team_id)
+    user = resolve_signals_enabler(team_id)
+    if user is not None and standing_exclusions is not None and not standing_exclusions.allows_user(str(user.uuid)):
+        return None
+    return user
 
 
 def _resolve_triggering_user(
@@ -1615,6 +1624,9 @@ async def maybe_autostart_implementation_task(
             team_id, triggering_user_id, priority.priority, team_default_priority
         )
     else:
+        standing_exclusions = await database_sync_to_async(StandingExclusions.load, thread_sensitive=False)(
+            team_id=team_id, report_id=report_id, repository=repository
+        )
         # Resolve the authoring scout's current owners at identity time — the stored
         # `is_skill_owner` stamp is a write-time snapshot and can be stale (see
         # `_live_skill_owner_identities`). Skipped when no reviewer is up for selection.
@@ -1639,12 +1651,15 @@ async def maybe_autostart_implementation_task(
             team_default_priority,
             live_owner_identities,
             confirmed_uuids,
+            standing_exclusions,
         )
         if task_user is None and _report_meets_team_autostart_threshold(priority.priority, team_default_priority):
             # No suggested reviewer resolved to a connected-GitHub member, but the report meets the
             # team's default autostart priority, so run it under the member who enabled signals for
             # the team rather than dropping the PR.
-            task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
+            task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(
+                team_id, standing_exclusions
+            )
             runner_source = "team_fallback"
     if (
         task_user is not None
