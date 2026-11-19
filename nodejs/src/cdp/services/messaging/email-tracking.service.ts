@@ -36,10 +36,11 @@ import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tr
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 
 // Attributes are read as a browser reads them, so a `>` inside a quoted value does not end the tag. A quote that never
-// closes falls back to the next `>`, as the plain cut did. Each token has one reading, so a match stays linear even
-// when it fails.
+// closes fails the match, and the tag is cut at its first `>` as before. Each token has one reading, so a failing
+// match stays linear.
 const OPENING_TAG =
-    /^<a\b(?:[\s/]+(?![\s/])|[^\s/>][^\s/>=]*(?![^\s/>=])(?:\s*=\s*(?!\s)(?:"[^"]*"|'[^']*'|(?!"[^"]*")(?!'[^']*')[^\s>]*(?![^\s>]))|(?!\s*=)))*>/i
+    /^<a\b(?:[\s/]+(?![\s/])|[^\s/>][^\s/>=]*(?![^\s/>=])(?:\s*=\s*(?!\s)(?:"[^"]*"|'[^']*'|(?:[^\s>"'][^\s>]*)?(?![^\s>]))|(?!\s*=)))*>/i
+const OPENING_TAG_PLAIN_CUT = /^<a\b[^>]*>/i
 
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
@@ -255,7 +256,7 @@ export const addTrackingToEmail = (
         // app deeplinks resolve - routing through our cross-domain redirect breaks them.
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
-        const openingTag = m.match(OPENING_TAG)?.[0] ?? ''
+        const openingTag = m.match(OPENING_TAG)?.[0] ?? m.match(OPENING_TAG_PLAIN_CUT)?.[0] ?? ''
         const optedOut = allLinksOptedOut || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {

@@ -279,6 +279,11 @@ describe('EmailTrackingService', () => {
                     `<a href="https://example.com" title="Note ='one ses:tags="phl:0">Bob's</a>`,
                 ],
                 [
+                    'a quote that never closes, before a named quoted >',
+                    `<a href="https://example.com" title="Note setting='one>Bob's</a>`,
+                    `<a href="https://example.com" title="Note setting='one ses:tags="phl:0">Bob's</a>`,
+                ],
+                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
