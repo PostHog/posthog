@@ -7,10 +7,13 @@ import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
+import { AskForMore } from './AskForMore'
 import { BroadcastShell } from './BroadcastShell'
+import { PlanAnswers } from './PlanAnswers'
 import { PrototypeNote } from './PrototypeNote'
 import { ReputationShell } from './ReputationShell'
 import { BOUNCE_LIMIT, COMPLAINT_LIMIT, SendingState, SurfaceKey, sendDays } from './sendingLimitsPrototypeData'
+import { sendPlan } from './sendPlan'
 import { SetupShell } from './SetupShell'
 
 const fmt = humanFriendlyNumber
@@ -189,6 +192,9 @@ export function VariantBExplain({ surface, state }: { surface: SurfaceKey; state
                         raises your allowance, up to {fmt(state.ceilingPerDay)} a day. Follow it on the{' '}
                         <Link>Reputation page</Link>.
                     </span>
+                    <span className="text-secondary">
+                        <AskForMore />
+                    </span>
                 </div>
             </SetupShell>
         )
@@ -206,28 +212,28 @@ export function VariantBExplain({ surface, state }: { surface: SurfaceKey; state
 
     const { broadcast } = state
     const blocked = state.key === 'blocked'
-    const days = sendDays(state)
-    const overAllowance = broadcast.audience > state.allowancePerDay
+    const plan = sendPlan(state)
     const stopped = broadcast.sample?.verdict === 'stopped'
     return (
         <BroadcastShell
             state={state}
             launchDisabledReason={blocked ? 'Email sending is paused for this project' : undefined}
             recipientsHint={
-                blocked ? (
-                    <div className="text-danger text-xs">
-                        Email sending is paused for this project. <Link>See why</Link>.
-                    </div>
-                ) : overAllowance ? (
-                    <div className="text-xs">
-                        Your allowance today is {fmt(state.allowancePerDay)} emails a day, so this goes out over about{' '}
-                        {days} days. It speeds up as your warm-up grows. <Link>See your warm-up</Link>.
-                    </div>
-                ) : (
-                    <div className="text-xs text-secondary">
-                        Fits in today's allowance of {fmt(state.allowancePerDay)} emails.
-                    </div>
-                )
+                <PlanAnswers
+                    plan={plan}
+                    paused={blocked ? 'sending is paused' : undefined}
+                    why={
+                        <>
+                            {blocked
+                                ? state.blockedReason
+                                : `Your allowance is ${fmt(state.allowancePerDay)} emails a day. ${
+                                      plan.whyChanged ??
+                                      'Every new sender starts here, and it grows each day you send without many bounces or spam complaints.'
+                                  }`}{' '}
+                            <Link>{blocked ? 'See what to fix' : 'See your warm-up'}</Link>.
+                        </>
+                    }
+                />
             }
             status={
                 blocked || stopped
@@ -252,7 +258,7 @@ export function VariantBExplain({ surface, state }: { surface: SurfaceKey; state
                     {blocked && <BlockedBanner state={state} />}
                     {!blocked && !stopped && broadcast.sentSoFar < broadcast.audience && (
                         <span className="text-sm text-secondary">
-                            The rest goes out over the next {days - 1} days, within your daily allowance.{' '}
+                            Everyone gets it by {plan.finish}, within your daily allowance.{' '}
                             <Link>See your warm-up</Link>.
                         </span>
                     )}
