@@ -57,6 +57,12 @@ SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
 VALID_CODE_SEND_BODY = json.dumps(
     {"to": "user@example.com", "distinct_id": "user-1", "template_key": "welcome", "subject": "Hi", "html": "<p>Hi</p>"}
 )
+TWO_TIMES_AMONG_TOO_MANY_MEMBERS = (
+    VALID_CODE_SEND_BODY[:-1]
+    + ', "scheduled_at": "2026-11-21T09:00:00Z", "scheduled_at": null, '
+    + ", ".join(f'"padding": {i}' for i in range(1000))
+    + "}"
+)
 
 
 @frozen
@@ -2302,6 +2308,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("a_cut_off_body", '{"to": "user@example.com", "template_key": ', "application/json"),
             ("bytes_that_are_not_utf_8", b'{"to": "user@example.com", "template_key": "\xff"}', "application/json"),
             ("a_send_cut_off_inside_a_character", VALID_CODE_SEND_BODY.encode() + b"\xe2\x82", "application/json"),
+            ("two_times_among_more_than_a_thousand_members", TWO_TIMES_AMONG_TOO_MANY_MEMBERS, "application/json"),
             (
                 "utf_16_with_no_byte_order_mark",
                 VALID_CODE_SEND_BODY.encode("utf-16-le"),

@@ -2,6 +2,7 @@ import re
 import json
 import time
 import codecs
+import itertools
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
@@ -650,6 +651,11 @@ class _Repeated(list):
 
 
 _JSON_WHITESPACE = re.compile(r"[ \t\n\r]*")
+# A key that decodes to `scheduled_at`, with any of its characters written as a `\u` escape.
+_SCHEDULED_AT_KEY = re.compile(
+    '"' + "".join(f"(?:{re.escape(c)}|\\\\u(?i:{ord(c):04x}))" for c in "scheduled_at") + '"[ \t\n\r]*:'
+)
+SEND_BODY_MAX_MEMBERS_WITH_TWO_TIMES = 1000
 
 
 class _JsonObject(dict):
@@ -669,24 +675,28 @@ class _JsonObject(dict):
         # stock scanner and kept as the stock parser keeps it, so the walk holds no more memory than that parser.
         skip = _JSON_WHITESPACE.match
         obj: dict[str, Any] = {}
-        times = _Repeated()
+        times = members = 0
         end = skip(text, skip(text).end() + 1).end()
         while text[end] != "}":
+            members += 1
+            if members > SEND_BODY_MAX_MEMBERS_WITH_TWO_TIMES:
+                raise ParseError(
+                    f"A body that names `scheduled_at` more than once can have at most "
+                    f"{SEND_BODY_MAX_MEMBERS_WITH_TWO_TIMES} top-level members."
+                )
             key, end = decoder.raw_decode(text, end)
-            value, end = decoder.raw_decode(text, skip(text, skip(text, end).end() + 1).end())
-            obj[key] = value
-            if key == "scheduled_at" and len(times) < 2:
-                times.append(value)
+            obj[key], end = decoder.raw_decode(text, skip(text, skip(text, end).end() + 1).end())
+            times += key == "scheduled_at"
             end = skip(text, end).end()
             if text[end] == ",":
                 end = skip(text, end + 1).end()
-        return cls.with_repeats(obj, {"scheduled_at": times} if len(times) > 1 else {})
+        return cls.with_repeats(obj, {"scheduled_at": _Repeated()} if times > 1 else {})
 
 
 class SendBodyJSONParser(JSONParser):
     # Python's JSON reader keeps only the last value of a repeated key, which can be an earlier send time than the
-    # one before it. A body with a top-level `scheduled_at` is read again member by member, so ScheduledAtField can
-    # refuse a repeated one.
+    # one before it. A body that names `scheduled_at` as a key twice is read again member by member, so
+    # ScheduledAtField can refuse a repeated one.
     def parse(self, stream: Any, media_type: str | None = None, parser_context: Mapping[str, Any] | None = None) -> Any:
         encoding = get_encoding(parser_context or {})
         try:
@@ -695,6 +705,8 @@ class SendBodyJSONParser(JSONParser):
             parse_constant = drf_json.strict_constant if self.strict else None
             data = drf_json.loads(text, parse_constant=parse_constant)
             if not (isinstance(data, dict) and "scheduled_at" in data):
+                return data
+            if len(list(itertools.islice(_SCHEDULED_AT_KEY.finditer(text), 2))) < 2:
                 return data
             del data
             return _JsonObject.from_parsed_object(text, json.JSONDecoder(parse_constant=parse_constant))
