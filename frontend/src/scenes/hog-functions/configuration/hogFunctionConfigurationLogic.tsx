@@ -36,6 +36,7 @@ import { uuid } from 'lib/utils/dom'
 import { isEmptyObject } from 'lib/utils/guards'
 import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { parseSecretReentryRefusal } from 'lib/utils/secretReentryRefusal'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import { projectLogic } from 'scenes/projectLogic'
 import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
@@ -108,6 +109,19 @@ export interface HogFunctionConfigurationLogicProps {
     templateId?: string | null
     subTemplateId?: string | null
     id?: string | null
+}
+
+export function hogFunctionConfigurationLogicKey({
+    id,
+    templateId,
+    subTemplateId,
+    logicKey,
+}: HogFunctionConfigurationLogicProps): string {
+    let baseKey = id ?? templateId ?? 'new'
+    if (subTemplateId) {
+        baseKey = `${subTemplateId}_${baseKey}`
+    }
+    return logicKey ? `${logicKey}_${baseKey}` : baseKey
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
@@ -921,13 +935,7 @@ export type hogFunctionConfigurationLogicType = MakeLogicType<
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId, subTemplateId, logicKey }: HogFunctionConfigurationLogicProps) => {
-        let baseKey = id ?? templateId ?? 'new'
-        if (subTemplateId) {
-            baseKey = `${subTemplateId}_${baseKey}`
-        }
-        return logicKey ? `${logicKey}_${baseKey}` : baseKey
-    }),
+    key(hogFunctionConfigurationLogicKey),
     connect(() => ({
         values: [
             projectLogic,
@@ -2153,6 +2161,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
+            // hogFunctionSecretReentryLogic asks for the stored secrets in a dialog, or shows the refusal as a toast.
+            if (parseSecretReentryRefusal(errorObject)) {
+                return
+            }
             const maybeValidationError = errorObject.data
 
             if (maybeValidationError?.type === 'validation_error' && maybeValidationError.attr) {

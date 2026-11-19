@@ -9837,6 +9837,10 @@
                 {
                     "param": "confirm_token",
                     "key": "confirm_token"
+                },
+                {
+                    "param": "inputs",
+                    "key": "inputs"
                 }
             ],
             "injectBody": {},
