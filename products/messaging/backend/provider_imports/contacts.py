@@ -209,7 +209,12 @@ def save_contact_lists(
 
 
 def _import(
-    context: ImportContext, contact_list: ContactList, *, create_people: bool, send_events: bool
+    context: ImportContext,
+    contact_list: ContactList,
+    *,
+    create_people: bool,
+    send_events: bool,
+    fill_cohort: bool = True,
 ) -> ProviderContactsResult:
     return import_provider_contacts(
         context.team_id,
@@ -220,6 +225,7 @@ def _import(
         cohort_name=contact_list.cohort_name,
         cohort_description=contact_list.cohort_description,
         source=contact_list.source,
+        fill_cohort=fill_cohort,
     )
 
 
@@ -245,11 +251,13 @@ def _item(contact_list: ContactList, result: ProviderContactsResult, notes: tupl
 
 
 def save_contact_properties(context: ImportContext, everyone: ContactList, contacts_checked: int) -> SavedPage:
-    """Fill in the properties each person in `everyone` lacks. The people join `everyone`'s cohort, which the contacts
-    step of the same run fills too."""
+    """Fill in the properties each person in `everyone` lacks. The contacts step of the same run adds them to
+    `everyone`'s cohort, so this leaves the cohort as it is."""
     if not everyone.rows:
         return SavedPage(imported=0, counts={"people": 0, "contacts": contacts_checked})
-    result = _import(context, everyone, create_people=NEW_PEOPLE_STEP in context.steps, send_events=True)
+    result = _import(
+        context, everyone, create_people=NEW_PEOPLE_STEP in context.steps, send_events=True, fill_cohort=False
+    )
     if result.status == "failed":
         raise ImportStepError(" ".join(result.notes))
     return SavedPage(imported=result.people, counts={"people": result.people, "contacts": contacts_checked})

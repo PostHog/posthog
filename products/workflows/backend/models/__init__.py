@@ -4,6 +4,7 @@ from .hog_flow_batch_job import HogFlowBatchJob, HogFlowBatchJobAudienceMember
 from .hog_flow_optimization import HogFlowOptimization
 from .hog_flow_revision import HogFlowRevision
 from .hog_flow_schedule.hog_flow_schedule import HogFlowSchedule
+from .people_import_batch import PeopleImportBatch
 from .push_token_import import PushTokenImport
 from .sandbox_sender_organization_block import SandboxSenderOrganizationBlock
 from .sandbox_sender_tenant_state import SandboxSenderTenantState
@@ -20,6 +21,7 @@ __all__ = [
     "HogFlowRevision",
     "HogFlowSchedule",
     "HogFlowTemplate",
+    "PeopleImportBatch",
     "PushTokenImport",
     "SandboxSenderOrganizationBlock",
     "SandboxSenderTenantState",

@@ -1,10 +1,21 @@
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import MagicMock, patch
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.utils import timezone
 
 from celery.exceptions import Retry
 from parameterized import parameterized
@@ -18,16 +29,20 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import PeopleImportInvalid
+from products.workflows.backend.models.people_import_batch import PeopleImportBatch
 from products.workflows.backend.services import people_import, provider_contacts
 from products.workflows.backend.services.people_import import start_people_import
 from products.workflows.backend.tasks import people_import as people_import_tasks
 from products.workflows.backend.tasks.people_import import (
     capture_people_import,
     fail_people_import_if_stalled,
+    fill_people_import_batch,
     fill_people_import_cohort,
+    finish_people_import,
 )
 
 
@@ -60,7 +75,7 @@ class _StorageMixin:
         self.addCleanup(stall_check.stop)  # type: ignore[attr-defined]
 
     def stored_people(self) -> list[dict[str, Any]]:
-        [content] = self.storage.objects.values()
+        [content] = (content for key, content in self.storage.objects.items() if not key.endswith(".phase.json"))
         return json.loads(content)
 
 
@@ -145,6 +160,155 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         self.dispatch.assert_not_called()
         # The stall check deletes the stored rows once the hour is up, because nothing else will.
         assert self.stall_check.call_args.kwargs["countdown"] == 3600
+
+    @patch("products.workflows.backend.tasks.people_import.calculate_cohort_from_list.apply_async")
+    @patch("products.workflows.backend.tasks.people_import.fill_people_import_batch.delay")
+    @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
+    def test_a_long_list_fills_its_cohort_once_after_every_part_whatever_the_order(
+        self, _schedule: MagicMock, fill_batch: MagicMock, calculate: MagicMock
+    ) -> None:
+        rows = [{"email": f"person{i}@example.com"} for i in range(5)]
+
+        with patch.object(provider_contacts, "MAX_PEOPLE_IMPORT_ROWS", 2), self.captureOnCommitCallbacks(execute=True):
+            result = provider_contacts.import_provider_contacts(
+                self.team.id,
+                self.user.id,
+                rows,
+                create_people=True,
+                send_events=False,
+                cohort_name="VIPs",
+                cohort_description="Imported from a test list.",
+                source='the test list "VIPs"',
+            )
+
+        keys = sorted(
+            (key for key in self.storage.objects if not key.endswith(".phase.json")),
+            key=lambda key: json.loads(self.storage.objects[key])[0]["distinct_id"],
+        )
+        assert (result.people, len(keys)) == (5, 3)
+        assert result.cohort_id is not None
+        everyone = [f"person{i}@example.com" for i in range(5)]
+        with patch.object(
+            people_import, "get_person_uuids_and_matched_distinct_ids", side_effect=lambda _team, ids: ([], set(ids))
+        ):
+            for key in (keys[2], keys[0]):
+                fill_people_import_cohort(team_id=self.team.id, cohort_id=result.cohort_id, storage_key=key, attempt=0)
+                fill_batch.assert_not_called()
+            fill_people_import_cohort(team_id=self.team.id, cohort_id=result.cohort_id, storage_key=keys[1], attempt=0)
+            # A part ingestion sends twice counts once.
+            fill_people_import_cohort(team_id=self.team.id, cohort_id=result.cohort_id, storage_key=keys[1], attempt=0)
+
+        calculate.assert_not_called()
+        assert Cohort.objects.get(pk=result.cohort_id).is_calculating
+        fill_batch.assert_called_once()
+        fill_people_import_batch(**fill_batch.call_args.kwargs)
+
+        calculate.assert_called_once()
+        assert calculate.call_args.kwargs["args"] == [result.cohort_id, everyone]
+        link = calculate.call_args.kwargs["link"].kwargs
+        assert link["storage_keys"] == keys
+        finish_people_import(**link)
+        assert self.storage.objects == {}
+        assert not PeopleImportBatch.objects.for_team(self.team.id).exists()
+
+    @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
+    def test_a_part_with_no_valid_address_counts_as_ready_instead_of_failing_the_list(
+        self, _schedule: MagicMock
+    ) -> None:
+        rows = [{"email": "a@example.com"}, {"email": "b@example.com"}, {"email": "not-an-email"}]
+
+        with patch.object(provider_contacts, "MAX_PEOPLE_IMPORT_ROWS", 2), self.captureOnCommitCallbacks(execute=True):
+            result = provider_contacts.import_provider_contacts(
+                self.team.id,
+                self.user.id,
+                rows,
+                create_people=True,
+                send_events=False,
+                cohort_name="VIPs",
+                cohort_description="Imported from a test list.",
+                source='the test list "VIPs"',
+            )
+
+        assert (result.status, result.people, result.dropped) == ("created", 2, 1)
+        batch = PeopleImportBatch.objects.for_team(self.team.id).get()
+        assert (batch.failed, batch.ready_parts) == (False, {"1": None})
+
+    @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
+    @patch("products.workflows.backend.tasks.people_import.capture_batch_internal")
+    def test_an_import_that_only_updates_people_leaves_the_cohort_alone(
+        self, capture: MagicMock, fill: MagicMock
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Resend contacts", is_static=True)
+        capture.return_value.succeeded.return_value = True
+        capture.return_value.retried = capture.return_value.unaccounted = []
+
+        with self.captureOnCommitCallbacks(execute=True):
+            start_people_import(
+                team=self.team,
+                user=self.user,
+                name="Ignored",
+                rows=[{"email": "a@example.com", "plan": "pro"}],
+                cohort_id=cohort.id,
+                fill_cohort=False,
+            )
+        cohort.refresh_from_db()
+        assert not cohort.is_calculating
+        key = self.dispatch.call_args.kwargs["storage_key"]
+
+        capture_people_import(team_id=self.team.id, cohort_id=cohort.id, storage_key=key)
+        fill_people_import_cohort(**fill.call_args.kwargs["kwargs"])
+
+        cohort.refresh_from_db()
+        assert (cohort.is_calculating, cohort.errors_calculating, cohort.last_calculation) == (False, 0, None)
+        assert self.storage.objects == {}
+        assert not PeopleImportBatch.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand([("committed", True, True), ("rolled_back", False, False)])
+    def test_stall_check_sends_a_committed_update_only_import_whatever_the_cohort_shows(
+        self, _name: str, committed: bool, sent_again: bool
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Resend contacts", is_static=True)
+        with self.captureOnCommitCallbacks(execute=False):
+            start_people_import(
+                team=self.team,
+                user=self.user,
+                name="Ignored",
+                rows=[{"email": "a@example.com", "plan": "pro"}],
+                cohort_id=cohort.id,
+                fill_cohort=False,
+            )
+        if not committed:
+            PeopleImportBatch.objects.for_team(self.team.id).delete()
+        stall_kwargs = self.stall_check.call_args.kwargs["kwargs"]
+
+        fail_people_import_if_stalled(**stall_kwargs)
+
+        assert self.dispatch.called is sent_again
+        assert (stall_kwargs["storage_key"] in self.storage.objects) is sent_again
+        cohort.refresh_from_db()
+        assert (cohort.is_calculating, cohort.errors_calculating) == (False, 0)
+
+    def test_a_failed_dispatch_is_kept_for_the_stall_check_and_skips_no_other_import(self) -> None:
+        self.dispatch.side_effect = [ConnectionError("broker is down"), None, None]
+
+        with self.captureOnCommitCallbacks(execute=True), transaction.atomic():
+            failed = start_people_import(team=self.team, user=self.user, name="A", rows=[{"email": "a@example.com"}])
+            start_people_import(team=self.team, user=self.user, name="B", rows=[{"email": "b@example.com"}])
+
+        assert self.dispatch.call_count == 2
+        cohort = Cohort.objects.get(pk=failed.cohort_id)
+        assert (cohort.is_calculating, cohort.errors_calculating) == (True, 0)
+        [stall_kwargs] = [
+            c.kwargs["kwargs"]
+            for c in self.stall_check.call_args_list
+            if c.kwargs["kwargs"]["cohort_id"] == failed.cohort_id
+        ]
+
+        fail_people_import_if_stalled(**stall_kwargs)
+
+        assert self.dispatch.call_count == 3
+        assert self.dispatch.call_args.kwargs["storage_key"] == stall_kwargs["storage_key"]
+        assert self.stall_check.call_args.kwargs["kwargs"] == {**stall_kwargs, "check": 1}
 
     @parameterized.expand(
         [
@@ -271,9 +435,20 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
 
 
 class TestPeopleImportTasks(_StorageMixin, BaseTest):
-    def _stage(self, distinct_ids: tuple[str, ...] = ("user-1",), *, fill_only: bool = False) -> tuple[int, str]:
-        cohort = Cohort.objects.create(team=self.team, name="List", is_static=True, is_calculating=True)
+    def _stage(
+        self,
+        distinct_ids: tuple[str, ...] = ("user-1",),
+        *,
+        fill_only: bool = False,
+        phase: dict[str, Any] | None = None,
+        calculating: bool = True,
+    ) -> tuple[int, str]:
+        cohort = Cohort.objects.create(team=self.team, name="List", is_static=True, is_calculating=calculating)
         key = f"workflows_people_imports/team-{self.team.id}/{cohort.pk}.json"
+        if phase is not None:
+            self.storage.write(
+                f"workflows_people_imports/team-{self.team.id}/{cohort.pk}.phase.json", json.dumps(phase)
+            )
         people = [
             {
                 "distinct_id": d,
@@ -378,7 +553,7 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
             ("lookup_fails_on_the_last_attempt", ConnectionError("personhog is down"), 7, "fails"),
         ]
     )
-    @patch("products.workflows.backend.tasks.people_import.calculate_cohort_from_list.delay")
+    @patch("products.workflows.backend.tasks.people_import.calculate_cohort_from_list.apply_async")
     @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
     def test_fill_waits_for_ingestion(
         self,
@@ -397,19 +572,159 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         cohort = Cohort.objects.get(pk=cohort_id)
         assert reschedule.called is (outcome == "waits")
         assert calculate.called is (outcome == "fills")
-        assert (key in self.storage.objects) is (outcome == "waits")
+        # The rows stay until the population succeeds, so the stall check still follows the import.
+        assert (key in self.storage.objects) is (outcome != "fails")
         assert cohort.is_calculating is (outcome != "fails")
+        if outcome == "fills":
+            assert calculate.call_args.kwargs["link"].kwargs == {
+                "team_id": self.team.id,
+                "storage_keys": [key],
+                "batch_id": None,
+            }
+            finish_people_import(**calculate.call_args.kwargs["link"].kwargs)
+            assert key not in self.storage.objects
 
-    @parameterized.expand([("rows_left", True, True), ("finished_while_a_later_import_runs", False, False)])
-    def test_stall_check_ends_only_its_own_unfinished_import(self, _name: str, rows_left: bool, ended: bool) -> None:
-        cohort_id, key = self._stage()
-        if not rows_left:
-            self.storage.delete(key)
+    @patch("products.workflows.backend.tasks.people_import.fill_people_import_batch.delay")
+    def test_stall_check_fills_a_complete_batch_whose_fill_was_lost(self, fill_batch: MagicMock) -> None:
+        batch = PeopleImportBatch.objects.for_team(self.team.id).create(
+            team=self.team, cohort_id=0, parts=2, ready_parts={"0": "a", "1": "b"}
+        )
+        cohort_id, key = self._stage(phase={"phase": "waiting_for_parts", "batch": [str(batch.id), 1]})
+
+        other_id, other_key = self._stage(phase={"phase": "waiting_for_parts", "batch": [str(batch.id), 0]})
 
         fail_people_import_if_stalled(team_id=self.team.id, cohort_id=cohort_id, storage_key=key)
+        # The other part's check runs before the fill starts, and leaves the fill to the first.
+        fail_people_import_if_stalled(team_id=self.team.id, cohort_id=other_id, storage_key=other_key)
+
+        fill_batch.assert_called_once_with(team_id=self.team.id, batch_id=str(batch.id))
+        assert self.stall_check.call_args.kwargs["kwargs"]["check"] == 1
+
+    @patch("products.workflows.backend.tasks.people_import.calculate_cohort_from_list.apply_async")
+    @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
+    def test_fill_retries_a_storage_error_after_capture_without_sending_again(
+        self, reschedule: MagicMock, calculate: MagicMock
+    ) -> None:
+        cohort_id, key = self._stage(phase={"phase": "dispatched"})
+        read = self.storage.read
+
+        def phase_unreadable(storage_key: str, *, missing_ok: bool = False) -> str | None:
+            if storage_key.endswith(".phase.json"):
+                raise ConnectionError("storage is down")
+            return read(storage_key, missing_ok=missing_ok)
+
+        with patch.object(self.storage, "read", side_effect=phase_unreadable):
+            fill_people_import_cohort(team_id=self.team.id, cohort_id=cohort_id, storage_key=key, attempt=0)
+
+        assert reschedule.call_args.kwargs["kwargs"]["attempt"] == 1
+        calculate.assert_not_called()
+        self.dispatch.assert_not_called()
+        assert key in self.storage.objects
+
+    def test_stall_check_retries_a_storage_error_with_the_same_check(self) -> None:
+        cohort_id, key = self._stage()
+
+        with (
+            patch.object(self.storage, "read", side_effect=ConnectionError("storage is down")),
+            patch.object(fail_people_import_if_stalled, "retry", return_value=Retry()) as retry,
+            self.assertRaises(Retry),
+        ):
+            fail_people_import_if_stalled(team_id=self.team.id, cohort_id=cohort_id, storage_key=key, check=2)
+
+        retry.assert_called_once()
+        assert key in self.storage.objects
+
+    @parameterized.expand(
+        [
+            # (name, phase, cohort calculating, earlier attempt, attempt since, check, rows kept, errors, checks again)
+            ("finished", None, True, False, False, 0, False, 0, False),
+            ("rolled_back", "staged", False, False, False, 0, False, 0, False),
+            ("dispatch_never_ran", "staged", True, False, False, 0, True, 0, True),
+            ("dispatch_failed", "dispatch_failed", True, False, False, 0, True, 0, True),
+            ("dispatch_failed_on_the_last_check", "dispatch_failed", True, False, False, 5, False, 1, False),
+            ("capture_stalled", "dispatched", True, False, False, 0, False, 1, False),
+            ("population_running", "populating", True, True, True, 0, True, 0, True),
+            ("population_running_too_long", "populating", True, True, True, 5, False, 1, False),
+            ("population_lost_on_a_reused_cohort", "populating", True, True, False, 0, False, 1, False),
+            ("population_ended_without_cleanup", "populating", False, True, True, 0, False, 0, False),
+            ("other_parts_still_coming", "waiting_for_parts", True, False, False, 0, True, 0, True),
+            ("other_parts_never_came", "waiting_for_parts", True, False, False, 5, False, 1, False),
+        ]
+    )
+    def test_stall_check_follows_the_import_until_it_ends(
+        self,
+        _name: str,
+        phase: str | None,
+        calculating: bool,
+        earlier_attempt: bool,
+        attempt_since: bool,
+        check: int,
+        rows_kept: bool,
+        errors: int,
+        checks_again: bool,
+    ) -> None:
+        started = timezone.now() - timedelta(hours=2)
+        batch = PeopleImportBatch.objects.for_team(self.team.id).create(team=self.team, cohort_id=0, parts=2)
+        cohort_id, key = self._stage(
+            phase={
+                "phase": phase,
+                "at": started.isoformat(),
+                "send_events": True,
+                **({"batch": [str(batch.id), 0]} if phase == "waiting_for_parts" else {}),
+            }
+            if phase
+            else None,
+            calculating=calculating,
+        )
+        if phase is None:
+            self.storage.delete(key)
+        if earlier_attempt:
+            CohortCalculationHistory.objects.create(
+                team=self.team,
+                cohort_id=cohort_id,
+                filters={},
+                started_at=started - timedelta(days=1),
+                finished_at=started,
+            )
+        if attempt_since:
+            CohortCalculationHistory.objects.create(team=self.team, cohort_id=cohort_id, filters={}, started_at=started)
+
+        fail_people_import_if_stalled(team_id=self.team.id, cohort_id=cohort_id, storage_key=key, check=check)
 
         cohort = Cohort.objects.get(pk=cohort_id)
-        assert (cohort.errors_calculating, cohort.is_calculating) == ((1, False) if ended else (0, True))
+        assert (key in self.storage.objects, cohort.errors_calculating) == (rows_kept, errors)
+        assert self.stall_check.called is checks_again
+        assert self.dispatch.called is (phase in ("staged", "dispatch_failed") and checks_again)
+
+
+class TestPeopleImportBatchConcurrency(NonAtomicBaseTest):
+    def test_two_parts_finishing_together_complete_the_batch_exactly_once(self) -> None:
+        batch = PeopleImportBatch.objects.for_team(self.team.id).create(
+            team=self.team, cohort_id=1, parts=3, ready_parts={"0": "part-0"}
+        )
+        # Both parts reach the write together unless the lock holds one back until the other commits.
+        together = threading.Barrier(2, timeout=2)
+        save = PeopleImportBatch.save
+
+        def save_together(instance: PeopleImportBatch, *args: Any, **kwargs: Any) -> None:
+            try:
+                together.wait()
+            except threading.BrokenBarrierError:
+                pass
+            save(instance, *args, **kwargs)
+
+        def finish(part: int) -> bool:
+            try:
+                return people_import.mark_people_import_part_ready(self.team.id, batch.id, part, f"part-{part}")
+            finally:
+                connection.close()
+
+        with patch.object(PeopleImportBatch, "save", save_together), ThreadPoolExecutor(max_workers=2) as pool:
+            completed = list(pool.map(finish, (1, 2)))
+
+        assert sorted(completed) == [False, True]
+        batch = PeopleImportBatch.objects.for_team(self.team.id).get(id=batch.id)
+        assert batch.ready_parts == {"0": "part-0", "1": "part-1", "2": "part-2"}
 
 
 class TestPeopleImportAPI(_StorageMixin, ClickhouseTestMixin, APIBaseTest):

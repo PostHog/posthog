@@ -16,6 +16,8 @@ class PeopleImportRecorder:
         self.stored: dict[str, str] = {}
         self.storage = MagicMock()
         self.storage.write.side_effect = self.stored.__setitem__
+        self.storage.read.side_effect = lambda key, missing_ok=False: self.stored.get(key)
+        self.storage.delete.side_effect = lambda key: self.stored.pop(key, None)
         # ("send <cohort>" or "fill <cohort>", distinct IDs), in the order the imports started.
         self.imports: list[tuple[str, list[str]]] = []
         # The person properties the sending import sets, by distinct ID.
@@ -29,6 +31,11 @@ class PeopleImportRecorder:
             patcher = patch(target, **kwargs)
             test.addCleanup(patcher.stop)
             patcher.start()
+
+    @property
+    def staged(self) -> list[list[dict[str, Any]]]:
+        """The rows each import stored, without the records of how far each got."""
+        return [json.loads(content) for key, content in self.stored.items() if not key.endswith(".phase.json")]
 
     def _record(self, sends: bool, kwargs: dict[str, Any]) -> None:
         people = json.loads(self.stored[kwargs["storage_key"]])

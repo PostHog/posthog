@@ -6,7 +6,12 @@ from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import PeopleImportInvalid, ProviderContactsResult
-from products.workflows.backend.services.people_import import MAX_PEOPLE_IMPORT_ROWS, start_people_import
+from products.workflows.backend.services.people_import import (
+    MAX_PEOPLE_IMPORT_ROWS,
+    fail_people_import_batch,
+    start_people_import,
+    start_people_import_batch,
+)
 from products.workflows.backend.services.provider_cohorts import import_cohort
 
 
@@ -20,6 +25,7 @@ def import_provider_contacts(
     cohort_name: str,
     cohort_description: str,
     source: str,
+    fill_cohort: bool = True,
 ) -> ProviderContactsResult:
     """Fill in what the person each contact's email matches lacks, and create a person for the rest when
     `create_people` is set. A person's existing values stay as they are.
@@ -49,20 +55,27 @@ def import_provider_contacts(
     if cohort.cohort_id is None:
         return ProviderContactsResult(status="failed", notes=(cohort.problem,))
 
+    parts = [
+        list(rows[start : start + MAX_PEOPLE_IMPORT_ROWS]) for start in range(0, len(rows), MAX_PEOPLE_IMPORT_ROWS)
+    ]
+    # A list longer than one import holds fills its cohort through several, which fill it together once all are in.
+    filled_together = fill_cohort and len(parts) > 1
+    batch_id = start_people_import_batch(team_id, cohort.cohort_id, len(parts)) if filled_together else None
     contacts = new_people = skipped_new_people = dropped = 0
     person_emails: set[str] = set()
     try:
-        # One import holds a bounded number of rows, so a long list fills the cohort in several imports.
-        for start in range(0, len(rows), MAX_PEOPLE_IMPORT_ROWS):
+        for part, part_rows in enumerate(parts):
             summary = start_people_import(
                 team=team,
                 user=user,
                 name=cohort.name,
-                rows=list(rows[start : start + MAX_PEOPLE_IMPORT_ROWS]),
+                rows=part_rows,
                 cohort_id=cohort.cohort_id,
                 create_missing=create_people,
                 send_events=send_events,
                 fill_only=True,
+                batch=(batch_id, part) if batch_id else None,
+                fill_cohort=fill_cohort,
             )
             contacts += summary.row_count
             new_people += summary.new_people
@@ -70,6 +83,9 @@ def import_provider_contacts(
             dropped += summary.dropped_invalid_email + summary.dropped_duplicate_email + summary.dropped_too_large
             person_emails.update(summary.person_emails)
     except PeopleImportInvalid as error:
+        if batch_id:
+            # The parts already started would otherwise wait for this one until their stall check gives up.
+            fail_people_import_batch(team_id, batch_id)
         # The parts already started still send their events, so their people's spellings still need the opt-outs.
         return ProviderContactsResult(
             status="failed",

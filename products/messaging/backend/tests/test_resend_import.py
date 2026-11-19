@@ -250,6 +250,17 @@ class TestResendImport(BaseTest):
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
 
+    def test_contact_properties_run_last_so_a_long_scan_holds_up_no_other_step(self) -> None:
+        run = runs.start_run(
+            self.team.id,
+            "resend",
+            ["contact_properties", "domains", *OPT_OUT_STEPS, "contacts", "templates"],
+            API_KEY,
+            self.user.id,
+        )
+
+        assert run.steps == [*OPT_OUT_STEPS, "contacts", "templates", "domains", "contact_properties"]
+
     def test_contacts_wait_for_the_opt_outs_the_run_includes(self) -> None:
         self.resend.failures["/contacts"] = [(500, {})] * 10
         run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
@@ -660,7 +671,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                 runs.run_step(self.team.id, run.id, step, attempt=1)
         run.refresh_from_db()
 
-        sent = [json.loads(rows) for rows in self.people.stored.values()]
+        sent = self.people.staged
         assert all(person["fill_only"] for rows in sent for person in rows)
         if defined:
             # The identity and $ names stay out, and a property with no value adds nothing.

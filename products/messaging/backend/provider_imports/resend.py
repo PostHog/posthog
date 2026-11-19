@@ -195,18 +195,6 @@ class ResendImportProvider(ImportProvider):
         ),
         new_people_step("Resend"),
         ImportStepSpec(
-            key="contact_properties",
-            label="Contact properties",
-            description=(
-                "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
-                "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
-                "PostHog reads about 7,000 contacts an hour. Each person updated counts as one event."
-            ),
-            count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
-            requires=("contacts",),
-            needs=("contacts",),
-        ),
-        ImportStepSpec(
             key="templates",
             label="Templates",
             description=(
@@ -240,6 +228,19 @@ class ResendImportProvider(ImportProvider):
                 "because PostHog signs mail with its own keys, so each one needs new DNS records."
             ),
             count_labels=(("ready", "Ready to send from PostHog"), ("needs_setup", "Need new DNS records")),
+        ),
+        # Last, because its slow scan can outlast the run, and the next import picks it up where it stopped.
+        ImportStepSpec(
+            key="contact_properties",
+            label="Contact properties",
+            description=(
+                "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
+                "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
+                "PostHog reads about 7,000 contacts an hour. Each person updated counts as one event."
+            ),
+            count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
+            requires=("contacts",),
+            needs=("contacts",),
         ),
     )
 
