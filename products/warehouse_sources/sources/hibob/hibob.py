@@ -1,14 +1,20 @@
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
 from products.warehouse_sources.sources.hibob.settings import (
     BULK_PAGE_LIMIT,
+    EMPLOYEE_ACTUAL_PAYMENTS,
     EMPLOYERS,
+    GOAL_KEY_RESULTS,
+    GOALS,
     HIBOB_ENDPOINTS,
     NAMED_LISTS,
     TIME_OFF_CALENDARS,
+    TIME_OFF_POLICIES,
+    TIME_OFF_POLICY_TYPES,
     WORK_LOCATIONS,
     HiBobEndpointConfig,
 )
@@ -29,6 +35,8 @@ HIBOB_BASE_URL = "https://api.hibob.com"
 EMPLOYEE_ID_BATCH_SIZE = 5000
 # Max page size the calendars search accepts.
 CALENDAR_PAGE_LIMIT = 1000
+# The actual payments search takes at most 200 employee ids and 200 entries per page.
+ACTUAL_PAYMENTS_BATCH_SIZE = 200
 REQUEST_TIMEOUT_SECONDS = 30
 
 
@@ -61,6 +69,26 @@ def _leaf_keys_page(page: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{_leaf_key(key): value for key, value in item.items()} for item in page]
 
 
+def _unwrap(value: Any) -> Any:
+    """Job catalog and goals fields come back as `{value, humanReadable}`; keep the raw value."""
+    if isinstance(value, dict) and "value" in value and set(value) <= {"value", "humanReadable"}:
+        return value["value"]
+    return value
+
+
+def _pointer_values_page(page: list[Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in page:
+        # The spec types each entry as a list of objects, while the examples show bare objects.
+        for entry in item if isinstance(item, list) else [item]:
+            rows.append({_leaf_key(key): _unwrap(value) for key, value in entry.items()})
+    return rows
+
+
+def _search_fields_page(page: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{key: _unwrap(value) for key, value in (item.get("fields") or {}).items()} for item in page]
+
+
 def _employee_history_page(page: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Flatten bulk table results (`{employeeId, values: [...]}` per employee) into one row per entry."""
     rows: list[dict[str, Any]] = []
@@ -77,6 +105,8 @@ def _employee_history_page(page: list[dict[str, Any]]) -> list[dict[str, Any]]:
 PAGE_MAPPERS: dict[str, Callable[[list[dict[str, Any]]], list[dict[str, Any]]]] = {
     "employee_history": _employee_history_page,
     "pointer_keys": _leaf_keys_page,
+    "pointer_values": _pointer_values_page,
+    "search_fields": _search_fields_page,
 }
 
 
@@ -91,11 +121,29 @@ def _paginator(config: HiBobEndpointConfig) -> BasePaginator:
     if config.cursor_location is None:
         return SinglePagePaginator()
     return JSONResponseCursorPaginator(
-        cursor_path="response_metadata.next_cursor",
+        cursor_path=config.cursor_path,
         cursor_param="cursor",
         param_location=config.cursor_location,
         raise_on_repeated_cursor=True,
     )
+
+
+@contextmanager
+def _hibob_session(service_user_id: str, service_user_token: str) -> Iterator[Any]:
+    # Repeated 401/403s trip HiBob's WAF, so auth errors fail loud (raise_for_status) rather than
+    # retry — the tracked session only retries 429/5xx.
+    session = make_tracked_session(redact_values=(service_user_token,))
+    session.auth = (service_user_id, service_user_token)
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+def _get_json(session: Any, path: str, params: dict[str, Any] | None = None) -> Any:
+    response = session.get(f"{HIBOB_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    return response.json()
 
 
 def _iter_employee_ids(session: Any) -> Iterator[str]:
@@ -187,7 +235,16 @@ def _named_lists_rows(
         yield rows
 
 
-def _iter_search_pages(session: Any, path: str, body: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+def _next_cursor(data: dict[str, Any], cursor_path: str) -> str | None:
+    value: Any = data
+    for key in cursor_path.split("."):
+        value = value.get(key) if isinstance(value, dict) else None
+    return value or None
+
+
+def _iter_search_pages(
+    session: Any, path: str, body: dict[str, Any], cursor_path: str = "response_metadata.next_cursor"
+) -> Iterator[list[dict[str, Any]]]:
     cursor: str | None = None
     while True:
         page_body = {**body, "cursor": cursor} if cursor else body
@@ -199,7 +256,7 @@ def _iter_search_pages(session: Any, path: str, body: dict[str, Any]) -> Iterato
         if items:
             yield items
 
-        next_cursor = (data.get("response_metadata") or {}).get("next_cursor")
+        next_cursor = _next_cursor(data, cursor_path)
         if next_cursor and next_cursor == cursor:
             raise ValueError(f"HiBob returned a repeated cursor for {path}")
         if not next_cursor:
@@ -232,6 +289,100 @@ def _work_locations_rows(
         session.close()
 
 
+def _goal_key_results_rows(
+    service_user_id: str, service_user_token: str, config: HiBobEndpointConfig
+) -> Iterator[list[dict[str, Any]]]:
+    # Key results are only searchable per goal, so list the goal ids first.
+    goals_config = HIBOB_ENDPOINTS[GOALS]
+    with _hibob_session(service_user_id, service_user_token) as session:
+        goal_ids = [
+            goal["id"]
+            for page in _iter_search_pages(
+                session,
+                goals_config.path,
+                {"fields": ["id", "hasKeyResults"], "filters": []},
+                cursor_path=goals_config.cursor_path,
+            )
+            for goal in _search_fields_page(page)
+            if goal.get("id") is not None and goal.get("hasKeyResults") is not False
+        ]
+        for goal_id in goal_ids:
+            body = {
+                **(config.body or {}),
+                "filters": [{"fieldId": "goalId", "operator": "equals", "values": [str(goal_id)]}],
+            }
+            response = session.post(f"{HIBOB_BASE_URL}{config.path}", json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            rows = _search_fields_page(response.json().get(config.data_key) or [])
+            if rows:
+                yield [{**row, "goalId": row.get("goalId", goal_id)} for row in rows]
+
+
+def _employee_actual_payments_rows(
+    service_user_id: str, service_user_token: str, config: HiBobEndpointConfig
+) -> Iterator[list[dict[str, Any]]]:
+    # The search requires an employeeId filter, so fan out over every employee.
+    with _hibob_session(service_user_id, service_user_token) as session:
+        employee_ids = list(_iter_employee_ids(session))
+        for start in range(0, len(employee_ids), ACTUAL_PAYMENTS_BATCH_SIZE):
+            batch = employee_ids[start : start + ACTUAL_PAYMENTS_BATCH_SIZE]
+            cursor: str | None = None
+            while True:
+                pagination: dict[str, Any] = {"limit": ACTUAL_PAYMENTS_BATCH_SIZE}
+                if cursor:
+                    pagination["cursor"] = cursor
+                body = {
+                    "filters": [{"fieldPath": "employeeId", "operator": "equals", "values": batch}],
+                    "pagination": pagination,
+                }
+                response = session.post(f"{HIBOB_BASE_URL}{config.path}", json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+                response.raise_for_status()
+                data = response.json()
+
+                rows = data.get(config.data_key) or []
+                if rows:
+                    yield rows
+
+                next_cursor = _next_cursor(data, config.cursor_path)
+                if next_cursor and next_cursor == cursor:
+                    raise ValueError(f"HiBob returned a repeated cursor for {config.path}")
+                if not next_cursor:
+                    break
+                cursor = next_cursor
+
+
+def _time_off_policy_types_rows(
+    service_user_id: str, service_user_token: str, config: HiBobEndpointConfig
+) -> Iterator[list[dict[str, Any]]]:
+    with _hibob_session(service_user_id, service_user_token) as session:
+        for name in _get_json(session, config.path).get(config.data_key) or []:
+            policy_type = _get_json(session, f"{config.path}/{quote(name, safe='')}")
+            yield [{**policy_type, "name": policy_type.get("name") or name}]
+
+
+def _time_off_policies_rows(
+    service_user_id: str, service_user_token: str, config: HiBobEndpointConfig
+) -> Iterator[list[dict[str, Any]]]:
+    types_config = HIBOB_ENDPOINTS[TIME_OFF_POLICY_TYPES]
+    with _hibob_session(service_user_id, service_user_token) as session:
+        type_names = _get_json(session, types_config.path).get(types_config.data_key) or []
+        for type_name in type_names:
+            names = _get_json(session, f"{config.path}/names", {"policyTypeName": type_name})
+            for policy_name in names.get(config.data_key) or []:
+                policy = _get_json(session, config.path, {"policyName": policy_name})
+                yield [{**policy, "name": policy.get("name") or policy_name, "policyTypeName": type_name}]
+
+
+FAN_OUT_ROWS: dict[str, Callable[[str, str, HiBobEndpointConfig], Iterator[list[dict[str, Any]]]]] = {
+    NAMED_LISTS: _named_lists_rows,
+    WORK_LOCATIONS: _work_locations_rows,
+    GOAL_KEY_RESULTS: _goal_key_results_rows,
+    EMPLOYEE_ACTUAL_PAYMENTS: _employee_actual_payments_rows,
+    TIME_OFF_POLICY_TYPES: _time_off_policy_types_rows,
+    TIME_OFF_POLICIES: _time_off_policies_rows,
+}
+
+
 def _since(days_ago: int) -> str:
     return (datetime.now(UTC) - timedelta(days=days_ago)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -255,20 +406,11 @@ def hibob_source(
             sort_mode="asc",
         )
 
-    if endpoint == NAMED_LISTS:
+    fan_out_rows = FAN_OUT_ROWS.get(endpoint)
+    if fan_out_rows is not None:
         return SourceResponse(
             name=endpoint,
-            items=lambda: _named_lists_rows(service_user_id, service_user_token, config),
-            primary_keys=list(config.primary_keys),
-            partition_count=1,
-            partition_size=1,
-            sort_mode="asc",
-        )
-
-    if endpoint == WORK_LOCATIONS:
-        return SourceResponse(
-            name=endpoint,
-            items=lambda: _work_locations_rows(service_user_id, service_user_token, config),
+            items=lambda: fan_out_rows(service_user_id, service_user_token, config),
             primary_keys=list(config.primary_keys),
             partition_count=1,
             partition_size=1,

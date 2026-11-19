@@ -13,6 +13,7 @@ import {
 } from '@/api/live'
 import { queryClient } from '@/api/queryClient'
 import { deniedRead } from '@/api/readCache'
+import { LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX } from '@/api/readCacheKeys'
 import { READ_CACHE_TTL_MS } from '@/api/readCacheStore'
 import type { ProjectScope } from '@/api/reports'
 import { addSessionEndTask, useAuthStore } from '@/auth/authStore'
@@ -102,7 +103,10 @@ function projectInfoFrom(project: LiveProjectApi): LiveProjectInfo {
 }
 
 function liveCacheKeys(scope: ProjectScope): readonly (readonly unknown[])[] {
-    return ['all', 'web', 'mobile'].map((preference) => ['views', scope.host, scope.projectId, 'live', preference])
+    return ['all', 'web', 'mobile'].flatMap((preference) => {
+        const key = ['views', scope.host, scope.projectId, 'live', preference]
+        return [key, [...key, LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX]]
+    })
 }
 
 function denyLiveRead(scope: ProjectScope, error: unknown, generation: number, signal?: AbortSignal): boolean {
@@ -115,6 +119,7 @@ function denyLiveRead(scope: ProjectScope, error: unknown, generation: number, s
             ?.setState({ data: undefined, dataUpdatedAt: 0 })
     }
     clearSlowLiveQuery(`${sessionGeneration()}|${scope.host}|${scope.projectId}`)
+    clearSlowLiveQuery(`${sessionGeneration()}|${scope.host}|${scope.projectId}|exclude-internal`)
     const active = useAuthStore.getState()
     if (active.host === scope.host && active.projectId === scope.projectId) useLiveWorldShare.setState({ world: null })
     return true
@@ -155,7 +160,8 @@ function projectInfo(scope: ProjectScope, maxAgeMs = Number.POSITIVE_INFINITY): 
 function sourceFor(
     mode: DataMode,
     scope: ProjectScope | null,
-    preference: 'all' | 'web' | 'mobile' = 'all'
+    preference: 'all' | 'web' | 'mobile' = 'all',
+    filterTestAccounts = false
 ): LiveSource | null {
     if (mode === 'demo') {
         const fixture = liveDemoState()
@@ -185,7 +191,7 @@ function sourceFor(
         run: async (_key, query, signal) => {
             try {
                 if (_key === 'mobileMetrics') {
-                    const key = `${generation}|${scope.host}|${scope.projectId}`
+                    const key = `${generation}|${scope.host}|${scope.projectId}${filterTestAccounts ? '|exclude-internal' : ''}`
                     return await readSlowLiveQuery(key, Date.now(), () => fetchLiveQuery(query, signal, scope))
                 }
                 return await fetchLiveQuery(query, signal, scope)
@@ -355,26 +361,29 @@ function useLiveProject(source: LiveSource | null): LiveProjectRead {
  * Users online for the Live chip on the Web analytics screen. It reads only while that screen is focused and the app is
  * in the foreground.
  */
-export function useLiveUsersOnline(): { count: number | null; reconnecting: boolean; screenActive: boolean } {
+export function useLiveUsersOnline(
+    filterTestAccounts = false,
+    filterReady = true
+): { count: number | null; reconnecting: boolean; screenActive: boolean } {
     const mode = useDataMode()
     const scope = useProjectScope()
-    const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
+    const source = useMemo(() => (filterReady ? sourceFor(mode, scope) : null), [mode, scope, filterReady])
     const project = useLiveProject(source)
     const denied = useItemErrors((state) =>
         scope ? liveCacheKeys(scope).some((key) => state.errors[JSON.stringify(key)] === 'no_access') : false
     )
-    const stats = useStatsUsersOnline(source, CHIP_INTERVAL_MS, project.info, !denied, !denied)
+    const stats = useStatsUsersOnline(source, CHIP_INTERVAL_MS, project.info, !denied, !denied && !filterTestAccounts)
     const readCount = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
             if (!source) {
                 throw new Error('Live has no data source yet.')
             }
             const now = Date.now()
-            const query = liveQuery('usersOnline', { window: liveWindow(now), pathCleaning: false })
+            const query = liveQuery('usersOnline', { window: liveWindow(now), pathCleaning: false, filterTestAccounts })
             const count = liveUsersOnlineFromQuery(await source.run('usersOnline', query, signal, now))
             return { data: count, complete: count !== null }
         },
-        [source]
+        [source, filterTestAccounts]
     )
     const counted = usePoller<number | null>({
         enabled: stats.fallback && !denied,
@@ -435,17 +444,22 @@ export interface LiveFeed {
 
 function useMobileMetrics(
     source: LiveSource | null,
-    enabled: boolean
+    enabled: boolean,
+    filterTestAccounts: boolean
 ): ReturnType<typeof usePoller<LiveMobileMetrics>> {
     const read = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<LiveMobileMetrics>> => {
             if (!source) throw new Error('Live has no data source yet.')
             const now = Date.now()
-            const query = liveQuery('mobileMetrics', { window: liveWindow(now), pathCleaning: false })
+            const query = liveQuery('mobileMetrics', {
+                window: liveWindow(now),
+                pathCleaning: false,
+                filterTestAccounts,
+            })
             const answer = await source.run('mobileMetrics', query, signal, now)
             return { data: liveMobileMetrics(answer, now), complete: true }
         },
-        [source]
+        [source, filterTestAccounts]
     )
     return usePoller({ enabled, read, intervalMs: PROJECT_RECHECK_MS })
 }
@@ -457,7 +471,11 @@ function useMobileMetrics(
  * A project that has never sent an event runs no live reads. While the screen is seen, Live reads the project again
  * every minute and on focus and foreground, at most once a minute, and starts polling once the project has an event.
  */
-export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
+export function useLiveFeed(
+    onError: (kind: LiveErrorKind) => void,
+    filterTestAccounts = false,
+    filterReady = true
+): LiveFeed {
     const { preference } = useLivePreference()
     const mode = useDataMode()
     const scope = useProjectScope()
@@ -468,15 +486,20 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
             mode === 'demo' ? null : (scope?.projectId ?? null),
             'live',
             preference,
+            ...(filterTestAccounts ? [LIVE_EXCLUDE_INTERNAL_CACHE_SUFFIX] : []),
         ],
-        [mode, scope, preference]
+        [mode, scope, preference, filterTestAccounts]
     )
     const denied = useItemErrors((state) => state.errors[JSON.stringify(cacheKey)] === 'no_access')
-    const { data: saved } = useQuery<SavedLive>(
+    const { data: cached } = useQuery<SavedLive>(
         { queryKey: cacheKey, queryFn: skipToken, gcTime: READ_CACHE_TTL_MS },
         queryClient
     )
-    const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
+    const saved = filterReady ? cached : undefined
+    const source = useMemo(
+        () => (filterReady ? sourceFor(mode, scope, 'all', filterTestAccounts) : null),
+        [mode, scope, filterTestAccounts, filterReady]
+    )
     const project = useLiveProject(source)
     const notSetUp = project.info?.ingestedEvent === false
     const statsActive = useRef(false)
@@ -504,8 +527,11 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
                         ? previous
                         : (queryClient.getQueryData<SavedLive>(cacheKey)?.snapshot ?? EMPTY_LIVE_SNAPSHOT),
                 countUsersOnline:
-                    preference !== 'all' || !(source.statsHost !== null && info?.token && statsActive.current),
+                    filterTestAccounts ||
+                    preference !== 'all' ||
+                    !(source.statsHost !== null && info?.token && statsActive.current),
                 pathCleaning: info?.pathCleaning ?? false,
+                filterTestAccounts,
                 now: Date.now(),
                 signal,
             })
@@ -515,7 +541,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
             completedPreference.current = preference
             return { ...result, data: { ...result.data, preference } }
         },
-        [source, mode, scope, preference, cacheKey]
+        [source, mode, scope, preference, cacheKey, filterTestAccounts]
     )
     const onEvent = useCallback((event: LiveControllerEvent) => {
         if (event === 'background_stopped') {
@@ -532,7 +558,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         onEvent,
     })
     const slowEnabled = source !== null && project.info !== undefined && !notSetUp && !denied && preference !== 'web'
-    const slow = useMobileMetrics(source, slowEnabled)
+    const slow = useMobileMetrics(source, slowEnabled, filterTestAccounts)
     const preferredKind = preference === 'all' ? 'mixed' : preference
     const mismatch = main.state.data !== null && main.state.data.preference !== preference
     const fastSnapshot = (!denied && !mismatch ? main.state.data : null) ??
@@ -577,7 +603,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         STATS_INTERVAL_MS,
         project.info,
         !notSetUp && state !== 'quiet',
-        preference === 'all' && !denied
+        preference === 'all' && !denied && !filterTestAccounts
     )
     statsActive.current = stats.active
 
@@ -712,11 +738,14 @@ export interface LiveWorldFeed {
  * Live's cadence, while Live's own read is stopped because Live lost focus. It reads nothing while Live is paused.
  * Mount it keyed by the session and project identity, like `useLiveFeed`.
  */
-export function useLiveWorld(): LiveWorldFeed {
+export function useLiveWorld(filterTestAccounts = false, filterReady = true): LiveWorldFeed {
     const { preference } = useLivePreference()
     const mode = useDataMode()
     const scope = useProjectScope()
-    const source = useMemo(() => sourceFor(mode, scope, preference), [mode, scope, preference])
+    const source = useMemo(
+        () => (filterReady ? sourceFor(mode, scope, preference) : null),
+        [mode, scope, preference, filterReady]
+    )
     const shared = useLiveWorldShare()
     const denied = useItemErrors((state) =>
         scope ? liveCacheKeys(scope).some((key) => state.errors[JSON.stringify(key)] === 'no_access') : false
@@ -732,9 +761,10 @@ export function useLiveWorld(): LiveWorldFeed {
                 signal,
                 mobileOnly: shared.mobileOnly,
                 webOnly: shared.webOnly,
+                filterTestAccounts,
             })
         },
-        [source, shared.mobileOnly, shared.webOnly]
+        [source, shared.mobileOnly, shared.webOnly, filterTestAccounts]
     )
     const poller = usePoller<LiveWorld>({
         enabled: source !== null && !shared.paused && !denied,
@@ -742,7 +772,8 @@ export function useLiveWorld(): LiveWorldFeed {
         intervalMs: READ_INTERVAL_MS,
         slowdown: READ_SLOWDOWN,
     })
-    const world = denied ? null : (poller.state.data ?? shared.world)
+    const sharedWorld = filterReady && (shared.filterTestAccounts ?? false) === filterTestAccounts ? shared.world : null
+    const world = denied ? null : (poller.state.data ?? sharedWorld)
     const { controller } = poller
     const retry = useCallback((): void => {
         if (denied && scope) {

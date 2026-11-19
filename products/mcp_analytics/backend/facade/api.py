@@ -278,7 +278,7 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
 
     # Deterministic per team: Temporal refuses a second start while a run with
     # this id is live, so even a run that outlives STALE_COMPUTING_THRESHOLD
-    # (which is shorter than the 20-minute execution timeout) can't be
+    # (which is shorter than the 30-minute execution timeout) can't be
     # overlapped by a retry — the id frees up once the previous run closes.
     workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc"
 

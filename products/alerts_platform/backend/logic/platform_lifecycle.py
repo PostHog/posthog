@@ -654,6 +654,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             hold = delivery_holds.hold_for(configuration, outcome, now)
             if hold is not None:
                 holds.append(hold)
+            rows_before = len(rows)
+            ungrouped = alerts.get(_InstanceKey(configuration_id=str(configuration.id), grouping_key=""))
+            ungrouped_state_before = _composed(configuration, ungrouped).state
             turned_away = 0
             for reported in outcome.groups:
                 alert = alerts.get(
@@ -693,18 +696,35 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
 
             if outcome.failure is not None:
                 # The empty-key row, so a failure row states the state an ungrouped check found.
-                ungrouped = alerts.get(_InstanceKey(configuration_id=str(configuration.id), grouping_key=""))
                 rows.append(
                     _event_row(
                         configuration,
                         outcome,
                         outcome.failure,
                         alert=None,
-                        previous_state=_composed(configuration, ungrouped).state,
+                        previous_state=ungrouped_state_before,
                         now=now,
                     )
                 )
             configuration.check_status = _check_status(configuration, outcome)
+            if len(rows) == rows_before:
+                # A grouped check that judged no group writes no other row. Without this one, every
+                # reader of the history sees an alert whose checks stopped, and a failure never ends.
+                rows.append(
+                    event_row(
+                        configuration,
+                        alert=None,
+                        evaluation_key=outcome.evaluation_key,
+                        kind=AlertEventKind.CHECK.value,
+                        previous_state=ungrouped_state_before,
+                        state=_composed(configuration, ungrouped).state,
+                        episode_started_at=None,
+                        consecutive_failures=outcome.consecutive_failures,
+                        query_duration_ms=outcome.query_duration_ms,
+                        error_message=outcome.error_message,
+                        now=now,
+                    )
+                )
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.failure is None and not outcome.skipped:
                 configuration.overflowed_groups = outcome.overflowed + turned_away

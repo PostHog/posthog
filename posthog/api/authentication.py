@@ -4,7 +4,8 @@ import math
 import time
 import random
 import datetime
-from typing import Any, TypedDict, cast
+from hashlib import sha256
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 from urllib.parse import urlencode, urljoin
 from uuid import uuid4
 
@@ -15,6 +16,7 @@ from django.contrib.auth import (
     logout as auth_logout,
 )
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.signals import user_login_failed
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
@@ -23,6 +25,7 @@ from django.db import transaction
 from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
@@ -33,7 +36,7 @@ from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session, restore_original_login
+from loginas.utils import is_impersonated_session
 from requests import RequestException
 from rest_framework import exceptions, mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -41,12 +44,14 @@ from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from social_core.actions import do_complete
 from social_core.backends.base import BaseAuth
 from social_core.backends.github import GithubOAuth2
-from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthStateForbidden
 from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
-from social_django.views import auth
+from social_django.utils import load_backend, load_strategy
+from social_django.views import _do_login, auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
@@ -57,6 +62,7 @@ from posthog.api.email_verification import email_verification_code_verifier, is_
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, POSTHOG_INTERNAL_EMAIL_SUFFIX
+from posthog.dataclasses import frozen
 from posthog.email import EmailRecipientUndeliverableError, is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
@@ -64,14 +70,22 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.dev_oauth_connectors import seeded_dev_oauth_connector_links
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.impersonation import end_impersonation
 from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
+    IDP_SSO_BACKENDS,
     UNVERIFIED_SOCIAL_EMAIL_ERROR,
+    get_safe_next_url,
+    idp_authentication_is_fresh,
+    idp_identity_key,
     is_sso_reauth_begin,
+    saml_identity_issuer,
     sso_failure_redirect_url,
 )
 from posthog.helpers.two_factor_session import (
+    CODE_BASED_VERIFICATION_SSO_SESSION_KEY,
     CODE_MAX_ATTEMPTS,
+    CODE_TTL_SECONDS,
     LOGIN_CODE_VERIFICATION_COUNTER,
     clear_two_factor_session_flags,
     code_based_verifier,
@@ -85,6 +99,7 @@ from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED
 from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import IdentityProviderConfig, OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
+from posthog.models.identity_provider_email_verification import IdentityProviderEmailVerification
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
 from posthog.rate_limit import (
@@ -108,7 +123,14 @@ from posthog.utils import (
     get_short_user_agent,
     get_trusted_client_ip,
 )
-from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+from posthog.workos_radar import (
+    RadarAction,
+    RadarAuthMethod,
+    SuspiciousAttemptBlocked,
+    evaluate_auth_attempt,
+    radar_client_id_for_login,
+)
+from posthog.workos_radar_signal_handlers import extend_login_attempt, remember_login_attempt
 
 from products.security.backend.facade.api import (
     REFUSAL_CODE as SECURITY_REFUSAL_CODE,
@@ -116,6 +138,10 @@ from products.security.backend.facade.api import (
 )
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
+
+if TYPE_CHECKING:
+    from posthog.api.oidc import MultitenantOIDCAuth
+    from posthog.api.sso import MultitenantSAMLAuth
 
 logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
@@ -125,6 +151,19 @@ class WebauthnCredentialPrecheck(TypedDict):
     id: str
     type: str
     transports: list[str]
+
+
+class PendingIdPEmailVerification(TypedDict):
+    provider: str
+    issuer: str
+    subject: str
+    uid: str
+    email: str
+    target_email: str
+    authenticated_at: int
+    user_id: int
+    issued_at: int
+    partial_token: str
 
 
 def sso_enforcement_for_login_address(email: str, user: User | None) -> str | None:
@@ -153,7 +192,7 @@ def logout(request):
 
     if is_impersonated_session(request):
         impersonated_user_pk = request.user.pk
-        restore_original_login(request)
+        end_impersonation(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
     auth_logout(request)
@@ -208,6 +247,8 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
     connect_from = (request.GET.get("connect_from") or "").strip()
     if connect_from and backend == "github":
+        if not request.user.is_authenticated:
+            request.session.flush()
         # For linking GitHub, keep the session and set the next URL to /account-connected/github-login
         # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
@@ -223,7 +264,19 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     # `social_reauth_complete` grants the step-up on the way back in.
 
     try:
-        return auth(request, backend)
+        response = auth(request, backend)
+        if backend == "saml" and (nonce := request.session.pop("saml_browser_nonce", None)):
+            from posthog.api.sso import SAML_BROWSER_COOKIE, SAML_RELAY_STATE_CACHE_TTL_SECONDS
+
+            response.set_cookie(
+                SAML_BROWSER_COOKIE,
+                nonce,
+                max_age=SAML_RELAY_STATE_CACHE_TTL_SECONDS,
+                secure=True,
+                httponly=True,
+                samesite="None",
+            )
+        return response
     except (AuthFailed, AuthMissingParameter, AuthConnectionError) as e:
         # AuthConnectionError covers an unreachable IdP or a TLS cert that fails during OIDC discovery -
         # it's a sibling of AuthFailed (not a subclass), so it would otherwise surface as an unhandled 500.
@@ -272,9 +325,60 @@ class LoginCodeEmailUndeliverable(APIException):
     default_code = "login_code_email_undeliverable"
 
 
-def _send_login_code(request: HttpRequest, user: User, *, is_resend: bool = False) -> bool:
+def _clear_unverified_local_credentials(user: User) -> bool:
+    # Deferred because posthog.api.signup imports posthog.api.webauthn, which imports this module.
+    from posthog.api.signup import clear_unverified_local_credentials
+
+    return clear_unverified_local_credentials(user)
+
+
+def _send_login_code(
+    request: HttpRequest,
+    user: User,
+    *,
+    is_resend: bool = False,
+    target_email: str | None = None,
+    identity: str | None = None,
+    asserted_email: str | None = None,
+    linked_idp: bool = False,
+) -> bool:
+    if target_email is not None:
+        from posthog.token_bucket import BucketDecision, Budget, consume
+
+        if not identity:
+            return False
+        if (
+            not is_resend
+            and asserted_email is not None
+            and code_based_verifier.reuse_recent_idp_code(
+                request, user, target_email, identity, asserted_email, linked=linked_idp
+            )
+        ):
+            return True
+        decision = consume(f"idp_login_code_identity:{identity}", Budget(burst=1, per_hour=60))
+        if not isinstance(decision, BucketDecision):
+            logger.warning("idp_login_code_rate_limit_unavailable", user_id=user.pk)
+            return False
+        if not decision.allowed:
+            return False
+        if not code_based_verifier.reserve_idp_challenge(user, identity, linked=linked_idp):
+            return False
+        recipient = sha256(target_email.strip().lower().encode()).hexdigest()
+        account = consume(f"idp_login_code_account:{user.pk}:{recipient}:{identity}", Budget(burst=2, per_hour=12))
+        if not isinstance(account, BucketDecision):
+            logger.warning("idp_login_code_account_budget_unavailable", user_id=user.pk)
+            return False
+        if not account.allowed:
+            return False
     try:
-        return code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=is_resend)
+        return code_based_verifier.create_and_send_code_based_verification(
+            request,
+            user,
+            is_resend=is_resend,
+            target_email=target_email,
+            identity=identity,
+            asserted_email=asserted_email,
+        )
     except EmailRecipientUndeliverableError:
         raise LoginCodeEmailUndeliverable()
 
@@ -319,9 +423,24 @@ def require_verified_email_for_login(user: User) -> None:
     raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
 
 
+class _BrowserTokenField(serializers.Field):
+    """A token the login page may send. A value that is not a string reads as empty, so it never fails a login."""
+
+    def to_internal_value(self, data: Any) -> str:
+        return data if isinstance(data, str) else ""
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
+    radar_signals_id = _BrowserTokenField(
+        required=False,
+        default="",
+        help_text="Token from the WorkOS Radar browser script. It links the device signals the browser collected to this login.",
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
@@ -383,14 +502,6 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
 
-        evaluate_auth_attempt(
-            request=request._request,
-            email=validated_data["email"],
-            action=RadarAction.SIGNIN,
-            auth_method=RadarAuthMethod.PASSWORD,
-            user_id=str(existing_user.distinct_id) if existing_user else None,
-        )
-
         axes_request = getattr(request, "_request", request)
         was_authenticated_before_login_attempt = bool(
             getattr(request, "user", None)
@@ -405,6 +516,30 @@ class LoginSerializer(serializers.Serializer):
         # Check if axes has locked out this IP/user before attempting authentication
         if handler.is_locked(axes_request, credentials=axes_credentials):
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
+
+        # A re-auth comes from a signed-in session, so Radar has nothing to add to it. The login
+        # form cannot show a Turnstile challenge, so only a block verdict refuses the login.
+        radar_attempt = None
+        if not was_authenticated_before_login_attempt:
+            try:
+                radar_attempt = evaluate_auth_attempt(
+                    request=request._request,
+                    # Radar knows the account by its stored address, not the variant spelling the lookup folded
+                    email=existing_user.email if existing_user else validated_data["email"],
+                    action=RadarAction.SIGNIN,
+                    auth_method=RadarAuthMethod.PASSWORD,
+                    user_id=str(existing_user.distinct_id) if existing_user else None,
+                    challenge_allowed=False,
+                    call_site="login",
+                    signals_id=str(validated_data.get("radar_signals_id") or ""),
+                    account_id=str(existing_user.uuid) if existing_user else None,
+                )
+            except SuspiciousAttemptBlocked:
+                # Counts toward the lockout above, so a repeating caller stops costing Radar calls
+                user_login_failed.send(
+                    sender=__name__, credentials={"email": validated_data["email"]}, request=axes_request
+                )
+                raise
 
         user = cast(
             User | None,
@@ -423,6 +558,10 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
+        if radar_attempt and radar_attempt.attempt_id:
+            # Reported when the session signs in, so a login that stops at a second factor is never reported
+            remember_login_attempt(request, radar_attempt.attempt_id, user.pk, valid_for_seconds=CODE_TTL_SECONDS)
+
         try:
             refused = security_access_refused(
                 SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(axes_request)),
@@ -436,6 +575,9 @@ class LoginSerializer(serializers.Serializer):
             raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
         require_verified_email_for_login(user)
+        code_based_verifier.clear_pending(request)
+        if request.session.pop("partial_pipeline_token", None):
+            request.session.pop("invite_id", None)
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
@@ -532,13 +674,16 @@ class LoginPrecheckSerializer(serializers.Serializer):
         saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
         oidc_available = IdentityProviderConfig.objects.get_is_oidc_available_for_email(email)
 
-        return {
+        response: dict[str, Any] = {
             "sso_enforcement": sso_enforcement_for_login_address(email, user),
             "saml_available": saml_available,
             "oidc_available": oidc_available,
             "webauthn_credentials": webauthn_credentials,
             **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
+        if radar_client_id := radar_client_id_for_login():
+            response["radar_client_id"] = radar_client_id
+        return response
 
     @staticmethod
     def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
@@ -812,6 +957,19 @@ class TwoFactorSerializer(serializers.Serializer):
     token = serializers.CharField(write_only=True)
 
 
+def _set_remember_device_cookie(response: HttpResponse, user: User, otp_device_id: str) -> None:
+    response.set_cookie(
+        REMEMBER_COOKIE_PREFIX + str(uuid4()),
+        get_remember_device_cookie(user=user, otp_device_id=otp_device_id),
+        max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
+        domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
+        path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
+        secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
+        httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
+        samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
+    )
+
+
 class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = TwoFactorSerializer
     queryset = User.objects.none()
@@ -829,19 +987,8 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         request.session.pop("user_authenticated_but_no_2fa", None)
         request.session.pop("user_authenticated_time", None)
 
-        cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-        cookie_value = get_remember_device_cookie(user=user, otp_device_id=device.persistent_id)
         response = Response({"success": True})
-        response.set_cookie(
-            cookie_key,
-            cookie_value,
-            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
-            domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-            path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-            secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-            httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-            samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-        )
+        _set_remember_device_cookie(response, user, device.persistent_id)
         return response
 
     def _handle_passkey_2fa(self, request: Request, user: User, credential_id: str, response_data: dict) -> Response:
@@ -911,19 +1058,8 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             request.session.pop("user_authenticated_time", None)
 
             # Set remember device cookie for passkey 2FA
-            cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-            cookie_value = get_remember_device_cookie(user=user, otp_device_id="passkey_2fa")
             response = Response({"success": True})
-            response.set_cookie(
-                cookie_key,
-                cookie_value,
-                max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
-                domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-                path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-                secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-                httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-                samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-            )
+            _set_remember_device_cookie(response, user, "passkey_2fa")
             return response
         except serializers.ValidationError:
             raise
@@ -1137,6 +1273,59 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         return Response(json.loads(options_to_json(options)))
 
 
+def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVerification) -> None:
+    if _sso_access_refused(request, user):
+        raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
+    strategy = load_strategy(request._request)
+    partial = strategy.partial_load(pending["partial_token"])
+    if (
+        partial is None
+        or partial.kwargs.get("user") != user
+        or partial.backend != pending["provider"]
+        or str(partial.kwargs.get("uid")) != pending["uid"]
+        or (partial.kwargs.get("details", {}).get("email") or "").strip().lower() != pending["email"]
+        or request.session.get("partial_pipeline_token") != pending["partial_token"]
+        or partial.kwargs.get("idp_authenticated_at") != pending["authenticated_at"]
+        or partial.kwargs.get("idp_authenticated_identity")
+        != idp_identity_key(pending["provider"], pending["issuer"], pending["subject"])
+        or not idp_authentication_is_fresh(partial.kwargs.get("idp_authenticated_at"))
+        or user.email.strip() != pending["target_email"]
+    ):
+        raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
+    backend = load_backend(strategy, pending["provider"], reverse("social:complete", args=[pending["provider"]]))
+    identity = _identity_provider_identity(backend, partial.kwargs.get("details"), partial.kwargs.get("response"))
+    if identity != IdPIdentity(provider=pending["provider"], issuer=pending["issuer"], subject=pending["subject"]):
+        raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
+    if UserSocialAuth.objects.filter(provider=pending["provider"], uid=pending["uid"]).exclude(user=user).exists():
+        raise serializers.ValidationError(
+            {"detail": "This identity is linked to another account."}, code="identity_linked_elsewhere"
+        )
+    # nosemgrep: idor-lookup-without-user (the identity comes from the pending session, and its code was just verified)
+    IdentityProviderEmailVerification.objects.update_or_create(
+        provider=pending["provider"],
+        issuer=pending["issuer"],
+        subject=pending["subject"],
+        defaults={"user": user, "email": pending["email"], "target_email": pending["target_email"]},
+    )
+    _clear_unverified_local_credentials(user)
+    do_complete(backend, _do_login, request=request._request, partial_token=pending["partial_token"])
+    if request.session.get("_auth_user_id") != str(user.pk):
+        raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
+
+
+def _require_fresh_idp_challenge(request: Request) -> None:
+    pending = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
+    if pending and (
+        request.user.is_authenticated
+        or not idp_authentication_is_fresh(pending.get("authenticated_at"))
+        or code_based_verifier.get_pending_identity(request) is None
+    ):
+        code_based_verifier.clear_pending(request)
+        raise serializers.ValidationError(
+            {"detail": "Your sign-in expired. Please log in again."}, code="authentication_expired"
+        )
+
+
 class CodeBasedVerificationSerializer(serializers.Serializer):
     code = serializers.CharField(
         help_text="The 6-digit verification code emailed to the user. Whitespace, invisible characters, "
@@ -1145,6 +1334,7 @@ class CodeBasedVerificationSerializer(serializers.Serializer):
     )
     email = serializers.EmailField(
         required=False,
+        allow_blank=True,
         help_text="Email the code was sent to. Informational; the pending login session identifies the user.",
     )
 
@@ -1176,6 +1366,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
                 {"detail": "No pending verification. Please log in again."},
                 code="no_pending_verification",
             )
+        _require_fresh_idp_challenge(request)
 
         # Reserve this attempt atomically before doing anything else, so concurrent guesses can't all
         # observe the same count and exceed the cap. `attempts` includes the current attempt.
@@ -1209,35 +1400,43 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             raise invalid_error
 
         # Code valid - invalidate the pending state and complete login.
+        sso: PendingIdPEmailVerification | None = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
+        if bool(sso) != bool(code_based_verifier.get_pending_identity(request)):
+            code_based_verifier.clear_pending(request)
+            raise invalid_error
+        if sso and (
+            sso.get("user_id") != user.pk
+            or sso.get("target_email") != code_based_verifier.get_pending_code_based_verification_target(request)
+            or sso.get("issued_at") != code_based_verifier.get_pending_code_based_verification_issued_at(request)
+            or code_based_verifier.get_pending_identity(request)
+            != idp_identity_key(sso["provider"], sso["issuer"], sso["subject"])
+        ):
+            code_based_verifier.clear_pending(request)
+            raise invalid_error
         code_based_verifier.clear_pending(request)
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        if sso:
+            _complete_idp_login(request, user, sso)
+        else:
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            report_user_logged_in(user, social_provider="")
         set_two_factor_verified_in_session(request)
-        report_user_logged_in(user, social_provider="")
         mfa_logger.info("Code-based verification successful", user_id=user.pk)
         LOGIN_CODE_VERIFICATION_COUNTER.labels(result="success").inc()
 
-        # Always set remember device cookie (30 days), same as TOTP 2FA
-        cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-        cookie_value = get_remember_device_cookie(user=user, otp_device_id="code_based_verification")
         response = Response({"success": True})
-        response.set_cookie(
-            cookie_key,
-            cookie_value,
-            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,  # 30 days
-            domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-            path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-            secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-            httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-            samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-        )
 
-        # Also add device to fingerprint cache
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        geoip = get_geoip_properties(ip_address)
-        country = geoip.get("$geoip_country_name", "Unknown")
+        if not sso:
+            # Only a password login may skip the code this way. An identity provider login would
+            # otherwise grant the remember cookie that exempts the same account's password logins.
+            _set_remember_device_cookie(response, user, "code_based_verification")
 
-        check_and_cache_login_device(user.id, country, short_user_agent)
+        if not sso:
+            # The SSO notification worker must inspect the previous fingerprint before caching it.
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            geoip = get_geoip_properties(ip_address)
+            country = geoip.get("$geoip_country_name", "Unknown")
+            check_and_cache_login_device(user.id, country, short_user_agent)
 
         return response
 
@@ -1248,17 +1447,32 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             raise serializers.ValidationError(
                 {"detail": "No pending verification found."}, code="no_pending_verification"
             )
+        _require_fresh_idp_challenge(request)
 
         try:
             user = User.objects.get(pk=code_based_verifier.get_pending_code_based_verification_user_id(request))
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        if not _send_login_code(request, user, is_resend=True):
+        # A resend must keep mailing the address the pending code authorizes, or the new code would
+        # bind to the account address and no longer verify.
+        target_email = code_based_verifier.get_pending_code_based_verification_target(request)
+        sso = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY) or {}
+        if not _send_login_code(
+            request,
+            user,
+            is_resend=True,
+            target_email=target_email,
+            identity=code_based_verifier.get_pending_identity(request),
+            asserted_email=sso.get("email"),
+            linked_idp=bool(sso)
+            and UserSocialAuth.objects.filter(user=user, provider=sso.get("provider"), uid=sso.get("uid")).exists(),
+        ):
             raise serializers.ValidationError(
                 {"detail": "Could not send verification code."},
                 code="code_based_verification_email_failed",
             )
+        extend_login_attempt(request, valid_for_seconds=CODE_TTL_SECONDS)
 
         return Response({"success": True, "message": "Verification code sent"})
 
@@ -1504,6 +1718,10 @@ def social_email_verified_by_provider(
     if social is not None or _is_signed_in_github_account_link(strategy, backend):
         return
 
+    if backend.name == "oidc":
+        # MultitenantOIDCAuth validates the subject and verified organization domain instead of this claim.
+        return
+
     response = response or {}
     email = (details or {}).get("email") or ""
     if isinstance(backend, GithubOAuth2):
@@ -1562,17 +1780,138 @@ def social_access_rules_allow(
         # A new account is checked where it is created: the signup serializer, or the SSO invite
         # and verified-domain joins in posthog/api/signup.py.
         return
+    if _sso_access_refused(strategy.request, user):
+        raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
+
+
+def _sso_access_refused(request: HttpRequest, user: User) -> bool:
     try:
-        refused = security_access_refused(
-            SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(strategy.request)),
+        return security_access_refused(
+            SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(request)),
             SecuritySurface.APP,
             call_site="sso_login",
         )
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="sso_login")
-        refused = False
-    if refused:
-        raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
+        return False
+
+
+@frozen
+class IdPIdentity:
+    provider: str
+    issuer: str
+    subject: str
+
+
+def _identity_provider_identity(
+    backend: BaseAuth, details: dict[str, Any] | None, response: dict[str, Any] | None
+) -> IdPIdentity | None:
+    """Bind SAML proof to its signing certificate because an entity ID can survive an IdP replacement."""
+    if backend.name == "oidc":
+        try:
+            oidc_config = cast("MultitenantOIDCAuth", backend).identity_provider_config
+        except AuthFailed:
+            return None
+        issuer = oidc_config.oidc_issuer_url.rstrip("/")
+    else:
+        relay_state = (response or {}).get("idp_name")
+        if not relay_state:
+            return None
+        config = IdentityProviderConfig.objects.filter(saml_relay_state=relay_state).first()
+        if config is None or not config.saml_entity_id or not config.saml_x509_cert:
+            return None
+        issuer = cast("MultitenantSAMLAuth", backend).authentication_issuer or saml_identity_issuer(
+            config.saml_entity_id, config.saml_x509_cert
+        )
+
+    subject = cast("MultitenantOIDCAuth | MultitenantSAMLAuth", backend).get_identity_subject(
+        details or {}, response or {}
+    )
+    if not issuer or not subject:
+        return None
+    return IdPIdentity(provider=backend.name, issuer=issuer, subject=subject)
+
+
+def social_require_idp_email_verification(
+    strategy: DjangoStrategy,
+    backend: BaseAuth,
+    uid: str | None = None,
+    user: User | None = None,
+    details: dict[str, Any] | None = None,
+    response: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> HttpResponse | None:
+    """Hold a login until the resolved account's mailbox approves its identity.
+
+    Runs before `associate_user`, so an unproven identity is never linked to the account, and a
+    response from a pipeline step makes `do_complete` return it instead of starting a session.
+    """
+    if backend.name not in IDP_SSO_BACKENDS:
+        return None
+    if _sso_reauth_request(strategy):
+        if user is None or not UserSocialAuth.objects.filter(user=user, provider=backend.name, uid=uid).exists():
+            raise AuthFailed(backend, "reauth_user_mismatch")
+        return None
+    identity = _identity_provider_identity(backend, details, response)
+    email = ((details or {}).get("email") or "").strip().lower()
+    if user is None or not uid or identity is None or not email:
+        return redirect(sso_failure_redirect_url(strategy.request, "improperly_configured_sso"))
+
+    target_email = user.email.strip()
+    if IdentityProviderEmailVerification.objects.filter(
+        user=user,
+        provider=identity.provider,
+        issuer=identity.issuer,
+        subject=identity.subject,
+        email=email,
+        target_email=target_email,
+    ).exists():
+        _clear_unverified_local_credentials(user)
+        return None
+
+    request = strategy.request
+    authenticated_at = kwargs.get("idp_authenticated_at")
+    if not idp_authentication_is_fresh(authenticated_at):
+        raise AuthStateForbidden(backend)
+    if backend.name == "saml" and kwargs.get("saml_browser_verified") is not True:
+        restart = {"email": email, "idp_config": str((response or {})["idp_name"])}
+        if next_url := get_safe_next_url(strategy.session_get("next"), request):
+            restart["next"] = next_url
+        return redirect(f"{reverse('social:begin', args=['saml'])}?{urlencode(restart)}")
+
+    try:
+        sent = _send_login_code(
+            request,
+            user,
+            target_email=target_email,
+            identity=idp_identity_key(identity.provider, identity.issuer, identity.subject),
+            asserted_email=email,
+            linked_idp=UserSocialAuth.objects.filter(user=user, provider=backend.name, uid=uid).exists(),
+        )
+    except LoginCodeEmailUndeliverable:
+        logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
+        sent = False
+    if not sent:
+        code_based_verifier.clear_pending(request)
+        return redirect(sso_failure_redirect_url(request, "sso_verification_email_failed"))
+
+    request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = PendingIdPEmailVerification(
+        provider=identity.provider,
+        issuer=identity.issuer,
+        subject=identity.subject,
+        uid=str(uid),
+        email=email,
+        target_email=target_email,
+        authenticated_at=cast(int, authenticated_at),
+        user_id=user.pk,
+        issued_at=cast(int, code_based_verifier.get_pending_code_based_verification_issued_at(request)),
+        partial_token=kwargs["current_partial"].token,
+    )
+    query = {"code_verification_pending": "1", "email": target_email}
+    next_url = strategy.session_get("next") or ""
+    if next_url:
+        query["next"] = next_url
+    return redirect(f"/login?{urlencode(query)}")
 
 
 def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None = None, **kwargs) -> None:
@@ -1630,6 +1969,14 @@ def social_grant_staff_to_google_workspace_members(
         user.save(update_fields=["is_staff"])
 
 
+def _notify_social_login(request: HttpRequest, user: User, backend_name: str) -> None:
+    report_user_logged_in(user, social_provider=backend_name)
+    if not has_valid_known_device_cookie(request, user):
+        login_from_new_device_notification.delay(
+            user.id, timezone.now(), get_short_user_agent(request), get_ip_address(request), backend_name
+        )
+
+
 def social_login_notification(
     strategy: DjangoStrategy, backend, user: User | None = None, is_new: bool = False, **kwargs
 ):
@@ -1642,13 +1989,4 @@ def social_login_notification(
 
     # Trigger notification and event only on login
     if not is_new:
-        report_user_logged_in(user, social_provider=getattr(backend, "name", ""))
-
-        request = strategy.request
-        if not has_valid_known_device_cookie(request, user):
-            short_user_agent = get_short_user_agent(request)
-            ip_address = get_ip_address(request)
-            backend_name = getattr(backend, "name", "")
-            login_from_new_device_notification.delay(
-                user.id, timezone.now(), short_user_agent, ip_address, backend_name
-            )
+        _notify_social_login(strategy.request, user, getattr(backend, "name", ""))

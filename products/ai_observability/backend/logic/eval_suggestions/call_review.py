@@ -104,10 +104,25 @@ Work in this order:
 5. Propose at most 2 cards, one failure mode each. Return no cards when nothing qualifies. Most samples deserve one card or none.
 6. Compare each card with the earlier cards. Drop a card whose failure mode the team already accepted or dismissed.
 
-Each card is an LLM judge that will grade single calls of its call types:
-- title: plain words, at most 8, in the team's own terms.
-- checks: one sentence that says what the judge checks.
-- why: one sentence that says why it matters, tied to the rule in the team's prompt that the failures break.
+Each card is an LLM judge that will grade single calls of its call types. Customers read its title, summary, rule and why on a card. Write them for a developer on the team who has not seen your judge prompt:
+- Use short, everyday words and the active voice, with the thing that acts as the subject.
+- Call things what people see in the app, such as "order summaries" or "meeting notes", never a field name, a module name, or a term such as "payload", "metadata" or "span".
+- Cut every word that adds nothing. No dashes or colons, and no words like "just", "simply" or "actually".
+
+Titles rewritten this way:
+- "Itinerary segments with null arrival_ts" becomes "Trip plans with missing arrival times".
+- "Escalation intent misclassification" becomes "Angry customers sent to the FAQ bot".
+- "Line item total mismatch" becomes "Invoice totals that don't add up".
+- "SMS reply length violations" becomes "Text replies over 160 characters".
+- "Hallucinated API parameter references" becomes "Code answers that invent API options".
+A why rewritten this way: "Downstream consumers receive malformed payloads." becomes "The booking page shows trips with no arrival time."
+
+The fields:
+- title: what goes wrong, in at most 8 words and in sentence case, such as "Support replies that promise a refund" or "Recipes with steps missing quantities". Keep a number only when it is the rule itself, such as "Post drafts over 280 characters". No counts or rates, so it stays true when the sample changes.
+- summary: one short sentence that starts with "Flags" and says what gets flagged and where the check applies. Keep every qualifier that changes the meaning, such as "visible objection cards" or "the child's latest answer". Leave field names and exact syntax to the rule.
+- rule: what the judge_prompt (or code_check) decides, as "Fails when ...", then "Passes when ..." if a pass needs saying, then "N/A when ..." for the calls it skips. Name fields and exact formats in backticks only where they help, such as `line_refs` or `L45`. Describe only what the grader checks, never a broader requirement of the team's prompt that it does not test, and never claim it verifies something it does not, such as that a cited line supports a statement.
+- why: one sentence on what goes wrong for the product's users or business, which the sample and the team's prompt support, such as broken trace links or misleading grades, or an empty string when none is supported. Don't restate the rule or invent an effect.
+- conflict: an empty string, unless the team's prompt and your judge_prompt disagree about the rule, or your other fields cannot all be true. Then say how, for staff. Never resolve a conflict by writing a vaguer rule.
 - call_types: the ids (T1, T2, ...) of the call types it applies to.
 - same_as: the id (E1, E2, ...) of the earlier card that checks the same failure mode on the same call type, or an empty string when none does.
 - labels: every call of those call types, by the number on its <call> tag, with the answer the judge should give it: fail, pass, or na when the question does not apply.
@@ -144,8 +159,10 @@ class _Label(BaseModel):
 
 class _Card(BaseModel):
     title: str = Field(min_length=1)
-    checks: str = Field(min_length=1)
-    why: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    rule: str = Field(min_length=1)
+    why: str = ""
+    conflict: str = ""
     call_types: list[str] = Field(min_length=1)
     same_as: str = ""
     labels: list[_Label]
@@ -197,8 +214,10 @@ _REVIEW_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string"},
-                    "checks": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "rule": {"type": "string"},
                     "why": {"type": "string"},
+                    "conflict": {"type": "string"},
                     "call_types": {"type": "array", "items": {"type": "string"}},
                     "same_as": {"type": "string"},
                     "labels": {
@@ -230,8 +249,10 @@ _REVIEW_SCHEMA: dict[str, Any] = {
                 },
                 "required": [
                     "title",
-                    "checks",
+                    "summary",
+                    "rule",
                     "why",
+                    "conflict",
                     "call_types",
                     "same_as",
                     "labels",
@@ -290,7 +311,7 @@ class EarlierCard:
     dedupe_key: str
     status: str
     title: str
-    checks: str
+    rule: str
 
 
 @frozen
@@ -302,7 +323,9 @@ class ReviewExample:
 @frozen
 class ReviewCard:
     title: str
-    checks: str
+    summary: str
+    # What the judge decides. It becomes the evaluation's description.
+    rule: str
     why: str
     call_types: list[CallTypeRow]
     # Call number -> the review's verdict, for the rendered calls of the card's call types.
@@ -315,6 +338,8 @@ class ReviewCard:
     # The dedupe key of the earlier card that checks the same failure mode, so a reworded card keeps its identity.
     earlier_key: str = ""
     code_check: str = ""
+    # Where the review saw the team's prompt and its own judge disagree. Staff read it; customers never do.
+    conflict: str = ""
 
 
 @frozen
@@ -527,7 +552,7 @@ def _earlier_cards(
         tags.append(
             f'\n<earlier_card id="{card_id}" call_types="{",".join(covered)}" '
             f'team_decision="{_EARLIER_STATUS.get(card.status, "none")}">\n'
-            f"{_data(' '.join(card.title.split()))}: {_data(' '.join(card.checks.split()))}\n</earlier_card>"
+            f"{_data(' '.join(card.title.split()))}: {_data(' '.join(card.rule.split()))}\n</earlier_card>"
         )
         if len(keys) == MAX_EARLIER_CARDS:
             break
@@ -727,8 +752,10 @@ def parse_cards(answer: dict[str, Any] | None, rendering: Rendering) -> list[Rev
         cards.append(
             ReviewCard(
                 title=card.title.strip()[:MAX_TITLE_CHARS],
-                checks=card.checks.strip(),
+                summary=card.summary.strip(),
+                rule=card.rule.strip(),
                 why=card.why.strip(),
+                conflict=card.conflict.strip(),
                 call_types=call_types,
                 labels=labels,
                 failed=failed,

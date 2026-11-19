@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    error_message_matches,
     route,
     scripted_network,
 )
@@ -393,6 +394,9 @@ class TestMonthlyWindowRows:
 
         assert result.raised is not None
         assert result.rows == []
+        # A missing scope never clears on retry, so the job must stop retrying instead of
+        # burning its whole retry budget on the same 400.
+        assert error_message_matches(str(result.raised), ZoomSource().get_non_retryable_errors())
 
 
 class TestZoomSourceResponse:

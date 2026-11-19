@@ -3,6 +3,8 @@ import { useState } from 'react'
 
 import { IconServer } from '@posthog/icons'
 
+import { projectLogic } from 'scenes/projectLogic'
+
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 // Machine-facing subdomains stripped when deriving a brand domain from a server URL, so a custom
@@ -27,9 +29,9 @@ export function iconDomainFromServerUrl(serverUrl: string | null | undefined): s
     return host.includes('.') ? host : null
 }
 
-export function serverIconUrl(iconDomain: string, theme?: 'light' | 'dark'): string {
+export function serverIconUrl(projectId: number, iconDomain: string, theme?: 'light' | 'dark'): string {
     const themeSuffix = theme ? `&theme=${theme}` : ''
-    return `/api/projects/@current/mcp_servers/icon/?domain=${encodeURIComponent(iconDomain)}${themeSuffix}`
+    return `/api/projects/${projectId}/mcp_servers/icon/?domain=${encodeURIComponent(iconDomain)}${themeSuffix}`
 }
 
 interface ServerIconProps {
@@ -43,6 +45,7 @@ interface ServerIconProps {
 
 export function ServerIcon({ iconDomain, serverUrl, size = 32, className }: ServerIconProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
+    const { currentProjectId } = useValues(projectLogic)
     const domain = iconDomain || iconDomainFromServerUrl(serverUrl)
     // logo.dev picks the logo variant suited to the active background theme.
     const theme = isDarkModeOn ? 'dark' : 'light'
@@ -52,7 +55,7 @@ export function ServerIcon({ iconDomain, serverUrl, size = 32, className }: Serv
     const iconKey = `${domain}|${theme}`
     const [failedIconKey, setFailedIconKey] = useState<string | null>(null)
     const dimension = `${size}px`
-    if (domain && failedIconKey !== iconKey) {
+    if (domain && currentProjectId !== null && failedIconKey !== iconKey) {
         return (
             <div
                 className={`flex items-center justify-center overflow-hidden rounded-[4px] ${className ?? ''}`}
@@ -60,7 +63,7 @@ export function ServerIcon({ iconDomain, serverUrl, size = 32, className }: Serv
                 style={{ width: dimension, height: dimension }}
             >
                 <img
-                    src={serverIconUrl(domain, theme)}
+                    src={serverIconUrl(currentProjectId, domain, theme)}
                     alt=""
                     style={{ width: dimension, height: dimension }}
                     onError={() => setFailedIconKey(iconKey)}

@@ -9,7 +9,12 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
-from ...models.eval_suggestions import EvalSuggestion, EvalSuggestionReviewVerdict, EvalSuggestionRunStatus
+from ...models.eval_suggestions import (
+    EvalSuggestion,
+    EvalSuggestionReviewVerdict,
+    EvalSuggestionRunStatus,
+    EvalSuggestionStatus,
+)
 
 MAX_REVIEW_CARDS = 200
 
@@ -31,6 +36,10 @@ class ReviewCard:
     headline: str
     outcome: str
     reason: str
+    observation: str
+    observation_scope: str
+    # The rule the evaluation applies, from the draft's description.
+    rule: str
     measured_failure_rate: float | None
     sample_size: int | None
     rollout_percentage: float
@@ -88,6 +97,9 @@ def _review_cards(cards: QuerySet[EvalSuggestion]) -> list[ReviewCard]:
             headline=card.headline,
             outcome=card.outcome,
             reason=card.reason,
+            observation=str(card.draft.get("observation", "")) if isinstance(card.draft, dict) else "",
+            observation_scope=str(card.draft.get("observation_scope", "")) if isinstance(card.draft, dict) else "",
+            rule=str(card.draft.get("description", "")) if isinstance(card.draft, dict) else "",
             measured_failure_rate=card.measured_failure_rate,
             sample_size=card.sample_size,
             rollout_percentage=card.rollout_percentage,
@@ -114,6 +126,36 @@ def label_card(
         .update(review_verdict=verdict, review_note=note, reviewed_at=timezone.now(), reviewed_by_id=reviewer_id)
     )
     return updated > 0
+
+
+@frozen
+class UnlabeledCards:
+    proposed: int
+    expired: int
+    teams: int
+
+
+def _unlabeled() -> QuerySet[EvalSuggestion]:
+    # Cross-team by design. Labeled cards hold staff notes, accepted ones link to the evaluations they made, and
+    # dismissed ones stop a run from proposing the same card again, so all of those stay.
+    return EvalSuggestion.objects.unscoped().filter(
+        review_verdict__isnull=True, status__in=(EvalSuggestionStatus.PROPOSED, EvalSuggestionStatus.EXPIRED)
+    )
+
+
+def count_unlabeled_cards() -> UnlabeledCards:
+    cards = _unlabeled()
+    return UnlabeledCards(
+        proposed=cards.filter(status=EvalSuggestionStatus.PROPOSED).count(),
+        expired=cards.filter(status=EvalSuggestionStatus.EXPIRED).count(),
+        teams=cards.values("team_id").distinct().count(),
+    )
+
+
+def delete_unlabeled_cards() -> int:
+    """Deletes every unlabeled card that is still proposed or expired, across teams, and returns how many."""
+    deleted, _ = _unlabeled().delete()
+    return deleted
 
 
 @frozen

@@ -2,7 +2,8 @@
 {% block title %}{{ tool.title }} · PostHog Admin{% endblock %}
 {% block content %}
     <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
-        Tools › {{ tool.group }}
+        <a class="text-muted-foreground"
+           href="{% url 'admin_console_tools' %}#tools-{{ tool.group|slugify }}">Tools</a> › {{ tool.group }}
     </nav>
     <div class="flex flex-wrap items-start gap-4 mt-1.5 mb-4">
         <div class="min-w-0">

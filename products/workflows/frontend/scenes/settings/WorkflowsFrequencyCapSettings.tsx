@@ -127,8 +127,6 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
                     onClick={() =>
                         updateCurrentTeam({
                             workflows_config: {
-                                capture_workflows_engagement_events:
-                                    currentTeam?.workflows_config?.capture_workflows_engagement_events ?? false,
                                 marketing_frequency_cap_max_messages: maxMessages,
                                 marketing_frequency_cap_window_days: windowDays,
                                 marketing_frequency_cap_hold_hours: holdHours,

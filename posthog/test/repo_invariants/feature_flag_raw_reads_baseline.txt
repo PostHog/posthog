@@ -20,7 +20,6 @@ products/experiments/backend/replay_linkage.py::targetable_experiments::(flag.fi
 products/experiments/backend/setup_context.py::get_previous_experiments::flag_filters = flag.filters or {}
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._apply_stored_filter_rules::(instance.filters or {}).get('payloads')
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._apply_stored_filter_rules::(instance.filters or {}).get('payloads')
-products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._validate_filters_inner::(self.instance.filters or {}).get('early_exit')
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._validate_filters_inner::(self.instance.filters or {}).get('groups')
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._validate_filters_inner::(self.instance.filters or {}).get('multivariate')
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._validate_filters_inner::stored_filters = self.instance.filters or {}

@@ -1,10 +1,22 @@
+import sys
+import selectors
+import subprocess
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+from modal.exception import NotFoundError, SandboxFilesystemNotFoundError, ServiceError
 from parameterized import parameterized
 
-from products.tasks.backend.logic.services.modal_egress_probe import _WAIT_READY, ModalEgressProbe
+from products.tasks.backend.logic.services.modal_egress_probe import (
+    _PREPARE_IDENTITY,
+    _START_RELAY,
+    _WAIT_READY,
+    ModalEgressProbe,
+)
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import SandboxTemplate
 
@@ -14,7 +26,12 @@ class TestModalEgressProbe(SimpleTestCase):
     def setUp(self) -> None:
         self.sandbox = MagicMock(spec=ModalSandbox)
         self.sandbox._sandbox = MagicMock()
+        self.sandbox._sandbox.object_id = "sb-original"
+        self.sandbox._sandbox.poll.return_value = None
         self.sidecar = self.sandbox._sandbox._experimental_sidecars.create.return_value
+        self.sidecar.object_id = "sc-original"
+        self.sidecar.poll.return_value = None
+        self.sandbox._sandbox._experimental_sidecars.get.side_effect = NotFoundError("missing")
         process = self.sidecar.exec.return_value
         process.returncode = 0
         process.stdout.read.return_value = ""
@@ -26,6 +43,19 @@ class TestModalEgressProbe(SimpleTestCase):
             )
         )
         self.create = self.enterContext(patch.object(ModalSandbox, "create", return_value=self.sandbox))
+        self.lookup = self.enterContext(
+            patch(
+                "products.tasks.backend.logic.services.modal_egress_probe.modal.Sandbox.from_name",
+                side_effect=NotFoundError("missing"),
+            )
+        )
+        self.lookup_id = self.enterContext(
+            patch(
+                "products.tasks.backend.logic.services.modal_egress_probe.modal.Sandbox.from_id",
+                return_value=self.sandbox._sandbox,
+            )
+        )
+        self.enterContext(patch.object(ModalSandbox, "_get_app_for_config"))
         self.enterContext(patch("products.tasks.backend.logic.services.modal_egress_probe.modal.Image.from_id"))
 
     def launch(
@@ -84,13 +114,236 @@ class TestModalEgressProbe(SimpleTestCase):
                 self.launch()
         self.create.assert_not_called()
 
-    def test_failed_key_generation_cleans_up_sandbox(self) -> None:
+    def test_failed_key_generation_can_resume_same_sandbox_and_relay(self) -> None:
         self.sidecar.exec.return_value.returncode = 1
 
         with self.assertRaises(RuntimeError):
             self.launch()
 
-        self.sandbox.destroy.assert_called_once_with()
+        self.sandbox.destroy.assert_not_called()
+        self.lookup.side_effect = None
+        self.lookup.return_value = self.sandbox._sandbox
+        self.sandbox._sandbox._experimental_sidecars.get.side_effect = None
+        self.sandbox._sandbox._experimental_sidecars.get.return_value = self.sidecar
+        self.sidecar.exec.return_value.returncode = 0
+
+        probe = self.launch()
+
+        self.assertEqual(probe.sandbox.id, "sb-original")
+        self.assertEqual(probe.sidecar.object_id, "sc-original")
+        self.assertEqual(self.create.call_count, 1)
+        self.assertEqual(self.sandbox._sandbox._experimental_sidecars.create.call_count, 1)
+
+    @parameterized.expand([("sandbox",), ("sidecar",)])
+    def test_ended_execution_cannot_recreate_provider_resources(self, ended: str) -> None:
+        self.lookup.side_effect = None
+        self.lookup.return_value = self.sandbox._sandbox
+        self.sandbox._sandbox._experimental_sidecars.get.side_effect = None
+        self.sandbox._sandbox._experimental_sidecars.get.return_value = self.sidecar
+        target = self.sandbox._sandbox if ended == "sandbox" else self.sidecar
+        target.poll.return_value = 0
+
+        with self.assertRaises(ValueError):
+            self.launch()
+
+        self.create.assert_not_called()
+        self.sandbox._sandbox._experimental_sidecars.create.assert_not_called()
+
+    @parameterized.expand([("sandbox",), ("sidecar",)])
+    def test_provider_lookup_outage_cannot_create_a_replacement(self, failed: str) -> None:
+        target = self.lookup if failed == "sandbox" else self.sandbox._sandbox._experimental_sidecars.get
+        target.side_effect = ServiceError("unavailable")
+
+        with self.assertRaises(ServiceError):
+            self.launch()
+
+        if failed == "sandbox":
+            self.create.assert_not_called()
+        self.sandbox._sandbox._experimental_sidecars.create.assert_not_called()
+
+    @parameterized.expand([("missing",), ("replaced",), ("ended",), ("unavailable",)])
+    def test_reconnect_refuses_changed_or_unavailable_relay(self, state: str) -> None:
+        lookup = self.sandbox._sandbox._experimental_sidecars.get
+        lookup.side_effect = None
+        lookup.return_value = self.sidecar
+        error: type[Exception] = ValueError
+        if state == "missing":
+            lookup.side_effect = NotFoundError("missing")
+        elif state == "replaced":
+            self.sidecar.object_id = "sc-replacement"
+        elif state == "ended":
+            self.sidecar.poll.return_value = 0
+        else:
+            lookup.side_effect = ServiceError("unavailable")
+            error = ServiceError
+
+        with self.assertRaises(error):
+            ModalEgressProbe.connect(
+                sandbox_id="sb-original",
+                sidecar_id="sc-original",
+                endpoint="https://run-a.egress.example.com",
+                ttl_seconds=900,
+            )
+
+        self.sandbox._sandbox._experimental_sidecars.create.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("name", "missing"),
+            ("name", "ended"),
+            ("name", "live"),
+            ("name", "unavailable"),
+            ("id", "missing"),
+            ("id", "ended"),
+            ("id", "live"),
+            ("id", "unavailable"),
+        ]
+    )
+    def test_cleanup_distinguishes_missing_sandbox_from_outage(self, reference: str, state: str) -> None:
+        lookup = self.lookup if reference == "name" else self.lookup_id
+        lookup.side_effect = None
+        lookup.return_value = self.sandbox._sandbox
+        if state == "missing":
+            lookup.side_effect = NotFoundError("missing")
+        elif state == "ended":
+            self.sandbox._sandbox.poll.return_value = 0
+        elif state == "unavailable":
+            lookup.side_effect = ServiceError("unavailable")
+        close = ModalEgressProbe.close_named if reference == "name" else ModalEgressProbe.close_sandbox
+
+        if state == "unavailable":
+            with self.assertRaises(ServiceError):
+                close("test-egress")
+        else:
+            close("test-egress")
+
+        self.assertEqual(self.sandbox._sandbox.terminate.call_count, int(state == "live"))
+
+    @parameterized.expand([(False,), (True,)])
+    def test_identity_recovery_preserves_private_key(self, csr_missing: bool) -> None:
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            command = [sys.executable, "-c", _PREPARE_IDENTITY, temporary]
+            subprocess.run(command, check=True)
+            key = (directory / "relay-key.pem").read_bytes()
+            csr = (directory / "relay.csr").read_bytes()
+            if csr_missing:
+                (directory / "relay.csr").unlink()
+                (directory / "relay.tmp").write_text("interrupted write")
+
+            subprocess.run(command, check=True)
+
+            self.assertEqual((directory / "relay-key.pem").read_bytes(), key)
+            self.assertEqual((directory / "relay.csr").read_bytes(), csr)
+            self.assertEqual((directory / "relay-key.pem").stat().st_mode & 0o777, 0o600)
+
+    def test_relay_restart_preserves_running_process(self) -> None:
+        with TemporaryDirectory() as temporary:
+            command = [
+                sys.executable,
+                "-c",
+                _START_RELAY,
+                temporary,
+                sys.executable,
+                "-c",
+                'import sys; print("ready", flush=True); sys.stdin.read()',
+            ]
+            with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as running:
+                try:
+                    assert running.stdout is not None
+                    with selectors.DefaultSelector() as selector:
+                        selector.register(running.stdout, selectors.EVENT_READ)
+                        self.assertTrue(selector.select(timeout=5))
+                    self.assertEqual(running.stdout.readline(), "ready\n")
+
+                    duplicate = subprocess.run(command, input="", capture_output=True, text=True, timeout=5, check=True)
+
+                    self.assertEqual(duplicate.stdout, "")
+                    self.assertIsNone(running.poll())
+                finally:
+                    running.communicate(timeout=5)
+
+            restarted = subprocess.run(command, input="", capture_output=True, text=True, timeout=5, check=True)
+            self.assertEqual(restarted.stdout, "ready\n")
+
+    @parameterized.expand([("live",), ("missing",), ("ended",), ("removed",), ("delete_failed",), ("lookup_failed",)])
+    def test_attached_relay_cleanup_keeps_main_sandbox_and_other_relays(self, state: str) -> None:
+        relay_name = "egress-relay-first"
+        probe = ModalEgressProbe.attach(
+            sandbox_id="sb-original",
+            relay_name=relay_name,
+            relay_image_id="im-example",
+            endpoint="https://run-a.egress.example.com",
+            ttl_seconds=900,
+        )
+        self.sandbox._sandbox._experimental_sidecars.get.side_effect = None
+        self.sandbox._sandbox._experimental_sidecars.get.return_value = self.sidecar
+        self.sandbox._sandbox.exec.return_value.stdout.read.return_value = '{"204": 1}'
+
+        self.assertEqual(probe.probe(), {204: 1})
+        self.assertEqual(self.sandbox._sandbox.exec.call_args.args[-2:], (relay_name, probe.capability_path))
+        replacement_path = "/run/posthog/egress-capability.egress-relay-second"
+        files = {probe.capability_path: "synthetic-first", replacement_path: "synthetic-replacement"}
+        alive = state not in {"missing", "ended"}
+
+        def terminate() -> None:
+            nonlocal alive
+            alive = False
+
+        def remove(path: str) -> None:
+            if state == "delete_failed":
+                raise ServiceError("unavailable")
+            try:
+                del files[path]
+            except KeyError:
+                raise SandboxFilesystemNotFoundError("missing") from None
+
+        self.sidecar.terminate.side_effect = terminate
+        self.sidecar.poll.side_effect = lambda: None if alive else 0
+        self.sandbox._sandbox.filesystem.remove.side_effect = remove
+        if state == "missing":
+            self.sandbox._sandbox._experimental_sidecars.get.side_effect = NotFoundError("missing")
+        elif state == "lookup_failed":
+            self.sandbox._sandbox._experimental_sidecars.get.side_effect = ServiceError("unavailable")
+        elif state == "removed":
+            del files[probe.capability_path]
+
+        if state in {"delete_failed", "lookup_failed"}:
+            with self.assertRaises(ServiceError):
+                ModalEgressProbe.close_relay("sb-original", relay_name)
+            self.assertIn(probe.capability_path, files)
+        else:
+            ModalEgressProbe.close_relay("sb-original", relay_name)
+            self.assertNotIn(probe.capability_path, files)
+
+        self.assertEqual(alive, state == "lookup_failed")
+        self.assertEqual(files[replacement_path], "synthetic-replacement")
+        self.sandbox._sandbox.terminate.assert_not_called()
+        self.sandbox._sandbox._experimental_sidecars.get.assert_called_with(name=relay_name, include_terminated=True)
+
+    def test_cleanup_rejects_invalid_relay_name_before_provider_access(self) -> None:
+        with self.assertRaises(ValueError):
+            ModalEgressProbe.close_relay("sb-original", "../../egress-relay-second")
+
+        self.lookup_id.assert_not_called()
+
+    def test_attached_executions_deliver_separate_capability_files(self) -> None:
+        paths = []
+        for relay_name in ("egress-relay-first", "egress-relay-second"):
+            probe = ModalEgressProbe.attach(
+                sandbox_id="sb-original",
+                relay_name=relay_name,
+                relay_image_id="im-example",
+                endpoint="https://run-a.egress.example.com",
+                ttl_seconds=900,
+            )
+            probe.publish_capability("synthetic-capability")
+            paths.append(self.sandbox._sandbox.exec.call_args.args[-1])
+
+        self.assertEqual(
+            paths,
+            ["/run/posthog/egress-capability.egress-relay-first", "/run/posthog/egress-capability.egress-relay-second"],
+        )
 
     def test_capability_delivery_replaces_file_without_environment_update(self) -> None:
         probe = self.launch()
@@ -122,6 +375,28 @@ class TestModalEgressProbe(SimpleTestCase):
 
         request.assert_called_once()
         sleep.assert_not_called()
+
+    def test_readiness_deadline_includes_request_time(self) -> None:
+        elapsed = 0.0
+
+        def advance(seconds: float) -> None:
+            nonlocal elapsed
+            elapsed += seconds
+
+        def unavailable(url: str, *, timeout: float) -> None:
+            advance(timeout)
+            raise TimeoutError
+
+        with (
+            patch("time.monotonic", side_effect=lambda: elapsed),
+            patch("time.sleep", side_effect=advance),
+            patch("urllib.request.urlopen", side_effect=unavailable),
+        ):
+            with self.assertRaises(SystemExit) as failure:
+                exec(_WAIT_READY)
+
+        self.assertEqual(failure.exception.code, 1)
+        self.assertAlmostEqual(elapsed, 20)
 
     @parameterized.expand(
         [

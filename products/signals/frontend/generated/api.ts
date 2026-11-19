@@ -31,6 +31,7 @@ import type {
     InboxOnboardingDraftApi,
     InboxOnboardingExposureApi,
     InboxOnboardingStateApi,
+    InboxStatusApi,
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
@@ -101,6 +102,7 @@ import type {
     ScoutTrialStartedApi,
     ScratchpadEntryApi,
     SelfDrivingTrialStatusApi,
+    SignalReportActionabilityUpdateApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -127,6 +129,7 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportRepositoryUpdateApi,
     SignalReportSearchResponseApi,
     SignalReportSectionCountsApi,
     SignalReportSourceMetadataRequestApi,
@@ -410,6 +413,17 @@ export const signalsConfigCreate = async (
     })
 }
 
+export const getSignalsInboxStatusListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/inbox_status/`
+}
+
+export const signalsInboxStatusList = async (projectId: string, options?: RequestInit): Promise<InboxStatusApi> => {
+    return apiMutator<InboxStatusApi>(getSignalsInboxStatusListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsInboxSummaryListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/inbox_summary/`
 }
@@ -657,12 +671,34 @@ export const signalsReportsDestroy = async (
     })
 }
 
+export const getSignalsReportsActionabilityUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/actionability/`
+}
+
+/**
+ * Set whether the report can be acted on now, and whether its issue is already addressed. Appends an attributed actionability_judgment artefact, so the work log keeps the previous judgment, and later agent runs keep the person's values. A new actionability moves a Ready or Needs input report: `requires_human_input` to Needs input, `immediately_actionable` or `not_actionable` to Ready. A report in any other status keeps it. The change does not start an implementation. Setting the current values again changes nothing.
+ * @summary Change a report's actionability or already addressed
+ */
+export const signalsReportsActionabilityUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportActionabilityUpdateApi?: SignalReportActionabilityUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsActionabilityUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportActionabilityUpdateApi),
+    })
+}
+
 export const getSignalsReportsActionsListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/actions/`
 }
 
 /**
- * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request, or while it conflicts with its base branch. `resolve_conflicts` is available only while the report's open pull request conflicts with its base branch. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request, or while it conflicts with its base branch. `resolve_conflicts` is available only while the report's open pull request conflicts with its base branch. `implement` is available only while the report is ready and actionable, or waiting on input, has no pull request, is not a plan, has no implementation run in progress, and nobody else holds its claim. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
  * @summary List the report actions that start an agent run
  */
 export const signalsReportsActionsList = async (
@@ -681,7 +717,7 @@ export const getSignalsReportsActionsRunCreateUrl = (projectId: string, id: stri
 }
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. A task sandbox cannot start an action, except a scout run that a person granted the action in the scout's settings.
  * @summary Start a report action as a background agent run
  */
 export const signalsReportsActionsRunCreate = async (
@@ -1114,6 +1150,28 @@ export const signalsReportsReingestCreate = async (
     return apiMutator<SignalReportReingestionStatusApi>(getSignalsReportsReingestCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSignalsReportsRepositoryUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/repository/`
+}
+
+/**
+ * Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the report's work log keeps the previous selection and records who changed it. Later implementation runs use the new repository. A run that already started keeps its repository. Setting the current repository again changes nothing.
+ * @summary Change a report's repository
+ */
+export const signalsReportsRepositoryUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportRepositoryUpdateApi: SignalReportRepositoryUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsRepositoryUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportRepositoryUpdateApi),
     })
 }
 
@@ -3284,6 +3342,27 @@ export const signalsScoutScratchpadRemember = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(rememberRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadDiscardUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/discard/`
+}
+
+/**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const signalsScoutScratchpadDiscard = async (
+    projectId: string,
+    forgetRequestApi: ForgetRequestApi,
+    options?: RequestInit
+): Promise<ForgetResponseApi> => {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDiscardUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(forgetRequestApi),
     })
 }
 

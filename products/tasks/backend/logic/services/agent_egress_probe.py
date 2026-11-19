@@ -36,6 +36,7 @@ class AgentEgressProbeConfig(BaseModel):
     concurrency: int = Field(default=4, ge=1, le=32)
     requests_per_round: int = Field(default=16, ge=1, le=256)
     dev_proxy_ipv4: str | None = None
+    sandbox_id: str | None = None
 
     @classmethod
     def load(cls, path: Path) -> AgentEgressProbeConfig:
@@ -62,13 +63,20 @@ class AgentEgressProbeConfig(BaseModel):
             or run.task.deleted
             or run.task.team_id != run.team_id
             or not run.matches_task_ownership(run.task)
-            or run.task.repository
-            or run.task.repositories
-            or any(
-                (run.state or {}).get(key) for key in ("sandbox_id", "sandbox_environment_id", "cancel_requested_at")
-            )
+            or (run.state or {}).get("cancel_requested_at")
         ):
             raise ValueError("Use an active development run without repositories or an existing sandbox")
+        if self.sandbox_id is None:
+            if (
+                run.task.repository
+                or run.task.repositories
+                or any((run.state or {}).get(key) for key in ("sandbox_id", "sandbox_environment_id"))
+            ):
+                raise ValueError("Use an active development run without repositories or an existing sandbox")
+        elif (run.state or {}).get("sandbox_id") != self.sandbox_id or (run.state or {}).get(
+            "sandbox_backend", "modal"
+        ) != "modal":
+            raise ValueError("The observed sandbox does not belong to this run")
         actor = get_task_run_credential_user(run.task, run.state, raise_on_error=True)
         if actor is None or not user_has_current_team_access(actor, run.task.team, raise_on_error=True):
             raise ValueError("The run has no eligible actor")

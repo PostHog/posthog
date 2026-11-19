@@ -82,6 +82,20 @@ CODE_CASES = [
     ),
 ]
 
+# Asks about wrong behavior in the team's own app as a question, without naming code.
+CODE_CASES += [
+    BaseEvalCase(
+        name="investigate_ui_glitch",
+        prompt="can you look into why a blank tab shows up first when I open the settings page?",
+        expected=_needs_repo(True),
+    ),
+    BaseEvalCase(
+        name="investigate_wrong_behavior",
+        prompt="investigate why the export button downloads an empty file for some users",
+        expected=_needs_repo(True),
+    ),
+]
+
 DATA_CASES = [
     BaseEvalCase(name="weekly_signups", prompt="how many people signed up last week?", expected=_needs_repo(False)),
     BaseEvalCase(
@@ -146,6 +160,17 @@ DATA_CASES = [
     BaseEvalCase(
         name="pr_merge_status",
         prompt="did the pull request that renames the billing page get merged yet?",
+        expected=_needs_repo(False),
+    ),
+    # Lists pull requests, which GitHub answers without the code.
+    BaseEvalCase(
+        name="list_open_prs",
+        prompt="list my open pull requests by status, easiest to merge first",
+        expected=_needs_repo(False),
+    ),
+    BaseEvalCase(
+        name="prs_merged_this_week",
+        prompt="which pull requests did the team merge this week?",
         expected=_needs_repo(False),
     ),
     BaseEvalCase(name="thanks", prompt="thanks, that's perfect!", expected=_needs_repo(False)),
