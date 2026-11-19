@@ -40,7 +40,7 @@ from rest_framework.views import APIView
 
 from posthog.schema import QuerySchemaRoot
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
@@ -402,7 +402,7 @@ TASK_RUN_LOGS_DESCRIPTION = (
     "of a session/update notification, or else its notification method. Pass view=thread to drop the duplicate "
     "tool response copy that a rendered conversation does not use."
 )
-TASK_RUN_LOGS_RESPONSES = {
+TASK_RUN_LOGS_RESPONSES: dict[int, ResponseDeclaration] = {
     200: OpenApiResponse(description="Log content in JSONL format"),
     404: OpenApiResponse(description="Task run not found"),
 }
