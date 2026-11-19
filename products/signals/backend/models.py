@@ -843,6 +843,18 @@ class SignalReport(UUIDModel):
             case (S.RESOLVED | S.CLOSED, S.READY):
                 pass
 
+            # A person's actionability moves a researched report between the two statuses the
+            # pipeline routes a judgment to (see `update_report_actionability`).
+            case (S.READY, S.PENDING_INPUT):
+                if error is None:
+                    raise ValueError("error is required for ready -> pending_input")
+                self.error = error
+                updated_fields.add("error")
+
+            case (S.PENDING_INPUT, S.READY):
+                self.error = None
+                updated_fields.add("error")
+
             # Only researched reports can resolve
             # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook)
             # FAILED resolves too: a run that died in processing still describes real work, and
@@ -4236,6 +4248,12 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
 
 
 class SignalSpend(TeamScopedRootMixin, UUIDModel):
+    """Deliberately transient receipts for monthly billing and cost displays.
+
+    Rows expire three calendar months after creation, including failed and unsettled spend.
+    Consumers must tolerate expiry rather than depend on lifetime accounting or deduplication.
+    """
+
     class Kind(models.TextChoices):
         RESEARCH = "research"
         REPO_SELECTION = "repo_selection"
@@ -4285,6 +4303,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.Index(fields=["created_at"], name="signals_spend_created_at_idx"),
             models.Index(fields=["trial_grant"], name="signals_spend_trial_grant_idx"),
             models.Index(
                 fields=["updated_at"],

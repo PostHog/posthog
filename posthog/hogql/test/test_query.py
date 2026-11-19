@@ -19,7 +19,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -46,7 +46,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
-from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor, columns_with_type, execute_hogql_query
 from posthog.hogql.query_stats import query_stats_scope, record
 from posthog.hogql.sharing_rules import CountFusionRule, SameAggregationTopNRule
 from posthog.hogql.test.utils import (
@@ -58,8 +58,8 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.errors import CHQueryErrorS3Error, CHQueryErrorUnknownType, InternalCHQueryError, unknown_type_error
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -2640,6 +2640,39 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [("41FF", "Qf8=")])
 
+    def test_unreadable_result_type_names_the_columns_that_return_it(self):
+        with self.assertRaises(CHQueryErrorUnknownType) as error:
+            execute_hogql_query(
+                "SELECT 1 AS readable, if(rand() > 0, 1, 'a') AS mixed, "
+                "if(rand() > 0, 2, 'b') AS also_mixed, toString(1) AS also_readable",
+                team=self.team,
+            )
+
+        self.assertTrue(
+            str(error.exception).startswith(
+                "The `mixed` and `also_mixed` columns have type `Variant(String, UInt8)`, "
+                "which PostHog can't send back in results."
+            ),
+            str(error.exception),
+        )
+
+    @parameterized.expand(
+        [
+            ("describe_times_out", ClickHouseQueryTimeOut()),
+            ("describe_fails", InternalCHQueryError("Unknown error.", code=1000)),
+        ]
+    )
+    def test_unreadable_result_type_keeps_the_original_error_when_describe_fails(
+        self, _name: str, describe_error: Exception
+    ) -> None:
+        original_error = unknown_type_error("Variant(String, UInt8)")
+        with patch("posthog.hogql.query.sync_execute", side_effect=[original_error, describe_error]):
+            with self.assertRaises(CHQueryErrorUnknownType) as error:
+                execute_hogql_query("SELECT 1 AS mixed", team=self.team)
+
+        self.assertIs(error.exception, original_error)
+        self.assertIsNot(error.exception.__cause__, error.exception)
+
     @parameterized.expand(
         [
             (
@@ -2714,3 +2747,11 @@ class TestQueryStatsRecording(BaseTest):
                     execute_hogql_query("select count() from events", team=self.team, query_type="test")
         assert len(killed_stats.executions) == 1
         assert killed_stats.executions[0].rows_read == 90
+
+
+class TestColumnsWithType(SimpleTestCase):
+    def test_matches_whole_type_names_only(self) -> None:
+        names = ["clock", "timestamp", "precise_timestamp", "clocks"]
+        column_types = ["Time", "DateTime", "DateTime64(3)", "Array(Time)"]
+
+        self.assertEqual(columns_with_type(names, column_types, "Time"), ["clock", "clocks"])

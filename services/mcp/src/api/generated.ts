@@ -43777,6 +43777,16 @@ export namespace Schemas {
       error: string;
     }
 
+    /**
+     * * `issue_summaries` - Issue Summaries
+     */
+    export type ErrorTrackingAIFeatureEnum = typeof ErrorTrackingAIFeatureEnum[keyof typeof ErrorTrackingAIFeatureEnum];
+
+
+    export const ErrorTrackingAIFeatureEnum = {
+      IssueSummaries: 'issue_summaries',
+    } as const;
+
     export interface ErrorTrackingVolumeBucket {
       /** Bucket timestamp label. */
       label: string;
@@ -45114,6 +45124,96 @@ export namespace Schemas {
     export interface ErrorTrackingIssueTagDefinitionsResponse {
       /** The tags enabled for the project. Empty while issue tags are off for the project. */
       results: ErrorTrackingIssueTagDefinition[];
+    }
+
+    /**
+     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+     * @nullable
+     */
+    export type ErrorTrackingIssueTagRuleDisabledData = {
+      readonly message?: string;
+      readonly issue?: { [key: string]: unknown };
+      readonly properties?: { [key: string]: unknown };
+    } | null;
+
+    export interface ErrorTrackingIssueTagRuleFilterGroup {
+      type: FilterLogicalOperator;
+      values: EventPropertyFilter[];
+    }
+
+    export interface ErrorTrackingIssueTagRuleFilters {
+      type: FilterLogicalOperator;
+      values: (ErrorTrackingIssueTagRuleFilterGroup | EventPropertyFilter)[];
+    }
+
+    export interface ErrorTrackingIssueTagRule {
+      /** Unique identifier of the tag rule. */
+      readonly id: string;
+      /** Tag key that issues store for this rule's tag. Use it to filter issues by the tag, or to apply or remove the tag on one issue. It changes when an edit changes which properties the filters read. */
+      readonly key: string;
+      /**
+         * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+         * @maxLength 128
+         */
+      label: string;
+      /** What the tag means. Shown with the tag. */
+      description: string;
+      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+      filters: ErrorTrackingIssueTagRuleFilters;
+      /** Starts at 1, and goes up by one each time the filters change. */
+      readonly version: number;
+      /** Position in the list of tag rules. Lower values come first. Every matching rule applies its tag, whatever its position. */
+      order_key: number;
+      /**
+         * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+         * @nullable
+         */
+      readonly disabled_data: ErrorTrackingIssueTagRuleDisabledData;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingIssueTagRuleCreateRequest {
+      /**
+         * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+         * @maxLength 128
+         */
+      label: string;
+      /**
+         * What the tag means. Shown with the tag. Defaults to empty.
+         * @maxLength 1000
+         */
+      description?: string;
+      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+      filters: ErrorTrackingIssueTagRuleFilters;
+      /**
+         * Position in the list of tag rules. Lower values come first. Defaults to 0.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      order_key?: number;
+    }
+
+    export interface ErrorTrackingIssueTagRuleListResponse {
+      /** Tag rules in ascending order key. */
+      results: ErrorTrackingIssueTagRule[];
+    }
+
+    export interface ErrorTrackingIssueTagRuleUpdateRequest {
+      /**
+         * Replacement display name for the tag. Omit to keep the existing label.
+         * @maxLength 128
+         */
+      label?: string;
+      /**
+         * Replacement description. Omit to keep the existing description.
+         * @maxLength 1000
+         */
+      description?: string;
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+      filters?: ErrorTrackingIssueTagRuleFilters;
     }
 
     export interface ErrorTrackingIssueValue {
@@ -83962,6 +84062,53 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `ok` - ok
+     * * `failing` - failing
+     */
+    export type SourceFilterRunStateEnum = typeof SourceFilterRunStateEnum[keyof typeof SourceFilterRunStateEnum];
+
+
+    export const SourceFilterRunStateEnum = {
+      Ok: 'ok',
+      Failing: 'failing',
+    } as const;
+
+    export interface SourceFilterRunStatus {
+      /** `failing` when the last fetch of this source's records failed because of its saved filter or the query it builds. Nothing from the source reaches the inbox until a fetch succeeds, and the next successful fetch reads the missed records again. `ok` otherwise.
+       *
+       * * `ok` - ok
+       * * `failing` - failing */
+      state: SourceFilterRunStateEnum;
+      /**
+         * Why the last fetch failed, such as `unknown_field`, `type`, `catalog_missing` or `query_failed`. Null unless `state` is `failing`.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * A readable explanation of the failure, or the error type for a failed query. It never carries record values. Null unless `state` is `failing`.
+         * @nullable
+         */
+      error_message: string | null;
+      /**
+         * When the most recent failure happened. Null unless `state` is `failing`.
+         * @nullable
+         */
+      failed_at: string | null;
+      /**
+         * Records created since this time wait to be read again once a fetch succeeds. Null when none wait.
+         * @nullable
+         */
+      unread_since: string | null;
+      /**
+         * When a fetch of this source last succeeded with the filter. Null if never.
+         * @nullable
+         */
+      last_success_at: string | null;
+      /** Records in the last successful fetch that the filter excluded because a field it reads held a value that could not be read. */
+      malformed_count: number;
+    }
+
+    /**
      * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
@@ -83986,6 +84133,8 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status: SignalSourceSyncStatusEnum | null;
+      /** How emission last went for this source's saved `hogql_filter`. Null when the source has no saved filter, or before the first fetch with it. */
+      readonly filter_status: SourceFilterRunStatus | null;
     }
 
     export interface PaginatedSignalSourceConfigList {
@@ -90866,6 +91015,31 @@ export namespace Schemas {
       assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
+    /**
+     * Mapping from tag rule UUID to its new order key.
+     */
+    export type PatchedErrorTrackingIssueTagRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingIssueTagRuleReorderRequest {
+      /** Mapping from tag rule UUID to its new order key. */
+      orders?: PatchedErrorTrackingIssueTagRuleReorderRequestOrders;
+    }
+
+    export interface PatchedErrorTrackingIssueTagRuleUpdateRequest {
+      /**
+         * Replacement display name for the tag. Omit to keep the existing label.
+         * @maxLength 128
+         */
+      label?: string;
+      /**
+         * Replacement description. Omit to keep the existing description.
+         * @maxLength 1000
+         */
+      description?: string;
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+      filters?: ErrorTrackingIssueTagRuleFilters;
+    }
+
     export interface PatchedErrorTrackingIssueTagWrite {
       /**
          * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
@@ -95726,6 +95900,8 @@ export namespace Schemas {
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
       /** Realtime cohorts as the request's user sees them in this project. */
       readonly realtime_cohorts?: TeamRealtimeCohorts;
+      /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+      readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnum[];
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
@@ -96913,6 +97089,8 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status?: SignalSourceSyncStatusEnum | null;
+      /** How emission last went for this source's saved `hogql_filter`. Null when the source has no saved filter, or before the first fetch with it. */
+      readonly filter_status?: SourceFilterRunStatus | null;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -102163,6 +102341,8 @@ export namespace Schemas {
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
       /** Realtime cohorts as the request's user sees them in this project. */
       readonly realtime_cohorts: TeamRealtimeCohorts;
+      /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
+      readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnum[];
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
@@ -117449,6 +117629,13 @@ export namespace Schemas {
       ArrayNumber: 'array<number>',
       ArrayBoolean: 'array<boolean>',
     } as const;
+
+    export interface SignalReportActionabilityUpdate {
+      /** `immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current value. Required when the report has no actionability yet. */
+      actionability?: string;
+      /** Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to keep the current value. */
+      already_addressed?: boolean;
+    }
 
     /**
      * Body for appending an artefact to a report.
@@ -148250,7 +148437,7 @@ export namespace Schemas {
 
     export type SignalsMonthlyUsageParams = {
     /**
-     * UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.
+     * UTC calendar month in YYYY-MM format, from 2026-10 onward and entirely within the last three calendar months. Defaults to the current month. Usage is grouped by finalization time.
      * @minLength 1
      * @pattern ^[0-9]{4}-(0[1-9]|1[0-2])$
      */

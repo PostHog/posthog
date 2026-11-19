@@ -188,6 +188,7 @@ async fn delete_destroys_the_person_and_its_satellite_rows() {
     .expect("insert extra distinct id");
     ctx.set_person_properties(person_id, r#"{"email": "gdpr@example.com"}"#)
         .await;
+    ctx.seed_retired_person_meta(person_id).await;
     ctx.insert_cohort_and_hash_key_rows(person_id).await;
 
     let op_id = Uuid::now_v7();
@@ -213,6 +214,7 @@ async fn delete_destroys_the_person_and_its_satellite_rows() {
     assert!(is_deleted);
     assert_eq!(version, 1);
     assert_eq!(properties, "{}");
+    assert_eq!(ctx.retired_person_meta(person_id).await, (None, None));
     assert_eq!(response.results[0].person_version, Some(version));
 
     // The mappings: tombstoned one version above their previous one.
