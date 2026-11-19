@@ -6,6 +6,7 @@ so import-linter's strict-mode contract holds.
 """
 
 import math
+import random
 import datetime as dt
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -63,7 +64,9 @@ from products.metrics.backend.facade.contracts import (
     MetricPoint,
     MetricQueryClause,
     MetricQueryCount,
+    MetricQueryProvenance,
     MetricQueryRequest,
+    MetricQueryResult,
     MetricSeries,
     MetricsOverview,
     PanelQueryCheckRequest,
@@ -106,6 +109,12 @@ from products.metrics.backend.precompute.fill import (
     fill_precomputed_metrics as _fill_precomputed_metrics,
     teams_with_precomputed_metrics as _teams_with_precomputed_metrics,
 )
+from products.metrics.backend.precompute.planner import (
+    ClausePlan,
+    PrecomputedClauseRunner,
+    plan_clause,
+    provenance_mode,
+)
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
 from products.metrics.backend.promql import run_promql_instant, run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
@@ -119,6 +128,9 @@ from products.metrics.backend.variable_options import check_options_window, comp
 from products.metrics.backend.variables import from_dashboard, with_values
 
 logger = structlog.get_logger(__name__)
+
+# The share of precomputed tile queries that also run raw, to measure how far the two answers are apart.
+PRECOMPUTE_SHADOW_CHECK_RATE = 0.01
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -442,18 +454,86 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     (`clause="formula"`); request the clauses separately if you need the
     inputs too. The presentation layer surfaces `ValueError` as a 400.
     """
+    return _run_metric_query(team, request, {})
+
+
+def run_precomputed_metric_query(*, team: Team, request: MetricQueryRequest) -> MetricQueryResult:
+    """`run_metric_query` for a dashboard-v2 tile: each clause that a precomputed metric covers reads its stored
+    buckets and runs raw only for the newest ones. The first long-range tile that needs a precomputed metric
+    creates it and runs raw meanwhile. The result says where its buckets came from."""
+    plans: list[ClausePlan] = []
+    reasons: list[str] = []
+    for clause in request.clauses:
+        plan = plan_clause(team, clause, request)
+        if isinstance(plan, str):
+            reasons.append(f"{clause.name}: {plan}")
+        else:
+            plans.append(plan)
+    series = _run_metric_query(
+        team, request, {plan.clause.name: PrecomputedClauseRunner(team, request, plan) for plan in plans}
+    )
+    provenance = MetricQueryProvenance(
+        mode=provenance_mode(plans, len(reasons), request.date_to),
+        precomputed_until=min((plan.cut for plan in plans), default=None),
+        reasons=tuple(reasons),
+    )
+    if plans and random.random() < PRECOMPUTE_SHADOW_CHECK_RATE:
+        _log_shadow_check(team, request, series, provenance)
+    return MetricQueryResult(series=series, provenance=provenance)
+
+
+def _log_shadow_check(
+    team: Team, request: MetricQueryRequest, series: list[MetricSeries], provenance: MetricQueryProvenance
+) -> None:
+    """Run the query raw as well and log how far the precomputed answer is from it."""
+    try:
+        raw = _run_metric_query(team, request, {}, record_query=False)
+    except Exception:
+        logger.exception("metrics_precompute_shadow_check_failed", team_id=team.pk)
+        return
+
+    def points(result: list[MetricSeries]) -> dict[tuple, float | None]:
+        return {(s.clause, tuple(sorted(s.labels.items())), p.time): p.value for s in result for p in s.points}
+
+    precomputed_points, raw_points = points(series), points(raw)
+    differences = [
+        abs(value - raw_value) / max(abs(raw_value), 1e-12)
+        for key, raw_value in raw_points.items()
+        if raw_value is not None and (value := precomputed_points.get(key)) is not None
+    ]
+    logger.info(
+        "metrics_precompute_shadow_check",
+        team_id=team.pk,
+        mode=provenance.mode.value,
+        max_relative_difference=max(differences, default=0.0),
+        mismatched_points=len(precomputed_points.keys() ^ raw_points.keys()),
+    )
+
+
+def _run_metric_query(
+    team: Team,
+    request: MetricQueryRequest,
+    precomputed_runners: dict[str, PrecomputedClauseRunner],
+    record_query: bool = True,
+) -> list[MetricSeries]:
     formula_node_checked = (
         parse_formula(request.formula, frozenset(clause.name for clause in request.clauses))
         if request.formula is not None
         else None
     )
-    record_metric_queries(team, (clause.metric_name for clause in request.clauses))
-    runners: list[tuple[MetricQueryClause, MetricQueryRunner | DerivedMetricQueryRunner, bool]] = []
+    if record_query:
+        record_metric_queries(team, (clause.metric_name for clause in request.clauses))
+    runners: list[
+        tuple[MetricQueryClause, MetricQueryRunner | DerivedMetricQueryRunner | PrecomputedClauseRunner, bool]
+    ] = []
     derived_units: dict[str, str] = {}
     derived_enabled = any(_is_derived_metric_name(c.metric_name) for c in request.clauses) and derived_metrics_enabled(
         team
     )
     for clause in request.clauses:
+        if clause.name in precomputed_runners:
+            runners.append((clause, precomputed_runners[clause.name], False))
+            continue
         if derived_enabled and _is_derived_metric_name(clause.metric_name):
             derived_runner = DerivedMetricQueryRunner(
                 team=team,
@@ -483,7 +563,11 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     rows_by_clause: dict[str, list[dict[str, Any]]] = {clause.name: [] for clause in request.clauses}
     units_by_fingerprint: dict[int, str] = {}
 
-    def run_clause(clause: MetricQueryClause, runner: MetricQueryRunner | DerivedMetricQueryRunner, raw: bool) -> None:
+    def run_clause(
+        clause: MetricQueryClause,
+        runner: MetricQueryRunner | DerivedMetricQueryRunner | PrecomputedClauseRunner,
+        raw: bool,
+    ) -> None:
         rows = runner.run()
         if raw:
             _attach_series_labels(team, clause.metric_name, rows)

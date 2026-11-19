@@ -32,6 +32,7 @@ from .enums import (
     DashboardTemplateStatus,
     FilterOp,
     MetricAggregation,
+    MetricQueryProvenanceMode,
     MetricRangeFunction,
     MetricType,
     PanelImportOutcome,
@@ -230,6 +231,22 @@ class MetricSeries:
     # Most explicit bucket layouts merged into one point of a histogram quantile. Above 1, series
     # with different buckets were combined. None for other aggregations.
     histogram_layout_count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryProvenance:
+    """Where a query's buckets came from. `precomputed_until` is the earliest time a precomputed clause switched
+    to raw samples, None when no clause read precomputed metrics. `reasons` says why clauses ran raw."""
+
+    mode: MetricQueryProvenanceMode
+    precomputed_until: dt.datetime | None = None
+    reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryResult:
+    series: list[MetricSeries]
+    provenance: MetricQueryProvenance
 
 
 @dataclass(frozen=True, slots=True)

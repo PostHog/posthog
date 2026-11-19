@@ -22,6 +22,7 @@ from posthog.schema import (
     MetricsQuery,
     MetricsQueryLanguage,
     MetricsQueryPoint,
+    MetricsQueryProvenance,
     MetricsQueryResponse,
     MetricsQuerySeries,
 )
@@ -40,13 +41,14 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.dashboard_import.promql_text import drop_match_all_matchers
 from products.metrics.backend.date_range import metrics_query_date_range
-from products.metrics.backend.facade.api import derived_metric_resources, run_metric_query
+from products.metrics.backend.facade.api import derived_metric_resources, run_metric_query, run_precomputed_metric_query
 from products.metrics.backend.facade.contracts import (
     DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX,
     METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
+    MetricQueryProvenance as MetricQueryProvenanceContract,
     MetricQueryRequest,
     MetricSeries,
 )
@@ -96,6 +98,8 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
     query: MetricsQuery
     cached_response: CachedMetricsQueryResponse
     _loaded_variables: dict[str, Variable] | None = None
+    _tile_dashboard_id: int | None = None
+    _provenance: MetricQueryProvenanceContract | None = None
 
     def validate_query_runner_access(self, user: "User") -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
@@ -222,7 +226,12 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         language = self.query.language or MetricsQueryLanguage.BUILDER
         variables = from_query(self.query.variables)
         if language == MetricsQueryLanguage.BUILDER:
-            return run_metric_query(team=self.team, request=self._builder_request())
+            request = self._builder_request()
+            if self._tile_dashboard_id is not None and self._dashboard_v2_enabled:
+                result = run_precomputed_metric_query(team=self.team, request=request)
+                self._provenance = result.provenance
+                return result.series
+            return run_metric_query(team=self.team, request=request)
         date_from, date_to = self._date_from, self._date_range.date_to()
         interval = resolve_query_interval(self.query.interval, variables, date_from, date_to)
         if language == MetricsQueryLanguage.PROMQL:
@@ -242,6 +251,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         return run_metrics_sql(self.team, sql.sql, date_from, date_to, interval, sql.placeholders)
 
     def _call_with_rate_limits(self, *, dashboard_id: int | None) -> tuple[MetricsQueryResponse, float]:
+        self._tile_dashboard_id = dashboard_id
         # Tiles that wait for one shared load of the All options must not hold the runner's concurrency slots.
         if get_query_tag_value("api_queries_budgeted"):
             self._enforce_api_queries_budget()
@@ -387,8 +397,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
             raise ExposedHogQLError(str(exc)) from exc
         return self._response(series)
 
-    @staticmethod
-    def _response(series: list[MetricSeries]) -> MetricsQueryResponse:
+    def _response(self, series: list[MetricSeries]) -> MetricsQueryResponse:
         return MetricsQueryResponse(
             results=[
                 MetricsQuerySeries(
@@ -400,7 +409,18 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                     histogramBounds=list(s.histogram_bounds) if s.histogram_bounds is not None else None,
                 )
                 for s in series
-            ]
+            ],
+            provenance=self._provenance_response(),
+        )
+
+    def _provenance_response(self) -> MetricsQueryProvenance | None:
+        if self._provenance is None:
+            return None
+        until = self._provenance.precomputed_until
+        return MetricsQueryProvenance(
+            mode=self._provenance.mode.value,
+            precomputedUntil=until.isoformat() if until is not None else None,
+            reasons=list(self._provenance.reasons) or None,
         )
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
