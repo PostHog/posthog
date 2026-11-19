@@ -572,6 +572,34 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"recipients": 4, "converted": 2, "revenue": 55.0, "median_hours_to_convert": 5.0}
 
+    def test_counts_a_person_once_when_their_distinct_ids_need_separate_person_lookups(self, _flag):
+        distinct_ids = {name: f"split-{name}-{'€' * 345}" for name in ["phone", "laptop", "other"]}
+        create_person(team=self.team, distinct_ids=[distinct_ids["phone"], distinct_ids["laptop"]])
+        create_person(team=self.team, distinct_ids=[distinct_ids["other"]])
+        for minutes_ago, name in [(300, "phone"), (200, "laptop"), (100, "other")]:
+            self._record_distinct_id(
+                str(UUIDT()), distinct_ids[name], f"{name}@example.com", NOW - timedelta(minutes=minutes_ago)
+            )
+        _create_event(
+            team=self.team, event="purchase", distinct_id=distinct_ids["laptop"], timestamp=NOW - timedelta(minutes=60)
+        )
+        flush_persons_and_events()
+        small_clickhouse_queries = {**default_settings(), "max_query_size": SMALL_MAX_QUERY_SIZE}
+
+        with patch("posthog.clickhouse.client.execute.default_settings", return_value=small_clickhouse_queries):
+            response = self.client.get(
+                self._url("results/"),
+                {
+                    "workflow_id": str(self.workflow_id),
+                    "event": "purchase",
+                    "date_from": (NOW - timedelta(days=1)).isoformat(),
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["recipients"] == 2
+        assert response.json()["converted"] == 1
+
     def _seed_impact_sends(self) -> None:
         create_person(team=self.team, distinct_ids=["clicker", "clicker-phone"])
         for name in ["early", "slow", "sent-two-days-late", "reader", "late", "bounced"]:
@@ -663,16 +691,26 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         small_clickhouse_queries = {**default_settings(), "max_query_size": SMALL_MAX_QUERY_SIZE}
 
-        with (
-            patch("posthog.clickhouse.client.execute.default_settings", return_value=small_clickhouse_queries),
-            patch(
-                "products.messaging.backend.services.transactional_email_log._BATCH_QUERY_BYTES",
-                SMALL_MAX_QUERY_SIZE // 4,
-            ),
-        ):
+        with patch("posthog.clickhouse.client.execute.default_settings", return_value=small_clickhouse_queries):
             impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert impact["without_click"] == {"sends": LONG_ID_SENDS, "converted": LONG_ID_SENDS}
+
+    def test_impact_follows_the_same_sends_when_several_tie_at_the_cap(self, _flag):
+        sends = []
+        for name in ["first", "second", "third"]:
+            create_person(team=self.team, distinct_ids=[name])
+            message_id = self._send(60, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
+            sends.append((message_id, name))
+        _, left_out = min(sends)
+        _create_event(team=self.team, event="purchase", distinct_id=left_out, timestamp=NOW - timedelta(minutes=30))
+        flush_persons_and_events()
+
+        with patch("products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", 2):
+            impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert impact["without_click"] == {"sends": 2, "converted": 0}
 
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
         self._seed_impact_sends()

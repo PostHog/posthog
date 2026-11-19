@@ -15,7 +15,8 @@ from zoneinfo import ZoneInfo
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, Workload
+from posthog.clickhouse.client import execute as clickhouse_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
@@ -59,7 +60,6 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
-_BATCH_QUERY_BYTES = MAX_QUERY_SIZE_BYTES // 4
 _DISTINCT_ID_COPIES_IN_QUERY = 3
 _SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
@@ -688,7 +688,8 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
         )
         WHERE message_function_id = %(workflow_id)s AND delivery_status != ''
           AND (was_clicked OR delivery_status IN ('delivered', 'complained'))
-        ORDER BY queued_at DESC
+        -- The message id breaks a tie in queue time, so every load follows the same sends at the cap.
+        ORDER BY queued_at DESC, toString(message_id) DESC
         LIMIT %(limit)s BY was_clicked
         """,
         {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
@@ -722,11 +723,13 @@ def _converted_sends(team: Team, user: User | None, event: str, sends: list[_Fol
 
 
 def _batches_by_query_size[T](items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
+    # Read per call so a batch follows the max_query_size its query runs with; a quarter leaves room for the rest.
+    budget = clickhouse_execute.default_settings()["max_query_size"] // 4
     batch: list[T] = []
     batch_bytes = 0
     for item in items:
         item_bytes = query_bytes_of(item)
-        if batch and batch_bytes + item_bytes > _BATCH_QUERY_BYTES:
+        if batch and batch_bytes + item_bytes > budget:
             yield batch
             batch, batch_bytes = [], 0
         batch.append(item)
