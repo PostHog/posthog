@@ -93,8 +93,8 @@ const evidence = (changes: Partial<BarEvidence>): BarEvidence => ({
 })
 
 const HELD: BarResult[] = [
-    { name: 'writer_cpu_under', unit: '%', passed: true },
-    { name: 'pickup_p99_under', unit: 's', passed: true },
+    { name: 'writer_cpu_under', unit: '%', limit: 70, passed: true },
+    { name: 'pickup_p99_under', unit: 's', limit: 5, passed: true },
 ]
 
 const broke = (bar: 0 | 1, scale: number, atS: number, value: number, key?: string, offered = scale): BarResult => ({
@@ -287,6 +287,6 @@ describe('judgeBars', () => {
 
         const [, pickup] = judgeBars([BARS[0], { ...BARS[1], params: { ...BARS[1].params, seconds } }], overflowing)
 
-        expect(pickup).toEqual(expected)
+        expect(pickup).toEqual({ ...expected, limit: seconds })
     })
 })
