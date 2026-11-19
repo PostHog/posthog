@@ -5,6 +5,7 @@ function a test can call without Temporal.
 """
 
 import datetime as dt
+from collections.abc import Callable
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -81,4 +82,4 @@ class TracesAlertEvaluateWorkflow(PostHogWorkflow):
 
 
 TRACES_ALERT_EVALUATION_WORKFLOWS = [TracesAlertEvaluateWorkflow]
-TRACES_ALERT_EVALUATION_ACTIVITIES = [evaluate_traces_alerts_activity]
+TRACES_ALERT_EVALUATION_ACTIVITIES: list[Callable[..., object]] = [evaluate_traces_alerts_activity]

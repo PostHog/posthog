@@ -6,6 +6,8 @@ rules:
           - '/admin/console/organization_sign_in_panels.py'
           - '/admin/test_organization_sign_in_panels.py'
       owners: team-platform-features
+    - match: ['/user_analytics_deletion.py', '/test/test_user_analytics_deletion.py']
+      owners: team-platform-features
     - match: '/caching/'
       owners: team-analytics-platform
     - match: '/clickhouse/hcl/'
@@ -43,10 +45,6 @@ rules:
           - '/management/commands/backfill_code_review_scopes.py'
           - '/management/commands/test/test_backfill_code_review_scopes.py'
       owners: team-devex
-    - match:
-          - '/management/commands/rewrite_cohort_membership_queries.py'
-          - '/management/commands/test/test_rewrite_cohort_membership_queries.py'
-      owners: team-feature-flags
     - match: '/queries/'
       owners: team-analytics-platform
     - match: '/rbac/'
@@ -102,6 +100,20 @@ rules:
       owners: team-apm
     - match: '/test/repo_invariants/test_temporal_workflow_catalog.py'
       owners: team-cloud-foundations
+    - match: '/test/repo_invariants/test_warehouse_source_generated_config_inputs.py'
+      owners: team-warehouse-sources
+    - match:
+          - '/test/repo_invariants/test_email_http_templates.py'
+          - '/test/repo_invariants/test_message_preference_styles.py'
+      owners: team-workflows
+    - match: '/test/repo_invariants/test_ai_observability_sample_traces.py'
+      owners: team-ai-observability
+    - match: '/test/repo_invariants/test_aeo_mcp_tools.py'
+      owners: team-web-analytics
+    - match: '/test/repo_invariants/test_person_metadata_fields.py'
+      owners: team-data-tools
+    - match: '/test/repo_invariants/test_billing_usage_keys.py'
+      owners: team-billing
     - match:
           - '/security/test/test_*.py'
       owners: team-security

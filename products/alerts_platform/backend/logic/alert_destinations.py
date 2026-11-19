@@ -14,7 +14,7 @@ from uuid import UUID
 from django.db import models, transaction
 
 from products.alerts_platform.backend.delivery.addresses import refused_destination
-from products.alerts_platform.backend.delivery.destinations import live_hog_function_ids
+from products.alerts_platform.backend.delivery.destinations import copies_of_live_hog_functions
 from products.alerts_platform.backend.facade.contracts import (
     DESTINATION_EVENT_KINDS,
     AlertDestinationData,
@@ -161,6 +161,68 @@ def enabled_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple
         .filter(configuration_id=configuration_id, enabled=True)
         .order_by("created_at", "id")
     )
+
+
+def delivery_test_destinations(*, team_id: int, public_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    """The rows a test message goes to: enabled ones that hear firings, on an alert the platform sends.
+
+    Subscriber rows are left out, because the source reaches its subscribers itself, and incident
+    managers, because a test pages nobody. A row that copies a live HogFunction is left to it, so a
+    test that also triggers the HogFunctions reaches that destination once."""
+    rows = [
+        _stored(row)
+        for row in AlertDestination.objects.for_team(team_id)
+        .filter(
+            configuration__in=_configurations_by_public_id(team_id, public_id).filter(
+                owner=PlatformAlertOwner.PLATFORM
+            ),
+            enabled=True,
+        )
+        .exclude(type__in=list(INCIDENT_DESTINATION_TYPES))
+        .order_by("created_at", "id")
+        if not _names_subscribers(row)
+    ]
+    rows = [row for row in rows if AlertEventKind.FIRING in row.event_kinds]
+    copies = copies_of_live_hog_functions(
+        team_id=team_id, copied_by_row={row.id: row.legacy_hog_function_ids for row in rows}
+    )
+    return tuple(row for row in rows if row.id not in copies)
+
+
+def standalone_destination_counts(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, int]:
+    """How many enabled rows of each alert no live HogFunction stands behind, by the alert's public id.
+
+    These are the destinations a source that counts its HogFunctions misses. A row that copies a live
+    HogFunction is that HogFunction's destination, by the rule delivery skips it with. Subscriber rows
+    are left out, because a source counts its subscribers apart. One read for the whole page."""
+    if not public_ids:
+        return {}
+    # The caller names the team, as `native_configuration_ids_by_source_config` takes it: a page of
+    # embedded alerts is read where no team scope resolves.
+    public_by_configuration = {
+        configuration_id: legacy_id or configuration_id
+        for configuration_id, legacy_id in PlatformAlertConfiguration.objects.unscoped()
+        .filter(PlatformAlertConfiguration.with_destination_alert_ids(public_ids), team_id=team_id)
+        .values_list("id", "legacy_configuration_id")
+    }
+    if not public_by_configuration:
+        return {}
+    rows = [
+        row
+        for row in AlertDestination.objects.unscoped().filter(
+            team_id=team_id, configuration_id__in=list(public_by_configuration), enabled=True
+        )
+        if not _names_subscribers(row)
+    ]
+    copies = copies_of_live_hog_functions(
+        team_id=team_id, copied_by_row={row.id: tuple(row.legacy_hog_function_ids or ()) for row in rows}
+    )
+    counts: dict[UUID, int] = {}
+    for row in rows:
+        if row.id not in copies:
+            public_id = public_by_configuration[row.configuration_id]
+            counts[public_id] = counts.get(public_id, 0) + 1
+    return counts
 
 
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
@@ -339,17 +401,18 @@ def record_source_destination(
     hog_function_groups: Sequence[AlertDestinationGroup],
     enabled: bool = True,
     keeps_legacy_webhook_body: bool = False,
+    only_while_platform_owned: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
-    destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
-    the alert's destinations itself: delivery then sends every row and emits to every HogFunction, so a
-    row beside these HogFunctions would send each message twice."""
-    configuration_id = (
-        _configurations_by_public_id(team_id, public_id)
-        .filter(destinations_owner=PlatformAlertOwner.SOURCE)
-        .values_list("id", flat=True)
-        .first()
-    )
+    destination outlives them. None when the platform has no alert under `public_id`. Delivery skips
+    the row while any of these HogFunctions exists, so the destination sends once.
+
+    With `only_while_platform_owned`, also None unless the platform evaluates the alert. The copy is
+    locked for the check, the lock a handback takes before it changes the owner."""
+    configurations = _configurations_by_public_id(team_id, public_id)
+    if only_while_platform_owned:
+        configurations = configurations.filter(owner=PlatformAlertOwner.PLATFORM).select_for_update()
+    configuration_id = configurations.values_list("id", flat=True).first()
     if configuration_id is None:
         return None
     (created,) = create_alert_destinations(
@@ -428,10 +491,10 @@ def source_destinations_without_hog_functions(*, team_id: int, public_id: UUID) 
         .order_by("created_at", "id")
         if not _names_subscribers(row)
     ]
-    live = live_hog_function_ids(
-        team_id=team_id, hog_function_ids={copied for row in rows for copied in row.legacy_hog_function_ids}
+    copies = copies_of_live_hog_functions(
+        team_id=team_id, copied_by_row={row.id: row.legacy_hog_function_ids for row in rows}
     )
-    return tuple(_stored(row) for row in rows if live.isdisjoint(row.legacy_hog_function_ids))
+    return tuple(_stored(row) for row in rows if row.id not in copies)
 
 
 def link_source_destination(*, team_id: int, destination_id: UUID, hog_function_ids: Collection[UUID]) -> None:

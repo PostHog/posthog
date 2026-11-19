@@ -16,7 +16,7 @@ const meta: Meta<typeof EvaluationsScene> = {
     parameters: {
         pageUrl: urls.aiObservabilityEvaluations(),
         mockDate: '2026-10-01',
-        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS, FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
+        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
         testOptions: { waitForSelector: '[data-attr="evaluation-template-scratch"]' },
     },
     decorators: [

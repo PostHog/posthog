@@ -204,6 +204,15 @@ The synchronous rdkafka calls (`committed_offsets`, `fetch_watermarks`)
 run on the blocking pool via `tokio::task::spawn_blocking` so a slow
 broker can't park the runtime thread.
 
+#### Cache fill after a warm
+
+With `CACHE_FILL_LOOKBACK_SECS` above zero, a newly warmed partition
+refills its cache in the background from the changelog below the warm's
+start offset, newest records first (`fill_source` in `src/warming.rs`).
+It inserts only a person the partition has not put since the warm began,
+and stops at the lookback bound, at 90% of the cache budget, or when the
+partition is released.
+
 #### vNode ownership
 
 The pod participates in `personhog-coordination`'s handoff protocol

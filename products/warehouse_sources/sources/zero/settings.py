@@ -134,6 +134,30 @@ ENDPOINT_CONFIGS: dict[str, ZeroEndpointConfig] = {
         table_name="sequence_steps",
         incremental_fields=_datetime_incremental_fields(),
     ),
+    "Sequences": ZeroEndpointConfig(
+        name="Sequences",
+        path="/api/sequences",
+        table_name="sequences",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "Products": ZeroEndpointConfig(
+        name="Products",
+        path="/api/products",
+        table_name="products",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "CustomActivities": ZeroEndpointConfig(
+        name="CustomActivities",
+        path="/api/customActivities",
+        table_name="custom_activities",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "CustomActivityTypes": ZeroEndpointConfig(
+        name="CustomActivityTypes",
+        path="/api/customActivityTypes",
+        table_name="custom_activity_types",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
 }
 
 ENDPOINTS: tuple[str, ...] = tuple(ENDPOINT_CONFIGS.keys())

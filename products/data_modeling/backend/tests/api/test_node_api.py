@@ -551,6 +551,33 @@ class TestNodeViewSet(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("materialize", "post", "materialize/", None),
+            ("set_a_cadence", "patch", "", {"sync_frequency": "24hour"}),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_view_that_names_the_window_start_passes_the_read_access_check(
+        self, _name, method, path, payload, mock_sync_connect, _reconcile
+    ):
+        mock_sync_connect.return_value = AsyncMock()
+        self.saved_query.query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT event, timestamp FROM events "
+            "WHERE timestamp >= ifNull({incremental_window_start}, toDateTime('1970-01-01'))",
+        }
+        self.saved_query.save()
+
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/{path}",
+            data=payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    @parameterized.expand(
+        [
             ("materialize", {}, DataModelingJob.Status.COMPLETED, status.HTTP_200_OK),
             ("run", {"direction": "downstream"}, DataModelingJob.Status.COMPLETED, status.HTTP_200_OK),
             ("materialize", {}, DataModelingJob.Status.RUNNING, status.HTTP_409_CONFLICT),

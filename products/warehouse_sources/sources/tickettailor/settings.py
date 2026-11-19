@@ -15,7 +15,8 @@ class TicketTailorEndpointConfig:
     # Ticket Tailor object ids are prefixed and globally unique within a box office
     # (e.g. "or_123", "it_456"), so `id` is a safe primary key.
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
-    # The stores list documents no `limit` parameter, so it is not sent there.
+    # Some lists (stores, checkout forms) document no `limit` parameter, so it is not sent there.
+    # A fan-out child sets it to match its parent, because the helper applies one page size param to both.
     sends_limit: bool = True
     fanout: Optional[DependentEndpointConfig] = None
     page_size: int = PAGE_SIZE
@@ -69,6 +70,36 @@ TICKET_TAILOR_ENDPOINTS: dict[str, TicketTailorEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "event_series_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "event_series_overrides": TicketTailorEndpointConfig(
+        name="event_series_overrides",
+        path="/v1/event_series/{event_series_id}/overrides",
+        # Override rows do not name their series, so the series id comes from the parent.
+        primary_keys=["event_series_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="event_series",
+            resolve_param="event_series_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "event_series_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Neither the checkout forms list nor its elements list documents a `limit` parameter.
+    "checkout_forms": TicketTailorEndpointConfig(name="checkout_forms", path="/v1/checkout_forms", sends_limit=False),
+    "checkout_form_elements": TicketTailorEndpointConfig(
+        name="checkout_form_elements",
+        path="/v1/checkout_forms/{checkout_form_id}/elements",
+        primary_keys=["checkout_form_id", "id"],
+        sends_limit=False,
+        fanout=DependentEndpointConfig(
+            parent_name="checkout_forms",
+            resolve_param="checkout_form_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "checkout_form_id"},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

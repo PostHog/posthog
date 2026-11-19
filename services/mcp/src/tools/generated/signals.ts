@@ -877,6 +877,7 @@ const inboxReportsList = (): ToolBase<
                 include_source_metadata: params.include_source_metadata,
                 include_unlisted: params.include_unlisted,
                 limit: params.limit,
+                needs_you: params.needs_you,
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
@@ -892,6 +893,7 @@ const inboxReportsList = (): ToolBase<
                 source_product: params.source_product,
                 status: params.status,
                 suggested_reviewers: params.suggested_reviewers,
+                tags: params.tags,
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
                 unclaimed: params.unclaimed,
@@ -908,6 +910,7 @@ const inboxReportsList = (): ToolBase<
                     'title',
                     'summary',
                     'metrics',
+                    'tags',
                     'status',
                     'priority',
                     'actionability',
@@ -1673,6 +1676,12 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
+        }
         if (params.lifecycle_locked !== undefined) {
             body['lifecycle_locked'] = params.lifecycle_locked
         }
@@ -1876,6 +1885,12 @@ const scoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
@@ -2839,6 +2854,32 @@ const scoutRunsRetrieve = (): ToolBase<ReturnType<typeof ScoutRunsRetrieveSchema
     },
 })
 
+const ScoutScratchpadDiscardSchema = () => {
+    const SignalsScoutScratchpadDiscardBody = orvalSchemas.SignalsScoutScratchpadDiscardBody()
+    return SignalsScoutScratchpadDiscardBody
+}
+
+const scoutScratchpadDiscard = (): ToolBase<
+    ReturnType<typeof ScoutScratchpadDiscardSchema>,
+    Schemas.ForgetResponse
+> => ({
+    name: 'scout-scratchpad-discard',
+    schema: ScoutScratchpadDiscardSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutScratchpadDiscardSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        const result = await context.api.request<Schemas.ForgetResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/discard/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutScratchpadForgetSchema = () => {
     const SignalsScoutScratchpadForgetBody = orvalSchemas.SignalsScoutScratchpadForgetBody()
     return SignalsScoutScratchpadForgetBody
@@ -2887,6 +2928,9 @@ const scoutScratchpadRemember = (): ToolBase<
         }
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
+        }
+        if (params.if_updated_at !== undefined) {
+            body['if_updated_at'] = params.if_updated_at
         }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
@@ -3297,6 +3341,12 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
+        }
         if (params.lifecycle_locked !== undefined) {
             body['lifecycle_locked'] = params.lifecycle_locked
         }
@@ -3471,6 +3521,12 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
@@ -3973,6 +4029,9 @@ const signalsScoutScratchpadRemember = (): ToolBase<
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
         }
+        if (params.if_updated_at !== undefined) {
+            body['if_updated_at'] = params.if_updated_at
+        }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -4095,6 +4154,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-runs-list': scoutRunsList,
     'scout-runs-recent-emissions': scoutRunsRecentEmissions,
     'scout-runs-retrieve': scoutRunsRetrieve,
+    'scout-scratchpad-discard': scoutScratchpadDiscard,
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,

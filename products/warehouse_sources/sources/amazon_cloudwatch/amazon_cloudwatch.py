@@ -46,6 +46,7 @@ from products.warehouse_sources.sources.sdk import (
     NO_RETRY,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     capture_exception,
     interruptible_wait,
     make_tracked_session,
@@ -69,7 +70,6 @@ THROTTLING_ERROR_CODES = frozenset(
     }
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 ALARM_TYPES = ["CompositeAlarm", "MetricAlarm"]
 
@@ -118,13 +118,8 @@ class TimeWindow:
     end: dt.datetime
 
 
-def _snake(name: str) -> str:
-    """`AlarmConfigurationUpdatedTimestamp` -> `alarm_configuration_updated_timestamp`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
-
-
 def _snake_keys(obj: dict[str, Any]) -> dict[str, Any]:
-    return {_snake(key): value for key, value in obj.items()}
+    return {camel_to_snake(key): value for key, value in obj.items()}
 
 
 def _from_millis(value: Any) -> Optional[dt.datetime]:

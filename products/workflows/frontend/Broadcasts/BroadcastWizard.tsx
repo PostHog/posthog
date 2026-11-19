@@ -32,7 +32,9 @@ export function BroadcastWizard(): JSX.Element {
     const realtimeCohort = blastRadius?.realtime_cohort
     const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast, openInWorkflowEditor } =
         useActions(broadcastWizardLogic)
-    const { broadcastId, broadcast, sourceRecord } = useValues(broadcastWizardLogic)
+    const { broadcastId, broadcast, sourceRecord, aiEmailDraftLoading } = useValues(broadcastWizardLogic)
+    // Saving the first time opens the saved broadcast, which drops a draft that hasn't arrived yet.
+    const draftBlockedReason = aiEmailDraftLoading ? 'AI is still writing the email' : null
     useBroadcastAgentPanel()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -109,6 +111,7 @@ export function BroadcastWizard(): JSX.Element {
                             currentStep={currentStep}
                             onStepClick={setStep}
                             stepErrors={stepValidationErrors}
+                            forwardBlockedReason={draftBlockedReason}
                         />
                     </div>
                 </div>
@@ -161,7 +164,7 @@ export function BroadcastWizard(): JSX.Element {
                                         ? ((todayRailNav && currentStep === 'content'
                                               ? missingContentReason(stepValidationErrors.content)
                                               : undefined) ?? 'Fix errors before continuing')
-                                        : undefined
+                                        : draftBlockedReason
                                 }
                                 onClick={continueStep}
                                 data-attr="broadcast-wizard-continue"
