@@ -16,7 +16,7 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT, castTimestampOrNow } from '~/common/utils/utils'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
-import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '~/types'
+import { PluginServerMode, PluginsServerConfig, TimestampFormat } from '~/types'
 
 import { Clickhouse } from '../helpers/clickhouse'
 import { waitForExpect } from '../helpers/expectations'
@@ -144,12 +144,9 @@ describe('postgres parity', () => {
 
     test('createPerson', async () => {
         const uuid = new UUIDT().toString()
-        const ts = DateTime.now().toString()
         const result = await personRepository.createPerson(
             DateTime.utc(),
             { userPropOnce: 'propOnceValue', userProp: 'propValue' },
-            { userProp: ts, userPropOnce: ts },
-            { userProp: PropertyUpdateOperation.Set, userPropOnce: PropertyUpdateOperation.SetOnce },
             teamId,
             null,
             true,
@@ -201,14 +198,6 @@ describe('postgres parity', () => {
                     userProp: 'propValue',
                     userPropOnce: 'propOnceValue',
                 },
-                properties_last_updated_at: {
-                    userProp: expect.any(String),
-                    userPropOnce: expect.any(String),
-                },
-                properties_last_operation: {
-                    userProp: PropertyUpdateOperation.Set,
-                    userPropOnce: PropertyUpdateOperation.SetOnce,
-                },
                 team_id: teamId,
                 is_user_id: null,
                 is_identified: true,
@@ -246,8 +235,6 @@ describe('postgres parity', () => {
         const result = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
-            { userProp: PropertyUpdateOperation.Set },
-            {},
             teamId,
             null,
             false,
@@ -347,8 +334,6 @@ describe('postgres parity', () => {
         const result = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
-            { userProp: PropertyUpdateOperation.Set },
-            {},
             teamId,
             null,
             true,
@@ -370,8 +355,6 @@ describe('postgres parity', () => {
         const result2 = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
-            { userProp: PropertyUpdateOperation.Set },
-            {},
             teamId,
             null,
             true,
@@ -456,8 +439,6 @@ describe('postgres parity', () => {
         const result = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
-            { userProp: PropertyUpdateOperation.Set },
-            {},
             teamId,
             null,
             false,
@@ -478,8 +459,6 @@ describe('postgres parity', () => {
         const result2 = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
-            { userProp: PropertyUpdateOperation.Set },
-            {},
             teamId,
             null,
             true,

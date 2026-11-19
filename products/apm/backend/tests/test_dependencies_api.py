@@ -243,10 +243,11 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(("eu-web", "redis"), callees)
         self.assertTrue(callees > {("eu-web", "redis")})
 
-    def test_edge_cap_sets_truncated(self) -> None:
-        with patch("products.apm.backend.logic.health.dependencies.DEPENDENCY_EDGES_LIMIT", 1):
+    def test_edge_cap_keeps_service_edges_ahead_of_busier_inferred_ones(self) -> None:
+        # api -> web has as many requests as api's database calls, which sort ahead of it by name.
+        with patch("products.apm.backend.logic.health.dependencies.DEPENDENCY_EDGES_LIMIT", 2):
             data = self._get()
-        self.assertEqual(len(data["edges"]), 1)
+        self.assertEqual([(e["caller"], e["callee"]) for e in data["edges"]], [("web", "api"), ("api", "web")])
         self.assertTrue(data["truncated"])
 
     def test_too_many_bytes_is_a_validation_error(self) -> None:

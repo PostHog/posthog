@@ -4,9 +4,11 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.integration import Integration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError
 
@@ -51,12 +53,15 @@ class TestProviderImportsAPI(APIBaseTest):
             ("with_cohort_write", ["hog_flow:write", "cohort:write"], ["automations"], False, 400),
             ("full_access_key", ["*"], ["automations"], False, 400),
             ("other_steps_need_no_cohort_write", ["hog_flow:write"], ["templates"], False, 400),
+            ("contacts_without_person_write", ["hog_flow:write", "cohort:write"], ["contacts"], False, 403),
+            ("new_people_without_cohort_write", ["hog_flow:write", "person:write"], ["new_people"], False, 403),
+            ("contacts_with_both", ["hog_flow:write", "cohort:write", "person:write"], ["contacts"], False, 400),
             ("domains_without_integration_write", ["hog_flow:write"], ["domain_setup"], True, 403),
             ("domains_as_a_member", ["hog_flow:write", "integration:write"], ["domain_setup"], False, 403),
             ("domains_as_an_admin", ["hog_flow:write", "integration:write"], ["domain_setup"], True, 400),
         ]
     )
-    def test_steps_that_write_elsewhere_need_the_access_for_it(
+    def test_steps_that_write_beyond_workflows_need_the_access_for_it(
         self,
         _mock_client_class: MagicMock,
         start_workflow: MagicMock,
@@ -77,6 +82,26 @@ class TestProviderImportsAPI(APIBaseTest):
             {"provider": "resend", "steps": steps, "api_key": "re_key"},
             HTTP_AUTHORIZATION=f"Bearer {key}",
         )
+
+        assert response.status_code == expected, response.json()
+        start_workflow.assert_not_called()
+
+    @parameterized.expand([("person_viewer", "viewer", 403), ("person_editor", "editor", 400)])
+    def test_importing_contacts_needs_person_edit_access(
+        self,
+        _mock_client_class: MagicMock,
+        start_workflow: MagicMock,
+        _name: str,
+        person_access: str,
+        expected: int,
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(team=self.team, resource="person", resource_id=None, access_level=person_access)
+
+        response = self.client.post(self._url(), {"provider": "resend", "steps": ["contacts"], "api_key": "re_key"})
 
         assert response.status_code == expected, response.json()
         start_workflow.assert_not_called()

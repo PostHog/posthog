@@ -60,6 +60,8 @@ export const INBOX_EVENTS = {
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
+    // Cloud-only for now: the desktop inbox shows no report tags.
+    REPORT_TAG_CLICKED: 'Inbox report tag clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
     INTERVIEW_INVITE_SHOWN: 'Inbox interview invite shown',
     INTERVIEW_INVITE_CLICKED: 'Inbox interview invite clicked',
@@ -185,6 +187,7 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
  * section instead). `expand_preview` is a Today list row opened in place, which no ranking head reads yet.
+ * `select_pull_request` is a pull request line chosen in the Status section of a report with several.
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
@@ -214,6 +217,7 @@ export type InboxReportActionType =
     | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
+    | 'select_pull_request'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -262,7 +266,7 @@ export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'fin
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'note' | 'priority' | 'repository' | 'retire_note' | 'state'
+export type InboxWrite = 'actionability' | 'claim' | 'note' | 'priority' | 'repository' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -270,6 +274,7 @@ export type InboxQueryChange =
     | 'sort'
     | 'source_product'
     | 'scout'
+    | 'tags'
     | 'priority'
     | 'state'
     | 'search'
@@ -500,6 +505,7 @@ export function captureInboxViewed(params: {
         personal_list_age_minutes: status?.age_minutes ?? null,
         personal_list_checked_age_minutes: status?.checked_age_minutes ?? null,
         personal_list_fallback_reason: status?.fallback_reason ?? null,
+        personal_list_building: status?.building ?? null,
         for_you_report_count: params.forYouReportCount,
         sort_field: params.sortField,
         ranker_id: params.rankerId,
@@ -535,7 +541,7 @@ export function captureInboxReportsImpressed(params: {
     rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
-    const personalSort = params.sortField === 'personal' || params.rankerId === 'personal'
+    const personalSort = params.rankerId === 'personal'
     if (params.rankingPill) {
         params.reports
             .filter((report) => rankingPillLifts(report) !== null)
@@ -587,9 +593,9 @@ export function captureInboxReportOpened(
         section: InboxReportSectionKey | null
         /** The ranker of the list the report was opened from. Null for other sorts and for a cold deep-link. */
         rankerId: string | null
-        /** The tier the card showed under the Personalized sort. Null for other sorts and for a cold deep-link. */
+        /** The tier the card showed under the personal order. Null for other orders and for a cold deep-link. */
         personalTier: string | null
-        /** Whether the card showed a personal ranking reason under the Personalized sort. */
+        /** Whether the card showed a personal ranking reason under the personal order. */
         personalReasonShown: boolean
     },
     /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
@@ -691,7 +697,7 @@ export function captureInboxRankingDetailsViewed(params: {
     head: string | null
     state: 'scored' | 'stale' | 'unscored'
     strength: string | null
-    /** The tier the card showed under the Personalized sort. Null for other sorts. */
+    /** The tier the card showed under the personal order. Null for other orders. */
     personalTier?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {
@@ -891,6 +897,28 @@ export function captureInboxReportSourceSuggestionClicked(params: { report: Sign
     captureInboxEvent(INBOX_EVENTS.REPORT_SOURCE_SUGGESTION_CLICKED, {
         ...baseReportProperties(params.report),
         product: params.product,
+    })
+}
+
+/** Where a report tag chip was clicked: a list row, or the report detail. */
+export type InboxReportTagSurface = 'card' | 'detail'
+
+/**
+ * A tag chip was clicked, which adds that tag to the Tags filter or removes it. The resulting query
+ * also fires `Inbox query changed`; this event says the chip, not the menu, was the way in.
+ */
+export function captureInboxReportTagClicked(params: {
+    report: SignalReport
+    surface: InboxReportTagSurface
+    added: boolean
+    tagFilterCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_TAG_CLICKED, {
+        ...baseReportProperties(params.report),
+        surface: params.surface,
+        added: params.added,
+        tag_count: params.report.tags?.length ?? 0,
+        tag_filter_count: params.tagFilterCount,
     })
 }
 
@@ -1196,6 +1224,7 @@ export function captureInboxQueryChanged(params: {
     sortDirection: string
     sourceProductFilter: string[]
     scoutFilter: string[]
+    tagFilter: string[]
     priorityFilter: string[]
     stateFilter: string[]
     searchQuery: string
@@ -1211,6 +1240,9 @@ export function captureInboxQueryChanged(params: {
         sort_direction: params.sortDirection,
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
+        // A count, not the tags: like the search term, a tag is written from the report's content and
+        // can name the customer's own entities.
+        tag_filter_count: params.tagFilter.length,
         priority_filter: params.priorityFilter,
         state_filter: params.stateFilter,
         has_search: search.length > 0,

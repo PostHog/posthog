@@ -70,6 +70,11 @@ import type {
     TransactionalEmailStatsApi,
     TransactionalEmailStatsOverTimeApi,
     WebhookUrlApi,
+    WorkflowEmailDetailApi,
+    WorkflowEmailListApi,
+    WorkflowEmailLogActivityRetrieveParams,
+    WorkflowEmailLogListParams,
+    WorkflowEmailLogRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1419,4 +1424,107 @@ export const transactionalEmailLogStatsOverTimeRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getWorkflowEmailLogListUrl = (projectId: string, params: WorkflowEmailLogListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_email_log/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_email_log/`
+}
+
+/**
+ * List the emails one workflow or broadcast sent, newest first. Sends are read from the workflow's run logs. The subject, the recipient's person, delivery, opens and clicks come from the `$workflows_email_*` events, which are only recorded while the project's engagement events setting is on.
+ * @summary List a workflow's email sends
+ */
+export const workflowEmailLogList = async (
+    projectId: string,
+    params: WorkflowEmailLogListParams,
+    options?: RequestInit
+): Promise<WorkflowEmailListApi> => {
+    return apiMutator<WorkflowEmailListApi>(getWorkflowEmailLogListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowEmailLogRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: WorkflowEmailLogRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_email_log/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_email_log/${id}/`
+}
+
+/**
+ * Get one email a workflow sent, with its delivery timeline. Sends are read from the workflow's run logs. The subject, the recipient's person, delivery, opens and clicks come from the `$workflows_email_*` events, which are only recorded while the project's engagement events setting is on.
+ * @summary Get a workflow email send
+ */
+export const workflowEmailLogRetrieve = async (
+    projectId: string,
+    id: string,
+    params: WorkflowEmailLogRetrieveParams,
+    options?: RequestInit
+): Promise<WorkflowEmailDetailApi> => {
+    return apiMutator<WorkflowEmailDetailApi>(getWorkflowEmailLogRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowEmailLogActivityRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: WorkflowEmailLogActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_email_log/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_email_log/${id}/activity/`
+}
+
+/**
+ * The recipient's events in the 7 days before and after one workflow email, with the sessions they belong to.
+ * @summary Get what a workflow email's recipient did around the send
+ */
+export const workflowEmailLogActivityRetrieve = async (
+    projectId: string,
+    id: string,
+    params: WorkflowEmailLogActivityRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailActivityApi> => {
+    return apiMutator<TransactionalEmailActivityApi>(getWorkflowEmailLogActivityRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
 }

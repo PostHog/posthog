@@ -1,0 +1,210 @@
+name: Revert proof
+
+# Proves that a pull request is a clean revert of one merged commit, and posts the "Revert proof"
+# check run on the pull request head. Everything here runs from the default branch: the
+# triggering run only names a head SHA, the pull request and the reverted commit are looked up
+# through the API, and git recomputes the revert from the merge base. Nothing from the pull
+# request tree is executed.
+# The prover is tools/change-prover, and the trigger is revert-proof-trigger.yml.
+
+on:
+    workflow_run:
+        workflows: [Revert proof trigger]
+        types: [completed]
+
+# The group is keyed by the proved head. `github.head_ref || github.ref` is the default branch on every
+# `workflow_run`, which would put all pull requests in one group and drop pending runs.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha }}
+    cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+    # The only job that reads the GitHub API. The trigger skips its job on a pull request whose
+    # title does not start with "Revert", and then this run does nothing.
+    identify:
+        name: Identify the pull request
+        # `prove` fetches without a credential, which only a public repository allows, so the
+        # private mirror posts no proof.
+        if: github.repository == 'PostHog/posthog' && github.event.workflow_run.conclusion == 'success'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            pr: ${{ steps.identify.outputs.pr }}
+            merge_base: ${{ steps.identify.outputs.merge_base }}
+            reverted: ${{ steps.identify.outputs.reverted }}
+            eligible: ${{ steps.identify.outputs.eligible }}
+            refused: ${{ steps.identify.outputs.refused }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      tools/change-prover
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Identify the pull request
+              id: identify
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  BASE_BRANCH: ${{ github.event.repository.default_branch }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+              run: uv run --frozen --project tools/change-prover python -I tools/change-prover/change_prover/__main__.py revert-identify
+
+    # git merges trees from the pull request here, so this job holds no permission and no step is
+    # given a token. `git merge-tree --merge-base` needs git 2.38, which the runner image has.
+    prove:
+        name: Prove the revert
+        needs: identify
+        if: needs.identify.outputs.eligible == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        permissions: {}
+        outputs:
+            files: ${{ steps.prove.outputs.files }}
+            blobs: ${{ steps.prove.outputs.blobs }}
+            refused: ${{ steps.prove.outputs.refused }}
+        steps:
+            # The prover reads the merge base, the head and the reverted commit from the object
+            # database, so the working tree only needs the prover itself.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      tools/change-prover
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Prove the revert
+              id: prove
+              env:
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  WORKFLOW_SHA: ${{ github.sha }}
+                  PULL_REQUEST: ${{ needs.identify.outputs.pr }}
+                  MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+                  REVERTED: ${{ needs.identify.outputs.reverted }}
+              run: uv run --frozen --project tools/change-prover python -I tools/change-prover/change_prover/__main__.py revert-prove
+
+    # The `revert-conclude` command in change_prover/core/conclusion.py decides the check run and
+    # whether the run fails. It runs here, with no environment and no token, so the job that holds
+    # the App key installs and runs nothing but `gh`. `publish` checks every job's result.
+    # hogli-lint: not-a-required-gate — decides the check run that `publish` posts
+    conclude:
+        name: Decide the Revert proof check
+        needs: [identify, prove]
+        # Most pull requests skip the trigger job, so the run posts no check for them. stamphog
+        # waits only for a check that a policy entry names, on a pull request that entry covers.
+        if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && github.event.workflow_run.conclusion == 'success' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        outputs:
+            check_run: ${{ steps.conclude.outputs.check_run }}
+            unproved: ${{ steps.conclude.outputs.unproved }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      tools/change-prover
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Decide the check run
+              id: conclude
+              env:
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  WORKFLOW_SHA: ${{ github.sha }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  IDENTIFY_RESULT: ${{ needs.identify.result }}
+                  IDENTIFY_PR: ${{ needs.identify.outputs.pr }}
+                  IDENTIFY_MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+                  IDENTIFY_ELIGIBLE: ${{ needs.identify.outputs.eligible }}
+                  IDENTIFY_REFUSED: ${{ needs.identify.outputs.refused }}
+                  PROVE_RESULT: ${{ needs.prove.result }}
+                  PROVE_FILES: ${{ needs.prove.outputs.files }}
+                  PROVE_BLOBS: ${{ needs.prove.outputs.blobs }}
+                  PROVE_REFUSED: ${{ needs.prove.outputs.refused }}
+              run: |
+                  set -euo pipefail
+                  # `revert-conclude` prints the check run, and exits 1 when the revert went unproved.
+                  unproved=0
+                  check_run="$(uv run --frozen --project tools/change-prover \
+                      python -I tools/change-prover/change_prover/__main__.py revert-conclude)" || unproved=$?
+                  {
+                      echo "unproved=$unproved"
+                      echo "check_run<<CHECK_RUN_JSON_EOF"
+                      echo "$check_run"
+                      echo "CHECK_RUN_JSON_EOF"
+                  } >> "$GITHUB_OUTPUT"
+
+    # hogli-lint: not-a-required-gate — posts the Revert proof check through the API, and its own job check gates nothing
+    publish:
+        name: Publish the Revert proof check
+        needs: [identify, prove, conclude]
+        if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && github.event.workflow_run.conclusion == 'success' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        environment: dependency-proof
+        steps:
+            # The dependency proof App publishes every lane of the change prover.
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              with:
+                  client-id: ${{ vars.DEPENDENCY_PROOF_APP_ID }}
+                  private-key: ${{ secrets.DEPENDENCY_PROOF_APP_PRIVATE_KEY }}
+                  permission-checks: write
+
+            - name: Create the check run
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  CHECK_RUN: ${{ needs.conclude.outputs.check_run }}
+                  UNPROVED: ${{ needs.conclude.outputs.unproved }}
+                  IDENTIFY_RESULT: ${{ needs.identify.result }}
+                  PROVE_RESULT: ${{ needs.prove.result }}
+                  CONCLUDE_RESULT: ${{ needs.conclude.result }}
+              run: |
+                  set -euo pipefail
+
+                  # An empty check run means `revert-conclude` itself broke. stamphog waits for a completed
+                  # check, so a neutral one that proves nothing is posted, and the run still fails.
+                  if [[ -z "$CHECK_RUN" ]]; then
+                      CHECK_RUN="$(jq -cn --arg head_sha "$HEAD_SHA" '{
+                          name: "Revert proof", head_sha: $head_sha, status: "completed", conclusion: "neutral",
+                          output: {title: "Not proved", summary: "The proof job failed before it decided."}
+                      }')"
+                      UNPROVED=1
+                  fi
+                  gh api --method POST "repos/$REPOSITORY/check-runs" --input - <<< "$CHECK_RUN" > /dev/null
+
+                  if [[ "$IDENTIFY_RESULT" != "success" ]]; then
+                      exit 1
+                  fi
+                  if [[ "$PROVE_RESULT" != "success" && "$PROVE_RESULT" != "skipped" ]]; then
+                      exit 1
+                  fi
+                  if [[ "$CONCLUDE_RESULT" != "success" && "$CONCLUDE_RESULT" != "skipped" ]]; then
+                      exit 1
+                  fi
+                  exit "${UNPROVED:-1}"

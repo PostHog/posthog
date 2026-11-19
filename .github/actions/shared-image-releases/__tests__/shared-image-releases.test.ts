@@ -1,7 +1,7 @@
 import {readFileSync} from 'fs'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
-import {Paths, POLICY_PATH, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
+import {ChangeStatus, Filter, Paths, POLICY_PATH, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
 
 const destination = {repository: 'posthog-temporal-workers/data-warehouse-metadata'}
 const source = 'posthog-cloud'
@@ -15,8 +15,21 @@ describe('shared-image publication bindings and fingerprints', () => {
     const channels = policy.images['posthog-cloud'].channels
     const bindings = bindChannels(policy, 'posthog-cloud')['posthog-cloud']
     expect(Object.keys(bindings).sort()).toEqual(Object.keys(channels).sort())
+    const base = policy.filters.sharedWorkerBase
+    const witnesses = [
+      '.dockerignore', 'Dockerfile', 'uv.lock',
+      'tools/hogli/pyproject.toml', 'packages/owners-yaml/pyproject.toml', 'packages/owners-yaml/README.md',
+      'packages/personhog-proto/pyproject.toml',
+      'posthog/management/commands/migrate.py', 'posthog/management/commands/migrate_clickhouse.py',
+      'posthog/migrations/0001_initial.py', 'posthog/clickhouse/migrations/0001_initial.py',
+      'products/access_control/backend/migrations/0001_initial.py'
+    ]
+    const files = witnesses.map(filename => ({filename, status: ChangeStatus.Modified}))
     for (const [name, channel] of Object.entries(channels)) {
       expect(bindings[name]).toEqual({repository: channel.repository})
+      expect({[channel.filter]: policy.filters[channel.filter].slice(0, base.length)}).toEqual({[channel.filter]: base})
+      const matched = new Filter(JSON.stringify({channel: policy.filters[channel.filter]})).match(files).channel
+      expect({[channel.filter]: matched.map(file => file.filename)}).toEqual({[channel.filter]: witnesses})
     }
 
     const workflow = yaml.load(readFileSync(path.join(repositoryRoot, '.github/workflows/container-images-cd.yml'), 'utf8')) as

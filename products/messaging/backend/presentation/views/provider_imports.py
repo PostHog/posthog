@@ -20,6 +20,7 @@ from posthog.permissions import TeamMemberStrictManagementPermission, get_authen
 from posthog.scopes.checks import scopes_not_covered
 
 from products.messaging.backend.facade.provider_imports import (
+    CONTACT_STEPS,
     DOMAIN_SETUP_STEP,
     IMPORT_PROVIDER_CHOICES,
     IMPORT_STEP_STATUS_CHOICES,
@@ -235,6 +236,19 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "Importing automations can create cohorts, so this key needs the cohort:write scope. "
                 "Leave out Automations, or use a key that has it."
             )
+        if CONTACT_STEPS & set(data["steps"]):
+            # Contacts create people and fill cohorts, like the people upload, so they need the same rights.
+            if (
+                scopes is not None
+                and "*" not in scopes
+                and scopes_not_covered(scopes, ["cohort:write", "person:write"])
+            ):
+                raise PermissionDenied(
+                    "Importing contacts writes people and cohorts, so this key needs the person:write and "
+                    "cohort:write scopes. Leave out Contacts, or use a key that has them."
+                )
+            if not self.user_access_control.check_access_level_for_resource("person", "editor"):
+                raise PermissionDenied("You need edit access to persons to import contacts.")
         if DOMAIN_SETUP_STEP in data["steps"]:
             # Adding a domain by hand needs these too, so the import can't add one for someone who couldn't.
             if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["integration:write"]):

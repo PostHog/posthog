@@ -28,6 +28,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportStepSpec,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.contacts import NEW_PEOPLE_STEP
 from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider, get_provider
 from products.messaging.backend.provider_imports.resend import DOMAIN_SETUP_STEP as DOMAIN_SETUP_STEP
 
@@ -36,6 +37,9 @@ PROVIDER_IMPORT_STATUS_CHOICES: list[tuple[str, str]] = [
     (value, str(label)) for value, label in ProviderImportStatus.choices
 ]
 IMPORT_STEP_STATUS_CHOICES: list[tuple[str, str]] = [(value, str(label)) for value, label in ImportStepStatus.choices]
+
+# Steps that write people and cohorts, so starting one needs the rights the people upload needs.
+CONTACT_STEPS = frozenset({"contacts", NEW_PEOPLE_STEP, "contact_properties"})
 
 
 class ProviderImportRejected(Exception):

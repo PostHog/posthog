@@ -13,23 +13,24 @@ The sections below use Resend as the example. For Postmark, also read [Postmark]
 
 ## What moves
 
-| Data                     | In PostHog                        | What the team does                                  |
-| ------------------------ | --------------------------------- | --------------------------------------------------- |
-| Suppression list         | Suppression list                  | Reads the summary                                   |
-| Unsubscribed contacts    | Opted out of all marketing email  | Nothing                                             |
-| Topics and topic choices | Marketing categories and opt-outs | Checks topics that only send to people who opted in |
-| Templates                | Library templates, keyed by alias | Fixes what the notes mention, then sends a test     |
-| Automations              | Draft workflows                   | Sends trigger events to PostHog, reviews, enables   |
-| Domains                  | A list, or senders if chosen      | Publishes new DNS records for each domain           |
+| Data                     | In PostHog                                      | What the team does                                  |
+| ------------------------ | ----------------------------------------------- | --------------------------------------------------- |
+| Suppression list         | Suppression list                                | Reads the summary                                   |
+| Contacts                 | People, matched by email, and one static cohort | Checks the people and the cohort                    |
+| Unsubscribed contacts    | Opted out of all marketing email                | Nothing                                             |
+| Topics and topic choices | Marketing categories and opt-outs               | Checks topics that only send to people who opted in |
+| Templates                | Library templates, keyed by alias               | Fixes what the notes mention, then sends a test     |
+| Automations              | Draft workflows                                 | Sends trigger events to PostHog, reviews, enables   |
+| Domains                  | A list, or senders if chosen                    | Publishes new DNS records for each domain           |
 
-API keys, webhooks, send history and stats stay with the old provider. Contacts never become people. Importing people has a separate list upload, and it creates billable events, so only mention it if the user asks.
+API keys, webhooks, send history and stats stay with the old provider. The `contacts` step fills in what the person whose email matches each contact lacks, without changing values PostHog already has, and `new_people` creates a person for each contact no one matches, with the email as the ID. Resend's `contact_properties` copies custom contact properties the same way. Each person written counts as one billable event.
 
 ## Steps
 
 1. **Confirm the project.** Read it with `project-get`, tell the user its name and id, and ask whether the data belongs there. If not, switch with `switch-project`.
 2. **Check for a running import.** `provider-imports-list`. A new start while one is active returns 409, so report on that run instead of asking for a key.
 3. **Get a key.** Resend has no read-only keys, so the import needs a full access key. Ask the user to create one at https://resend.com/api-keys, just for this import. Tell them PostHog only reads from their account and deletes the key when the run ends. Treat the key as a secret: don't repeat it, log it or write it to a file. They can also run the import themselves in the app under Workflows, Opt-outs, Import from another tool.
-4. **Choose the steps.** Take them all unless the user says otherwise, but leave out steps with `opt_in: true` until the user asks for them. `domain_setup` adds each domain Resend verified as a PostHog sender, so the imported templates and drafts can use it. It needs `integration:write` on a PostHog key with limited scopes. An organization can have three domains waiting for verification at a time, so domains past that come back as add later, once a domain verifies. Automations also need `cohort:write` on a PostHog key with limited scopes. On a refusal that names it, drop `automations` or ask the user for that scope. `topic_opt_outs` reads contacts one at a time, about 7,000 an hour. On a very large list, say so and offer to skip it. A run stops after 24 hours, about 150,000 contacts into that step. The next import from Resend continues from where it stopped, but only with the same key, so the user keeps the key until every step has finished.
+4. **Choose the steps.** Take them all unless the user says otherwise, but leave out steps with `opt_in: true` until the user asks for them. `domain_setup` adds each domain Resend verified as a PostHog sender, so the imported templates and drafts can use it. It needs `integration:write` on a PostHog key with limited scopes. An organization can have three domains waiting for verification at a time, so domains past that come back as add later, once a domain verifies. Before including `new_people`, tell the user how many contacts they have and that each new person counts as one event, and leave it out if they'd rather not create people. Automations also need `cohort:write` on a PostHog key with limited scopes, and `contacts`, `new_people` and `contact_properties` need `cohort:write` and `person:write`. On a refusal that names one, drop those steps or ask the user for that scope. `topic_opt_outs` and `contact_properties` read contacts one at a time, about 7,000 an hour each. On a very large list, say so and offer to skip it. The largest account an import takes, 250,000 contacts, needs about a day and a half for each of these steps, and a run can take up to four days. If a run stops early, the next import from Resend continues from where it stopped, but only with the same key, so the user keeps the key until every step has finished.
 5. **Start.** `provider-imports-create` with `provider`, `steps` and `api_key`.
 6. **Follow it.** Poll `provider-imports-get` every minute or so. A `running` step with a `last_error` is retrying by itself, so don't start again. Report each step's `counts`.
 7. **Handle failure.** `status: failed` means the key is gone too. Read `last_error`: a rejected key needs a new key, anything else can run again. Importing again adds what's missing and doesn't duplicate anything.
@@ -51,18 +52,21 @@ An address someone removed from the suppression list, a person opted back in, an
 
 ## Postmark
 
-Postmark has no automations and no contact list, so the steps are `streams`, `suppressions`, `domains` and `webhooks`. Postmark templates aren't imported yet.
+Postmark has no automations and no contact list, so the steps are `streams`, `suppressions`, `templates`, `domains` and `webhooks`.
 
-| Data                          | In PostHog                                                             | What the team does                                           |
-| ----------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Servers, message streams      | A list. A broadcast stream the team added becomes a marketing category | Chooses the category on marketing email that used the stream |
-| Hard bounces                  | Suppression list, blocks all email                                     | Reads the summary                                            |
-| Spam complaints               | Suppression list, blocks marketing email                               | Reads the summary                                            |
-| Added by the team or Postmark | Suppression list, blocks marketing email                               | Reads the summary                                            |
-| Unsubscribed                  | Opted out of all marketing email                                       | Nothing                                                      |
-| Domains, sender signatures    | A list only                                                            | Adds each domain and sender, and publishes new DNS records   |
-| Webhooks                      | A list only                                                            | Rebuilds them                                                |
+| Data                          | In PostHog                                                             | What the team does                                                |
+| ----------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Servers, message streams      | A list. A broadcast stream the team added becomes a marketing category | Chooses the category on marketing email that used the stream      |
+| Hard bounces                  | Suppression list, blocks all email                                     | Reads the summary                                                 |
+| Spam complaints               | Suppression list, blocks marketing email                               | Reads the summary                                                 |
+| Added by the team or Postmark | Suppression list, blocks marketing email                               | Reads the summary                                                 |
+| Unsubscribed                  | Opted out of all marketing email                                       | Nothing                                                           |
+| Templates and layouts         | Library templates, each with its own copy of its layout                | Fixes what the notes mention, chooses a sender, then sends a test |
+| Domains, sender signatures    | A list only                                                            | Adds each domain and sender, and publishes new DNS records        |
+| Webhooks                      | A list only                                                            | Rebuilds them                                                     |
 
-1. **Choose the token.** Postmark has no read-only tokens. A server token imports one server, and `domains` then reports that it needs the account token. The account token imports every live server and also lists domains and senders, but it can change everything in the account, so offer the choice and say that. Sandbox servers are skipped, because their suppressions aren't real.
+1. **Choose the token.** Postmark has no read-only tokens. A server token imports one server, and `domains` then reports that it needs the account token. The account token imports every live server and also lists domains and senders, but it can change everything in the account, so offer the choice and say that. Sandbox servers are skipped with an account token, because their suppressions aren't real. Their own server token imports them.
 2. **Say what changes.** Suppressions belong to one stream in Postmark and to the whole project in PostHog. `transactional_block_lost` counts people Postmark blocks on a transactional stream for a reason other than a hard bounce. PostHog still sends them transactional email, so say the number. Someone who unsubscribed from one broadcast stream is opted out of all marketing email.
-3. **Code.** Change the app's Postmark calls to PostHog's send API with the `sending-transactional-emails` skill. PostHog has no SMTP service, so an app sending over SMTP has to change to the API too.
+3. **Templates.** The key is the alias, with characters PostHog doesn't allow replaced by `-`, or `postmark-<id>` when there is no alias. When two servers share an alias, the later one gets `<alias>-<server id>`. Postmark's `TemplateModel` becomes `message_data` values read as `variables.<name>`. A template doesn't name a sender in Postmark, so choose one on each.
+4. **Rendering.** Layouts are copied into each template. Postmark copies style-block CSS onto elements when it sends and PostHog doesn't, and PostHog prints `true` where Postmark prints `True`, so send a test and check it.
+5. **Code.** Change the app's Postmark calls to PostHog's send API with the `sending-transactional-emails` skill. PostHog has no SMTP service, so an app sending over SMTP has to change to the API too.

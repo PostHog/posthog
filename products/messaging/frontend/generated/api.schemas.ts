@@ -1740,6 +1740,77 @@ export interface TransactionalEmailStatsOverTimeApi {
     previous: TransactionalEmailStatsCountsApi | null
 }
 
+export interface WorkflowEmailSendApi {
+    /** The workflow run that sent the email. */
+    invocation_id: string
+    /** The email step that sent it. A run can send one email per step. */
+    action_id: string
+    /** The workflow or broadcast that sent the email. */
+    workflow_id: string
+    /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
+    distinct_id: string
+    /** The address the email was sent to. */
+    recipient: string
+    /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
+    subject: string
+    /** When the email went to the provider. */
+    sent_at: string
+    /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** Whether the recipient opened the email in the week after the send. */
+    opened: boolean
+    /** Whether the recipient clicked a link in the email in the week after the send. */
+    clicked: boolean
+}
+
+export interface WorkflowEmailListApi {
+    /** Sends, newest first. */
+    results: WorkflowEmailSendApi[]
+    /** Whether another page follows. */
+    has_more: boolean
+    /** Whether the project records engagement events now. Sends made while it was off show no subject, delivery, opens or clicks. */
+    engagement_events_enabled: boolean
+}
+
+export interface WorkflowEmailDetailApi {
+    /** The workflow run that sent the email. */
+    invocation_id: string
+    /** The email step that sent it. A run can send one email per step. */
+    action_id: string
+    /** The workflow or broadcast that sent the email. */
+    workflow_id: string
+    /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
+    distinct_id: string
+    /** The address the email was sent to. */
+    recipient: string
+    /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
+    subject: string
+    /** When the email went to the provider. */
+    sent_at: string
+    /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** Whether the recipient opened the email in the week after the send. */
+    opened: boolean
+    /** Whether the recipient clicked a link in the email in the week after the send. */
+    clicked: boolean
+    /** The send, then deliveries, bounces, opens and clicks in the 7 days after it, oldest first. */
+    timeline: TransactionalEmailLogEventApi[]
+}
+
 export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
@@ -1947,4 +2018,48 @@ export type TransactionalEmailLogStatsOverTimeRetrieveParams = {
      * Only sends queued before this time. Defaults to now.
      */
     date_to?: string
+}
+
+export type WorkflowEmailLogListParams = {
+    /**
+     * Only sends at or after this time. Defaults to 7 days ago.
+     */
+    date_from?: string
+    /**
+     * Only sends before this time. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * The workflow or broadcast whose sends to list.
+     */
+    workflow_id: string
+}
+
+export type WorkflowEmailLogRetrieveParams = {
+    /**
+     * The email step that sent the email, the `action_id` of a send.
+     * @minLength 1
+     * @maxLength 200
+     */
+    action_id: string
+}
+
+export type WorkflowEmailLogActivityRetrieveParams = {
+    /**
+     * The email step that sent the email, the `action_id` of a send.
+     * @minLength 1
+     * @maxLength 200
+     */
+    action_id: string
 }

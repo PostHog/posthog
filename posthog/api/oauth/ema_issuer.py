@@ -135,7 +135,9 @@ def _ineligibility_reason(
 
 def ema_consent_context(user: User) -> dict[str, object]:
     """What the consent screen needs to name the organization and what approving turns on."""
-    memberships = list(OrganizationMembership.objects.filter(user=user).select_related("organization"))
+    memberships = list(
+        OrganizationMembership.objects.with_effective_level().filter(user=user).select_related("organization")
+    )
     domains = _verified_domains_by_organization(membership.organization_id for membership in memberships)
     organizations = []
     for membership in memberships:
@@ -146,7 +148,9 @@ def ema_consent_context(user: User) -> dict[str, object]:
                 "id": str(organization.id),
                 "name": organization.name,
                 "verified_domains": verified_domains,
-                "disabled_reason": _ineligibility_reason(user, organization, membership.level, verified_domains),
+                "disabled_reason": _ineligibility_reason(
+                    user, organization, membership.effective_level, verified_domains
+                ),
             }
         )
     organizations.sort(key=lambda org: (org["disabled_reason"] is not None, str(org["name"]).lower()))
@@ -189,7 +193,8 @@ def validate_ema_grant(
     if access_level != OAuthApplicationAccessLevel.ORGANIZATION.value or len(scoped_organization_ids) != 1:
         raise EmaSetupError("invalid_request", "Choose exactly one organization to set up enterprise-managed auth.")
     membership = (
-        OrganizationMembership.objects.filter(user=user, organization_id=scoped_organization_ids[0])
+        OrganizationMembership.objects.with_effective_level()
+        .filter(user=user, organization_id=scoped_organization_ids[0])
         .select_related("organization")
         .first()
     )
@@ -197,7 +202,7 @@ def validate_ema_grant(
         raise EmaSetupError("access_denied", "You aren't a member of this organization.", status.HTTP_403_FORBIDDEN)
     organization = membership.organization
     verified_domains = _verified_domains_by_organization([organization.id]).get(str(organization.id), [])
-    reason = _ineligibility_reason(user, organization, membership.level, verified_domains)
+    reason = _ineligibility_reason(user, organization, membership.effective_level, verified_domains)
     if reason:
         raise EmaSetupError("access_denied", reason, status.HTTP_403_FORBIDDEN)
     return organization

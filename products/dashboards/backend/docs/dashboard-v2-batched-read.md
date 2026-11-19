@@ -30,8 +30,8 @@ Old and new pods read and write the same entries, so a mixed deploy is safe.
 
 Later in step 1:
 
-- **Tile key at save time.** Store each tile's cache key when the tile, its insight, the dashboard filters or a team setting that feeds the key changes. A read then skips rebuilding the query and, for SQL tiles, parsing it.
-- **One `MGET` per board.** With stored keys, every tile's entry comes back in one round trip.
+- **One `MGET` per board.** The endpoint plans every viewable tile first: it builds the tile's query runner the way the insight endpoint does and computes its cache key once. Every planned key is then read in one round trip (`mget_nonatomic` on Redis Cluster, which sends one `MGET` per hash slot in a single pipeline). S3 pointer entries are resolved concurrently. Each tile then runs its planned runner, which reads its entry from that batch instead of Redis. A tile that fails to plan runs unplanned, as before, and reports its own error. Both passes run inside the shared tile work of a dashboard load (`shared_tile_work`): warehouse lookups for the keys happen once per request, and one write records every tile's cache read.
+- **Tile key at save time.** Store each tile's cache key when the tile, its insight, the dashboard filters or a team setting that feeds the key changes. A read then skips rebuilding the query and, for SQL tiles, parsing it. Key building is a small part of a cached read, so this waits until a profile says otherwise.
 - **Results-only entries.** Debug fields such as `hogql`, `clickhouse` and `timings` stay out of what dashboards read.
 - **Own worker pool for hits,** so cache hits don't queue behind long-running queries.
 
@@ -46,6 +46,9 @@ Cached results must never cross a permission boundary. Each check matches the pe
 
 The first PR reuses `InsightSerializer.insight_result` for each tile, the same code the insight endpoint runs.
 The key inputs, filter layering, variables and access snapshot therefore can't drift between the two paths.
+Planning keeps this property: `InsightSerializer.plan_query` reads the same request inputs as `insight_result`, and the planned runner is the one that runs, so the key that was read is the key the runner computed.
+`plan_query_dict` and `process_query_dict` find and configure the runner through the same two helpers, `_find_query_runner` and `_configure_query_runner`.
+A parity test checks that both produce the same runner and cache key for the same tile, including for a member with restricted properties.
 The stored-key work must keep this property: a stored key has to include an access fingerprint, which is checked on read before an entry is served.
 
 ## Fallback on miss
@@ -57,7 +60,7 @@ If the endpoint fails as a whole (flag off, 5xx), the client falls back to per-t
 
 1. Backend endpoint, flag-gated and unused (this PR).
 2. Frontend: on boards in `dashboard-v2` projects, read all visible cached tiles in one request, then fall back per tile on misses.
-3. Stored tile keys and `MGET`, then results-only entries, then a separate pool for hits.
+3. One `MGET` per board, then results-only entries, then a separate pool for hits. Stored tile keys only if key building becomes the cost.
 
 Each step is measured before and after: time to paint cached tiles, and Postgres queries per batched request, which must stay flat as the tile count grows.
 

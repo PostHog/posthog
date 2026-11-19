@@ -96,8 +96,17 @@ from products.signals.backend.report_search import (
     ReportMatchKind,
 )
 from products.signals.backend.reviewer_rules import ReviewerRules
+from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
-from products.signals.backend.source_filters import SourceFilterPreviewStatus, compile_source_filter
+from products.signals.backend.source_filters import (
+    SourceFilterPreviewStatus,
+    SourceFilterRunState,
+    SourceKey,
+    compile_source_filter,
+    filter_run_status,
+    filter_state_rows,
+    saved_filter_fingerprint,
+)
 from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -142,6 +151,7 @@ from .models import (
     SignalReportTrackerIssue,
     SignalReportWorkState,
     SignalSourceConfig,
+    SignalSourceFilterState,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -289,12 +299,59 @@ class _SourceConfigField(serializers.JSONField):
 SIGNAL_SOURCE_CONFIG_STATUSES = ["running", "completed", "failed"]
 
 
+class SourceFilterRunStatusSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=SourceFilterRunState.choices,
+        help_text=(
+            "`failing` when the last fetch of this source's records failed because of its saved filter or the "
+            "query it builds. Nothing from the source reaches the inbox until a fetch succeeds, and the next "
+            "successful fetch reads the missed records again. `ok` otherwise."
+        ),
+    )
+    error_code = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the last fetch failed, such as `unknown_field`, `type`, `catalog_missing` or `query_failed`. "
+            "Null unless `state` is `failing`."
+        ),
+    )
+    error_message = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "A readable explanation of the failure, or the error type for a failed query. It never carries "
+            "record values. Null unless `state` is `failing`."
+        ),
+    )
+    failed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the most recent failure happened. Null unless `state` is `failing`."
+    )
+    unread_since = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Records created since this time wait to be read again once a fetch succeeds. Null when none wait.",
+    )
+    last_success_at = serializers.DateTimeField(
+        allow_null=True, help_text="When a fetch of this source last succeeded with the filter. Null if never."
+    )
+    malformed_count = serializers.IntegerField(
+        help_text=(
+            "Records in the last successful fetch that the filter excluded because a field it reads held a value "
+            "that could not be read."
+        ),
+    )
+
+
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField(
         help_text=(
             "Sync state of the warehouse import behind this source: `running`, `failed`, or "
             "`completed`. Null for a source that imports nothing from the warehouse, for an "
             "import that has never synced, and when the sync state could not be read."
+        ),
+    )
+    filter_status = serializers.SerializerMethodField(
+        help_text=(
+            "How emission last went for this source's saved `hogql_filter`. Null when the source has no saved "
+            "filter, or before the first fetch with it."
         ),
     )
     config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
@@ -323,13 +380,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "status",
+            "filter_status",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "status"]
+        read_only_fields = ["id", "created_at", "updated_at", "status", "filter_status"]
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         # Absent key means "not read yet", a `None` value means the read failed.
         self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, set[str]] | None] = {}
+        # Absent key means "not read yet", a `None` value means the read failed.
+        self._filter_state_rows_by_team: dict[int, dict[SourceKey, list[SignalSourceFilterState]] | None] = {}
 
     @extend_schema_field(serializers.ChoiceField(choices=SIGNAL_SOURCE_CONFIG_STATUSES, allow_null=True))
     def get_status(self, obj: SignalSourceConfig) -> str | None:
@@ -352,6 +412,31 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
+
+    @extend_schema_field(SourceFilterRunStatusSerializer(allow_null=True))
+    def get_filter_status(self, obj: SignalSourceConfig) -> dict | None:
+        # A removed filter leaves its state rows behind, so only a source that has a filter now reports one.
+        if not isinstance(obj.config, dict) or HOGQL_FILTER_KEY not in obj.config:
+            return None
+        # DRF reuses one child serializer across a list, so the first row reads every row's state in one query.
+        if obj.team_id not in self._filter_state_rows_by_team:
+            self._filter_state_rows_by_team[obj.team_id] = self._read_filter_state_rows(obj.team_id)
+        rows_by_source = self._filter_state_rows_by_team[obj.team_id]
+        if rows_by_source is None:
+            return None
+        rows = rows_by_source.get(SourceKey(source_product=obj.source_product, source_type=obj.source_type), [])
+        # Only results from the filter saved now count. An edited filter reports nothing until it has run.
+        run_status = filter_run_status(rows, filter_fingerprint=saved_filter_fingerprint(obj.config[HOGQL_FILTER_KEY]))
+        return SourceFilterRunStatusSerializer(run_status).data if run_status else None
+
+    @staticmethod
+    def _read_filter_state_rows(team_id: int) -> dict[SourceKey, list[SignalSourceFilterState]] | None:
+        # Like the sync status, a failed warehouse read reports no filter status and keeps the response a 200.
+        try:
+            return filter_state_rows(team_id)
+        except Exception as exc:
+            capture_exception(exc)
+            return None
 
     def _data_import_statuses(self, team_id: int) -> dict[_DataImportSchema, set[str]] | None:
         """Sync statuses of every data-import source on a team, keyed as `_DATA_IMPORT_SOURCE_MAP` values.
@@ -2272,6 +2357,36 @@ class SignalReportPriorityUpdateSerializer(serializers.Serializer):
     )
 
 
+class SignalReportActionabilityUpdateSerializer(serializers.Serializer):
+    # A string like the flat `actionability` field, for the reason `ReportActionabilityDecisionSerializer` gives.
+    actionability = serializers.CharField(
+        required=False,
+        help_text=(
+            "`immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current "
+            "value. Required when the report has no actionability yet."
+        ),
+    )
+    already_addressed = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to "
+            "keep the current value."
+        ),
+    )
+
+    def validate_actionability(self, value: str) -> str:
+        if value not in {choice.value for choice in ActionabilityChoice}:
+            raise serializers.ValidationError(
+                "Use `immediately_actionable`, `requires_human_input`, or `not_actionable`."
+            )
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        if "actionability" not in attrs and "already_addressed" not in attrs:
+            raise serializers.ValidationError("Set `actionability`, `already_addressed`, or both.")
+        return attrs
+
+
 class SignalReportRepositoryUpdateSerializer(serializers.Serializer):
     repository = serializers.CharField(
         min_length=1,
@@ -3388,11 +3503,10 @@ class SignalReportListSerializer(SignalReportSerializer):
         help_text=(
             "Sort key from the ranker named by the list response's ranker field, for sort=recommended and "
             "sort=personal only. Lower keys rank first, so rows from several requests merge in the order of one "
-            "request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from "
-            "0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses "
-            "the priority rank only, from 0 (P0) to 5 (no priority). For the personal ranker, a report in the "
-            "stored personal ranking gets its position in that ranking from 0, and every other report gets the "
-            "number of those positions plus its key from the recommended ranker. Null for every other sort."
+            "request. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). For the "
+            "personal ranker, a report in the stored personal ranking gets its position in that ranking from 0, "
+            "and every other report gets the number of those positions plus its priority rank. Null for every "
+            "other sort."
         ),
     )
     personal_tier = serializers.SerializerMethodField(
@@ -3433,11 +3547,9 @@ class SignalReportListSerializer(SignalReportSerializer):
         return dict(ReportMonitoringSummarySerializer(summary).data)
 
     def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
-        ranker = self.context.get("inbox_ranker")
-        if ranker is None:
+        if not self.context.get("ranked_inbox_sort"):
             return None
-        score = None if ranker == "priority" else getattr(obj, f"inbox_ranking_{ranker}_score", None)
-        key = inbox_merge_key(ranker, score, getattr(obj, "inbox_priority_sort_rank", None))
+        key = inbox_merge_key(getattr(obj, "inbox_priority_sort_rank", None))
         personal_order: PersonalListOrder | None = self.context.get("personal_order")
         if personal_order is None:
             return key
@@ -3464,6 +3576,16 @@ class SignalReportSectionCountsSerializer(serializers.Serializer):
     reports = serializers.IntegerField(help_text="Ready reports without an implementation pull request.")
 
 
+class SignalReportTagOptionsSerializer(serializers.Serializer):
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The team's most-used report tags, most-used first, counted over its newest reports. "
+            "Empty when no report has tags."
+        ),
+    )
+
+
 class SignalReportFilterQuerySerializer(serializers.Serializer):
     exclude = RepeatedOrCommaSeparatedListField(
         child=serializers.UUIDField(),
@@ -3473,6 +3595,17 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
         help_text=(
             "Report ids to leave out of the results and counts, for example the reports a client already "
             "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
+        ),
+    )
+    tags = RepeatedOrCommaSeparatedListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        max_length=SignalReport.MAX_TAGS,
+        help_text=(
+            "Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, "
+            "for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` "
+            f"matches `on-call`. At most {SignalReport.MAX_TAGS}. Omit for reports with any tags or none."
         ),
     )
     include_unlisted = serializers.BooleanField(
@@ -3485,12 +3618,20 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
         ),
     )
 
+    def validate_tags(self, value: list[str]) -> list[str]:
+        if not value:
+            return []
+        tags = sorted({slug for raw in value if (slug := slugify_tag(raw))})
+        if not tags:
+            raise serializers.ValidationError("No usable tags in the filter once normalized to lowercase slugs.")
+        return tags
+
 
 class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
     ranking_id = serializers.UUIDField(
         required=False,
         help_text=(
-            "For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the "
+            "For sort=recommended and sort=personal when the ranker is personal: the ranking_id of the "
             "first page. Pass it on later pages, so a new personal "
             "ranking does not reorder them. When that ranking no longer exists, the latest one applies."
         ),
