@@ -181,10 +181,7 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual((data["sampled"], data["trace_count"]), (False, 7))
 
     def test_busy_window_reads_a_sample_of_whole_traces(self) -> None:
-        with (
-            patch("products.apm.backend.logic.health.sources.MAP_TRACE_LIMIT", 3),
-            patch("products.apm.backend.logic.health.dependencies.MAP_TRACE_LIMIT", 3),
-        ):
+        with patch("products.apm.backend.logic.health.sources.MAP_TRACE_LIMIT", 3):
             data = self._get()
         self.assertEqual((data["sampled"], data["trace_count"]), (True, 3))
         full = {(e["caller"], e["callee"], e["kind"]): e["requests"] for e in self._get()["edges"]}
