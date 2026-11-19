@@ -15,6 +15,7 @@ from products.access_control.backend.facade.testing import PropertyAccess, set_m
 from products.logs.backend.alert_check_query import AlertCheckQuery
 from products.logs.backend.anomaly_scan import TimeRange, fetch_bucket_counts
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.natural_language_query import gather_filter_context
 from products.logs.backend.pattern_diff import _first_seen_ever
 from products.logs.backend.series_bands import fetch_series_slot_rows
 from products.logs.backend.test.volume_rollup_fixtures import insert_logs_and_rollups, log_row
@@ -60,18 +61,23 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
         entries = [{"pattern": {"match_patterns": [_PATTERN]}}]
         return len(_first_seen_ever(self.team, query, entries, 1, _NOW, user=user) or {})
 
+    def _search_suggestion_count(self, service: str, user: User | None) -> int:
+        date_range = DateRange(date_from=_START.isoformat(), date_to=_NOW.isoformat())
+        return int(service in gather_filter_context(self.team, date_range, user).services)
+
     def _readers(self) -> dict[str, Callable[[str, User | None], int]]:
         return {
             "alert_check": self._alert_count,
             "anomaly_scan": self._anomaly_count,
             "series_bands": self._series_count,
             "pattern_first_seen": self._first_seen_count,
+            "search_suggestions": self._search_suggestion_count,
         }
 
     @parameterized.expand(
         [
             (reader, access)
-            for reader in ("alert_check", "anomaly_scan", "series_bands", "pattern_first_seen")
+            for reader in ("alert_check", "anomaly_scan", "series_bands", "pattern_first_seen", "search_suggestions")
             for access in ("restricted", "granted", "admin")
         ]
     )

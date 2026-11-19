@@ -35,7 +35,7 @@ from posthog.schema import (
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.llm.gateway_client import GatewayNotConfiguredError, build_openai_client, resolve_ai_gateway_config
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import LogFacetValuesQueryRunner
@@ -183,7 +183,7 @@ class NaturalLanguageQueryResult:
     dropped_count: int
 
 
-def gather_filter_context(team: Team, date_range: DateRange) -> FilterContext:
+def gather_filter_context(team: Team, date_range: DateRange, user: User | None = None) -> FilterContext:
     empty_group = PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[])
     # One row past the cap tells a complete list from a cut-off one.
     service_query = LogsQuery(
@@ -194,7 +194,7 @@ def gather_filter_context(team: Team, date_range: DateRange) -> FilterContext:
         limit=MAX_SERVICES + 1,
     )
     service_response = LogFacetValuesQueryRunner(
-        team=team, query=service_query, facet_field="service_name", facet_search=None
+        team=team, user=user, query=service_query, facet_field="service_name", facet_search=None
     ).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
     assert isinstance(service_response, LogsQueryResponse | CachedLogsQueryResponse)
     services = tuple(str(row["value"]) for row in service_response.results if row.get("value"))
@@ -202,6 +202,7 @@ def gather_filter_context(team: Team, date_range: DateRange) -> FilterContext:
     def attribute_keys(attribute_type: str) -> tuple[list[str], int]:
         result = LogAttributesQueryRunner(
             team=team,
+            user=user,
             query=LogAttributesQuery(
                 dateRange=date_range, attributeType=attribute_type, limit=MAX_ATTRIBUTE_KEYS, offset=0
             ),
@@ -418,10 +419,10 @@ def rank_candidates(
 
 
 def translate_natural_language_query(
-    team: Team, request_text: str, date_range: DateRange, *, distinct_id: str
+    team: Team, request_text: str, date_range: DateRange, *, distinct_id: str, user: User | None = None
 ) -> NaturalLanguageQueryResult:
     request_text = request_text.strip()[:MAX_REQUEST_CHARS]
-    context = gather_filter_context(team, date_range)
+    context = gather_filter_context(team, date_range, user)
     proposed = propose_candidates(request_text, context, date_range, team=team, distinct_id=distinct_id)
 
     candidates: list[FilterCandidate] = []

@@ -172,7 +172,7 @@ class LogsNaturalLanguageQueryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
 
         try:
             result = translate_natural_language_query(
-                self.team, serializer.validated_data["query"], date_range, distinct_id=str(user.distinct_id)
+                self.team, serializer.validated_data["query"], date_range, distinct_id=str(user.distinct_id), user=user
             )
         except NaturalLanguageQueryUnavailable:
             return Response(
