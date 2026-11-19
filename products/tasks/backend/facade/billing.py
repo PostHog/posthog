@@ -5,6 +5,7 @@ which may only import ``products.tasks`` through the facade (see tach.toml).
 """
 
 from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunTokenUsage
+from products.tasks.backend.logic.services.compute_quota import bills_compute_to_ai_credits
 from products.tasks.backend.logic.services.gateway_usage import (
     get_task_cost,
     get_task_run_cost,
@@ -41,6 +42,7 @@ __all__ = [
     "TaskTokenUsageUnavailable",
     "TASK_USAGE_SIGNATURE_HEADER",
     "TASK_USAGE_TIMESTAMP_HEADER",
+    "bills_compute_to_ai_credits",
     "get_billable_sandbox_compute_usage_by_team",
     "get_local_task_run_token_costs",
     "get_local_task_token_cost",

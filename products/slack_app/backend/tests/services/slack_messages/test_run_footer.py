@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import cast
@@ -21,8 +22,10 @@ from products.slack_app.backend.services.slack_messages import (
     reply_footer_block,
     viewer_has_code_access,
 )
+from products.tasks.backend.facade.billing import TaskUsage
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
+OWN_PLAN_STATE = {"runtime_adapter": "codex", "codex_model_access": "own-subscription", "codex_subscription_user_id": 7}
 
 
 class TestRunFooter(SimpleTestCase):
@@ -155,6 +158,35 @@ class TestLoadRunFooter(SimpleTestCase):
         )
 
         assert load_run_footer("run-1", integration_id=None).plan == expected
+
+    @parameterized.expand(
+        [
+            ("posthog_credits_with_billed_compute", {}, ["slack"], Decimal("1.25")),
+            ("posthog_credits_without_billed_compute", {}, [], Decimal("1.00")),
+            ("own_plan_pays_only_for_billed_compute", OWN_PLAN_STATE, ["slack"], Decimal("0.25")),
+            ("own_plan_without_billed_compute_shows_no_cost", OWN_PLAN_STATE, [], None),
+        ]
+    )
+    @patch("products.tasks.backend.facade.billing.get_task_usage")
+    @patch("products.tasks.backend.facade.api.get_task_run")
+    def test_thread_cost_adds_compute_only_while_the_origin_is_billed(
+        self, _name: str, state: dict, billed_origins: list[str], expected: Decimal | None, mock_get_run, mock_usage
+    ) -> None:
+        mock_get_run.return_value = SimpleNamespace(
+            id=uuid4(),
+            task_id=uuid4(),
+            team_id=1,
+            state=state,
+            created_by_id=None,
+            task_origin_product="slack",
+            task_created_at=datetime(2026, 11, 1, tzinfo=UTC),
+        )
+        mock_usage.return_value = TaskUsage(token_cost_usd=Decimal("1.00"), compute_cost_usd=Decimal("0.25"))
+
+        with self.settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=billed_origins):
+            footer = load_run_footer("run-1", integration_id=None, include_thread_cost=True)
+
+        assert footer.thread_cost_usd == expected
 
     @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
     def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
