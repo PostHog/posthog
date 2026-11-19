@@ -1,5 +1,5 @@
-// PROTOTYPE (branch prototype/sending-limits-ux): variant B, explain it. A warm-up bar, the 7 days that
-// decide every move, and a plain reason for each move up or down. Never merge.
+// PROTOTYPE (branch prototype/sending-limits-ux): variant B, explain it, on the action-list Reputation tab.
+// A warm-up bar, the 7 days that decide every move, and a plain reason for each move up or down. Never merge.
 import { IconCheck, IconTrending, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
@@ -7,11 +7,11 @@ import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
+import { ActionListShell } from './ActionListShell'
 import { AskForMore } from './AskForMore'
 import { BroadcastShell } from './BroadcastShell'
 import { PlanAnswers } from './PlanAnswers'
 import { PrototypeNote } from './PrototypeNote'
-import { ReputationShell } from './ReputationShell'
 import { BOUNCE_LIMIT, COMPLAINT_LIMIT, SendingState, SurfaceKey, sendDays } from './sendingLimitsPrototypeData'
 import { sendPlan } from './sendPlan'
 import { SetupShell } from './SetupShell'
@@ -201,11 +201,15 @@ export function VariantBExplain({ surface, state }: { surface: SurfaceKey; state
     }
     if (surface === 'reputation') {
         return (
-            <ReputationShell
+            <ActionListShell
                 renderKey={`B-${state.key}`}
                 state={state}
-                allowance={() => <WarmUpCard state={state} />}
-                banners={() => (state.key === 'blocked' ? <BlockedBanner state={state} /> : null)}
+                top={
+                    <>
+                        {state.key === 'blocked' && <BlockedBanner state={state} />}
+                        <WarmUpCard state={state} />
+                    </>
+                }
             />
         )
     }

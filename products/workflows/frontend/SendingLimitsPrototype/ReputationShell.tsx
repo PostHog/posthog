@@ -13,13 +13,31 @@ import { SendingState } from './sendingLimitsPrototypeData'
 
 let currentResponse: TeamEmailReputationResponseApi | null = null
 
-function reputationResponseFor(state: SendingState): TeamEmailReputationResponseApi {
+export function reputationResponseFor(state: SendingState): TeamEmailReputationResponseApi {
     const blocked = state.key === 'blocked'
     return {
         aws: {
             health: blocked ? 'suspended' : state.key === 'moved-down' ? 'warning' : 'healthy',
             sending_status: blocked ? 'DISABLED' : 'ENABLED',
-            findings: [],
+            findings: blocked
+                ? [
+                      {
+                          finding_type: 'COMPLAINT',
+                          impact: 'HIGH',
+                          description: 'Spam complaints are above the limit for this sender.',
+                          last_updated_at: '2026-12-09T08:00:00Z',
+                      },
+                  ]
+                : state.rates30d.sent > 0
+                  ? [
+                        {
+                            finding_type: 'BIMI',
+                            impact: 'LOW',
+                            description: 'No BIMI record, so inboxes show no brand logo.',
+                            last_updated_at: '2026-12-01T08:00:00Z',
+                        },
+                    ]
+                  : [],
         },
         reputation:
             state.rates30d.sent > 0
@@ -42,6 +60,20 @@ function reputationResponseFor(state: SendingState): TeamEmailReputationResponse
                           email_sending_paused_at: null,
                           email_sending_paused_reason: '',
                       },
+                      ...(state.key === 'moved-down'
+                          ? [
+                                {
+                                    hog_flow_id: '0199c0de-0000-7000-8000-000000000003',
+                                    hog_flow_name: 'Win back old trials',
+                                    emails_sent: 450,
+                                    bounce_rate: 0.071,
+                                    complaint_rate: 0,
+                                    email_sending_paused: false,
+                                    email_sending_paused_at: null,
+                                    email_sending_paused_reason: '',
+                                },
+                            ]
+                          : []),
                       {
                           hog_flow_id: '0199c0de-0000-7000-8000-000000000002',
                           hog_flow_name: 'Welcome series',
@@ -54,7 +86,24 @@ function reputationResponseFor(state: SendingState): TeamEmailReputationResponse
                       },
                   ]
                 : [],
-        isps: [],
+        isps:
+            state.rates30d.sent > 0
+                ? [
+                      ['Gmail', 0.45],
+                      ['Microsoft', 0.3],
+                      ['Yahoo', 0.15],
+                      ['Apple', 0.1],
+                  ].map(([isp, share]) => ({
+                      isp: isp as string,
+                      emails_sent: Math.round(state.rates30d.sent * (share as number)),
+                      delivery_rate: 1 - state.rates30d.bounce,
+                      bounce_rate: isp === 'Microsoft' ? state.rates30d.bounce * 2 : state.rates30d.bounce * 0.7,
+                      transient_bounce_rate: 0.004,
+                      complaint_rate: isp === 'Apple' ? null : state.rates30d.complaint,
+                      complaint_base: isp === 'Apple' ? 0 : Math.round(state.rates30d.sent * (share as number) * 0.9),
+                      unavailable: [],
+                  }))
+                : [],
         isp_shared_domains: [],
         isp_withheld_domains: [],
         sending_allowance: {

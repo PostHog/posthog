@@ -43,6 +43,12 @@ function Signal({ signal }: { signal: DomainCheck['signals'][number] }): JSX.Ele
             </span>
             <span className="w-40 shrink-0 font-semibold">{signal.label}</span>
             <span className="text-secondary">{signal.detail}</span>
+            {/* Spamhaus and similar lists charge for commercial lookups. */}
+            {signal.label === 'Blocklists' && (
+                <LemonTag type="muted" size="small">
+                    Needs a paid feed
+                </LemonTag>
+            )}
         </div>
     )
 }
@@ -71,6 +77,11 @@ function DomainCheckCard({ check, checkedOn }: { check: DomainCheck; checkedOn: 
                     {check.startPerDay === null
                         ? 'On hold'
                         : `${check.band === 'Established' ? 'Up to ' : ''}${fmt(check.startPerDay)} emails a day`}
+                </span>
+                <span className="text-xs text-secondary">
+                    {check.source === 'paid plan'
+                        ? 'Set by your paid plan. Paid plans start at tier 3.'
+                        : `Set by the domain check: ${check.band}.`}
                 </span>
                 <span className="text-sm">{check.verdict}</span>
             </div>
@@ -150,9 +161,11 @@ export function VariantDSetupCheck({ surface, state, domainProfile, setDomainPro
                     </div>
                 )}
                 <PrototypeNote>
-                    The check sits on the ready step, next to today's sending tips (below). It reads domain age, MX
-                    records, other senders in SPF and blocklists, and sorts the domain into Hold, Starter or
-                    Established. A failed lookup lands in Starter, and setup never fails on it.
+                    The check sits on the ready step, next to today's sending tips (below). Paying organizations start
+                    at tier 3, 10,000 a day, by the rule from PostHog/posthog#124520; this variant only shows it.
+                    Everyone else gets a band from the domain check: domain age, MX records, other senders in SPF and
+                    blocklists sort it into Hold, Starter or Established. DMARC strength is not an input. The blocklist
+                    lookup needs a paid feed. A failed lookup lands in Starter, and setup never fails on it.
                 </PrototypeNote>
             </SetupShell>
         )

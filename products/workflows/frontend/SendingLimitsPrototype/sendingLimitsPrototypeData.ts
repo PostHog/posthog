@@ -6,7 +6,7 @@
 export type VariantKey = 'A' | 'B' | 'C' | 'D'
 export type StateKey = 'new' | 'warming' | 'capped' | 'moved-down' | 'blocked'
 export type SurfaceKey = 'setup' | 'reputation' | 'broadcast'
-export type DomainProfileKey = 'established' | 'starter' | 'lookup-failed' | 'brand-new' | 'listed'
+export type DomainProfileKey = 'paying' | 'established' | 'starter' | 'lookup-failed' | 'brand-new' | 'listed'
 export type DomainBand = 'Hold' | 'Starter' | 'Established'
 
 export interface AllowanceMove {
@@ -314,12 +314,32 @@ export interface DomainCheck {
     signals: { label: string; ok: boolean | 'warn' | 'unknown'; detail: string }[]
     // null while the sender is on hold.
     startPerDay: number | null
+    // What set the starting allowance: the paid-plan rule, or the domain check's band.
+    source: 'paid plan' | 'domain check'
     verdict: string
 }
 
-// Variant D: the check reads domain age (RDAP), MX records, other senders in SPF and blocklists. It
-// sorts a domain into three bands. A failed lookup never fails setup; it lands in Starter.
+// Variant D: companies on a paid plan start at tier 3 (10,000 a day), the rule from
+// PostHog/posthog#124520. Everyone else gets a band from the domain check, which reads domain age
+// (RDAP), MX records, other senders in SPF and blocklists. DMARC strength is not an input. A failed
+// lookup never fails setup; it lands in Starter.
 export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
+    paying: {
+        key: 'paying',
+        label: 'Paying company',
+        domain: 'app.example.io',
+        band: 'Established',
+        signals: [
+            { label: 'Domain age', ok: 'warn', detail: 'Registered 1 year ago' },
+            { label: 'Receives email', ok: true, detail: 'MX records found' },
+            { label: 'Already sends email', ok: 'warn', detail: 'No other email services in SPF' },
+            { label: 'Blocklists', ok: true, detail: 'Not listed' },
+        ],
+        startPerDay: 10000,
+        source: 'paid plan',
+        verdict:
+            'Your organization is on a paid plan, so you start at tier 3: up to 10,000 emails a day. Your first broadcast goes out as a small sample first, so we can check it before the rest.',
+    },
     established: {
         key: 'established',
         label: 'Established',
@@ -332,6 +352,7 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
             { label: 'Blocklists', ok: true, detail: 'Not listed' },
         ],
         startPerDay: 10000,
+        source: 'domain check',
         verdict:
             'This domain has sent email for years, so you start at up to 10,000 emails a day. Your first broadcast goes out as a small sample first, so we can check it before the rest.',
     },
@@ -347,6 +368,7 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
             { label: 'Blocklists', ok: true, detail: 'Not listed' },
         ],
         startPerDay: 1000,
+        source: 'domain check',
         verdict:
             'You start at 1,000 emails a day. This grows each day you send without many bounces or spam complaints.',
     },
@@ -362,6 +384,7 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
             { label: 'Blocklists', ok: true, detail: 'Not listed' },
         ],
         startPerDay: 1000,
+        source: 'domain check',
         verdict:
             "We couldn't check everything, so you start at 1,000 emails a day. This grows each day you send without many bounces or spam complaints.",
     },
@@ -377,6 +400,7 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
             { label: 'Blocklists', ok: true, detail: 'Not listed' },
         ],
         startPerDay: null,
+        source: 'domain check',
         verdict:
             'Inboxes treat domains younger than 30 days as spam, so this domain is on hold until Jan 3. Test emails still work.',
     },
@@ -392,6 +416,7 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
             { label: 'Blocklists', ok: false, detail: 'Listed on Spamhaus DBL' },
         ],
         startPerDay: null,
+        source: 'domain check',
         verdict: "This domain is on a spam blocklist, so it's on hold. Ask Spamhaus to delist it, then check again.",
     },
 }
