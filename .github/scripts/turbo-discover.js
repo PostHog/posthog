@@ -1418,9 +1418,10 @@ function isProductFixtureFile(file) {
 
 // A module that defines models under another name, such as dev_stack_image_models.py, is
 // registered by a re-export from the product's models module, directly or through another
-// model module. Indented imports, inside a function or a TYPE_CHECKING block, register nothing at
-// load time and are skipped. The models module re-exports helpers too, so a re-exported module counts only when it defines a Django model, or when it is gone
-// from disk and its source cannot say.
+// model module. Indented imports, inside a function or a TYPE_CHECKING block, register
+// nothing at load time and are skipped. The models module re-exports helpers too, so a
+// re-exported module counts only when it defines a Django model, or when it is gone from
+// disk and its source cannot say.
 function isProductModelOrMigrationFile(file, repoRoot) {
     if (PRODUCT_MODEL_OR_MIGRATION_FILE.test(file)) {
         return true
