@@ -625,7 +625,7 @@ Note: Parsed every GET operation in the official OpenAPI spec. The source covers
 
 ## Apollo — gaps
 
-Today (11): `account_stages`, `accounts`, `contacts`, `contact_stages`, `emailer_campaigns`, `emailer_messages`, `opportunities`, `opportunity_stages`, `phone_calls`, `tasks`, `users`
+Today (14): `account_stages`, `accounts`, `contacts`, `contact_stages`, `conversations`, `custom_fields`, `emailer_campaigns`, `emailer_messages`, `lists`, `opportunities`, `opportunity_stages`, `phone_calls`, `tasks`, `users`
 
 Diffed against: <https://docs.apollo.io/reference/organization-search>
 
@@ -637,10 +637,10 @@ Diffed against: <https://docs.apollo.io/reference/organization-search>
 - [x] `/phone_calls/search` — call activity records tied to contacts and accounts (high)
 - [x] `/emailer_campaigns/search (sequences)` — lookup resolving sequence IDs on email activity and contact status (medium)
 - [x] `/tasks/search` — rep task volume and completion analysis (medium)
-- [ ] `/conversations/search` — conversation intelligence records joinable to calls (medium)
-- [ ] `/labels (lists)` — lookup for list membership used to segment contacts and accounts (medium)
-- [ ] `/notes` — note history attached to CRM records (medium)
-- [ ] `/typed_custom_fields` — lookup naming the custom field IDs that appear on synced records (low)
+- [x] `/conversations/search` — conversation intelligence records joinable to calls (medium)
+- [x] `/labels (lists)` — lookup for list membership used to segment contacts and accounts (medium)
+- [ ] `/notes` — note history attached to CRM records (medium) — skipped 2026-11-19: the endpoint needs a contact, account, deal, calendar event or conversation filter and has no account-wide listing
+- [x] `/typed_custom_fields` — lookup naming the custom field IDs that appear on synced records (low) — built on `GET /fields?source=custom`, because Apollo deprecated `/typed_custom_fields`
 
 Note: Reference index (96 slugs) read from the docs nav; each path below confirmed by re-fetching the individual reference page and reading its embedded "path" field. PostHog syncs only the three core CRM search endpoints; every lookup table and activity object is absent.
 
