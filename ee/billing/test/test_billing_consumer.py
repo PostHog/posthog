@@ -11,7 +11,7 @@ from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewa
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from ee.billing.queue.BillingConsumer import POSTHOG_SELF_TEAM_ID, BillingConsumer
+from ee.billing.queue.BillingConsumer import POSTHOG_SELF_TEAM_ID, AIFundingNotDelivered, BillingConsumer
 
 CONSUMER = "ee.billing.queue.BillingConsumer"
 
@@ -239,13 +239,24 @@ class TestBillingConsumerAIFunding(SimpleTestCase):
 
     @patch(f"{CONSUMER}.capture_exception")
     @patch(f"{CONSUMER}.grant_org_credit", side_effect=AIGatewayRequestRejected("amount does not match", 409))
-    def test_a_rejected_grant_is_captured_and_acked(self, _mock_grant, mock_capture):
+    def test_a_rejected_grant_is_captured_once_and_left_on_the_queue(self, _mock_grant, mock_capture):
         consumer = self._build_consumer()
         with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
             self._deliver(consumer, _funding_added())
 
         mock_capture.assert_called_once()
-        mock_delete.assert_called_once_with("receipt-1")
+        mock_delete.assert_not_called()
+
+    @patch(f"{CONSUMER}.capture_exception")
+    @patch(f"{CONSUMER}.grant_org_credit")
+    def test_a_malformed_funding_message_is_captured_once_and_left_on_the_queue(self, mock_grant, mock_capture):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
+            self._deliver(consumer, _funding_added(amount_cents=0))
+
+        mock_grant.assert_not_called()
+        mock_capture.assert_called_once()
+        mock_delete.assert_not_called()
 
     @parameterized.expand(
         [
@@ -259,7 +270,8 @@ class TestBillingConsumerAIFunding(SimpleTestCase):
     @patch(f"{CONSUMER}.capture_exception")
     @patch(f"{CONSUMER}.grant_org_credit")
     def test_a_malformed_message_is_captured_without_a_grant(self, _name, overrides, mock_grant, mock_capture):
-        self._build_consumer()._relay_ai_funding(_funding_added(**overrides), mock_grant, reason_field="kind")
+        with self.assertRaises(AIFundingNotDelivered):
+            self._build_consumer()._relay_ai_funding(_funding_added(**overrides), mock_grant, reason_field="kind")
 
         mock_grant.assert_not_called()
         mock_capture.assert_called_once()

@@ -35,6 +35,10 @@ POSTHOG_SELF_TEAM_ID = 2
 AI_FUNDING_MESSAGE_VERSION = 1
 
 
+class AIFundingNotDelivered(Exception):
+    """A funding message that can never succeed. It is already captured, and it stays on the queue."""
+
+
 class BillingConsumer(SQSConsumer):
     """
     SQS Consumer for processing billing-related messages.
@@ -87,6 +91,10 @@ class BillingConsumer(SQSConsumer):
             else:
                 logger.error(f"Failed to delete message", {"message_id": message_id})
 
+        except AIFundingNotDelivered:
+            # Already captured with its context. Leaving the message on the queue lets SQS move it
+            # to the dead-letter queue, whose alarm covers every grant that never lands.
+            logger.warning("ai_funding.left_on_queue", extra={"message_id": message_id, "message_type": message_type})
         except json.JSONDecodeError as e:
             logger.exception(f"Invalid JSON in message body: {message.get('Body', '')[:100]}... Error: {e}")
             capture_exception(
@@ -206,7 +214,8 @@ class BillingConsumer(SQSConsumer):
 
         The gateway records each operation ID once, so a message that SQS delivers again records
         nothing new. A gateway or network failure raises, which leaves the message on the queue
-        for another delivery. A message that can never succeed is captured and acknowledged.
+        for another delivery. A message that can never succeed is captured and also stays on the
+        queue, so SQS moves it to the dead-letter queue instead of PostHog dropping money.
         """
         message_type = body.get("type")
         version = body.get("version")
@@ -223,7 +232,7 @@ class BillingConsumer(SQSConsumer):
         if not (organization_id and operation_id and reason and isinstance(amount_cents, int) and amount_cents > 0):
             logger.error("ai_funding.malformed_message", extra=context)
             capture_exception(Exception(f"{message_type} message is malformed"), {**context, "body": body})
-            return
+            raise AIFundingNotDelivered(f"{message_type} message is malformed")
 
         try:
             result = record(str(organization_id), f"{Decimal(amount_cents) / 100:.2f}", str(reason), str(operation_id))
@@ -232,7 +241,7 @@ class BillingConsumer(SQSConsumer):
             # fails the same way on every delivery.
             logger.exception("ai_funding.rejected_by_gateway", extra={**context, "status_code": e.status_code})
             capture_exception(e, {**context, "status_code": e.status_code})
-            return
+            raise AIFundingNotDelivered(f"{message_type} rejected by the gateway") from e
 
         logger.info(
             "ai_funding.recorded",
