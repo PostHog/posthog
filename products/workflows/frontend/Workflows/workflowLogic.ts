@@ -619,9 +619,7 @@ export interface workflowLogicActions {
         hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         payload?: any
     }
-    loadMissingHogFunctionTemplates: (templateIds: string[]) => {
-        templateIds: string[]
-    }
+    loadMissingHogFunctionTemplates: (templateIds: string[]) => string[]
     loadMissingHogFunctionTemplatesFailure: (
         error: string,
         errorObject?: any
@@ -630,10 +628,14 @@ export interface workflowLogicActions {
         errorObject?: any
     }
     loadMissingHogFunctionTemplatesSuccess: (
-        hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
+        hogFunctionTemplatesById: {
+            [x: string]: HogFunctionTemplateType
+        },
         payload?: string[]
     ) => {
-        hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+        hogFunctionTemplatesById: {
+            [x: string]: HogFunctionTemplateType
+        }
         payload?: string[]
     }
     loadWorkflow: () => any
