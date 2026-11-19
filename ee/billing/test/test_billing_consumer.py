@@ -11,7 +11,7 @@ from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewa
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from ee.billing.queue.BillingConsumer import POSTHOG_SELF_TEAM_ID, AIFundingNotDelivered, BillingConsumer
+from ee.billing.queue.BillingConsumer import POSTHOG_SELF_TEAM_ID, AIGatewayMessageNotDelivered, BillingConsumer
 
 CONSUMER = "ee.billing.queue.BillingConsumer"
 
@@ -270,8 +270,88 @@ class TestBillingConsumerAIFunding(SimpleTestCase):
     @patch(f"{CONSUMER}.capture_exception")
     @patch(f"{CONSUMER}.grant_org_credit")
     def test_a_malformed_message_is_captured_without_a_grant(self, _name, overrides, mock_grant, mock_capture):
-        with self.assertRaises(AIFundingNotDelivered):
+        with self.assertRaises(AIGatewayMessageNotDelivered):
             self._build_consumer()._relay_ai_funding(_funding_added(**overrides), mock_grant, reason_field="kind")
 
         mock_grant.assert_not_called()
         mock_capture.assert_called_once()
+
+
+def _reload_outcome(**overrides):
+    return {
+        "type": "ai_reload_outcome",
+        "organization_id": ORG_ID,
+        "idempotency_key": "low-balance-1",
+        "result": "charged",
+        "amount_usd": "45.90",
+        **overrides,
+    }
+
+
+class TestBillingConsumerAIReloadOutcome(SimpleTestCase):
+    def _build_consumer(self) -> BillingConsumer:
+        with patch("ee.sqs.SQSConsumer.boto3"):
+            return BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")
+
+    def _deliver(self, consumer: BillingConsumer, body: dict) -> None:
+        consumer.process_message({"Body": json.dumps(body), "MessageId": "msg-1", "ReceiptHandle": "receipt-1"})
+
+    @parameterized.expand(
+        [
+            ("charged", {}, {"amount_usd": "45.90", "reason": None}),
+            ("charged_amount_as_number", {"amount_usd": 45.9}, {"amount_usd": "45.90", "reason": None}),
+            (
+                "declined",
+                {"result": "declined", "reason": "card_declined", "amount_usd": None},
+                {"amount_usd": None, "reason": "card_declined"},
+            ),
+        ]
+    )
+    @patch(f"{CONSUMER}.report_reload_outcome")
+    def test_relays_the_outcome_to_the_gateway_and_acks(self, _name, overrides, expected, mock_report):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
+            self._deliver(consumer, _reload_outcome(**overrides))
+
+        mock_report.assert_called_once_with(ORG_ID, "low-balance-1", overrides.get("result", "charged"), **expected)
+        mock_delete.assert_called_once_with("receipt-1")
+
+    @patch(f"{CONSUMER}.report_reload_outcome", side_effect=AIGatewayInternalError("HTTP 503"))
+    def test_a_failed_relay_leaves_the_message_for_another_delivery(self, _mock_report):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message") as mock_delete:
+            self._deliver(consumer, _reload_outcome())
+
+        mock_delete.assert_not_called()
+
+    @patch(f"{CONSUMER}.capture_exception")
+    @patch(f"{CONSUMER}.report_reload_outcome", side_effect=AIGatewayRequestRejected("unknown reload request", 400))
+    def test_a_rejected_outcome_is_captured_once_and_left_on_the_queue(self, _mock_report, mock_capture):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
+            self._deliver(consumer, _reload_outcome())
+
+        mock_capture.assert_called_once()
+        mock_delete.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no_organization", {"organization_id": None}),
+            ("no_idempotency_key", {"idempotency_key": ""}),
+            ("unknown_result", {"result": "pending"}),
+            ("charged_without_an_amount", {"amount_usd": None}),
+            ("charged_with_a_zero_amount", {"amount_usd": "0.00"}),
+            ("charged_with_an_amount_that_is_not_a_number", {"amount_usd": "lots"}),
+            ("declined_without_a_reason", {"result": "declined", "reason": None}),
+        ]
+    )
+    @patch(f"{CONSUMER}.capture_exception")
+    @patch(f"{CONSUMER}.report_reload_outcome")
+    def test_a_malformed_outcome_is_captured_and_left_on_the_queue(self, _name, overrides, mock_report, mock_capture):
+        consumer = self._build_consumer()
+        with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
+            self._deliver(consumer, _reload_outcome(**overrides))
+
+        mock_report.assert_not_called()
+        mock_capture.assert_called_once()
+        mock_delete.assert_not_called()

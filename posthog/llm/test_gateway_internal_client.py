@@ -17,6 +17,7 @@ from posthog.llm.gateway_internal_client import (
     get_usage_report_rows,
     get_wallet,
     grant_org_credit,
+    report_reload_outcome,
     reverse_org_credit,
 )
 
@@ -301,3 +302,58 @@ class TestOrgLedger:
                 grant_org_credit(ORG_ID, "20.00", "top_up", "ai_credit:in_1")
 
         assert not isinstance(excinfo.value, AIGatewayRequestRejected)
+
+
+class TestReportReloadOutcome:
+    @pytest.mark.parametrize(
+        "kwargs, body",
+        [
+            (
+                {"result": "charged", "amount_usd": "45.90"},
+                {"idempotency_key": "low-balance-1", "result": "charged", "amount_usd": "45.90"},
+            ),
+            (
+                {"result": "declined", "reason": "card_declined"},
+                {"idempotency_key": "low-balance-1", "result": "declined", "reason": "card_declined"},
+            ),
+        ],
+    )
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_posts_the_outcome_to_the_org_route_as_billing(self, mock_settings, kwargs, body):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(204)) as mock_post:
+            report_reload_outcome(ORG_ID, "low-balance-1", **kwargs)
+
+        assert mock_post.call_args.args[0] == f"http://gw/internal/accounts/{ORG_ID}/reload-outcome"
+        headers = mock_post.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer tok"
+        assert headers[INTERNAL_ACTOR_HEADER] == BILLING_ACTOR
+        assert mock_post.call_args.kwargs["json"] == body
+        assert mock_post.call_args.kwargs["trust_env"] is False
+
+    @pytest.mark.parametrize("status", [400, 409])
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_a_refusal_is_rejected_with_its_status(self, mock_settings, status):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(status, {"error": "no"})):
+            with pytest.raises(AIGatewayRequestRejected) as excinfo:
+                report_reload_outcome(ORG_ID, "low-balance-1", "charged", amount_usd="45.90")
+
+        assert excinfo.value.status_code == status
+
+    @pytest.mark.parametrize("status", [401, 404, 429, 500, 503])
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_a_failure_that_can_recover_is_an_internal_error_to_retry(self, mock_settings, status):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(status, {"error": "no"})):
+            with pytest.raises(AIGatewayInternalError) as excinfo:
+                report_reload_outcome(ORG_ID, "low-balance-1", "charged", amount_usd="45.90")
+
+        assert not isinstance(excinfo.value, AIGatewayRequestRejected)
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_a_network_failure_is_an_internal_error_to_retry(self, mock_settings):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.post", side_effect=httpx.ConnectError("refused")):
+            with pytest.raises(AIGatewayInternalError):
+                report_reload_outcome(ORG_ID, "low-balance-1", "charged", amount_usd="45.90")

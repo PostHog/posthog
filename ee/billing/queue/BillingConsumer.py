@@ -2,7 +2,7 @@ import gzip
 import json
 import logging
 from collections.abc import Callable
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, cast
 
 from django.db import close_old_connections
@@ -13,6 +13,7 @@ from posthog.llm.gateway_internal_client import (
     AIGatewayRequestRejected,
     OrgLedgerResult,
     grant_org_credit,
+    report_reload_outcome,
     reverse_org_credit,
 )
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -35,8 +36,8 @@ POSTHOG_SELF_TEAM_ID = 2
 AI_FUNDING_MESSAGE_VERSION = 1
 
 
-class AIFundingNotDelivered(Exception):
-    """A funding message that can never succeed. It is already captured, and it stays on the queue."""
+class AIGatewayMessageNotDelivered(Exception):
+    """A message for the AI gateway that can never succeed. PostHog has already captured it, and it stays on the queue."""
 
 
 class BillingConsumer(SQSConsumer):
@@ -76,6 +77,8 @@ class BillingConsumer(SQSConsumer):
                 self._relay_ai_funding(body, grant_org_credit, reason_field="kind")
             elif message_type == "ai_funding_reversed":
                 self._relay_ai_funding(body, reverse_org_credit, reason_field="reason")
+            elif message_type == "ai_reload_outcome":
+                self._relay_ai_reload_outcome(body)
             # Add more message types as needed
             # elif message_type == "invoice_created":
             #     self._process_invoice_created(body)
@@ -91,10 +94,12 @@ class BillingConsumer(SQSConsumer):
             else:
                 logger.error(f"Failed to delete message", {"message_id": message_id})
 
-        except AIFundingNotDelivered:
+        except AIGatewayMessageNotDelivered:
             # Already captured with its context. Leaving the message on the queue lets SQS move it
-            # to the dead-letter queue, whose alarm covers every grant that never lands.
-            logger.warning("ai_funding.left_on_queue", extra={"message_id": message_id, "message_type": message_type})
+            # to the dead-letter queue, whose alarm covers every message that never reaches the gateway.
+            logger.warning(
+                "ai_gateway_message.left_on_queue", extra={"message_id": message_id, "message_type": message_type}
+            )
         except json.JSONDecodeError as e:
             logger.exception(f"Invalid JSON in message body: {message.get('Body', '')[:100]}... Error: {e}")
             capture_exception(
@@ -232,7 +237,7 @@ class BillingConsumer(SQSConsumer):
         if not (organization_id and operation_id and reason and isinstance(amount_cents, int) and amount_cents > 0):
             logger.error("ai_funding.malformed_message", extra=context)
             capture_exception(Exception(f"{message_type} message is malformed"), {**context, "body": body})
-            raise AIFundingNotDelivered(f"{message_type} message is malformed")
+            raise AIGatewayMessageNotDelivered(f"{message_type} message is malformed")
 
         try:
             result = record(str(organization_id), f"{Decimal(amount_cents) / 100:.2f}", str(reason), str(operation_id))
@@ -241,12 +246,47 @@ class BillingConsumer(SQSConsumer):
             # fails the same way on every delivery.
             logger.exception("ai_funding.rejected_by_gateway", extra={**context, "status_code": e.status_code})
             capture_exception(e, {**context, "status_code": e.status_code})
-            raise AIFundingNotDelivered(f"{message_type} rejected by the gateway") from e
+            raise AIGatewayMessageNotDelivered(f"{message_type} rejected by the gateway") from e
 
         logger.info(
             "ai_funding.recorded",
             extra={**context, "entry_id": result.entry_id, "duplicate": result.duplicate},
         )
+
+    def _relay_ai_reload_outcome(self, body: dict[str, Any]) -> None:
+        """
+        Pass billing's outcome for one of the gateway's low-balance reload requests to the gateway.
+
+        A charged outcome names the amount, and a declined one names the reason. A gateway or network
+        failure raises, which leaves the message on the queue for another delivery. PostHog captures a
+        message that can never succeed and leaves it on the queue too, so SQS moves it to the dead-letter
+        queue.
+        """
+        organization_id = body.get("organization_id")
+        idempotency_key = body.get("idempotency_key")
+        result = body.get("result")
+        amount_usd = _usd(body.get("amount_usd")) if result == "charged" else None
+        reason = body.get("reason") if result == "declined" else None
+        context = {"organization_id": organization_id, "idempotency_key": idempotency_key, "result": result}
+        if not (organization_id and idempotency_key and (amount_usd or reason)):
+            logger.error("ai_reload_outcome.malformed_message", extra=context)
+            capture_exception(Exception("ai_reload_outcome message is malformed"), {**context, "body": body})
+            raise AIGatewayMessageNotDelivered("ai_reload_outcome message is malformed")
+
+        try:
+            report_reload_outcome(
+                str(organization_id),
+                str(idempotency_key),
+                str(result),
+                amount_usd=amount_usd,
+                reason=str(reason) if reason else None,
+            )
+        except AIGatewayRequestRejected as e:
+            logger.exception("ai_reload_outcome.rejected_by_gateway", extra={**context, "status_code": e.status_code})
+            capture_exception(e, {**context, "status_code": e.status_code})
+            raise AIGatewayMessageNotDelivered("ai_reload_outcome rejected by the gateway") from e
+
+        logger.info("ai_reload_outcome.relayed", extra=context)
 
     def _process_billing_activity(self, body: dict[str, Any]) -> None:
         """
@@ -341,3 +381,14 @@ class BillingConsumer(SQSConsumer):
         # deleting it and silently dropping the audit entry.
         if written is None:
             raise Exception("Failed to write billing activity to the activity log")
+
+
+def _usd(value: Any) -> Optional[str]:
+    """A positive dollar amount as the gateway reads it, such as "45.90", or None for anything else."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    try:
+        amount = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    return f"{amount:.2f}" if amount.is_finite() and amount > 0 else None

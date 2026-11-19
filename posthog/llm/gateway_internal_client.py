@@ -265,6 +265,37 @@ def reverse_org_credit(org_id: str, amount_usd: str, reason: str, idempotency_ke
     )
 
 
+def report_reload_outcome(
+    org_id: str, idempotency_key: str, result: str, *, amount_usd: str | None = None, reason: str | None = None
+) -> None:
+    """Tell the gateway how billing answered one of its low-balance reload requests.
+
+    `idempotency_key` is the key the gateway sent on the reload route. `result` is `charged`, with the
+    amount, or `declined`, with the reason. The gateway closes its open reload request on this outcome.
+    """
+    url, token = _config()
+    body = {"idempotency_key": idempotency_key, "result": result}
+    if amount_usd is not None:
+        body["amount_usd"] = amount_usd
+    if reason is not None:
+        body["reason"] = reason
+    try:
+        response = httpx.post(
+            f"{url}/internal/accounts/{org_id}/reload-outcome",
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: BILLING_ACTOR}),
+            json=body,
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"reload outcome request failed: {exc}") from exc
+
+    if response.status_code in REJECTED_STATUS_CODES:
+        raise AIGatewayRequestRejected(_error_detail(response), response.status_code)
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(_error_detail(response))
+
+
 def _post_org_ledger_entry(
     path: str, org_id: str, amount_usd: str, reason: str, idempotency_key: str
 ) -> OrgLedgerResult:
