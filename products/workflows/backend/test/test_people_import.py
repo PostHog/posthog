@@ -20,6 +20,7 @@ from posthog.test.persons import add_cohort_members, create_person
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.cohorts.backend.facade.api import get_cohort_ref
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import (
@@ -348,6 +349,24 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             )
 
         replace.assert_not_called()
+
+    def test_a_cohort_deleted_after_the_check_still_keeps_its_members(self) -> None:
+        staged = self._stage(["ada@example.com"])
+        assert staged.cohort_id is not None
+        live = get_cohort_ref(team_id=self.team.id, cohort_id=staged.cohort_id)
+        Cohort.objects.filter(id=staged.cohort_id).update(deleted=True)
+
+        # The cohort is deleted between the check and the write.
+        with (
+            patch.object(provider_contacts, "get_cohort_ref", return_value=live),
+            patch("products.cohorts.backend.facade.api.remove_static_cohort_members") as remove,
+            self.assertRaises(Cohort.DoesNotExist),
+        ):
+            provider_contacts.fill_contacts_cohort(
+                self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
+            )
+
+        remove.assert_not_called()
 
     def test_the_cohort_keeps_its_members_when_the_creator_lost_edit_access_to_it(self) -> None:
         create_person(team=self.team, distinct_ids=["user-ada"], properties={"email": "ada@example.com"})

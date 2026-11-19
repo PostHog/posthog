@@ -116,7 +116,7 @@ def replace_static_cohort_members(*, team_id: int, cohort_id: int, distinct_ids:
     Safe to run again: a person who is already a member is not added twice, and removing a missing member is a no-op.
     Raises on a failed insert, and leaves the cohort's final state to the caller then.
     """
-    cohort = Cohort.objects.get(team_id=team_id, id=cohort_id, is_static=True)
+    cohort = Cohort.objects.get(team_id=team_id, id=cohort_id, is_static=True, deleted=False)
     keep: set[int] = set()
     for start in range(0, len(distinct_ids), _MEMBER_LOOKUP_CHUNK_SIZE):
         persons = get_persons_by_distinct_ids(
