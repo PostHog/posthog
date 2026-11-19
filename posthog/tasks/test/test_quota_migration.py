@@ -18,7 +18,7 @@ from posthog.tasks.scheduled import setup_periodic_tasks
 class TestQuotaMigrationTasks(SimpleTestCase):
     @parameterized.expand([("disabled", None, 0), ("enabled", "redis://quota-task.test:6379/0", 1)])
     def test_schedule_requires_secondary_url(self, _name: str, url: str | None, expected: int) -> None:
-        with self.settings(BILLING_STATE_REDIS_URL=url), patch.object(compare_quota_redis, "apply_async") as enqueue:
+        with self.settings(QUOTA_LIMITING_REDIS_URL=url), patch.object(compare_quota_redis, "apply_async") as enqueue:
             with patch("posthog.tasks.quota_migration.random.randint", return_value=123):
                 schedule_quota_redis_comparison.run()
         self.assertEqual(enqueue.call_count, expected)
@@ -28,7 +28,7 @@ class TestQuotaMigrationTasks(SimpleTestCase):
     @parameterized.expand([("disabled", None, 0), ("enabled", "redis://quota-task.test:6379/0", 1)])
     def test_beat_entry_requires_secondary_url(self, _name: str, url: str | None, expected: int) -> None:
         sender = MagicMock()
-        with self.settings(BILLING_STATE_REDIS_URL=url):
+        with self.settings(QUOTA_LIMITING_REDIS_URL=url):
             setup_periodic_tasks(sender)
         calls = [
             call for call in sender.add_periodic_task.call_args_list if call.kwargs.get("name") == "compare-quota-redis"
@@ -45,7 +45,7 @@ class TestQuotaMigrationTasks(SimpleTestCase):
             ("suspended_recordings", "@posthog/quota-limiting-suspended/recordings"),
         ]
     )
-    @override_settings(BILLING_STATE_REDIS_URL="redis://quota-task.test:6379/0")
+    @override_settings(QUOTA_LIMITING_REDIS_URL="redis://quota-task.test:6379/0")
     def test_comparison_reads_existing_quota_keys(self, _name: str, key: str) -> None:
         shared = get_client()
         secondary = get_client("redis://quota-task.test:6379/0")
@@ -91,7 +91,7 @@ for generation in range(2):
     _, status = os.waitpid(child, 0)
     assert status == 0
     values = {sample.name: sample.value for metric in registry.collect() for sample in metric.samples}
-    enabled = bool(os.environ.get('BILLING_STATE_REDIS_URL'))
+    enabled = bool(os.environ.get('QUOTA_LIMITING_REDIS_URL'))
     assert values['billing_quota_migration_enabled'] == int(enabled), values
     started = values['billing_quota_migration_started_timestamp_seconds']
     if enabled:
@@ -103,6 +103,6 @@ for generation in range(2):
 assert starts[0] == starts[1], starts
 """
         with tempfile.TemporaryDirectory() as directory:
-            env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": directory, "BILLING_STATE_REDIS_URL": url, "TEST": "1"}
+            env = {**os.environ, "PROMETHEUS_MULTIPROC_DIR": directory, "QUOTA_LIMITING_REDIS_URL": url, "TEST": "1"}
             result = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

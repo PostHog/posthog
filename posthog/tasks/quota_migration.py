@@ -14,14 +14,14 @@ _migration_started_at = time()
 
 @worker_process_init.connect
 def initialize_quota_migration_metrics(**kwargs: object) -> None:
-    enabled = bool(settings.BILLING_STATE_REDIS_URL)
+    enabled = bool(settings.QUOTA_LIMITING_REDIS_URL)
     QUOTA_MIGRATION_ENABLED.set(enabled)
     QUOTA_MIGRATION_STARTED.set(_migration_started_at if enabled else 0)
 
 
 @shared_task(ignore_result=True)
 def schedule_quota_redis_comparison() -> None:
-    if settings.BILLING_STATE_REDIS_URL:
+    if settings.QUOTA_LIMITING_REDIS_URL:
         compare_quota_redis.apply_async(countdown=random.randint(0, 300), expires=600)
 
 

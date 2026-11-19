@@ -726,8 +726,8 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
-BILLING_STATE_REDIS_URL = os.getenv("BILLING_STATE_REDIS_URL", None)
-BILLING_STATE_REDIS_CLUSTER_ENABLED = get_from_env("BILLING_STATE_REDIS_CLUSTER_ENABLED", True, type_cast=str_to_bool)
+QUOTA_LIMITING_REDIS_URL = os.getenv("QUOTA_LIMITING_REDIS_URL", None)
+QUOTA_LIMITING_REDIS_CLUSTER_ENABLED = get_from_env("QUOTA_LIMITING_REDIS_CLUSTER_ENABLED", True, type_cast=str_to_bool)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is

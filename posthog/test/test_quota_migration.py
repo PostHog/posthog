@@ -40,8 +40,8 @@ from ee.billing.quota_limiting import (
 
 
 @override_settings(
-    BILLING_STATE_REDIS_URL="redis://quota-secondary.test:6379/0",
-    BILLING_STATE_REDIS_CLUSTER_ENABLED=False,
+    QUOTA_LIMITING_REDIS_URL="redis://quota-secondary.test:6379/0",
+    QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=False,
 )
 @time_machine.travel("2026-11-12T12:00:00Z", tick=False)
 class TestQuotaMigration(SimpleTestCase):
@@ -316,7 +316,7 @@ class TestQuotaMigration(SimpleTestCase):
         assert self.shared.zcard(self.key) == 0
         assert self.secondary.zrange(self.key, 0, -1) == [b"unknown"]
 
-    @override_settings(BILLING_STATE_REDIS_URL=None)
+    @override_settings(QUOTA_LIMITING_REDIS_URL=None)
     def test_unconfigured_secondary_preserves_shared_writes(self) -> None:
         add_limited_team_tokens(self.resource, {"new": 1900000100}, self.cache)
         assert self.shared.zscore(self.key, "new") == 1900000100

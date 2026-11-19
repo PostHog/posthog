@@ -144,11 +144,11 @@ def _get_client(url: str, *, cluster: bool, maintenance: bool) -> QuotaRedisClie
 
 
 def get_secondary_quota_redis_client(*, maintenance: bool = False) -> QuotaRedisClient | None:
-    if not settings.BILLING_STATE_REDIS_URL:
+    if not settings.QUOTA_LIMITING_REDIS_URL:
         return None
     return _get_client(
-        settings.BILLING_STATE_REDIS_URL,
-        cluster=settings.BILLING_STATE_REDIS_CLUSTER_ENABLED,
+        settings.QUOTA_LIMITING_REDIS_URL,
+        cluster=settings.QUOTA_LIMITING_REDIS_CLUSTER_ENABLED,
         maintenance=maintenance,
     )
 

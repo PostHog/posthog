@@ -35,8 +35,8 @@ from posthog import quota_redis
 @override_settings(
     TEST=False,
     REDIS_URL="redis://shared.invalid:6379/0",
-    BILLING_STATE_REDIS_URL="rediss://billing.invalid:6379/0",
-    BILLING_STATE_REDIS_CLUSTER_ENABLED=False,
+    QUOTA_LIMITING_REDIS_URL="rediss://billing.invalid:6379/0",
+    QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=False,
 )
 class TestQuotaRedis(SimpleTestCase):
     def setUp(self) -> None:
@@ -128,13 +128,13 @@ class TestQuotaRedis(SimpleTestCase):
                 server.join(timeout=3)
                 self.assertFalse(server.is_alive())
 
-    @override_settings(BILLING_STATE_REDIS_URL=None)
+    @override_settings(QUOTA_LIMITING_REDIS_URL=None)
     def test_unconfigured_secondary_does_not_construct_a_client(self) -> None:
         with patch("posthog.quota_redis._build_client") as cluster:
             self.assertIsNone(quota_redis.get_secondary_quota_redis_client())
         cluster.assert_not_called()
 
-    @override_settings(BILLING_STATE_REDIS_CLUSTER_ENABLED=True)
+    @override_settings(QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=True)
     def test_failed_cluster_discovery_can_recover_on_the_next_call(self) -> None:
         recovered = Mock(spec=Redis, connection_pool=Mock())
         with patch("posthog.quota_redis._build_client", side_effect=[RedisConnectionError("offline"), recovered]):
@@ -156,8 +156,8 @@ class TestQuotaRedis(SimpleTestCase):
     ) -> None:
         with (
             self.settings(
-                BILLING_STATE_REDIS_URL="redis://billing.invalid:6379/0?socket_timeout=90&socket_connect_timeout=90&max_connections=10000",
-                BILLING_STATE_REDIS_CLUSTER_ENABLED=cluster,
+                QUOTA_LIMITING_REDIS_URL="redis://billing.invalid:6379/0?socket_timeout=90&socket_connect_timeout=90&max_connections=10000",
+                QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=cluster,
             ),
             patch.object(NodesManager, "initialize"),
             patch("redis.cluster.CommandsParser"),
@@ -194,8 +194,8 @@ class TestQuotaRedis(SimpleTestCase):
     def test_blocked_hosts_are_rejected_before_dns(self, _name: str, cluster: bool, scheme: str) -> None:
         with (
             self.settings(
-                BILLING_STATE_REDIS_URL=f"{scheme}://blocked.example:6379/0",
-                BILLING_STATE_REDIS_CLUSTER_ENABLED=cluster,
+                QUOTA_LIMITING_REDIS_URL=f"{scheme}://blocked.example:6379/0",
+                QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=cluster,
             ),
             patch("posthog.security.oob_domains.oob_domains", return_value=frozenset({"blocked.example"})),
             patch("socket.getaddrinfo", side_effect=AssertionError("Unexpected DNS lookup")),
@@ -205,7 +205,7 @@ class TestQuotaRedis(SimpleTestCase):
             assert client is not None
             client.ping()
 
-    @override_settings(BILLING_STATE_REDIS_CLUSTER_ENABLED=True)
+    @override_settings(QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=True)
     def test_blocked_discovered_node_is_rejected_before_dns(self) -> None:
         slots = [[0, 16383, [b"blocked.example", 6379, b"node"]]]
         with (
@@ -243,7 +243,7 @@ class TestQuotaRedis(SimpleTestCase):
         slots = [[0, 16383, [b"billing.invalid", 6379, b"node"]]]
         with (
             self.settings(
-                BILLING_STATE_REDIS_URL="redis://billing.invalid:6379/0", BILLING_STATE_REDIS_CLUSTER_ENABLED=cluster
+                QUOTA_LIMITING_REDIS_URL="redis://billing.invalid:6379/0", QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=cluster
             ),
             patch.object(Redis, "execute_command", return_value=slots),
             patch("redis.cluster.CommandsParser.initialize"),
@@ -272,7 +272,7 @@ class TestQuotaRedis(SimpleTestCase):
             peer.settimeout(0.1)
             self.assertEqual(peer.recv(1), b"")
 
-    @override_settings(BILLING_STATE_REDIS_CLUSTER_ENABLED=True)
+    @override_settings(QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=True)
     def test_established_cluster_recovers_after_losing_its_discovery_seed(self) -> None:
         node_redis = Mock()
         node_redis.execute_command.return_value = [[0, 16383, [b"billing.invalid", 6379, b"node"]]]
@@ -295,7 +295,7 @@ class TestQuotaRedis(SimpleTestCase):
             with patch("redis.cluster.get_connection", return_value=Mock()):
                 self.assertEqual(recovered.execute_command("ZSCORE", "quota", "team"), 123)
 
-    @override_settings(BILLING_STATE_REDIS_CLUSTER_ENABLED=True)
+    @override_settings(QUOTA_LIMITING_REDIS_CLUSTER_ENABLED=True)
     def test_forked_child_can_collect_inherited_cluster_with_locked_connections(self) -> None:
         slots = [[0, 16383, [b"billing.invalid", 6379, b"node"]]]
         with (

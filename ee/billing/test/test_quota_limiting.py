@@ -3562,7 +3562,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         ]
     )
     @time_machine.travel("2026-06-15T00:30:00Z", tick=False)
-    @override_settings(BILLING_STATE_REDIS_URL="redis://quota-failed-org.test:6379/0")
+    @override_settings(QUOTA_LIMITING_REDIS_URL="redis://quota-failed-org.test:6379/0")
     def test_failed_period_recount_preserves_existing_block(
         self, _name: str, persisted_expiry: str | None, redis_expiry: str, expected_expiry: str | None
     ) -> None:

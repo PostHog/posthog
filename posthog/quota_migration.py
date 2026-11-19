@@ -49,7 +49,7 @@ def run_secondary_quota_operation[T](
     operation: str, callback: Callable[[QuotaRedisClient], T], *, resource: str, maintenance: bool = False
 ) -> T | None:
     """Best-effort migration work must never fail a successful shared Redis write."""
-    url = settings.BILLING_STATE_REDIS_URL
+    url = settings.QUOTA_LIMITING_REDIS_URL
     if not url:
         return None
     if monotonic() < _retry_after.get(url, 0):
@@ -110,7 +110,7 @@ class _QuotaScoreDifference:
 
 def compare_quota_stores(keys: Sequence[str]) -> bool:
     """Compare full membership and scores, excluding differences that change during recheck."""
-    if not settings.BILLING_STATE_REDIS_URL:
+    if not settings.QUOTA_LIMITING_REDIS_URL:
         return False
     try:
         shared = get_client(settings.REDIS_READER_URL or settings.REDIS_URL)

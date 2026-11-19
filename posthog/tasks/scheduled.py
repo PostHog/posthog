@@ -291,7 +291,7 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
-    if settings.BILLING_STATE_REDIS_URL:
+    if settings.QUOTA_LIMITING_REDIS_URL:
         add_periodic_task_with_expiry(
             sender,
             crontab(minute="*/10"),
