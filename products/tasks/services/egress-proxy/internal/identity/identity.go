@@ -34,18 +34,24 @@ type Claims struct {
 }
 
 type Registration struct {
-	RunID          string
-	TeamID         int64
-	ActorID        int64
-	ActorEpoch     uint64
-	ExecutionID    string
-	RelayKeySHA256 string
-	Authority      string
-	LeaseExpiresAt time.Time
-	Revoked        bool
+	RunID          string    `json:"run_id"`
+	TeamID         int64     `json:"team_id"`
+	ActorID        int64     `json:"actor_id"`
+	ActorEpoch     uint64    `json:"actor_epoch"`
+	ExecutionID    string    `json:"execution_id"`
+	RelayKeySHA256 string    `json:"relay_key_sha256"`
+	Authority      string    `json:"authority"`
+	LeaseExpiresAt time.Time `json:"lease_expires_at"`
+	Revoked        bool      `json:"revoked"`
 }
 
-type Lookup func(context.Context, string) (Registration, error)
+type LookupRequest struct {
+	TeamID      int64
+	RunID       string
+	ExecutionID string
+}
+
+type Lookup func(context.Context, LookupRequest) (Registration, error)
 
 type Config struct {
 	Issuer        string
@@ -74,7 +80,7 @@ func New(config Config) (*Verifier, error) {
 	}
 	keys := make(map[string]*rsa.PublicKey, len(config.Keys))
 	for id, key := range config.Keys {
-		if id == "" || key == nil || key.N == nil || key.N.Sign() <= 0 || key.N.BitLen() < 2048 || key.E < 3 || key.E%2 == 0 {
+		if id == "" || !validPublicKey(key) {
 			return nil, errors.New("invalid verification key")
 		}
 		keys[id] = &rsa.PublicKey{N: new(big.Int).Set(key.N), E: key.E}
@@ -147,7 +153,9 @@ func (v *Verifier) Authorize(r *http.Request) (Registration, error) {
 	if ctx.Err() != nil {
 		return Registration{}, ErrUnavailable
 	}
-	registration, err := v.lookup(ctx, claims.Subject)
+	registration, err := v.lookup(ctx, LookupRequest{
+		TeamID: claims.TeamID, RunID: claims.Subject, ExecutionID: claims.ExecutionID,
+	})
 	if ctx.Err() != nil {
 		return Registration{}, ErrUnavailable
 	}

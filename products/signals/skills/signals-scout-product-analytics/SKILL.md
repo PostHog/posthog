@@ -42,10 +42,49 @@ You can't scan a whole project in one run. Your leverage is a **durable watchlis
 
 ## Quick close-out: is there a flow worth watching?
 
-If there are no saved funnel/retention/lifecycle insights (check via the `system.insights` search below) **and** `top_events` is too thin to infer even one activation flow (fewer than ~3 discrete business events above ~100/day), this team has no behavioral flow to score yet. Write one `not-in-use:product_analytics:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
+If there are no saved funnel/retention/lifecycle insights (check via the `system.insights` search below) **and** `top_events` is too thin to infer even one activation flow (fewer than ~3 discrete business events above ~100/day), this team has no behavioral flow to score yet. Write the no-flow entry (below) and close out empty.
 Do not close out because `product_analytics` is missing from `products_in_use`: that list shows onboarding, not usage.
 
 Before closing out on `top_events` thinness, rule out a capture gap: its counts are windowed (each row carries `window_days`), not lifetime, so a project whose ingestion recently went dark reads identically to one that never had a flow. If the events look thin for a team that otherwise looks active, confirm with a direct `execute-sql` over a longer window (e.g. 30d) before concluding there's no flow — a recent capture cliff is a volume problem for another surface, not an absence of behavior to score.
+
+**Store the no-flow verdict with a recheck date.**
+A project with no flow usually stays that way for weeks, so do not repeat the full discovery on every run.
+Write the verdict to `not-in-use:product_analytics:team{team_id}` with:
+
+- `last_verified` — the time of this full check.
+- `no_flow_checks` — the count of consecutive full checks that found no flow.
+- `next_due` — 7 days after the first no-flow verdict, 14 days after the second, and 28 days after each later one.
+- A snapshot for the cheap checks: the business events above ~100/day with their daily rates, the project's total daily events, and the `activated_at` milestones in `product_intents`.
+
+**Before `next_due`, run the cheap checks instead of full discovery.**
+Do not repeat the flow search over `system.insights` or `query-paths`, and run the 30-day capture check only when check 4 asks for it.
+An entry with no `next_due` is due now.
+Use the profile from orientation, plus one count:
+
+1. **Saved insights.** One `execute-sql` over `system.insights`: count the rows with `deleted = 0` and `created_at` or `last_modified_at` after `last_verified`.
+   Count every query kind, not only the four flow kinds.
+   A saved SQL or Trends insight can also track a behavioral rate, so full discovery decides whether a new insight is a flow.
+2. **Event inventory.** Compare `top_events` with the snapshot.
+   A new business event above ~100/day, 3 or more business events above that line, or total daily events about 2× the snapshot is a material change.
+3. **Activation milestones.** A new `activated_at` milestone in `product_intents` names an event that an inferred flow can start from.
+4. **Volume drop.** Total daily events below about half the snapshot can be a capture cliff.
+   Run the capture-gap check (the 30-day `execute-sql`). If the project's ingestion stopped, name the drop and its date in the close-out as a hand-off for capture, and file no report: a project with no flow has no rate to score.
+   Write the drop date and the new daily volume into the snapshot, so that later runs before `next_due` do not repeat the check.
+
+If check 1, 2 or 3 fires, run full discovery now, as if `next_due` had passed.
+If no check fires, reuse the verdict: rewrite the same key with `last_verified`, `no_flow_checks`, `next_due` and the snapshot unchanged, set `last_reused` to this run's time, and close out empty. The rewrite marks the run as a no-flow close-out.
+Do not move `last_verified` on a reuse: it records the last full check, not the last run.
+
+On or after `next_due`, or when a check fires, run full discovery.
+If it finds no flow, increase `no_flow_checks` and write a new `last_verified`, `next_due` and snapshot.
+If it finds a flow, forget the `not-in-use:` entry (`scout-scratchpad-forget`) and continue with a normal run. The volume gate below still applies to that flow, and a low-volume flow gets no report.
+
+Examples:
+
+- **Unchanged quiet project.** The entry is 3 days old and `next_due` is in 4 days. No insight was created or edited after `last_verified`, and `top_events` matches the snapshot. Run the one count, reuse the verdict, and close out.
+- **New saved flow.** A person saves a funnel, or a SQL insight that computes a signup-to-activation rate, 2 days before `next_due`. The count returns 1, so run full discovery now. Read the insight. If it is a flow, forget the `not-in-use:` entry and add a watchlist entry.
+- **Increased traffic.** The snapshot had 1 business event above ~100/day and about 800 events/day in total. `top_events` now shows 4 business events above that line. Run full discovery now, including the inferred activation flow.
+- **Possible capture cliff.** The snapshot had about 2k events/day, and `top_events` now shows about 50/day. Run the 30-day check. If the daily count fell to near zero on one date, name that date in the close-out as a capture hand-off, record the drop in the snapshot, keep `next_due`, and file no report.
 
 Saved flows can exist and still have too few entrants to score.
 If every watchlist flow is deferred below the volume floor (see the volume gate below) with a `next_due` in the future, and the explore pass finds no new saved flow, close out after orientation.
@@ -162,6 +201,7 @@ Maintain the watchlist and baselines as you work, encoding the category in the k
 - `baseline:product_analytics:flow:<short_id>` — the learned normal: per-step conversion % band (median + MAD), or the retention curve band per day-offset, so the next run scores cheaply instead of recomputing the full baseline.
 - `dedupe:product_analytics:flow:<short_id>:<rate>` — a regression already surfaced on this flow's specific rate (the affected step/cohort/state), with the condition that should re-escalate it (a further drop, or recovery + relapse). **One stable key per regression — never date the key.** A dated key mints a fresh row every run, so the gate never matches and the same regression files again. Keep the dates in the content instead: first seen, each later observation, and what would re-escalate. For example, key `dedupe:product_analytics:flow:aB3xY9z:step2` — _"Step-2 conversion regression on `Signup → activation` (62% → 48%, step-1 entrants steady ~5.2k/day). First seen 2026-06-09, re-confirmed 2026-06-16 at 47%. While it sits below the 60–64% baseline band, append the fresh window to the report and update this entry in place — do not author again. Re-escalate only if it drops another ~5 points, or recovers above the band and then relapses."_ Re-confirming rewrites this same row; a distinct rate on the same insight gets its own key, so separate regressions on one insight do not collide.
 - `report:product_analytics:flow:<short_id>:<rate>` — the `report_id` of a report you authored for a regression on this flow's specific rate (the affected step/cohort/state), so the next run edits _that rate's_ report (`append_evidence` with the fresh window) instead of duplicating; a distinct rate on the same insight gets its own pointer and its own report.
+- `not-in-use:product_analytics:team{team_id}` — the no-flow verdict: `last_verified`, `no_flow_checks`, `next_due` and the snapshot for the cheap checks (see the quick close-out).
 - `reviewer:product_analytics:<area>` — a resolved owner (bare lowercase GitHub login) for a flow / product area, so reports route to a human faster.
 
 ### Decide
@@ -217,7 +257,7 @@ Harness-level:
 
 ## When to stop
 
-- No flow worth watching, or every flow deferred below the volume floor (quick close-out) → close out empty.
+- No flow worth watching, or every flow deferred below the volume floor (quick close-out) → close out empty. Before the no-flow `next_due`, reuse the verdict unless a cheap check fires.
 - You've scored the due watchlist flows and added a couple of new ones → close out, even if more remain. Each run advances the watchlist.
 - A candidate matches a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report → edit-or-skip.
 

@@ -82,6 +82,20 @@ CODE_CASES = [
     ),
 ]
 
+# Asks about wrong behavior in the team's own app as a question, without naming code.
+CODE_CASES += [
+    BaseEvalCase(
+        name="investigate_ui_glitch",
+        prompt="can you look into why a blank tab shows up first when I open the settings page?",
+        expected=_needs_repo(True),
+    ),
+    BaseEvalCase(
+        name="investigate_wrong_behavior",
+        prompt="investigate why the export button downloads an empty file for some users",
+        expected=_needs_repo(True),
+    ),
+]
+
 DATA_CASES = [
     BaseEvalCase(name="weekly_signups", prompt="how many people signed up last week?", expected=_needs_repo(False)),
     BaseEvalCase(
@@ -124,6 +138,39 @@ DATA_CASES = [
     BaseEvalCase(
         name="track_without_code",
         prompt="can I track clicks on the pricing button without code, like with an action?",
+        expected=_needs_repo(False),
+    ),
+    # Creates a PostHog resource, which reads like building something.
+    BaseEvalCase(
+        name="set_up_scout",
+        prompt="make a scout that checks every morning for accounts at risk of churning and posts them here",
+        expected=_needs_repo(False),
+    ),
+    BaseEvalCase(
+        name="set_up_alert",
+        prompt="alert this channel when daily signups drop below half of last week's average",
+        expected=_needs_repo(False),
+    ),
+    # Names an issue or a pull request, but asks only about its details.
+    BaseEvalCase(
+        name="who_opened_issue",
+        prompt="who opened issue #318 in our web-app repo, and is it still open?",
+        expected=_needs_repo(False),
+    ),
+    BaseEvalCase(
+        name="pr_merge_status",
+        prompt="did the pull request that renames the billing page get merged yet?",
+        expected=_needs_repo(False),
+    ),
+    # Lists pull requests, which GitHub answers without the code.
+    BaseEvalCase(
+        name="list_open_prs",
+        prompt="list my open pull requests by status, easiest to merge first",
+        expected=_needs_repo(False),
+    ),
+    BaseEvalCase(
+        name="prs_merged_this_week",
+        prompt="which pull requests did the team merge this week?",
         expected=_needs_repo(False),
     ),
     BaseEvalCase(name="thanks", prompt="thanks, that's perfect!", expected=_needs_repo(False)),

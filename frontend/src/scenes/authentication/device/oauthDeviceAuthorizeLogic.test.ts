@@ -60,7 +60,6 @@ describe('oauthDeviceAuthorizeLogic', () => {
             ],
             false,
         ],
-        ['a step-up', [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }], true],
         [
             'a login after a grant in another organization',
             [{ project_id: null, organization_id: 'another-org', scopes: ['openid', 'insight:read'] }],
@@ -85,21 +84,65 @@ describe('oauthDeviceAuthorizeLogic', () => {
             ['dashboard', 'none'],
             ['insight', 'none'],
         ])
-        await expectLogic(logic).toMatchValues({ isStepUp, scopeSummary: 'hog can view and change data in 2 areas.' })
+        await expectLogic(logic).toMatchValues({ isStepUp })
+    })
+
+    it('a step-up lists only what it adds and keeps what was granted before', async () => {
+        useGrantMocks({
+            ...GRANT,
+            granted_scopes: [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }],
+        })
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setProjectId(42)
+        logic.actions.setScopeAccess('insight', 'none')
+
+        expect(logic.values.isStepUp).toBe(true)
+        expect(
+            logic.values.scopeGroups.map((group) => [group.label, group.rows.map((row) => [row.key, row.minLevel])])
+        ).toEqual([
+            [
+                'Product analytics',
+                [
+                    ['dashboard', 'none'],
+                    ['insight', 'read'],
+                ],
+            ],
+        ])
+        expect(logic.values.keptScopes).toEqual(['openid', 'dashboard:write', 'insight:read'])
+    })
+
+    it('a step-up that asks for less than an earlier grant never approves past the request', async () => {
+        useGrantMocks({
+            ...GRANT,
+            scopes: ['openid', 'insight:read', 'feature_flag:write'],
+            granted_scopes: [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:write'] }],
+        })
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setProjectId(42)
+        logic.actions.setScopeGroupAccess(['insight', 'feature_flag'], 'write')
+
+        expect(logic.values.keptScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
     })
 
     it.each([
-        ['nothing but identity', ['openid'], ['openid', 'insight:read'], 'hog can view data in 1 area.', null],
+        ['nothing but identity', ['openid'], ['openid', 'insight:read'], null],
         [
             'a scope a step-up adds',
             ['openid', 'dashboard:write'],
             ['openid', 'dashboard:write', 'insight:read'],
-            'hog can view and change data in 1 area, and view data in 1 more.',
-            "hog needs the permissions marked Required, so you can't remove them. To refuse them, deny the login.",
+            "hog needs the locked permissions, so you can't remove them. To refuse them, deny the login.",
         ],
     ])(
         'with %s required, approves only the scopes the person kept, at the level they picked',
-        async (_name, requiredScopes, approvedScopes, scopeSummary, requiredScopesNote) => {
+        async (_name, requiredScopes, approvedScopes, requiredScopesNote) => {
             useGrantMocks({ ...GRANT, required_scopes: requiredScopes })
             const logic = oauthDeviceAuthorizeLogic()
             logic.mount()
@@ -113,7 +156,7 @@ describe('oauthDeviceAuthorizeLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(approvals).toEqual([{ user_code: 'BCDF-GHJK', project_id: 42, scopes: approvedScopes }])
-            await expectLogic(logic).toMatchValues({ scopeSummary, requiredScopesNote })
+            await expectLogic(logic).toMatchValues({ requiredScopesNote })
         }
     )
 

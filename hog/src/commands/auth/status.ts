@@ -1,8 +1,10 @@
 import { defineCommand } from '@/core/command'
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import { checkAuthStatus } from '@/posthog/auth-status'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import type { CredentialSource } from '@/posthog/credentials'
+import { currentVersionInfo, updateChecksOff } from '@/updates/check'
 
 function sourceLabel(
     source: CredentialSource,
@@ -31,7 +33,13 @@ export default defineCommand({
     ].join('\n'),
     examples: ['hog auth status', 'hog auth status -o json'],
 
-    run: ({ ctx }) => checkAuthStatus(ctx),
+    // Agents read `hog` to see whether to run `hog upgrade` first.
+    run: async ({ ctx }) => {
+        const config = await ctx.config().catch(() => undefined)
+        const off = updateChecksOff(ctx.runtime, config?.config) || ctx.globals.skipSslVerification === true
+        const [status, hog] = await Promise.all([checkAuthStatus(ctx), currentVersionInfo(ctx.runtime, off)])
+        return { ...status, hog }
+    },
 
     human({ result, out }) {
         if (!result.authenticated) {
@@ -67,5 +75,5 @@ export default defineCommand({
         }
     },
 
-    exitCode: (result) => (result.authenticated ? 0 : 1),
+    exitCode: (result) => (result.authenticated ? EXIT_SUCCESS : EXIT_FAILURE),
 })

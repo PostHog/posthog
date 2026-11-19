@@ -197,7 +197,7 @@ class TestProjectionsDriftCheck:
             "tools/hogli-commands/hogli_commands/projections.py",
             "frontend/src/taxonomy/core-filter-definitions-by-group.json",
             "products/tasks/backend/model_catalog.py",
-            "posthog/scopes.py",
+            "posthog/scopes/oauth.py",
             "services/mcp/src/lib/oauth-scopes.generated.ts",
         ],
     )

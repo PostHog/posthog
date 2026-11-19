@@ -1022,18 +1022,25 @@ Internal-only service-to-service endpoint authenticated via `X-Internal-Api-Secr
 
 Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `APIScopePermission` with scope object **`task`**.
 
-| Method | Path                           | Description               |
-| ------ | ------------------------------ | ------------------------- |
-| GET    | `signals/source_configs/`      | List configs for the team |
-| POST   | `signals/source_configs/`      | Create a new config       |
-| GET    | `signals/source_configs/{id}/` | Retrieve a config         |
-| PATCH  | `signals/source_configs/{id}/` | Update a config           |
-| DELETE | `signals/source_configs/{id}/` | Delete a config           |
+| Method | Path                                      | Description                                                    |
+| ------ | ----------------------------------------- | -------------------------------------------------------------- |
+| GET    | `signals/source_configs/`                 | List configs for the team                                      |
+| POST   | `signals/source_configs/`                 | Create a new config                                            |
+| GET    | `signals/source_configs/{id}/`            | Retrieve a config                                              |
+| PATCH  | `signals/source_configs/{id}/`            | Update a config                                                |
+| DELETE | `signals/source_configs/{id}/`            | Delete a config                                                |
+| GET    | `signals/source_configs/filter_catalogs/` | Filter fields and starters for each source the team can filter |
+| POST   | `signals/source_configs/filter_preview/`  | Passing and excluded records for an unsaved filter             |
 
 Important side effects:
 
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
+
+Source filters (`config.hogql_filter`) share one rollout gate, `source_filters.writable_sources`: a source appears in `filter_catalogs`, takes a preview, and accepts a saved filter only when its catalog is eligible and its rollout state lets the organization in.
+`filter_preview` (`source_filter_preview.py`) reads the records created in the last 7 days with emission's own window field, built-in conditions and saved scope allowlist, and binds the expression to the active catalog version the save would pin.
+Unlike emission, it runs as the requester under warehouse access control, so a user without access to the source table gets `access_denied` and no rows.
+It creates no signals, calls no AI, and moves no sync cursor.
 
 #### `SignalTeamConfigViewSet`
 
@@ -1240,7 +1247,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
 - `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`, `memory_protocol`, `nudge_rendered`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
-- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
+- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable, `source_products`: the report's distinct signal source products, empty when the lookup fails). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
 - `signals_report_linked` — a typed `report_link` was written (+ `report_id`, `linked_report_id`, `kind`, `has_reason`, `actor_kind`, `actor_agent`). Fired from the one write path every producer shares, so links get a denominator they do not otherwise have. See Typed report links
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
@@ -1389,7 +1396,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 **Guard clause** — all must pass:
 
 - Report actionability is `immediately_actionable`
-- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
+- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). The issues a report was filed from never count: research lists them from GitHub issue signals and `source_issue` artefacts, so a requester who assigns their own issue does not block the work. Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
 - Report has a `priority_judgment`
 - Report has suggested reviewers
 - No legacy `SignalReportTask` implementation row exists for the report (checked inside a `select_for_update` on the report row, so concurrent evaluations can't double-start)

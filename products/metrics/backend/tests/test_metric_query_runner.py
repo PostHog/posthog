@@ -1006,6 +1006,8 @@ class TestOutputUnit(SimpleTestCase):
             ("rate_of_unitless", "", MetricAggregation.RATE, None, "1/s"),
             ("unitless_without_rate", "", MetricAggregation.SUM, None, None),
             ("rate_of_disagreeing_units", None, MetricAggregation.RATE, None, None),
+            ("count_rate_is_observations_per_second", "s", MetricAggregation.COUNT_RATE, None, "1/s"),
+            ("count_increase_is_a_plain_number", "s", MetricAggregation.COUNT_INCREASE, None, None),
             (
                 "unitless_seconds_histogram_quantile",
                 "",
@@ -1579,6 +1581,50 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([row["value"] for row in rows], [100.0, 100.0])
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, start + dt.timedelta(minutes=10))
+
+    @parameterized.expand(
+        [
+            # 30 more observations over the minute; their summed duration grew by 3.0.
+            ("count_increase", None, 30.0),
+            ("count_rate", None, 0.5),
+            ("count_rate", "histogram", 0.5),
+            ("rate", "histogram", 0.05),
+        ]
+    )
+    def test_count_functions_read_the_observation_count_of_a_histogram(
+        self, aggregation: str, metric_type: str | None, expected: float
+    ):
+        # The first point is before the range, so the bucket diffs against it.
+        for offset, duration_sum, count in [(-90, 1.0, 10), (0, 2.0, 20), (30, 4.0, 40)]:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="http.server.request.duration",
+                metric_type="histogram",
+                points=[(self.anchor + dt.timedelta(seconds=offset), duration_sum)],
+                histogram_bounds=[0.1, 1.0],
+                histogram_counts=[count, 0, 0],
+                count=count,
+            )
+        # A gauge under the same name stores count = 1 per point and must not count as observations.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.server.request.duration",
+            metric_type="gauge",
+            points=[(self.anchor + dt.timedelta(seconds=s), 1_000.0 + s) for s in (-90, 0, 30)],
+        )
+        rows = self._run(aggregation, metric_name="http.server.request.duration", metric_type=metric_type)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], expected)
+
+    @parameterized.expand(
+        [
+            ("with_range_function", {"metric_type": "histogram", "range_function": "rate"}),
+            ("on_a_gauge", {"metric_type": "gauge"}),
+        ]
+    )
+    def test_count_rate_rejects(self, _name: str, overrides: dict[str, Any]):
+        with self.assertRaises(ValueError):
+            self._run("count_rate", **overrides)
 
     def test_rate_divides_by_bucket_seconds(self):
         self._seed_counter(

@@ -23,7 +23,6 @@ from posthog.api import project_tags
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.caching.organization_serializer_cache import (
     ORG_SERIALIZER_CACHE_TTL_SECONDS,
     _org_serializer_cache_version,
@@ -62,6 +61,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     extract_organization,
+    get_authenticator_scoped_organization_ids,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
@@ -795,12 +795,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The serializer reads `ip_restrictions` for every organization in a list response. Load the
         # config up front so each row does not add its own reverse one-to-one query.
         queryset = user.organizations.all().select_related("ip_restrictions_config")
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset = queryset.filter(id__in=scoped_organizations)
-        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
-                queryset = queryset.filter(id__in=scoped_organizations)
+        # Organization scopes only: these endpoints refuse a team-scoped credential outright in
+        # `APIScopePermission`, so narrowing by its teams' organizations would only turn that 403 into a 404.
+        if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
+            queryset = queryset.filter(id__in=scoped_organizations)
 
         return annotate_signed_baa(queryset)
 
@@ -965,7 +963,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def request_ai_access(self, request: Request, **kwargs) -> Response:
         """Notify organization admins that a member is requesting PostHog AI be enabled."""
-        organization = self.organization
+        organization = self.get_object()
         user = cast(User, request.user)
 
         # Nothing to request if PostHog AI is already enabled for the org.
@@ -1029,7 +1027,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
-        organization = self.organization
+        organization = self.get_object()
         user = cast(User, request.user)
         # `self.user_access_control` is scoped to the user's current organization, which on this route isn't
         # necessarily the one being requested - so build one for the organization actually in the URL

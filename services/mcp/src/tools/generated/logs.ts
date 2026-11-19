@@ -139,7 +139,7 @@ const LogsAlertsDestinationsCreateSchema = () => {
 
 const logsAlertsDestinationsCreate = (): ToolBase<
     ReturnType<typeof LogsAlertsDestinationsCreateSchema>,
-    Schemas.LogsAlertDestinationResponse
+    Schemas.LogsAlertCreatedDestinationResponse
 > => ({
     name: 'logs-alerts-destinations-create',
     schema: LogsAlertsDestinationsCreateSchema(),
@@ -170,12 +170,12 @@ const logsAlertsDestinationsCreate = (): ToolBase<
         if (params.pagerduty_region !== undefined) {
             body['pagerduty_region'] = params.pagerduty_region
         }
-        const result = await context.api.request<Schemas.LogsAlertDestinationResponse>({
+        const result = await context.api.request<Schemas.LogsAlertCreatedDestinationResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/destinations/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['hog_function_ids']) as typeof result
+        const filtered = pickResponseFields(result, ['id', 'hog_function_ids']) as typeof result
         return filtered
     },
 })
@@ -959,7 +959,7 @@ const queryLogs = (): ToolBase<ReturnType<typeof QueryLogsSchema>, Schemas._Logs
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/query/`,
                 body: await transformRequestBody(hooks_queryLogs, context, params, body),
             })
-            const filtered = pickResponseFields(result, ['results']) as typeof result
+            const filtered = pickResponseFields(result, ['results', 'columns']) as typeof result
             return filtered
         }
     ),

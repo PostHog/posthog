@@ -417,7 +417,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
             it.each([
                 ['console_error_count', 'DESC', [100, 50]],
                 ['console_error_count', 'ASC', [50, 100]],
-                ['surfacing_score', 'DESC', [50, 100]],
             ] as const)('orders the pinned recordings by %s %s', async (order, order_direction, expected) => {
                 logic = sessionRecordingsPlaylistLogic({
                     logicKey: 'pinned-ordering',
@@ -2834,17 +2833,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     describe('convertUniversalFiltersToRecordingsQuery', () => {
-        it('filters to scored recommendations while keeping recency ordering', () => {
-            const result = convertUniversalFiltersToRecordingsQuery({
-                ...DEFAULT_RECORDING_FILTERS,
-                recommended_only: true,
-            })
-
-            expect(result.order).toBe('start_time')
-            expect(result.order_direction).toBe('DESC')
-            expect(result.recommended_only).toBe(true)
-        })
-
         it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
@@ -2938,36 +2926,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('recommended filter experiment', () => {
-        const recommendedFilters: RecordingUniversalFilters = {
-            ...DEFAULT_RECORDING_FILTERS,
-            recommended_only: true,
-        }
-
-        it('keeps the recommended filter for the test variant', () => {
-            expect(
-                getEffectiveRecordingFilters(recommendedFilters, {
-                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'test',
-                })
-            ).toBe(recommendedFilters)
-        })
-
-        it.each([undefined, 'control'])('disables a persisted recommended filter for the %s variant', (variant) => {
-            expect(
-                getEffectiveRecordingFilters(recommendedFilters, {
-                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: variant,
-                })
-            ).toEqual({ ...recommendedFilters, recommended_only: false })
-        })
-
+    describe('event match scope flag', () => {
         it.each([
             [true, 'recording'],
             [false, undefined],
-        ])('with the event match scope flag %s a persisted recording scope becomes %s', (flagOn, expected) => {
-            const scopedFilters: RecordingUniversalFilters = { ...recommendedFilters, event_match_scope: 'recording' }
+        ])('with the flag %s a persisted recording scope becomes %s', (flagOn, expected) => {
+            const scopedFilters: RecordingUniversalFilters = {
+                ...DEFAULT_RECORDING_FILTERS,
+                event_match_scope: 'recording',
+            }
             expect(
                 getEffectiveRecordingFilters(scopedFilters, {
-                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'test',
                     [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: flagOn,
                 }).event_match_scope
             ).toBe(expected)
@@ -2986,41 +2955,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(logic, () => {
                 featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: enabled })
             }).toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
-        })
-
-        it('clears a persisted recommended filter for the control variant', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'control',
-            })
-            logic = sessionRecordingsPlaylistLogic({
-                logicKey: 'persisted-recommended-filter',
-                filters: recommendedFilters,
-            })
-
-            await expectLogic(logic, () => {
-                logic.mount()
-            })
-                .toDispatchActions(['setFilters'])
-                .toMatchValues({ filters: { ...recommendedFilters, recommended_only: false } })
-        })
-
-        it.each([
-            ['test', true],
-            ['control', false],
-        ])('waits for a delayed %s variant before cleaning persisted state', async (variant, expected) => {
-            logic = sessionRecordingsPlaylistLogic({
-                logicKey: `delayed-${variant}-recommended-filter`,
-                filters: recommendedFilters,
-            })
-            logic.mount()
-
-            expect(logic.values.filters.recommended_only).toBe(true)
-
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: variant,
-                })
-            }).toMatchValues({ filters: { ...recommendedFilters, recommended_only: expected } })
         })
     })
 
@@ -3192,12 +3126,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         describe('preferred sort', () => {
             it.each<[string, () => void, string, string]>([
-                [
-                    'an explicitly chosen relevance sort is kept',
-                    () => preferredRecordingsSortStorage.set({ order: 'surfacing_score', order_direction: 'DESC' }),
-                    'surfacing_score',
-                    'DESC',
-                ],
                 [
                     'the chosen direction is kept',
                     () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'ASC' }),

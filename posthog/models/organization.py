@@ -260,6 +260,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     is_member_join_email_enabled = models.BooleanField(
         default=True
     )  # DEPRECATED in favor of User.partial_notification_settings
+    # Also checked by agents before they query production data, see
+    # .agents/skills/querying-production-databases/SKILL.md. Update the skill when this field changes.
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
     is_ai_training_opted_in = models.BooleanField(
         default=True,

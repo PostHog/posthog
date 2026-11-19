@@ -17,10 +17,27 @@ describe('executeSqlHandler', () => {
         { structured: true, outputFormat: 'optimized' },
         { structured: true, outputFormat: 'json' },
     ] as const)('preserves results and query metadata: %j', async ({ structured, outputFormat }) => {
+        const filters = {
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+                explicitDate: null,
+                daysOfWeek: [1, 2],
+                excludeIncompletePeriods: null,
+            },
+            properties: [
+                { key: 'region', type: 'event', value: ['west'], operator: 'exact' },
+                { key: 'paid', type: 'group', group_type_index: 1, value: true, operator: 'exact', label: 'Paid' },
+                { key: 'id', type: 'cohort', value: 123, operator: 'in', cohort_name: 'Example cohort' },
+            ],
+            filterTestAccounts: true,
+            interval: 'week',
+        }
         const query = {
             kind: 'HogQLQuery',
-            query: 'SELECT {variables.org}',
+            query: 'SELECT {variables.org} FROM events WHERE {filters}',
             variables: { 'example-variable': { variableId: 'example-variable', code_name: 'org' } },
+            filters,
         }
         const content = 'org\nExample organization'
         vi.stubGlobal(
@@ -39,8 +56,13 @@ describe('executeSqlHandler', () => {
             api: new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' }),
             stateManager: { getProjectId: vi.fn().mockResolvedValue(2) },
         } as unknown as Context
-        const params = { query: `${query.query};`, truncate: true, output_format: outputFormat }
+        const params = {
+            ...ExecuteSQLSchema.parse({ query: `${query.query};`, filters }),
+            output_format: outputFormat,
+        }
         const handlerResult = await executeSqlHandler(context, params)
+        const request = vi.mocked(fetch).mock.calls[0]?.[1]
+        expect(JSON.parse(String(request?.body)).args.filters).toEqual(filters)
 
         for (const includeAppData of [false, true]) {
             const payload = buildToolResultPayload({ handlerResult, toolName: 'execute-sql', params, includeAppData })

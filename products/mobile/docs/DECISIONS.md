@@ -329,7 +329,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
   of this section describes the dormant behavior.
 - **Live is not a pin.** It is Home, so `NAV_PINS` has Errors, Sessions and Web analytics, and a saved Live pin is
   dropped when the list loads.
-- **Errors, Sessions, Web analytics and Live are Views rows.** The Browse group lists Dashboards, Insights, Web analytics, Live, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web. Live is also Home, so its Browse row switches to the Home tab instead of pushing a second Live screen (`browseRoutes.ts`).
+- **Errors, Sessions and Web analytics are Views rows.** The Browse group lists Dashboards, Insights, Web analytics, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web. Live is Home, so it has no Browse row.
 - **A pin adds one slot after Views.** Long-press the Browse row, or use the pushed screen's More menu (More sheet on Web analytics), for "Pin to navigation". Both changes confirm with the Views toast and Undo.
 - **One user slot.** Five 44pt slots and the labelled Chat button do not fit a 375pt or 393pt phone: about 199pt and 217pt are left for 220pt of slots. Four fit everywhere, so the pill has Home, Chats, Views and one pin. Pinning another list replaces the pin, the toast says "Pinned, replacing Errors" (or "Web analytics", the longest label), and Undo puts the old pin back. The store keeps a list (`MAX_NAV_PINS`), so a larger cap needs no change to the saved format.
 - **A device preference.** `navPinStore` keeps the pins in AsyncStorage for every project, and sign-out keeps them, like the pin hint: they hold no account data.
@@ -344,16 +344,20 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **The compact `error_tracking/query/` endpoints, not raw `query/`.** They are the agent and MCP surface: typed
   request serializers, small answers, impact, trend, releases and breakdowns already computed. Every read then needs
   only `error_tracking:read`, the scope the Errors gate checks, and none spends the Views query budget.
-- **Most users first, active only.** The list is `status: 'active'`, `orderBy: 'users'`, 15 rows per page, 24h by default
+- **Most users first by default, active only.** The list is `status: 'active'`, 15 rows per page, 24h by default
   with 7d one tap away. Load more follows the server's next offset. Resolved and suppressed issues stay on the web.
+- **Sort by users, sessions or occurrences.** The caption under the title opens a sheet, because the controls row is
+  full. The sort is the server's `orderBy` and is not saved between visits. Errors with no `$session_id` come last in
+  Most sessions and show "–".
 - **New, Spiking and Mine filter the list, one at a time.** New and Spiking narrow loaded pages on the device.
   A partial empty result offers Load more. Mine is a server filter (`assignee: { type: 'user', id }`).
 - **New is first seen inside the window. Spiking is the server's spike detection.** The badge reads
   `error_tracking/spike_events/`, the read the web's issue list uses, so the phone and the web call the same issues
   spiking. New wins over Spiking for the displayed badge, but an issue can match either filter.
   Spike reads cover each loaded page, and a failed read offers a retry in the Spiking filter.
-- **Counts on the list, charts on the issue.** The list requests `volumeResolution: 0` to reduce the initial response
-  and time-bucket work. The issue detail still requests its volume chart.
+- **Bars on every card.** The list requests the issue chart's buckets (`volumeResolution` 24 for 24h, 28 for 7d). The
+  server computes the list in one query either way. The bars are SVG (`SparkBars`), not Skia canvases.
+- **Compact counts, as on the web.** Three significant figures (1.23K). Screen reader labels keep the full counts.
 - **No Reopened badge.** Nothing the app can read says an issue came back after a resolve: the issue resource has no
   history field, and the activity log needs `activity_log:read`.
 - **Statuses and wording match the web.** `active`, `resolved`, `suppressed` with the labels of the web's
@@ -434,6 +438,14 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
   The error state offers Open in PostHog, and leads with it when the export cap or the length rules out a render.
   With the flag off, the pill button opens the web player as before.
   Events: `mobile_replay_video_requested`, `mobile_replay_video_ready` (wait and reuse), `mobile_replay_video_failed` (the error kind, `playback` for a player error) and `mobile_replay_video_closed` (the status at close).
+- **The replay feed plays recordings in a WebView by default (spike).** With `mobile-replay-feed` on, each card replays the
+  recording's snapshot data with rrweb in `react-native-webview`, so watching spends no video export. The app fetches the
+  sources listing and `blob_v2` block ranges with its own token (`session_recording:read`) and hands the page their text;
+  the page loads only the blocks from the last full snapshot before the moment. The page script is built from
+  `common/replay-headless` and `common/replay-shared` by `node common/replay-headless/build-phone.mjs` into
+  the checked-in `src/features/replay/web/phonePlayer.generated.replay` asset. Metro reads it as a string, so mobile-only
+  checkouts can build without the root workspace. Regenerate it when the player changes and use `build:phone --check`
+  to verify the asset matches its source. Mobile CI runs the same check for changes to the bundle or its inputs. Bundling with `EXPO_PUBLIC_REPLAY_FEED_PLAYER=video` selects the MP4 export player instead.
 - **The Chat button matches the report's.** A round ink button with the compose glyph, bottom right, the one agent
   verb on the screen. It opens the chat with `RECORDING_OBJECT_TYPE` and the person label plus the date.
 - **No "Play from" in the frame sheet.** A play button would be a second way to the replay, next to the one in the

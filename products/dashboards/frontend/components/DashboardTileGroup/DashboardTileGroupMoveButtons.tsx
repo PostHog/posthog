@@ -1,0 +1,76 @@
+import clsx from 'clsx'
+
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
+
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import type { TileGroupDisplay } from '~/types'
+
+import type { TileGroupMoveDirection, TileGroupMoveDirections } from '../../dashboardTileSections'
+
+export interface TileGroupMoveActions extends TileGroupMoveDirections {
+    onMove: (direction: TileGroupMoveDirection) => void
+}
+
+const MOVE_BUTTONS: Record<
+    TileGroupDisplay,
+    { noun: string } & Record<TileGroupMoveDirection, { label: string; icon: JSX.Element }>
+> = {
+    sections: {
+        noun: 'group',
+        up: { label: 'Move up', icon: <IconArrowUp className="text-base" /> },
+        down: { label: 'Move down', icon: <IconArrowDown className="text-base" /> },
+    },
+    tabs: {
+        noun: 'tab',
+        up: { label: 'Move left', icon: <IconArrowLeft /> },
+        down: { label: 'Move right', icon: <IconArrowRight /> },
+    },
+}
+
+interface DashboardTileGroupMoveButtonsProps {
+    groupDisplay: TileGroupDisplay
+    moveActions: TileGroupMoveActions
+    groupHasTiles: boolean
+    className?: string
+}
+
+export function DashboardTileGroupMoveButtons({
+    groupDisplay,
+    moveActions,
+    groupHasTiles,
+    className,
+}: DashboardTileGroupMoveButtonsProps): JSX.Element {
+    const { noun, ...buttons } = MOVE_BUTTONS[groupDisplay]
+    // A group's place comes from its tiles' rows, so a group with no tiles has no place to change.
+    const disabledReason = (direction: TileGroupMoveDirection): string | undefined => {
+        if (!groupHasTiles) {
+            return `Add a tile to this ${noun} before you move it`
+        }
+        if (direction === 'up' && !moveActions.canMoveUp) {
+            return `This ${noun} is already first`
+        }
+        if (direction === 'down' && !moveActions.canMoveDown) {
+            return `This ${noun} is already last`
+        }
+        return undefined
+    }
+
+    return (
+        <div className={clsx('flex shrink-0 items-center gap-0.5', className)}>
+            {(['up', 'down'] as const).map((direction) => (
+                <LemonButton
+                    key={direction}
+                    size="small"
+                    icon={buttons[direction].icon}
+                    tooltip={buttons[direction].label}
+                    aria-label={buttons[direction].label}
+                    onClick={() => moveActions.onMove(direction)}
+                    disabledReason={disabledReason(direction)}
+                    data-attr={`dashboard-tile-group-move-${direction}`}
+                />
+            ))}
+        </div>
+    )
+}

@@ -1,7 +1,15 @@
 import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ViewInstance } from 'react-native'
-import { type ListViewToken, Platform, RefreshControl, SectionList, Text, View } from 'react-native'
+import {
+    type ListViewToken,
+    Platform,
+    RefreshControl,
+    type ScrollViewInstance,
+    SectionList,
+    Text,
+    View,
+} from 'react-native'
 import { GestureDetector } from 'react-native-gesture-handler'
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useMobileProductFlags } from '@/lib/featureFlags'
@@ -202,6 +210,7 @@ function ViewsBody(): ReactElement {
     const [text, setText] = useState('')
     const [menu, setMenu] = useState<MenuState | null>(null)
     const [chooseTile, setChooseTile] = useState<ChooseTileTarget | null>(null)
+    const editScrollRef = useRef<ScrollViewInstance>(null)
     const listRef = useRef<SectionList<ListItem, ListSection>>(null)
     const scrollMetrics = useRef({ offset: 0, contentHeight: 0, viewportHeight: 0 })
     const measuringAnchor = useRef<number | null>(null)
@@ -341,8 +350,7 @@ function ViewsBody(): ReactElement {
         }
     }, [])
     const openBrowse = useCallback((entry: BrowseEntry) => {
-        // Web analytics sends its own open event with `from`, so the other rows count a Browse open here. The Live row
-        // counts here too, because the Home tab it switches to sends `from: tab`.
+        // Web analytics sends its own open event with `from`, so the other rows count a Browse open here.
         if (entry !== 'web') {
             trackBrowseListOpened({ section: entry, from: latest.current.searching ? 'search' : 'browse' })
         }
@@ -829,6 +837,11 @@ function ViewsBody(): ReactElement {
     const loading = list.pins.data === undefined && !list.pins.isError
     const status = loading ? 'Loading…' : null
     useTabHeader('views', {
+        scrollToTop: () => {
+            cancelAnchorRestore()
+            const scroll = editScrollRef.current ?? listRef.current?.getScrollResponder()
+            scroll?.scrollTo({ y: 0, animated: true })
+        },
         refreshing: !loading && refresh.busy,
         hint: loading ? null : refresh.hint,
         status: editing ? 'Changes save as you go' : status,
@@ -856,6 +869,7 @@ function ViewsBody(): ReactElement {
     if (editing) {
         body = (
             <EditPinsList
+                scrollRef={editScrollRef}
                 pins={pins}
                 contentTop={contentTop}
                 contentBottom={contentBottom}

@@ -182,3 +182,19 @@ CUSTOMER_FRAGMENT = f"""{{
     updatedAt
     verifiedEmail
 }}"""
+
+CUSTOMER_VISIT_FRAGMENT = """{
+    landingPage
+    occurredAt
+    referralCode
+    referrerUrl
+    source
+    sourceType
+    utmParameters {
+        campaign
+        content
+        medium
+        source
+        term
+    }
+}"""

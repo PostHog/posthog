@@ -4,6 +4,8 @@ import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+// The deploy requirements manifest. tools/deploy-requirements holds the spec and the JSON Schema
+// that this writer and the Rust writer share. A change to the format starts there.
 export const MANIFEST_SCHEMA_VERSION = 1
 
 // Resolves to /code/nodejs/schema-requirements.json in the Node image, next to nodejs/dist.

@@ -38,6 +38,15 @@ describe('jumpToTimestamp', () => {
             expect(result!.year()).toBe(2000)
         })
 
+        it.each([
+            ['without an offset in that timezone', '2024-01-15 10:30:00', '2024-01-15T15:30:00.000Z'],
+            ['with Z as its instant', '2024-01-15T10:30:00Z', '2024-01-15T10:30:00.000Z'],
+            ['in unix seconds as its instant', '1705312200', '2024-01-15T09:50:00.000Z'],
+            ['just after clocks go forward', '2026-03-08T03:30:00', '2026-03-08T07:30:00.000Z'],
+        ])('with a timezone, reads a timestamp %s (%s)', (_label, input, expected) => {
+            expect(parseTimestampInput(input, 'America/New_York')?.toISOString()).toEqual(expected)
+        })
+
         it('returns null for dates too far in the future', () => {
             const farFuture = dayjs().add(2, 'year').format('YYYY-MM-DD')
             expect(parseTimestampInput(farFuture)).toBeNull()
