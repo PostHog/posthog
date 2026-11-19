@@ -143,7 +143,10 @@ export class PluginServer implements NodeServer {
         // 2. Services shared by CDP (geoip, repos, encryption)
         let cdpServices: Awaited<ReturnType<typeof this.createCdpSharedServices>> | undefined
         if (needsCdpProducer) {
-            this.cdpProducerRegistry = await createCdpProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+            this.cdpProducerRegistry = await createCdpProducerRegistry(
+                this.config.KAFKA_CLIENT_RACK,
+                this.config.KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST
+            ).build(this.config)
         }
         if (needsCdp) {
             // Only cdp-api looks up GeoIP: its test invocations run transformations, such as the GeoIP

@@ -7,7 +7,12 @@ import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-inges
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createExampleHogFlowInvocation } from '../_tests/fixtures-hogflows'
-import { CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT } from '../outputs/outputs'
+import {
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
+    CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
+} from '../outputs/outputs'
 import {
     HogInvocationResultsService,
     HogInvocationResultsServiceOutput,
@@ -43,6 +48,8 @@ describe('RunIntake', () => {
                 new IngestionOutputs<IntakeOutput>({
                     [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: held,
                     [CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT]: held,
+                    [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: held,
+                    [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: held,
                 })
             )
             const intake = new RunIntake({
