@@ -187,6 +187,18 @@ class TestEmail(BaseTest):
         after = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
         self.assertEqual(after - before, 1.0)
 
+    @patch("posthog.email.ph_background_capture", side_effect=RuntimeError("capture down"))
+    def test_smtp_send_goes_out_when_the_capture_client_cannot_start(self, _capture: MagicMock) -> None:
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="capture_down", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("capture-down@posthog.com")
+            message.send(send_async=False)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIsNotNone(MessagingRecord.objects.get(campaign_key="capture_down").sent_at)
+
     def test_smtp_send_captures_the_send_with_the_instance_region(self) -> None:
         events: list[dict[str, Any]] = []
 
