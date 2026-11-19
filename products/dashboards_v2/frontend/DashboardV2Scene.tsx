@@ -36,12 +36,13 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTab, canEditLayout } = useValues(dashboardV2Logic)
+    const { dashboard, activeTab, hasPermission } = useValues(dashboardV2Logic)
     const { undo, redo } = useActions(dashboardV2Logic)
+    const canUndoRedo = hasPermission('undo')
     const { width, containerRef, mounted } = useContainerWidth()
 
     useEffect(() => {
-        if (!canEditLayout) {
+        if (!canUndoRedo) {
             return
         }
         const onKeyDown = (event: KeyboardEvent): void => {
@@ -58,7 +59,7 @@ function DashboardV2(): JSX.Element {
         }
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
-    }, [canEditLayout, undo, redo])
+    }, [canUndoRedo, undo, redo])
 
     return (
         <div data-quill className="DashboardV2 flex flex-col gap-4 p-4 min-h-full bg-background text-foreground">
@@ -75,7 +76,7 @@ function DashboardV2(): JSX.Element {
                         tiles={activeTab.tiles}
                         cols={GRID.columns}
                         width={width}
-                        editable={canEditLayout}
+                        editable={hasPermission('placeTiles')}
                     />
                 )}
             </div>

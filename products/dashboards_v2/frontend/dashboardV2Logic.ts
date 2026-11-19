@@ -30,12 +30,12 @@ function commit(history: History, next: Dashboard): History {
 export interface dashboardV2LogicValues {
     activeTab: DashboardTab
     activeTabId: string | null
-    canEditLayout: boolean
     canRedo: boolean
     canUndo: boolean
     dashboard: Dashboard
     disabledReasonFor: (action: DashboardV2Action) => string | null
     dropTarget: DropTarget | null
+    hasPermission: (action: DashboardV2Action) => boolean
     history: History
 }
 
@@ -71,7 +71,9 @@ export interface dashboardV2LogicMeta {
         canUndo: (history: History) => boolean
         canRedo: (history: History) => boolean
         disabledReasonFor: (dashboard: Dashboard) => (action: DashboardV2Action) => string | null
-        canEditLayout: (disabledReasonFor: (action: DashboardV2Action) => string | null) => boolean
+        hasPermission: (
+            disabledReasonFor: (action: DashboardV2Action) => string | null
+        ) => (action: DashboardV2Action) => boolean
         activeTab: (dashboard: Dashboard, activeTabId: string | null) => DashboardTab
     }
 }
@@ -135,10 +137,13 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
                 (action) =>
                     dashboardV2DisabledReason(action, dashboard.user_access_level),
         ],
-        canEditLayout: [
+        hasPermission: [
             (s) => [s.disabledReasonFor],
-            (disabledReasonFor: (action: DashboardV2Action) => string | null): boolean =>
-                disabledReasonFor('placeTiles') === null,
+            (
+                disabledReasonFor: (action: DashboardV2Action) => string | null
+            ): ((action: DashboardV2Action) => boolean) =>
+                (action) =>
+                    disabledReasonFor(action) === null,
         ],
         activeTab: [
             (s) => [s.dashboard, s.activeTabId],
