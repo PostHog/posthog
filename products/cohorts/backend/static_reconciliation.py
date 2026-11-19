@@ -7,7 +7,8 @@ The sweep drains the cohorts that broke this way and then keeps running as a saf
 """
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from enum import StrEnum
 
@@ -16,8 +17,10 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter
 from redis import Redis
+from redis.client import Pipeline
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -32,6 +35,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import (
     count_cohort_members,
     delete_cohort_member,
+    insert_cohort_members,
     insert_cohort_people_into_pg,
 )
 
@@ -109,45 +113,93 @@ def _removed_members_key(cohort_id: int) -> str:
     return f"static-cohort-reconcile:removed:{cohort_id}"
 
 
+@contextmanager
+def _logging_redis_errors(cohort_id: int) -> Iterator[None]:
+    # A lost mark only reopens a rare race, so a Redis error must not fail the removal, addition or population.
+    try:
+        yield
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as err:
+        capture_exception(err, additional_properties={"cohort_id": cohort_id})
+
+
+def _removed_at(mark: bytes) -> int:
+    return int(mark.split(b":", 1)[0])
+
+
+def _delete_marks_older_than(client: Redis, key: str, removed_before: dict[str, float]) -> None:
+    """Delete each mark recorded before its time, in one transaction so a removal recorded meanwhile survives."""
+    person_uuids = list(removed_before)
+
+    def delete(pipeline: Pipeline) -> None:
+        marks = pipeline.hmget(key, person_uuids)
+        older = [
+            person_uuid
+            for person_uuid, mark in zip(person_uuids, marks)
+            if mark is not None and _removed_at(mark) < removed_before[person_uuid]
+        ]
+        pipeline.multi()
+        if older:
+            pipeline.hdel(key, *older)
+
+    if person_uuids:
+        client.transaction(delete, key)
+
+
 def record_static_cohort_member_removal(*, cohort_id: int, person_id: int, person_uuid: str) -> None:
     """Keep a removed member out of repairs while ClickHouse deletes it asynchronously.
 
     Call it before the Postgres delete, so a repair that copies the member back afterwards removes it again.
     """
-    key = _removed_members_key(cohort_id)
-    pipeline = _user_path_redis().pipeline(transaction=False)
-    # Keyed by UUID, which is all a population's copy knows. The value lets each mark age out on its own.
-    pipeline.hset(key, person_uuid, f"{int(time.time())}:{person_id}")
-    pipeline.expire(key, int(RECONCILE_REMOVAL_TTL.total_seconds()))
-    pipeline.execute()
+    with _logging_redis_errors(cohort_id):
+        key = _removed_members_key(cohort_id)
+        pipeline = _user_path_redis().pipeline(transaction=False)
+        # Keyed by UUID, which is all a population's copy knows. The value lets each mark age out on its own.
+        pipeline.hset(key, person_uuid, f"{int(time.time())}:{person_id}")
+        pipeline.expire(key, int(RECONCILE_REMOVAL_TTL.total_seconds()))
+        pipeline.execute()
 
 
 def clear_static_cohort_member_removals(*, cohort_id: int, person_uuids: list[str]) -> None:
-    """Forget the removal of members that were added again, so a repair does not delete them.
+    """Forget the removal of members that were explicitly added again, so a repair does not delete them.
 
-    Call it for additions and populations only. The repair's own copy must keep the marks.
+    Call it before the Postgres insert, which `_delete_recently_removed_members` relies on.
     """
-    if person_uuids:
-        _user_path_redis().hdel(_removed_members_key(cohort_id), *person_uuids)
+    with _logging_redis_errors(cohort_id):
+        if person_uuids:
+            _user_path_redis().hdel(_removed_members_key(cohort_id), *person_uuids)
 
 
-def _delete_recently_removed_members(cohort: StaticCohortToReconcile) -> None:
+def clear_static_cohort_member_removals_written_after(*, cohort_id: int, written_at: dict[str, int]) -> None:
+    """Forget the removal of members whose ClickHouse row a population wrote after the removal.
+
+    A row written before it may be the removed member's, still there until its ClickHouse delete applies.
+    """
+    with _logging_redis_errors(cohort_id):
+        _delete_marks_older_than(_user_path_redis(), _removed_members_key(cohort_id), dict(written_at))
+
+
+def _delete_recently_removed_members(row: Cohort) -> None:
     """Delete from Postgres every member removed within RECONCILE_REMOVAL_TTL and not added again since."""
     client = get_client()
-    key = _removed_members_key(cohort.cohort_id)
+    key = _removed_members_key(row.pk)
     expired_before = time.time() - RECONCILE_REMOVAL_TTL.total_seconds()
-    removed: list[int] = []
-    expired: list[bytes] = []
-    for field, value in client.hgetall(key).items():
-        removed_at, person_id = value.decode().split(":", 1)
-        if int(removed_at) < expired_before:
-            expired.append(field)
+    removed: dict[str, int] = {}
+    expired: dict[str, float] = {}
+    for field, mark in client.hgetall(key).items():
+        person_uuid = field.decode()
+        if _removed_at(mark) < expired_before:
+            expired[person_uuid] = expired_before
         else:
-            removed.append(int(person_id))
-    if expired:
-        client.hdel(key, *expired)
-    for person_id in removed:
-        delete_cohort_member(cohort.team_id, cohort.cohort_id, person_id)
+            removed[person_uuid] = int(mark.split(b":", 1)[1])
+    _delete_marks_older_than(client, key, expired)
+    for person_uuid, person_id in removed.items():
+        deleted = delete_cohort_member(row.team_id, row.pk, person_id)
+        # An addition clears the mark before its insert, so a mark gone now means an addition since the snapshot
+        # above, which this delete may have undone.
+        if deleted and not client.hexists(key, person_uuid):
+            insert_cohort_members(row.team_id, row.pk, [person_id], row.version, _skip_ownership_check=True)
 
 
 def _park_cache_key(cohort_id: int) -> str:
@@ -338,7 +390,7 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="skipped_busy").inc()
         return
     # A retry after a failed cleanup would otherwise find the cohort complete and return before cleaning up.
-    _delete_recently_removed_members(cohort)
+    _delete_recently_removed_members(row)
     # Count again instead of reusing the selection's count. A member removed since then would leave `min_rows` above
     # what ClickHouse holds, so the copy would repeat after every read-back wait and then fail.
     members = _clickhouse_members(cohort)
@@ -360,7 +412,7 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     finally:
         # A member removed during the copy may still be in ClickHouse, so the copy can bring it back, also when it
         # fails partway.
-        _delete_recently_removed_members(cohort)
+        _delete_recently_removed_members(row)
     # Recount here: the copy logs a failed recount and keeps the old count, which would park a repaired cohort.
     reconciled_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
     _write_count(row, reconciled_count)

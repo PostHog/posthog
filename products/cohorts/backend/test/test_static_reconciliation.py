@@ -29,6 +29,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import (
     StaticCohortReadBackIncomplete,
     count_cohort_members,
+    delete_cohort_member,
     insert_cohort_people_into_pg,
     insert_static_cohort,
 )
@@ -311,13 +312,59 @@ class TestStaticCohortReconciliation(BaseTest):
             cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk, save_state=False)
         else:
             written_since = (self.now - timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
-            insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.pk)
+            # A mark is kept for a row written in the same second as the removal.
+            with time_machine.travel(timezone.now() + timedelta(seconds=5), tick=False):
+                insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.pk)
             insert_cohort_people_into_pg(cohort, team_id=self.team.pk, min_rows=1, written_since=written_since)
         Cohort.objects.filter(pk=cohort.pk).update(count=0)
 
         reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
 
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 2)
+
+    @parameterized.expand(
+        [("by_an_earlier_population", timedelta(days=7)), ("by_this_population", timedelta(minutes=5))]
+    )
+    def test_a_population_keeps_out_a_member_whose_row_was_written_before_the_removal(
+        self, _name: str, written_ago: timedelta
+    ) -> None:
+        removed, added = (create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2))
+        cohort = self._static_cohort()
+        self.addCleanup(get_client().delete, static_reconciliation._removed_members_key(cohort.pk))
+        written_since = (self.now - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+        with time_machine.travel(self.now - written_ago, tick=False):
+            insert_static_cohort([removed.uuid], cohort.pk, team_id=self.team.pk)
+        # The ClickHouse delete has not applied yet when the population copies its rows to Postgres.
+        with patch("products.cohorts.backend.models.util.remove_person_from_static_cohort"):
+            cohort.remove_user_by_uuid(str(removed.uuid), team_id=self.team.pk)
+        with time_machine.travel(timezone.now() + timedelta(seconds=5), tick=False):
+            insert_static_cohort([added.uuid], cohort.pk, team_id=self.team.pk)
+        insert_cohort_people_into_pg(cohort, team_id=self.team.pk, min_rows=1, written_since=written_since)
+        Cohort.objects.filter(pk=cohort.pk).update(count=0)
+
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
+
+    def test_a_member_added_again_while_a_repair_deletes_removed_members_stays_added(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["member"])
+        cohort = self._static_cohort(person_uuids=(person.uuid,))
+        self.addCleanup(get_client().delete, static_reconciliation._removed_members_key(cohort.pk))
+        cohort.insert_users_list_by_uuid_into_pg_only([str(person.uuid)], team_id=self.team.pk)
+        static_reconciliation.record_static_cohort_member_removal(
+            cohort_id=cohort.pk, person_id=person.id, person_uuid=str(person.uuid)
+        )
+
+        def add_again_then_delete(*args: Any) -> bool:
+            # The addition lands after the repair read the marks but before its delete.
+            cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk, save_state=False)
+            return delete_cohort_member(*args)
+
+        # The cleanup after the copy, so no later copy puts the member back.
+        with patch.object(static_reconciliation, "delete_cohort_member", side_effect=add_again_then_delete):
+            static_reconciliation._delete_recently_removed_members(cohort)
+
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
 
     @parameterized.expand([("recent", timedelta(hours=1), 1), ("expired", timedelta(days=8), 2)])
     def test_a_retry_that_finds_the_cohort_complete_still_deletes_removed_members(
@@ -395,25 +442,20 @@ class TestStaticCohortReconciliation(BaseTest):
 
         repair.assert_not_called()
 
-    def test_a_soft_time_limit_while_clearing_a_removal_stops_the_import(self) -> None:
+    @parameterized.expand(
+        [("redis_error", ConnectionError("redis down"), 1), ("soft_time_limit", SoftTimeLimitExceeded(), 0)]
+    )
+    def test_a_failure_while_clearing_a_removal_stops_the_addition_only_at_the_time_limit(
+        self, _name: str, error: Exception, expected_members: int
+    ) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
         cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
 
-        with (
-            patch.object(
-                static_reconciliation, "clear_static_cohort_member_removals", side_effect=SoftTimeLimitExceeded()
-            ),
-            self.assertRaises(SoftTimeLimitExceeded),
-        ):
-            cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
+        with patch.object(static_reconciliation, "_user_path_redis", side_effect=error):
+            if isinstance(error, SoftTimeLimitExceeded):
+                with self.assertRaises(SoftTimeLimitExceeded):
+                    cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
+            else:
+                cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
 
-    def test_a_redis_error_while_clearing_a_removal_still_adds_the_member(self) -> None:
-        person = create_person(team=self.team, distinct_ids=["member"])
-        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
-
-        with patch.object(
-            static_reconciliation, "clear_static_cohort_member_removals", side_effect=ConnectionError("redis down")
-        ):
-            cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.pk)
-
-        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 1)
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), expected_members)

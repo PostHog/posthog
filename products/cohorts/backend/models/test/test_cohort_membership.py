@@ -113,7 +113,7 @@ class TestRemoveUserByUuid(BaseTest):
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
     @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     @patch(
-        "products.cohorts.backend.static_reconciliation.record_static_cohort_member_removal",
+        "products.cohorts.backend.static_reconciliation._user_path_redis",
         side_effect=ConnectionError("redis down"),
     )
     def test_redis_error_does_not_prevent_removal(self, mock_record, mock_get_size, mock_remove_ch):

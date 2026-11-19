@@ -1204,15 +1204,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         person_uuids = [person_uuid for _, person_uuid in deduped_pairs]
 
         if insert_in_clickhouse:
-            # An explicit addition undoes an earlier removal, so a repair must not delete these members. If the clear
-            # fails, a repair in the next few days deletes them from Postgres again, which is rare enough not to fail
-            # the addition.
-            try:
-                clear_static_cohort_member_removals(cohort_id=self.pk, person_uuids=person_uuids)
-            except SoftTimeLimitExceeded:
-                raise
-            except Exception as clear_err:
-                capture_exception(clear_err, additional_properties={"cohort_id": self.pk, "team_id": team_id})
+            # An explicit addition undoes an earlier removal, so a repair must not delete these members.
+            clear_static_cohort_member_removals(cohort_id=self.pk, person_uuids=person_uuids)
             existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
             new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
             if new_uuids:
@@ -1275,15 +1268,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             is_member = is_person_in_cohort(team_id=team_id, person_id=person.id, cohort_id=self.id)
 
             # The ClickHouse delete is asynchronous, so the reconciliation must not copy the member back meanwhile.
-            # A missing mark only reopens that rare race, so it must not fail the removal.
-            try:
-                record_static_cohort_member_removal(
-                    cohort_id=self.id, person_id=person.id, person_uuid=str(person.uuid)
-                )
-            except SoftTimeLimitExceeded:
-                raise
-            except Exception as record_err:
-                capture_exception(record_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
+            record_static_cohort_member_removal(cohort_id=self.id, person_id=person.id, person_uuid=str(person.uuid))
 
             # Delete from PostgreSQL first (source of truth), then ClickHouse.
             # This order ensures if PG delete fails, we don't create inverse inconsistency.
