@@ -360,6 +360,24 @@ tools:
             instead of us" and "what do the engines search for". For one prompt, use `aeo-prompts-stats-get`. To open
             the answers behind a domain or a search, pass it to `aeo-prompts-citations-list`.
         feature_flag: aeo-citation-tracking
+    aeo-prompts-movers-get:
+        operation: aeo_prompts_movers
+        enabled: false
+        disabled_reason: The route lands first; the tool is enabled once it is deployed everywhere
+        title: List the AI prompts and pages that moved most
+        description: >
+            Get the tracked prompts and the pages on the project's own domains that gained and lost the most visibility
+            between `date_from` and `date_to` (a date such as `2026-11-01` or a relative day such as `-30d`, the default;
+            at most 91 days, in the project's timezone) and the range of the same length before it.
+            `prompt_gainers` and `prompt_losers` rank prompts by the change in their mention rate, the share of their
+            answers that name the brand. `page_gainers` and `page_losers` rank own pages by the change in their
+            citation rate, the share of all answers that cite them. `change` is the current rate minus the previous
+            one on a 0-1 scale, so 0.25 is 25 percentage points up. A prompt needs `min_answers` answers in each
+            window, and each row carries its answer counts so you can judge the sample size. `branded`, `engine` and
+            `topic` narrow the checks as in `aeo-prompts-overview-get`. Use it to answer "what changed this week" and
+            "which prompts or pages did we lose". For one prompt's history, use `aeo-prompts-stats-get`. To open the
+            answers that cite a page, pass its URL to `aeo-prompts-citations-list`.
+        feature_flag: aeo-citation-tracking
     aeo-prompts-rankings-get:
         operation: aeo_prompts_rankings
         enabled: true
