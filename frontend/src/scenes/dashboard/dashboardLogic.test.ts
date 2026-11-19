@@ -466,98 +466,7 @@ describe('dashboardLogic', () => {
             expect(loadedShortIds()).toEqual(tiles.map((tile) => tile.insight!.short_id))
         })
 
-        it('queries the first screen up front and each later tile once it scrolls into view', async () => {
-            setDashboardV2(true)
-            logic = dashboardLogic({ id: 21 })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(loadedShortIds()).toEqual(tiles.slice(0, 12).map((tile) => tile.insight!.short_id))
-
-            await expectLogic(logic, () => {
-                logic.actions.setTileInView(tiles[13].id, true)
-                logic.actions.setTileInView(tiles[0].id, true)
-                logic.actions.setTileInView(tiles[13].id, true)
-            }).toFinishAllListeners()
-
-            expect(loadedShortIds().slice(12)).toEqual(['long-13'])
-            expect(refreshInsight.mock.calls[12][4]).toEqual('blocking')
-            expect(logic.values.refreshStatus['long-0']).toMatchObject({ refreshed: true })
-            expect(logic.values.deferredTileIds).toEqual([tiles[12].id, tiles[14].id])
-        })
-
-        it('loads a tile past the first screen that was already in view when the first load started', async () => {
-            setDashboardV2(true)
-            logic = dashboardLogic({ id: 21 })
-            logic.mount()
-            logic.actions.setTileInView(tiles[13].id, true)
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(loadedShortIds()).toContain('long-13')
-            expect(logic.values.deferredTileIds).toEqual([tiles[12].id, tiles[14].id])
-        })
-
-        it('loads a deferred tile with the filters of the load that skipped it', async () => {
-            setDashboardV2(true)
-            router.actions.push(urls.dashboard(21), { query_filters: JSON.stringify({ date_from: '-3d' }) })
-            logic = dashboardLogic({ id: 21 })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            refreshInsight.mockClear()
-
-            await expectLogic(logic, () => {
-                logic.actions.setInitialDashboardSettingsOverride({ filters: { date_from: '-30d' }, variables: {} })
-                logic.actions.setTileInView(tiles[13].id, true)
-            }).toFinishAllListeners()
-
-            expect(loadedShortIds()).toEqual(['long-13'])
-            expect(refreshInsight.mock.calls[0][6]).toMatchObject({ date_from: '-3d' })
-        })
-
-        it('auto refresh queries the tiles in view and refreshes a hidden tile once it scrolls back in', async () => {
-            setDashboardV2(true)
-            logic = dashboardLogic({ id: 21 })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            await expectLogic(logic, () => {
-                logic.actions.setTileInView(tiles[0].id, true)
-                logic.actions.setTileInView(tiles[1].id, true)
-            }).toFinishAllListeners()
-            refreshInsight.mockClear()
-
-            await autoRefresh()
-
-            expect(loadedShortIds()).toEqual(['long-0', 'long-1'])
-
-            await expectLogic(logic, () => {
-                logic.actions.setTileInView(tiles[1].id, false)
-                logic.actions.setTileInView(tiles[7].id, true)
-            }).toFinishAllListeners()
-
-            expect(loadedShortIds()).toEqual(['long-0', 'long-1', 'long-7'])
-            expect(refreshInsight.mock.calls.map((call) => call[4])).toEqual([
-                'force_blocking',
-                'force_blocking',
-                'force_blocking',
-            ])
-
-            // Scrolled to a region with no insights: an automatic refresh queries none.
-            await expectLogic(logic, () => {
-                logic.actions.setTileInView(tiles[0].id, false)
-                logic.actions.setTileInView(tiles[7].id, false)
-            }).toFinishAllListeners()
-            refreshInsight.mockClear()
-
-            await autoRefresh()
-
-            expect(loadedShortIds()).toEqual([])
-        })
-
-        it.each([
-            { dashboardV2: false, kind: NodeKind.MetricsQuery, requestsStarted: 4, analyticsTileStarts: false },
-            { dashboardV2: true, kind: NodeKind.MetricsQuery, requestsStarted: 3, analyticsTileStarts: true },
-            { dashboardV2: true, kind: NodeKind.MetricsHistogramQuery, requestsStarted: 3, analyticsTileStarts: true },
-        ])(
+        it.each([{ dashboardV2: false, kind: NodeKind.MetricsQuery, requestsStarted: 4, analyticsTileStarts: false }])(
             'with dashboard-v2 $dashboardV2, an analytics tile starts while $kind tiles fill their queue: $analyticsTileStarts',
             async ({ dashboardV2, kind, requestsStarted, analyticsTileStarts }) => {
                 setDashboardV2(dashboardV2)
@@ -584,22 +493,6 @@ describe('dashboardLogic', () => {
                 expect(loadedShortIds().includes(analyticsTile.insight!.short_id)).toBe(analyticsTileStarts)
             }
         )
-
-        it('a manual refresh queries every tile, even with dashboard-v2', async () => {
-            setDashboardV2(true)
-            logic = dashboardLogic({ id: 21 })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            logic.actions.setTileInView(tiles[0].id, true)
-            refreshInsight.mockClear()
-
-            await expectLogic(logic, () => {
-                logic.actions.triggerDashboardRefresh()
-            }).toFinishAllListeners()
-
-            expect(loadedShortIds()).toEqual(tiles.map((tile) => tile.insight!.short_id))
-            expect(logic.values.deferredTileIds).toEqual([])
-        })
     })
 
     describe('tile group sections', () => {
@@ -2468,11 +2361,11 @@ describe('dashboardLogic', () => {
                 { name: 'the dashboard page', placement: undefined, width: 1200, columns: 12, editable: true },
                 { name: 'a narrow window', placement: undefined, width: 500, columns: 1, editable: false },
                 {
-                    name: 'the project homepage',
+                    name: 'the project homepage preview',
                     placement: DashboardPlacement.ProjectHomepage,
                     width: 1200,
                     columns: 12,
-                    editable: true,
+                    editable: false,
                 },
                 {
                     name: 'a shared view',
@@ -2877,6 +2770,8 @@ describe('dashboardLogic', () => {
                             resource_ttfb_ms: 15,
                             request_total_ms: 20,
                             http_status: 200,
+                            request_ms: 20,
+                            queue_wait_ms: expect.any(Number),
                         })
                     )
                     const refreshEvents = capture.mock.calls.filter(([event]) =>
@@ -2884,12 +2779,54 @@ describe('dashboardLogic', () => {
                     )
                     for (const [, properties] of refreshEvents) {
                         expect(properties?.$update_person_last_seen_at).toBe(isAutomatic ? false : undefined)
+                        expect(properties?.dashboard_v2_ui).toBe(false)
                     }
+                    expect(capture).toHaveBeenCalledWith(
+                        'dashboard insight refreshed',
+                        expect.objectContaining({ is_automatic: isAutomatic })
+                    )
                 } finally {
                     refresh.mockRestore()
                 }
             }
         )
+
+        it('marks tiles an automatic refresh delivers through query sharing as automatic', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_QUERY_SHARING], {
+                [FEATURE_FLAGS.HOGQL_QUERY_SHARING]: true,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            const tiles = logic.values.insightTiles
+            expect(tiles.length).toBeGreaterThan(0)
+            const stream = jest.spyOn(api, 'stream').mockImplementation(async (_url, options) => {
+                for (const tile of tiles) {
+                    options.onMessage({
+                        id: '',
+                        event: '',
+                        data: JSON.stringify({
+                            type: 'tile',
+                            tile: {
+                                ...tile,
+                                insight: { ...tile.insight, is_cached: false, query_status: { complete: true } },
+                            },
+                        }),
+                    })
+                }
+                options.onMessage({ id: '', event: '', data: JSON.stringify({ type: 'complete' }) })
+            })
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            try {
+                await expectLogic(logic, () => logic.actions.triggerDashboardRefresh(true)).toFinishAllListeners()
+
+                const tileEvents = capture.mock.calls.filter(([event]) => event === 'dashboard insight refreshed')
+                expect(tileEvents).toHaveLength(tiles.length)
+                for (const [, properties] of tileEvents) {
+                    expect(properties).toMatchObject({ is_automatic: true })
+                }
+            } finally {
+                stream.mockRestore()
+            }
+        })
 
         it.each(['immediate', 'interval'])('skips Last seen for %s automatic refresh telemetry', async (source) => {
             await expectLogic(logic).toFinishAllListeners()

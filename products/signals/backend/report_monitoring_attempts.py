@@ -48,6 +48,18 @@ def current_monitoring_attempt(report: SignalReport) -> SignalReportMonitoringAt
     )
 
 
+def verifying_attempt(report: SignalReport, check: SignalReportCheck) -> SignalReportMonitoringAttempt | None:
+    """The current attempt when the check is one of its members and the report is still being verified."""
+    in_monitoring = report.status == SignalReport.Status.MONITORING or (
+        report.status == SignalReport.Status.SUPPRESSED
+        and report.status_before_suppression == SignalReport.Status.MONITORING
+    )
+    if not in_monitoring or not team_report_monitoring_enabled(report.team_id):
+        return None
+    attempt = current_monitoring_attempt(report)
+    return attempt if attempt is not None and str(check.id) in attempt.check_versions else None
+
+
 def complete_implementation(
     *,
     team_id: int,

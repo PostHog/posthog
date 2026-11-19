@@ -595,6 +595,11 @@
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "error-tracking-issue-change-cleanup",
+    "product": "error_tracking",
+    "task_queues": "ERROR_TRACKING_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "error-tracking-issue-created",
     "product": "error_tracking",
     "task_queues": "ERROR_TRACKING_LIFECYCLE_TASK_QUEUE"
@@ -801,6 +806,11 @@
   },
   {
     "temporal_workflow_type": "knowledge-writer-publish",
+    "product": "knowledge_writer",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "knowledge-writer-pull-request",
     "product": "knowledge_writer",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
@@ -1281,6 +1291,11 @@
   },
   {
     "temporal_workflow_type": "signal-report-summary",
+    "product": "signals",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "signal-spend-cleanup",
     "product": "signals",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },

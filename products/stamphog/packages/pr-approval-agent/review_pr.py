@@ -52,6 +52,7 @@ from gates import (
     detect_deny_categories,
     detect_ownership,
     detect_title_scrutiny_flags,
+    edits_ownership_files,
     has_ci_workflow_changes,
     has_dependency_changes,
     is_allow_listed_only,
@@ -341,7 +342,7 @@ class Pipeline:
         unproven = self.classification.get("unattested_files", [])
         if not deny and not unproven:
             return []
-        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths)
+        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths, self.pr.title)
         if any(not any(covers(attestation, path) for attestation in pending) for path in unproven):
             return []
         if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
@@ -363,12 +364,12 @@ class Pipeline:
     def _attestations(self) -> tuple[Attestation, ...]:
         """The policy attestations that count for this PR's author.
 
-        For an admitted bot only an entry that declares `publisher_files` counts, because a job of
-        any PR can post the check of every other entry.
+        For an admitted bot only an entry that pins its publisher counts, because a job of any PR
+        can post the check of every other entry.
         """
         if not self.admitted_bot:
             return POLICY.attestations
-        return tuple(attestation for attestation in POLICY.attestations if attestation.publisher_files)
+        return tuple(attestation for attestation in POLICY.attestations if attestation.pins_publisher)
 
     def refuses_bot_author(self) -> bool:
         """True when the PR author is a bot that neither carve-out admits.
@@ -508,13 +509,14 @@ class Pipeline:
         # A proof may name a rename's old path, so the old path is matched like a changed file.
         pinned = pinned_files(self._attestations, pr.check_runs, pr.deny_paths, reviewed)
         unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
-        pending = pending_attestations(self._attestations, pr.check_runs, file_paths)
+        pending = pending_attestations(self._attestations, pr.check_runs, file_paths, pr.title)
         additive = additive_files(pr.files)
         deny_files = deny_matches(pr.deny_paths, lifted, additive=additive)
         deny = list(deny_files)
-        exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False, additive=additive) != deny
-        )
+        # Compared with a deny that skips nothing, so a file that a deny exception, an attestation
+        # and an edit_paths addition each skip still counts. Comparing each skip with the other two
+        # applied let one hide another.
+        deny_skipped = detect_deny_categories(pr.deny_paths, apply_exceptions=False) != deny
         additions_lifted = detect_deny_categories(pr.deny_paths, lifted) != deny
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
@@ -551,22 +553,28 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
-        # so without this it rides the allow-list to a T0 approval with no reviewer.
-        # An addition to an edit_paths file (an owners.yaml rule) is the same case.
+        # An owner-only exemption, a deny exception, an attestation or an addition to an edit_paths
+        # file (an owners.yaml rule) lifts the deny, not the review: a workflow is .yml, so without
+        # this it rides the allow-list to a T0 approval with no reviewer.
         allow_only = (
             is_allow_listed_only(file_paths)
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
-            and not exception_lifted
-            and not additions_lifted
+            and not deny_skipped
         )
-        is_test = test_only(categories) and not owner_exempted and not exception_lifted and not additions_lifted
+        is_test = test_only(categories) and not owner_exempted and not deny_skipped
+        # The checkout is the PR head, so a PR that changes an ownership file could name the
+        # author's team as the owner of its own files. Such a PR, which only an addition lift or an
+        # owner exemption lets through, reads ownership at the merge base instead.
+        ownership_from_merge_base = additions_lifted or edits_ownership_files(pr.deny_paths)
         ownership_resolvers = (
-            self._merge_base_ownership_resolvers() if additions_lifted else build_ownership(REPO_ROOT, POLICY.ownership)
+            self._merge_base_ownership_resolvers()
+            if ownership_from_merge_base
+            else build_ownership(REPO_ROOT, POLICY.ownership)
         )
-        ownership = detect_ownership(file_paths, ownership_resolvers)
+        ownership_unreadable = ownership_resolvers is None
+        ownership = detect_ownership(file_paths, ownership_resolvers or [])
 
         tier = assign_tier(
             deny_categories=deny,
@@ -613,7 +621,8 @@ class Pipeline:
             "manifest_script_changes": risky_manifests,
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
-            "ownership_from_merge_base": additions_lifted,
+            "ownership_from_merge_base": ownership_from_merge_base,
+            "ownership_unreadable": ownership_unreadable,
             "folder_policy_prose": self.effective_policy.folder_prose,
             "assurance": {
                 **self._summarize_assurance(),
@@ -787,7 +796,7 @@ class Pipeline:
 
         A human author is trusted for the files no check covers. A bot has no such trust, so a file
         outside every proof, a workflow edit for example, refuses the PR. Only a proof from an
-        attestation that declares `publisher_files` counts, because a check that a job of the PR
+        attestation that pins its publisher counts, because a check that a job of the PR
         can post proves nothing about a PR nobody wrote. A rename's old path counts as a file too,
         so content cannot leave a proven path unproven.
         """
@@ -800,7 +809,8 @@ class Pipeline:
             return False, f"no attestation covers: {', '.join(unattested[:5])}"
         return True, "every file attested"
 
-    def _merge_base_ownership_resolvers(self) -> list:
+    def _merge_base_ownership_resolvers(self) -> list | None:
+        """The ownership resolvers at the merge base, or None when git or the resolver cannot read it."""
         merge_base = self.pr.merge_base_sha
         try:
             if not merge_base:
@@ -814,16 +824,16 @@ class Pipeline:
                 ).stdout.strip()
             return build_ownership(REPO_ROOT, POLICY.ownership, ref=merge_base)
         except (OSError, subprocess.SubprocessError, RuntimeError):
-            return []
+            return None
 
     def _summarize_ownership(self) -> str:
         """Build ownership context for the LLM (not a hard gate)."""
         summary = self._summarize_resolved_ownership()
         if self.classification.get("ownership_from_merge_base"):
             summary += (
-                "; read at the merge base, because this PR adds lines to an ownership file. An added rule"
-                " that takes paths another team owns, or sets inherit: false or sensitive: false, needs"
-                " that team's review"
+                "; read at the merge base, because this PR changes an ownership file. A rule it adds or"
+                " changes that takes paths another team owns, or sets inherit: false or sensitive: false,"
+                " needs that team's review"
             )
         self.classification["ownership_summary"] = summary
         return summary
@@ -855,7 +865,6 @@ class Pipeline:
             parts.append(f"author {author} is not on any owning team")
         if ownership.get("cross_team"):
             parts.append("cross-team change")
-
         self.classification["author_on_owning_team"] = len(author_teams) > 0
         return "; ".join(parts)
 

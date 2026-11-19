@@ -95,7 +95,11 @@ def resolve_login_organization(user: User) -> bool:
         None,
     )
     if permitted_organization is None:
-        return user.organization_memberships.filter(level__gte=OrganizationMembership.Level.ADMIN).exists()
+        return (
+            user.organization_memberships.with_effective_level()
+            .filter(resolved_level__gte=OrganizationMembership.Level.ADMIN)
+            .exists()
+        )
 
     logger.info(
         "domain_enforcement_moved_user_to_permitted_organization",
