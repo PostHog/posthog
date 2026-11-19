@@ -1068,6 +1068,89 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('saving an insight opened from a filtered dashboard tile', () => {
+        const storedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                dateRange: { date_from: '-30d' },
+            },
+        }
+        const dashboardFilteredQuery: InsightVizNode = {
+            ...storedQuery,
+            source: {
+                ...storedQuery.source,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'platform',
+                                    type: PropertyFilterType.Event,
+                                    value: ['ios'],
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                dateRange: { date_from: '-7d' },
+            } as InsightVizNode['source'],
+        }
+        const editedQuery: InsightVizNode = {
+            ...dashboardFilteredQuery,
+            source: { ...dashboardFilteredQuery.source, dateRange: { date_from: '-14d' } } as InsightVizNode['source'],
+        }
+
+        let savedBodies: Record<string, any>[]
+
+        beforeEach(async () => {
+            savedBodies = []
+            const recordBody = async ({ request }: { request: Request }): Promise<[number, Record<string, any>]> => {
+                const body = (await request.json()) as Record<string, any>
+                savedBodies.push(body)
+                return [200, { ...body, id: 42, short_id: Insight42 }]
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [
+                        200,
+                        { results: [{ id: 42, short_id: Insight42, query: storedQuery }] },
+                    ],
+                },
+                patch: { '/api/environments/:team_id/insights/:id': recordBody },
+                post: { '/api/environments/:team_id/insights/': recordBody },
+            })
+            const props: InsightLogicProps = {
+                dashboardItemId: Insight42,
+                dashboardId: MOCK_DASHBOARD_ID,
+                cachedInsight: { id: 42, short_id: Insight42, query: dashboardFilteredQuery },
+            }
+            logic = insightLogic(props)
+            logic.mount()
+            const dataLogic = insightDataLogic(props)
+            dataLogic.mount()
+            dataLogic.actions.setQuery(editedQuery)
+        })
+
+        it.each([
+            ['Save', () => logic.actions.saveInsight(false)],
+            ['Save as', () => logic.actions.saveAsConfirmation('copy')],
+        ])('%s keeps the stored filters and the user edit', async (_label, save) => {
+            await expectLogic(logic, save).toFinishAllListeners()
+
+            expect(savedBodies).toEqual([
+                expect.objectContaining({
+                    query: { ...storedQuery, source: { ...storedQuery.source, dateRange: { date_from: '-14d' } } },
+                }),
+            ])
+        })
+    })
+
     describe('PostHog AI suggestions', () => {
         const suggestedQuery: InsightVizNode = {
             kind: NodeKind.InsightVizNode,
