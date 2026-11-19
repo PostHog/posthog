@@ -56,6 +56,7 @@ import {
 import {
     EmailFormattingTooCostlyError,
     EmailNestingTooDeepError,
+    MAX_ELEMENT_BUDGET,
     MIN_NESTING_LIMIT,
     NESTING_BUDGET,
 } from './helpers/href-anchors'
@@ -451,6 +452,16 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com/" CLICKTRACKING=OFF ses:no-track>a</a>',
                 ],
                 [
+                    'an unquoted clicktracking opt-out that ends in a slash',
+                    '<a href="https://example.com/" clicktracking=off/>a</a>',
+                    '<a href="https://example.com/" clicktracking=off/ ses:no-track>a</a>',
+                ],
+                [
+                    'a clicktracking opt-out with a space after off',
+                    '<a href="https://example.com/" clicktracking="off ">a</a>',
+                    '<a href="https://example.com/" clicktracking="off " ses:no-track>a</a>',
+                ],
+                [
                     'a clicktracking value that is not off',
                     '<a href="https://example.com/" clicktracking="offline">a</a>',
                     '<a href="https://example.com/" clicktracking="offline" ses:tags="phl:0">a</a>',
@@ -590,6 +601,15 @@ describe('EmailTrackingService', () => {
                     expect(sesTrack(`<body>${openTags(3)}${blocks}${link}</body>`)).toContain('phl:0')
                 })
 
+                it('is refused when templates leave their boundaries in the list behind them', () => {
+                    // A `</template>` clears the list back to the boundary the `<object>` inside it added, so the
+                    // template's own boundary stays, and each later entry shifts all of them.
+                    const leftBehind = (count: number): string =>
+                        `<body>${'<template><object></template>'.repeat(count)}${link}</body>`
+                    expect(sesTrack(leftBehind(1_000))).toContain('phl:0')
+                    expect(() => sesTrack(leftBehind(5_000))).toThrow(EmailFormattingTooCostlyError)
+                })
+
                 it('is sent when the tags are in a plain comment, whose links stay as written', () => {
                     const outlook = '<!--[if mso]><a href="https://example.com/outlook">o</a><![endif]-->'
                     const hidden = '<a href="https://example.com/hidden">h</a>'
@@ -598,6 +618,14 @@ describe('EmailTrackingService', () => {
                     expect(out).toContain('<a href="https://example.com/outlook" ses:tags="phl:0">o</a>')
                     expect(out).toContain('<a href="https://example.com/" ses:tags="phl:1">a</a>')
                 })
+            })
+
+            it('refuses an email with more elements than any email may build', () => {
+                const link = '<a href="https://example.com/">a</a>'
+                // html, head and body take three elements.
+                const breaks = (count: number): string => `<body>${'<br>'.repeat(count)}${link}</body>`
+                expect(sesTrack(breaks(MAX_ELEMENT_BUDGET - 4))).toContain('phl:0')
+                expect(() => sesTrack(breaks(MAX_ELEMENT_BUDGET - 3))).toThrow(EmailFormattingTooCostlyError)
             })
 
             it('sends a small email nested deeper than the floor of the limit', () => {

@@ -2,9 +2,13 @@ import { HrefAnchor } from './href-anchors'
 
 export const WORKFLOW_RUN_PARAM = 'ph_workflow_run'
 
-// `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
+// `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name. An unquoted `clicktracking=off/>`
+// reads its slash into the value, and both it and a space after `off` were opt-outs before the HTML parser read them.
+const CLICK_TRACKING_OFF = /^off\s*\/?$/i
+
 export const hasClickTrackingOptOutAttribute = (anchor: Pick<HrefAnchor, 'attribute'>): boolean =>
-    anchor.attribute('data-ph-no-track') !== undefined || /^off$/i.test(anchor.attribute('clicktracking')?.value ?? '')
+    anchor.attribute('data-ph-no-track') !== undefined ||
+    CLICK_TRACKING_OFF.test(anchor.attribute('clicktracking')?.value ?? '')
 
 export const isNeverClickTracked = (anchor: Pick<HrefAnchor, 'attribute'>): boolean =>
     hasClickTrackingOptOutAttribute(anchor) || anchor.attribute('ses:no-track') !== undefined

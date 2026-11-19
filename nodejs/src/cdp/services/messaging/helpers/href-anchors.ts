@@ -77,6 +77,9 @@ export const MIN_NESTING_LIMIT = 256
 // short email can build elements with the square of its size. Allowing a few per tag keeps the tree linear.
 export const ELEMENTS_PER_TAG = 2
 export const MIN_ELEMENT_BUDGET = 50_000
+// Each element costs memory and time even when the tree stays linear, and a send may carry tens of megabytes of
+// HTML. No email a client renders in full comes near this many.
+export const MAX_ELEMENT_BUDGET = 500_000
 // The parser compares each formatting element a start tag opens with every one still open, attribute by attribute, so
 // many open formatting elements with many attributes cost their count times their attributes. The copies it rebuilds
 // from an earlier tag are not compared.
@@ -108,7 +111,7 @@ const parseBoundsFor = (html: string): ParseBounds => {
     }
     return {
         depth: Math.max(MIN_NESTING_LIMIT, Math.floor(NESTING_BUDGET / Math.max(tags, 1))),
-        elementsLeft: MIN_ELEMENT_BUDGET + ELEMENTS_PER_TAG * tags,
+        elementsLeft: Math.min(MAX_ELEMENT_BUDGET, MIN_ELEMENT_BUDGET + ELEMENTS_PER_TAG * tags),
         formattingLeft: FORMATTING_BUDGET,
     }
 }
@@ -217,6 +220,29 @@ const limitNesting = (parser: Parser<DefaultTreeAdapterMap>, bounds: ParseBounds
             throw new EmailNestingTooDeepError(bounds.depth)
         }
     }
+}
+
+// Charges each change to the list of formatting elements and boundaries, and each lookup that reads all of it, the
+// list's length: the list adds at its front and looks entries up from there. Nesting does not bound the list, since
+// a `</template>` clears it only back to the boundary an `<object>` inside added, leaving the template's own behind.
+const limitFormattingListWork = (parser: Parser<DefaultTreeAdapterMap>, bounds: ParseBounds): void => {
+    const list = parser.activeFormattingElements
+    const charged =
+        <Args extends unknown[], Result>(call: (...args: Args) => Result) =>
+        (...args: Args): Result => {
+            bounds.formattingLeft -= list.entries.length
+            if (bounds.formattingLeft < 0) {
+                throw new EmailFormattingTooCostlyError()
+            }
+            return call(...args)
+        }
+    list.insertMarker = charged(list.insertMarker.bind(list))
+    list.pushElement = charged(list.pushElement.bind(list))
+    list.insertElementAfterBookmark = charged(list.insertElementAfterBookmark.bind(list))
+    list.removeEntry = charged(list.removeEntry.bind(list))
+    list.clearToLastMarker = charged(list.clearToLastMarker.bind(list))
+    list.getElementEntryInScopeWithTagName = charged(list.getElementEntryInScopeWithTagName.bind(list))
+    list.getElementEntry = charged(list.getElementEntry.bind(list))
 }
 
 // Splits a start tag into its attributes as the HTML tokenizer does, repeats included. `close` is the tag's `>`.
@@ -382,6 +408,7 @@ const scanComment = (
             treeAdapter: boundedAdapter(bounds, () => parser?.activeFormattingElements),
         })
         limitNesting(parser, bounds)
+        limitFormattingListWork(parser, bounds)
         parser.tokenizer.write(comment.content, true)
         fragment = parser.getFragment()
     } catch (error) {
@@ -434,6 +461,7 @@ const scanHtml = (html: string): Scan => {
         treeAdapter: boundedAdapter(bounds, () => parser?.activeFormattingElements),
     })
     limitNesting(parser, bounds)
+    limitFormattingListWork(parser, bounds)
     parser.tokenizer.write(html, true)
     const anchors = new Map<number, ScannedTag>()
     const comments: CommentNode[] = []
