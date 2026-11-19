@@ -1,6 +1,14 @@
 version: 1
 owners: []
 rules:
+    - match:
+          - '/TaskPullRequestChip.tsx'
+          - '/TaskUserAvatar.tsx'
+          - '/spacePresence.ts'
+          - '/spacePresence.test.ts'
+          - '/taskPullRequests.ts'
+          - '/taskPullRequests.test.ts'
+      owners: team-surfaces
     # The warehouse rail pane: its menu, header and sidebar, and the scene tabs its sidebar shows.
     - match: ['/TodayWarehouse*', '/todayWarehouse*', '/TodaySceneTabsList*', '/todaySceneTabsLogic*']
       owners: team-managed-warehouse

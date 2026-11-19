@@ -31,7 +31,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { fullNameOrEmail } from 'lib/utils/strings'
 
-import { TaskUserAvatar } from 'products/tasks/frontend/spaces/TaskUserAvatar'
+import { TaskUserAvatar } from '~/layout/today/TaskUserAvatar'
 
 import { ArtifactCommentThread, supportsSelectionComments } from '../artifactComments'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
