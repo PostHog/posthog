@@ -1,5 +1,6 @@
 // PROTOTYPE, never merged: PostHog/michaelr-context#421. A default view or a saved view, with the toolbar of the
 // variant: A quick filter chips, B the app's dropdowns and view menu, C one search bar with tokens.
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
@@ -117,11 +118,24 @@ function TagsMenu({ query, onChange }: { query: ViewQuery; onChange: (tags: stri
     )
 }
 
-function StateReadout({ query, changes }: { query: ViewQuery; changes: string[] }): JSX.Element {
+function StateReadout({
+    query,
+    changes,
+    showLink,
+}: {
+    query: ViewQuery
+    changes: string[]
+    showLink?: boolean
+}): JSX.Element {
+    const { location } = useValues(router)
     return (
         <div className="rounded border border-dashed px-2 py-1 font-mono text-[11px] text-secondary">
             Prototype state: {describeQuery(query)}
-            {changes.length ? ` · unsaved: ${changes.join(', ')}` : ' · no unsaved changes'}
+            {showLink
+                ? ` · link: ${location.pathname}${location.search}`
+                : changes.length
+                  ? ` · unsaved: ${changes.join(', ')}`
+                  : ' · no unsaved changes'}
         </div>
     )
 }
@@ -431,7 +445,7 @@ export function ViewsPrototypeList({
                 onSort={(sort) => change({ sort })}
                 onTagClick={addTagFilter}
             />
-            <StateReadout query={query} changes={changes} />
+            <StateReadout query={query} changes={changes} showLink={variant === 'D'} />
 
             <SaveViewModal
                 isOpen={modal !== null}
