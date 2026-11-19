@@ -45,6 +45,16 @@ describe('maybeAddPreheaderToEmail', () => {
             `<body><style>p{color:red}</style><div style="${HIDDEN_STYLE}">Preview</div><p>Hi</p></body>`,
             'Preview',
         ],
+        [
+            'a hidden element whose text lowercases to more code points',
+            `<body><div style="${HIDDEN_STYLE}">İstanbul offers</div><p>Hi</p></body>`,
+            'İstanbul offers',
+        ],
+        [
+            'a hidden element preceded by a stylesheet whose text lowercases to more code points',
+            `<body><style>.x{content:"İ"}</style><div style="${HIDDEN_STYLE}">Preview</div><p>Hi</p></body>`,
+            'Preview',
+        ],
     ])('leaves the html alone when it already has the preheader in %s', (_case, html, preheader) => {
         expect(maybeAddPreheaderToEmail(html, preheader)).toBe(html)
     })
