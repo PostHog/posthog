@@ -76,10 +76,6 @@ _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 
 _SUMMARY_MARKDOWN = MarkdownIt("commonmark")
 
-# How long the insight stack keeps evaluating an alert after the platform takes it over, so the two
-# stacks' checks can be compared. It sends nothing for the alert in that time.
-PLATFORM_SHADOW = timedelta(days=7)
-
 # TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
 # but the URL must stay resolvable while people scroll back to the message; 30 days matches
 # the delivery-URL TTL used for task chart artifacts (products/tasks living_artifacts).
@@ -120,13 +116,9 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
 }
 
 
-def evaluated_by_insight_stack_q(now: datetime) -> Q:
-    """The alerts the insight stack still checks: every alert it owns, and a platform-owned alert inside its shadow."""
-    # A platform-owned row with no cutover time has no shadow to finish, so it is not evaluated.
-    return ~(
-        Q(owner=PlatformAlertOwner.PLATFORM.value)
-        & (Q(owner_changed_at__isnull=True) | Q(owner_changed_at__lt=now - PLATFORM_SHADOW))
-    )
+def evaluated_by_insight_stack_q() -> Q:
+    """The alerts the insight stack still checks: only the ones it owns. The platform checks the rest."""
+    return ~Q(owner=PlatformAlertOwner.PLATFORM.value)
 
 
 def due_insight_alerts_q(now: datetime) -> Q:
@@ -136,7 +128,7 @@ def due_insight_alerts_q(now: datetime) -> Q:
         & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
         & (Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
         & Q(insight__deleted=False)
-        & evaluated_by_insight_stack_q(now)
+        & evaluated_by_insight_stack_q()
     )
 
 

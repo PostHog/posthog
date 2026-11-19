@@ -149,17 +149,18 @@ from products.alerts.backend.facade.platform import (
     hand_over_new_alert,
     moved_alert_check_page,
     moved_alert_fired_checks,
-    moved_alert_settings,
     moved_alert_statuses,
     native_insight_alert_matches,
     native_insight_alert_view,
     native_insight_alert_views,
+    on_updated,
     platform_subscriber_ids,
     platform_takes_new_alert_with,
     set_native_subscribers,
+    show_copy_settings,
+    show_locked_copy,
     subscribers_with_insight_access,
     sync_alert_subscriber_destinations,
-    write_moved_alert_edit,
     write_native_alert_edit,
 )
 from products.alerts.backend.insight_alert_state_machine import (
@@ -1105,7 +1106,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             target_insight.refresh_from_db()
             _reject_deleted_insight(target_insight)
         if instance.platform_owned:
-            self._start_from_copy(instance)
+            return self._update_moved(instance, validated_data)
         # Recheck the combined configuration after concurrent updates have finished.
         self.instance = instance
         validated_data = self.validate(validated_data)
@@ -1175,8 +1176,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if not resulting_enabled:
             apply_disable(instance)
 
-        # The platform records a snooze of an alert it owns in its own history.
-        if snooze_changed and not instance.platform_owned:
+        if snooze_changed:
             AlertCheck.objects.create(
                 alert_configuration=instance,
                 calculated_value=None,
@@ -1200,53 +1200,100 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if schedule_restriction_changed or schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
-        if instance.platform_owned:
-            with _platform_write_errors():
-                write_moved_alert_edit(
-                    team_id=instance.team_id,
-                    alert_id=instance.id,
-                    snooze_changed=snooze_changed,
-                    rescheduled=rescheduled,
-                )
         # The insight decides the in-app destination's resource, so any edit can change the copy's subscribers.
         sync_alert_subscriber_destinations(team_id=instance.team_id, alert_id=instance.id)
-        # Again under the lock, because `validate` counted without it and another update can race. After
-        # `write_moved_alert_edit`, because the platform locks a copy before this lock, and an update
-        # that took them the other way round could deadlock with it.
+        # Again under the lock, because `validate` counted without it and another update can race.
         self._recheck_real_time_limit(instance, previous)
 
         instance.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
-        if enable_now and not instance.platform_owned:
+        if enable_now:
             transaction.on_commit(
                 lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
             )
         return instance
 
-    def _start_from_copy(self, alert: AlertConfiguration) -> None:
-        """Puts a moved alert's settings from its copy on its locked row, so an edit compares against
-        what the API shows and the save writes them to the row with the edit. The threshold is saved
-        here, because the alert's save does not save it."""
-        settings = moved_alert_settings(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id)
-        if settings is None:
-            return
-        for field, value in settings.fields.items():
-            setattr(alert, field, value)
-        alert.schedule_start_time = settings.schedule_start_time
-        if settings.threshold is None:
-            alert.threshold = None
-        elif alert.threshold is None:
-            alert.threshold = Threshold.objects.create(
-                team_id=alert.team_id,
-                insight_id=alert.insight_id,
-                configuration=settings.threshold,
-                created_by=self.context["request"].user,
+    def _update_moved(self, instance: AlertConfiguration, validated_data: dict) -> AlertConfiguration:
+        """`update` for an alert the platform owns that keeps an insight row, which the caller locked.
+        The alert's settings live on its copy, so the edit starts from the copy and writes only the copy.
+        The row keeps the subscriptions and the insight, which the API checks access against."""
+        if not show_locked_copy(instance):
+            raise Http404
+        row_insight_id = instance.insight_id
+        self.instance = instance
+        validated_data = self.validate(validated_data)
+        resulting_enabled = validated_data.get("enabled", instance.enabled) is True
+        previous = self._admitted(instance, validated_data, resulting_enabled=resulting_enabled)
+        enable_now = resulting_enabled and not instance.enabled
+
+        snoozed_until_param, snoozed_until = _popped_snooze(validated_data)
+        snooze_changed = snoozed_until_param is not serializers.empty
+        if snooze_changed:
+            instance.snoozed_until = snoozed_until
+
+        threshold_data = validated_data.pop("threshold", None)
+        threshold_before = instance.threshold.configuration if instance.threshold else None
+        if threshold_data == {}:
+            instance.threshold = None
+        elif threshold_data is not None:
+            threshold = copy.copy(instance.threshold) if instance.threshold else None
+            if threshold is None:
+                threshold = Threshold(id=instance.id, team_id=instance.team_id, created_at=instance.created_at)
+            threshold.configuration = threshold_data.get("configuration")
+            instance.threshold = threshold
+        subscribed_users = validated_data.pop("subscribed_users", None)
+
+        evaluation_changed = (
+            instance.threshold.configuration if instance.threshold else None
+        ) != threshold_before or any(
+            field in validated_data and validated_data[field] != getattr(instance, field)
+            for field in ("condition", "config", "skip_weekend", "detector_config", "evaluation_delay_intervals")
+        )
+        schedule_changed = any(
+            field in validated_data and validated_data[field] != getattr(instance, field)
+            for field in ("schedule_restriction", "schedule_start_time")
+        )
+        interval_changed = (
+            "calculation_interval" in validated_data
+            and validated_data["calculation_interval"] != instance.calculation_interval
+        )
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        rescheduled = enable_now or evaluation_changed or interval_changed or schedule_changed
+        if rescheduled:
+            instance.next_check_at = (
+                next_check_at_after_schedule_restriction_change(instance) if schedule_changed else timezone.now()
             )
-        elif alert.threshold.configuration != settings.threshold:
-            alert.threshold.configuration = settings.threshold
-            alert.threshold.save(update_fields=["configuration"])
+        with _platform_write_errors():
+            on_updated(instance, snooze_changed=snooze_changed, rescheduled=rescheduled)
+        if instance.insight_id != row_insight_id:
+            # The one setting the row still keeps, because reads check access against the row's insight.
+            AlertConfiguration.objects.filter(team_id=instance.team_id, id=instance.id).update(
+                insight_id=instance.insight_id
+            )
+
+        if subscribed_users is not None:
+            AlertSubscription.objects.filter(alert_configuration=instance).exclude(user__in=subscribed_users).delete()
+            for user in subscribed_users:
+                # nosemgrep: idor-lookup-without-team (user team membership validated by viewset)
+                AlertSubscription.objects.get_or_create(
+                    user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
+                )
+        # The insight decides the in-app destination's resource, so any edit can change the copy's subscribers.
+        sync_alert_subscriber_destinations(team_id=instance.team_id, alert_id=instance.id)
+        # Again under the lock, because `validate` counted without it and another update can race. After
+        # the copy's write, because the platform locks a copy before this lock.
+        self._recheck_real_time_limit(instance, previous)
+
+        _show_platform_status([instance], now=timezone.now())
+        _show_platform_subscribers([instance])
+        instance.report_updated(
+            self.context["request"].user,
+            analytics_props=get_request_analytics_properties(self.context["request"]),
+        )
+        return instance
 
     def _update_native(self, instance: AlertConfiguration, validated_data: dict) -> AlertConfiguration:
         """`update` for an alert with no insight row. It runs the same checks, then writes the edit to
@@ -1969,34 +2016,6 @@ def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
             alert.platform_subscribers = [users[user_id] for user_id in user_ids[alert.id] if user_id in users]  # type: ignore[attr-defined]
 
 
-def _show_copy_settings(alerts: list[AlertConfiguration]) -> None:
-    """Shows each alert the platform owns through a copy with the settings the copy holds, in place.
-    The alerts are only for showing: one saved afterwards would write the copy's settings to its row."""
-    copies = {alert.id: alert for alert in alerts if not alert.has_no_insight_row}
-    if not copies:
-        return
-    for alert_id, settings in moved_alert_settings(team_id=alerts[0].team_id, alert_ids=list(copies)).items():
-        alert = copies[alert_id]
-        for field, value in settings.fields.items():
-            setattr(alert, field, value)
-        alert.schedule_start_time = settings.schedule_start_time
-        if settings.threshold is None:
-            alert.threshold = None
-        elif alert.threshold is None:
-            # Stable across reads, as for an alert with no insight row.
-            alert.threshold = Threshold(
-                id=alert.id,
-                team_id=alert.team_id,
-                insight_id=alert.insight_id,
-                configuration=settings.threshold,
-                created_at=alert.created_at,
-            )
-        else:
-            # A copy, because a threshold that embeds this alert can share the object it holds.
-            alert.threshold = copy.copy(alert.threshold)
-            alert.threshold.configuration = settings.threshold
-
-
 def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
     """Shows each alert the platform owns as the platform has it, in place: its settings, snooze, state
     and last check. Its own row stops moving once the insight stack stops checking it."""
@@ -2004,7 +2023,7 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
     if not moved:
         return
     # Before the state, which reads the snooze.
-    _show_copy_settings(list(moved.values()))
+    show_copy_settings(list(moved.values()))
     statuses = moved_alert_statuses(
         team_id=next(iter(moved.values())).team_id,
         snoozed_until={alert_id: alert.snoozed_until for alert_id, alert in moved.items()},

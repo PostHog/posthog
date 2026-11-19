@@ -25,7 +25,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, AlertState
-from posthog.tasks.alerts.utils import evaluated_by_insight_stack_q
+from posthog.tasks.alerts.utils import due_insight_alerts_q
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -59,14 +59,13 @@ from products.alerts.backend.models.alert import (
     Threshold,
 )
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
-from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.platform_insight_alert import native_insight_alert_view
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
 from products.alerts.backend.platform_subscribers import SUBSCRIBER_EVENT_KINDS
 from products.alerts.backend.presentation.views.alert import AlertViewSet
 from products.alerts.backend.tasks.tasks import remove_departed_subscriber
-from products.alerts.backend.test.insight_alerts import create_insight_alert
+from products.alerts.backend.test.insight_alerts import create_insight_alert, move_to_platform
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     assign_native_creator,
@@ -111,8 +110,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             last_checked_at=self.now - timedelta(hours=2),
         )
         AlertCheck.objects.create(alert_configuration=self.alert, calculated_value=1.0, state="Not firing")
-        [cutover] = cut_over_team(self.team.id, now=self.now)
-        assert cutover.skipped is None
+        move_to_platform(self.alert, at=self.now)
         with team_scope(self.team.id):
             self.copy_id = platform_testing.copy_of(self.alert.id).id
         self.url = f"/api/projects/{self.team.id}/alerts"
@@ -690,8 +688,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         super().setUp()
         self.now = datetime.now(UTC)
         self.alert = create_insight_alert(self.team, next_check_at=self.now + timedelta(minutes=3))
-        [cutover] = cut_over_team(self.team.id, now=self.now)
-        assert cutover.skipped is None
+        move_to_platform(self.alert, at=self.now)
         with team_scope(self.team.id):
             self.copy_id = platform_testing.copy_of(self.alert.id).id
         self.url = f"/api/projects/{self.team.id}/alerts"
@@ -797,7 +794,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             with team_scope(self.team.id):
                 return subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[alert_id])
 
-        cut_over_team(self.team.id, now=self.now)
+        move_to_platform(handed_over, at=self.now)
         assert copied(handed_over.id) == {handed_over.id: (other.id,)}
 
         edit = self.client.patch(
@@ -853,13 +850,14 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
         assert copied(self.alert.id) == {}
 
-    def test_an_insight_edit_starts_from_the_copy_after_the_row_drifts(self) -> None:
+    def test_an_insight_edit_starts_from_the_copy_and_leaves_the_row_as_it_was(self) -> None:
         copy = self._copy()
         # Writes that bypass the API leave the row apart from the copy.
         AlertConfiguration.objects.filter(id=self.alert.id).update(skip_weekend=not copy.source_config["skip_weekend"])
         Threshold.objects.filter(alertconfiguration__id=self.alert.id).update(
             configuration={"type": "absolute", "bounds": {"upper": 999.0}}
         )
+        row_before = AlertConfiguration.objects.get(id=self.alert.id)
 
         edit = self.client.patch(f"{self.url}/{self.alert.id}/", {"name": "Renamed"}, format="json")
 
@@ -871,12 +869,13 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             copy.source_config["condition"]["threshold"],
         )
         row = AlertConfiguration.objects.select_related("threshold").get(id=self.alert.id)
-        assert (row.skip_weekend, row.threshold.configuration if row.threshold else None) == (
-            copy.source_config["skip_weekend"],
-            copy.source_config["condition"]["threshold"],
+        assert (row.name, row.skip_weekend, row.threshold.configuration if row.threshold else None) == (
+            row_before.name,
+            row_before.skip_weekend,
+            {"type": "absolute", "bounds": {"upper": 999.0}},
         )
 
-    def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
+    def test_an_insight_edit_keeps_the_settings_it_does_not_send_as_the_copy_holds_them(self) -> None:
         stored_config = self._copy().source_config
         # A platform edit names only the settings it sends, so the insight check settings stay as stored.
         self._edit_on_the_platform(
@@ -930,7 +929,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            (f"{name}_{kind}", condition_change, settings_change, kind == "native")
+            (name, condition_change, settings_change)
             for name, condition_change, settings_change in [
                 ("percentage_bound", {"threshold": {"type": "percentage", "bounds": {"upper": 0.5}}}, {}),
                 # The insight API checks a detector against its insight and its access rules, so only it may set one.
@@ -940,15 +939,12 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                 ("evaluation_delay", {}, {"evaluation_delay_intervals": 3}),
                 ("investigation_agent", {}, {"investigation_agent_enabled": True}),
             ]
-            # An alert with no insight row has no row to mirror onto, so the same refusals come from its guard.
-            for kind in ("row", "native")
         ]
     )
-    def test_a_platform_edit_the_insight_stack_cannot_check_is_refused_on_both_rows(
-        self, _name: str, condition_change: dict[str, Any], settings_change: dict[str, Any], native: bool
+    def test_a_platform_edit_only_the_insight_api_may_make_is_refused(
+        self, _name: str, condition_change: dict[str, Any], settings_change: dict[str, Any]
     ) -> None:
-        if native:
-            self._forget_the_insight_row()
+        self._forget_the_insight_row()
         stored_config = self._copy().source_config
 
         def edit(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
@@ -958,10 +954,6 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         with pytest.raises(InvalidPlatformAlertEdit):
             self._edit_on_the_platform(edit)
 
-        if not native:
-            self.alert.refresh_from_db()
-            assert self.alert.threshold is not None
-            assert (self.alert.threshold.configuration["type"], self.alert.detector_config) == ("absolute", None)
         assert self._copy().source_config == stored_config
 
     @parameterized.expand(
@@ -1144,23 +1136,44 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         copy = self._copy()
         assert (copy.name, copy.source_config["condition"]["threshold"]) == ("Renamed", None)
 
-    @parameterized.expand([("counted", False, 1), ("left_out_of_its_own_edit", True, 0)])
-    def test_the_ai_detector_cap_counts_an_ai_alert_insight_keeps_no_row_for(
-        self, _name: str, editing_it: bool, expected: int
+    @parameterized.expand(
+        [
+            (f"{cap}_{kind}_{name}", cap, kind == "native", editing_it, counted)
+            for cap in ("ai_detector", "real_time")
+            # A copy's row still says daily with no detector, which the caps must not follow.
+            for kind in ("native", "copy")
+            for name, editing_it, counted in [("counted", False, True), ("left_out_of_its_own_edit", True, False)]
+        ]
+    )
+    def test_the_plan_caps_count_an_alert_the_platform_owns_from_the_platform(
+        self, _name: str, cap: str, native: bool, editing_it: bool, counted: bool
     ) -> None:
-        self._forget_the_insight_row()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts", "limit": 1}
+        ]
+        self.organization.save()
+        if native:
+            self._forget_the_insight_row()
         with team_scope(self.team.id):
-            stored_config = self._copy().source_config
-            platform_testing.set_source_config(
-                self.copy_id,
-                {**stored_config, "condition": {**stored_config["condition"], "detector": {"type": "llm"}}},
+            if cap == "ai_detector":
+                stored_config = self._copy().source_config
+                platform_testing.set_source_config(
+                    self.copy_id,
+                    {**stored_config, "condition": {**stored_config["condition"], "detector": {"type": "llm"}}},
+                )
+            else:
+                platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
+        excluded = str(self.copy_id if native else self.alert.id) if editing_it else None
+
+        if cap == "ai_detector":
+            is_counted = count_enabled_llm_alerts(team_id=self.team.id, exclude_alert_id=excluded) == 1
+        else:
+            is_counted = (
+                AlertConfiguration.check_real_time_alert_limit(self.team.id, self.organization, exclude_id=excluded)
+                is not None
             )
 
-        count = count_enabled_llm_alerts(
-            team_id=self.team.id, exclude_alert_id=str(self.copy_id) if editing_it else None
-        )
-
-        assert count == expected
+        assert is_counted is counted
 
     @parameterized.expand(
         [
@@ -1191,41 +1204,11 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self._copy().enabled is True
 
-    @parameterized.expand(
-        [
-            ("ai_alert", {"detector_config": {"type": "llm"}}, True, None),
-            ("real_time_alert_over_the_limit", {"calculation_interval": "real_time"}, True, "Limit reached."),
-            ("real_time_alert_without_the_plan", {"calculation_interval": "real_time"}, False, None),
-        ]
-    )
-    def test_a_platform_edit_cannot_turn_an_alert_back_on_past_its_admission(
-        self, _name: str, stored: dict[str, Any], has_real_time_plan: bool, real_time_limit_error: str | None
-    ) -> None:
-        self.organization.available_product_features = (
-            [{"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"}] if has_real_time_plan else []
-        )
-        self.organization.save()
-        self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
-        AlertConfiguration.objects.filter(id=self.alert.id).update(**stored)
-        if stored.get("calculation_interval") == AlertCalculationInterval.REAL_TIME:
-            with team_scope(self.team.id):
-                platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
-
-        with (
-            patch.object(AlertConfiguration, "check_real_time_alert_limit", return_value=real_time_limit_error),
-            pytest.raises(InvalidPlatformAlertEdit) as refused,
-        ):
-            self._edit_on_the_platform(lambda stored: replace(stored, enabled=True))
-
-        assert refused.value.field_name == "enabled"
-        self.alert.refresh_from_db()
-        assert (self.alert.enabled, self._copy().enabled) == (False, False)
-
-    @parameterized.expand([("row", False, False), ("row_the_copy_lags", False, True), ("native", True, False)])
-    def test_a_snooze_from_slack_mutes_the_platform_copy(self, _name: str, native: bool, copy_lags: bool) -> None:
+    @parameterized.expand([("row", False, False), ("row_drifted", False, True), ("native", True, False)])
+    def test_a_snooze_from_slack_mutes_the_platform_copy(self, _name: str, native: bool, row_drifted: bool) -> None:
         if native:
             self._forget_the_insight_row()
-        if copy_lags:
+        if row_drifted:
             AlertConfiguration.objects.filter(id=self.alert.id).update(name="Renamed")
 
         # The snooze menu of an alert with no insight row carries its platform alert's id.
@@ -1235,7 +1218,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert self._copy().snooze_until is not None
         if not native:
             self.alert.refresh_from_db()
-            assert self._copy().snooze_until == self.alert.snoozed_until
+            assert (self._copy().name, self.alert.snoozed_until) == ("alert", None)
             # The platform's history records the snooze, so the row keeps no check for it.
             assert not AlertCheck.objects.filter(alert_configuration_id=self.alert.id).exists()
 
@@ -1248,9 +1231,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert self._copy().snooze_until is not None
         assert not AlertCheck.objects.filter(alert_configuration_id=self.alert.id).exists()
 
-    @parameterized.expand([("copy_off", True, False), ("row_off", False, True)])
-    def test_a_snooze_from_slack_refuses_a_moved_alert_unless_row_and_copy_are_on(
-        self, _name: str, row_on: bool, copy_on: bool
+    @parameterized.expand([("copy_off", True, False, "disabled"), ("row_off", False, True, "snoozed")])
+    def test_a_snooze_from_slack_follows_whether_the_copy_is_on(
+        self, _name: str, row_on: bool, copy_on: bool, expected: str
     ) -> None:
         AlertConfiguration.objects.filter(id=self.alert.id).update(enabled=row_on)
         with team_scope(self.team.id):
@@ -1258,10 +1241,14 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         outcome = snooze_alert_from_slack(self.alert.id, user=self.user, duration="1d")
 
-        assert outcome == "disabled"
+        assert outcome == expected
         self.alert.refresh_from_db()
         copy = self._copy()
-        assert (self.alert.snoozed_until, copy.enabled, copy.snooze_until) == (None, copy_on, None)
+        assert (self.alert.snoozed_until, copy.enabled, copy.snooze_until is not None) == (
+            None,
+            copy_on,
+            expected == "snoozed",
+        )
 
     def test_a_snooze_the_platform_refuses_leaves_both_rows_unsnoozed(self) -> None:
         with patch(
@@ -1290,37 +1277,29 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         self.organization.save()
         with team_scope(self.team.id):
             due_before = platform_testing.copy_of(self.alert.id).next_check_at
+        requested_at = datetime.now(UTC)
 
         response = self.client.patch(f"{self.url}/{self.alert.id}/", edit, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        self.alert.refresh_from_db()
         with team_scope(self.team.id):
             due_after = platform_testing.copy_of(self.alert.id).next_check_at
-        assert self.alert.owner == "platform"
-        assert due_before is not None and due_after is not None and self.alert.next_check_at is not None
+        assert due_before is not None and due_after is not None
         if rescheduled:
-            assert self.alert.next_check_at + timedelta(minutes=1) <= due_after < due_before
+            assert requested_at + timedelta(minutes=1) <= due_after < due_before
         else:
             assert due_after == due_before
 
-    @parameterized.expand(
-        [
-            ("a_team_on_the_platform", "platform", "platform"),
-            ("a_team_off_the_platform", "source", "source"),
-            ("a_team_with_no_other_alert", None, "platform"),
-        ]
-    )
-    def test_a_new_alert_follows_its_team_and_starts_on_the_platform_in_a_team_without_alerts(
-        self, _name: str, team_owner: str | None, expected_owner: str
+    @parameterized.expand([("a_team_on_the_platform", "platform"), ("a_team_with_no_other_alert", None)])
+    def test_a_new_alert_starts_on_the_platform_and_the_insight_stack_never_checks_it(
+        self, _name: str, team_owner: str | None
     ) -> None:
-        team_cutover_at = self.now - timedelta(days=4)
         insight = create_insight_alert(self.team).insight
         if team_owner is None:
             AlertConfiguration.objects.filter(team_id=self.team.id).delete()
         else:
             AlertConfiguration.objects.filter(team_id=self.team.id).update(
-                owner=team_owner, owner_changed_at=team_cutover_at
+                owner=team_owner, owner_changed_at=self.now - timedelta(days=30)
             )
 
         response = self.client.post(
@@ -1339,14 +1318,10 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         created = AlertConfiguration.objects.get(id=response.json()["id"])
-        assert created.owner == expected_owner
-        if team_owner == "platform":
-            # The insight stack shadows the new alert only for what is left of the team's week.
-            assert created.owner_changed_at == team_cutover_at
-        # A team's first alert has no insight history to shadow.
-        assert AlertConfiguration.objects.filter(
-            evaluated_by_insight_stack_q(timezone.now()), id=created.id
-        ).exists() is (team_owner is not None)
+        assert created.owner == "platform"
+        assert not AlertConfiguration.objects.filter(
+            due_insight_alerts_q(timezone.now() + timedelta(days=1)), id=created.id
+        ).exists()
 
     @parameterized.expand(
         [
@@ -1554,14 +1529,24 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("statistical_alert", None, True, None, status.HTTP_200_OK),
-            # Its checks would run as the requester, who is not on the AI detector's rollout.
-            ("ai_alert_without_the_rollout", {"type": "llm"}, False, None, status.HTTP_400_BAD_REQUEST),
-            ("series_gone_from_the_insight", None, True, 5, status.HTTP_400_BAD_REQUEST),
+            (f"{name}_{kind}", detector, rolled_out, series_index, expected, kind == "native")
+            for name, detector, rolled_out, series_index, expected in [
+                ("statistical_alert", None, True, None, status.HTTP_200_OK),
+                # Its checks would run as the requester, who is not on the AI detector's rollout.
+                ("ai_alert_without_the_rollout", {"type": "llm"}, False, None, status.HTTP_400_BAD_REQUEST),
+                ("series_gone_from_the_insight", None, True, 5, status.HTTP_400_BAD_REQUEST),
+            ]
+            for kind in ("native", "copy")
         ]
     )
-    def test_taking_ownership_of_an_alert_insight_keeps_no_row_for_writes_the_platform(
-        self, _name: str, detector: dict[str, Any] | None, rolled_out: bool, series_index: int | None, expected: int
+    def test_taking_ownership_of_an_alert_the_platform_owns_writes_only_the_platform(
+        self,
+        _name: str,
+        detector: dict[str, Any] | None,
+        rolled_out: bool,
+        series_index: int | None,
+        expected: int,
+        native: bool,
     ) -> None:
         former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
         with team_scope(self.team.id):
@@ -1576,19 +1561,16 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                 {**stored_config, "config": config, "condition": {**stored_config["condition"], "detector": detector}},
             )
             platform_testing.set_enabled(self.copy_id, False)
-        self._forget_the_insight_row()
-        with team_scope(self.team.id):
-            assign_native_creator(
-                team_id=self.team.id,
-                source_kinds=[SourceKind.INSIGHT.value],
-                configuration_id=self.copy_id,
-                created_by_id=former_member.id,
-            )
+            platform_testing.set_created_by(self.copy_id, former_member.id)
+        if native:
+            self._forget_the_insight_row()
+        row_before = None if native else AlertConfiguration.objects.get(id=self.alert.id)
+        public_id = self.copy_id if native else self.alert.id
 
         with patch(
             "products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=rolled_out
         ):
-            response = self.client.post(f"{self.url}/{self.copy_id}/take_ownership/")
+            response = self.client.post(f"{self.url}/{public_id}/take_ownership/")
 
         assert response.status_code == expected, response.json()
         copy = self._copy()
@@ -1597,8 +1579,11 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         if taken:
             assert (response.json()["created_by"]["id"], response.json()["enabled"]) == (self.user.id, True)
             assert ActivityLog.objects.filter(
-                scope="AlertConfiguration", item_id=str(self.copy_id), activity="took_ownership", user=self.user
+                scope="AlertConfiguration", item_id=str(public_id), activity="took_ownership", user=self.user
             ).exists()
+        if row_before is not None:
+            row = AlertConfiguration.objects.get(id=self.alert.id)
+            assert (row.created_by_id, row.enabled) == (row_before.created_by_id, row_before.enabled)
 
     @parameterized.expand(
         [

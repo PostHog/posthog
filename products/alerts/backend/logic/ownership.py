@@ -28,15 +28,15 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.logic.alert_validation import validate_alert_write
-from products.alerts.backend.models.alert import AlertConfiguration, Threshold
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_insight_alert import (
     enable_native_insight_alert,
-    moved_alert_settings,
     native_insight_alert_view,
+    show_copy_settings,
 )
-from products.alerts.backend.platform_ownership import write_moved_alert_edit
+from products.alerts.backend.platform_ownership import on_updated, show_locked_copy
 from products.alerts.backend.platform_subscribers import sync_alert_subscriber_destinations
-from products.alerts_platform.backend.facade.api import assign_native_creator, lock_source_configuration
+from products.alerts_platform.backend.facade.api import assign_native_creator
 from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     PlatformAlertCreateRefused,
@@ -56,20 +56,9 @@ def _load_alert(team_id: int, alert_id: UUID, *, lock: bool = False) -> AlertCon
         if alert is None:
             raise AlertConfiguration.DoesNotExist
     elif alert.platform_owned:
-        if lock:
-            lock_source_configuration(team_id=team_id, public_id=alert_id)
-        settings = moved_alert_settings(team_id=team_id, alert_ids=[alert_id]).get(alert_id)
-        if settings is None:
+        shown = show_locked_copy(alert) if lock else alert.id in show_copy_settings([alert])
+        if not shown:
             raise AlertConfiguration.DoesNotExist
-        for field, value in settings.fields.items():
-            setattr(alert, field, value)
-        alert.schedule_start_time = settings.schedule_start_time
-        if settings.threshold is None:
-            alert.threshold = None
-        elif alert.threshold is None:
-            alert.threshold = Threshold(team_id=team_id, insight=alert.insight, configuration=settings.threshold)
-        else:
-            alert.threshold.configuration = settings.threshold
     return alert
 
 
@@ -178,6 +167,16 @@ def _save_owner_and_enable(
         updated = AlertConfiguration.from_platform_view(view, team_id=team_id) if view else None
         if updated is None:
             raise AlertConfiguration.DoesNotExist
+    elif locked.platform_owned:
+        enable_now = not locked.enabled
+        locked.enabled = True
+        if "config" in attrs:
+            locked.config = attrs["config"]
+        locked.created_by = owner
+        locked.next_check_at = timezone.now()
+        on_updated(locked, snooze_changed=False, rescheduled=enable_now or "config" in attrs)
+        sync_alert_subscriber_destinations(team_id=team_id, alert_id=alert_id)
+        updated = locked
     else:
         enable_now = not locked.enabled
         if enable_now:
@@ -188,19 +187,9 @@ def _save_owner_and_enable(
             apply_threshold_change(locked)
             locked.next_check_at = timezone.now()
         locked.created_by = owner
-        if locked.platform_owned and locked.threshold:
-            locked.threshold.created_by = locked.threshold.created_by or actor
-            locked.threshold.save()
         locked.save()
-        if locked.platform_owned:
-            write_moved_alert_edit(
-                team_id=team_id,
-                alert_id=alert_id,
-                snooze_changed=False,
-                rescheduled=enable_now or "config" in attrs,
-            )
         sync_alert_subscriber_destinations(team_id=team_id, alert_id=alert_id)
-        if enable_now and not locked.platform_owned:
+        if enable_now:
             transaction.on_commit(lambda: follow_insight_alert(team_id=team_id, alert_id=alert_id), robust=True)
         updated = locked
     return updated

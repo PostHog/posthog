@@ -447,7 +447,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     @classmethod
     def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
-        """The team's insight alerts: each insight row, and each platform alert with no insight row."""
+        """The team's insight alerts: each insight row, and each platform alert with no insight row. The
+        active real-time ones of a moved alert are counted on its copy, which holds its settings."""
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
         from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
@@ -455,19 +456,21 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
         rows = cls.objects.filter(team_id=team_id)
         if active_real_time:
-            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
+            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True).exclude(
+                owner=PlatformAlertOwner.PLATFORM
+            )
         if exclude_id:
             rows = rows.exclude(pk=exclude_id)
-        native = count_configurations(
+        on_platform = count_configurations(
             team_id=team_id,
             source_kind=SourceKind.INSIGHT,
-            native_only=True,
+            native_only=not active_real_time,
+            held_only=active_real_time,
             enabled_only=active_real_time,
             check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
-            # An alert with no insight row carries its platform alert's id.
             exclude_id=UUID(exclude_id) if exclude_id else None,
         )
-        return rows.count() + native
+        return rows.count() + on_platform
 
     @classmethod
     def supports_high_frequency_intervals(cls, organization: Organization) -> bool:

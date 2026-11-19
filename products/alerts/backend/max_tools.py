@@ -425,6 +425,12 @@ class UpsertAlertTool(MaxTool):
                 return _SaveRefusal(
                     message="The alert's insight changed. Retry the update.", error_code="validation_failed"
                 )
+            # Deferred for the same cycle as `_follow_on_commit`.
+            from products.alerts.backend.platform_ownership import on_updated, show_locked_copy  # noqa: PLC0415
+
+            moved = alert.platform_owned
+            if moved and not show_locked_copy(alert):
+                return _SaveRefusal(message=f"Alert '{alert.id}' not found.", error_code="alert_not_found")
             new_interval = action.calculation_interval or alert.calculation_interval
             new_enabled = action.enabled if action.enabled is not None else alert.enabled
             if refusal := self._admission_refusal(alert, action, new_interval=new_interval, new_enabled=new_enabled):
@@ -485,7 +491,7 @@ class UpsertAlertTool(MaxTool):
 
             if self._has_threshold_changes(action):
                 try:
-                    update_fields.extend(self._update_threshold(alert, action))
+                    update_fields.extend(self._update_threshold(alert, action, save=not moved))
                 except ValidationError as e:
                     return _SaveRefusal(message=str(e), error_code="validation_failed")
             if conditions_or_threshold_changed:
@@ -493,18 +499,15 @@ class UpsertAlertTool(MaxTool):
             if schedule_reset_required:
                 alert.next_check_at = timezone.now()
                 update_fields.append("next_check_at")
-            alert.save(update_fields=update_fields)
-            if alert.platform_owned:
-                # Deferred for the same cycle as `_follow_on_commit`.
-                from products.alerts.backend.platform_ownership import on_updated  # noqa: PLC0415
-
+            if moved:
                 try:
                     on_updated(alert, snooze_changed=False, rescheduled=schedule_reset_required)
                 except (PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
-                    # Rolls back the insight row, so neither row takes an edit the platform rejects.
                     transaction.set_rollback(True)
                     return _SaveRefusal(message=str(error), error_code="validation_failed")
-            elif enabled_changed and action.enabled:
+            else:
+                alert.save(update_fields=update_fields)
+            if not moved and enabled_changed and action.enabled:
                 _follow_on_commit(alert)
             # Again under the lock, because the check above counted without it and another update can race.
             # After `on_updated`, for the lock order the API's `update` keeps.
@@ -707,11 +710,16 @@ class UpsertAlertTool(MaxTool):
         if not alert_id:
             return None
         try:
-            return await AlertConfiguration.objects.select_related("threshold", "insight", "created_by").aget(
+            alert = await AlertConfiguration.objects.select_related("threshold", "insight", "created_by").aget(
                 id=alert_id, team=self._team
             )
         except Exception:
             return await sync_to_async(_native_alert)(team_id=self._team.id, alert_id=alert_id)
+        # Deferred for the same cycle as `_follow_on_commit`.
+        from products.alerts.backend.platform_insight_alert import show_copy_settings  # noqa: PLC0415
+
+        await sync_to_async(show_copy_settings)([alert])
+        return alert
 
     @classmethod
     def _proposed_threshold_configuration(cls, alert: AlertConfiguration, action: UpdateAlertAction) -> dict | None:
@@ -734,21 +742,24 @@ class UpsertAlertTool(MaxTool):
         return config
 
     @classmethod
-    def _update_threshold(cls, alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:
-        """Returns list of alert field names that were modified (for use with update_fields)."""
+    def _update_threshold(cls, alert: AlertConfiguration, action: UpdateAlertAction, *, save: bool = True) -> list[str]:
+        """Returns list of alert field names that were modified (for use with update_fields). Without
+        `save`, the threshold changes on the alert only, for an edit written to the platform's copy."""
         config = cls._proposed_threshold_configuration(alert, action)
         threshold = alert.threshold
 
         if threshold is None:
             threshold = Threshold(team=alert.team, insight=alert.insight, name=alert.name, configuration=config)
             threshold.clean()
-            threshold.save()
+            if save:
+                threshold.save()
             alert.threshold = threshold
             return ["threshold"]
 
         threshold.configuration = config
         threshold.clean()
-        threshold.save(update_fields=["configuration"])
+        if save:
+            threshold.save(update_fields=["configuration"])
         return []
 
     async def _check_alert_limit(self) -> str | None:

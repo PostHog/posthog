@@ -1,8 +1,8 @@
-"""Keeps both rows of an insight alert the platform owns in step.
+"""Writes to insight alerts the platform owns.
 
-An insight alert the platform owns keeps its insight row: the insight alert pages read it, the shadow
-evaluation runs it, and a rollback hands it back. So every write to either row reaches the other in
-the same transaction, and every writer locks the insight row before the platform's copy.
+An insight alert handed to the platform keeps its insight row for its id, its insight and its
+subscriptions, but its settings live on the platform's copy alone. An edit starts from the copy's
+settings and writes only the copy. Every writer locks the insight row before the copy.
 """
 
 from __future__ import annotations
@@ -18,11 +18,10 @@ from django.db import transaction
 import posthoganalytics
 
 from posthog.models.team.team import Team
-from posthog.tasks.alerts.utils import PLATFORM_SHADOW, next_check_at_after_schedule_restriction_change
+from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
 
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
-from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.destinations import retire_alert_hog_functions
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
@@ -32,7 +31,6 @@ from products.alerts.backend.platform_cutover import (
     hand_over,
     in_an_environment,
     takes_new_alert,
-    team_cutover_at,
 )
 from products.alerts.backend.platform_insight_alert import (
     alert_from_platform,
@@ -40,12 +38,14 @@ from products.alerts.backend.platform_insight_alert import (
     insight_row_settings,
     interval_of,
     native_insight_alert_view,
+    show_copy_settings,
 )
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import (
     close_owned_firings_now,
     create_configuration,
     delete_copy,
+    lock_source_configuration,
     update_configuration,
     update_owned_copy,
 )
@@ -61,13 +61,12 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
-# What an edit through either API can change on both rows. The cadence is a schedule, which the
-# platform's edit leaves out, so an insight edit writes it onto the copy separately.
+# What an insight edit changes through the platform's edit. The cadence is a schedule, which the
+# platform's edit leaves out, so it is written separately.
 _EDITED_FIELDS = ("name", "source_config", "schedule_restriction")
 
 
-# Turns on, per team, insight alert creates that make no insight row. Off until insight's rollback
-# window closes, because rollback hands an alert back through its insight row.
+# Turns on, per team, insight alert creates that make no insight row.
 NATIVE_CREATE_FLAG: Final = "insight-alerts-native-create"
 
 
@@ -158,11 +157,7 @@ def on_created(alert: AlertConfiguration, at: datetime) -> bool:
     insight. False when the alert stays with insight."""
     if not (platform_takes_new_alert(alert) and delivers_as_it_does_today(alert)):
         return False
-    # A week of its own per alert would keep the insight stack shadowing while the team adds alerts. A
-    # team's first alert has no insight history to compare against, so its shadow starts already over,
-    # and the team's later alerts inherit that.
-    shadow_from = team_cutover_at(alert.team_id, new_alert_id=alert.id) or at - PLATFORM_SHADOW
-    return hand_over(alert, at, shadow_from=shadow_from)
+    return hand_over(alert, at)
 
 
 def platform_takes_new_alert(alert: AlertConfiguration) -> bool:
@@ -186,9 +181,17 @@ def platform_takes_new_alert_with(
     )
 
 
+def show_locked_copy(alert: AlertConfiguration) -> bool:
+    """Locks the copy of a moved alert whose row the caller locked, and puts the copy's settings on the
+    row in place, for an edit to start from. False when the copy is gone."""
+    lock_source_configuration(team_id=alert.team_id, public_id=alert.id)
+    return alert.id in show_copy_settings([alert])
+
+
 def on_updated(alert: AlertConfiguration, *, snooze_changed: bool, rescheduled: bool = False) -> None:
-    """Writes an edit the insight API saved onto the platform's copy. `rescheduled` says the edit
-    moved the alert's own due time, which the copy then follows.
+    """Writes an edit to a moved alert, made in memory on its row after `show_locked_copy`, onto the
+    platform's copy. The row itself is not written. `rescheduled` says the edit moved the alert's due
+    time, which the copy then follows.
 
     Raises `PlatformCannotOwn` for an edit the platform cannot evaluate, such as a frequency it does not run, and
     `InvalidPlatformAlertEdit` for one the platform's schema rejects.
@@ -214,16 +217,6 @@ def hand_over_new_alert(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
     alerts on insight. False when the alert stays with insight."""
     alert = _locked(team_id, alert_id)
     return alert is not None and on_created(alert, at)
-
-
-def write_moved_alert_edit(*, team_id: int, alert_id: UUID, snooze_changed: bool, rescheduled: bool = False) -> None:
-    """Writes an edit the insight API saved in the caller's transaction onto the platform's copy.
-
-    Raises like `on_updated`.
-    """
-    alert = _locked(team_id, alert_id)
-    if alert is not None and alert.platform_owned:
-        on_updated(alert, snooze_changed=snooze_changed, rescheduled=rescheduled)
 
 
 def close_moved_alert_firings(*, team_id: int, alert_id: UUID) -> None:
@@ -285,41 +278,6 @@ def _platform_change_of(
     return lambda stored: replace(stored, enabled=upsert.enabled, **shared)
 
 
-def mirror_platform_edit(
-    *, team_id: int, legacy_configuration_id: UUID
-) -> Callable[[PlatformAlertConfigurationEdit], None] | None:
-    """Locks the insight row of an alert edited through the platform API, and returns its writer."""
-    alert = (
-        AlertConfiguration.objects.select_for_update(no_key=True, of=("self",))
-        .select_related("threshold", "insight")
-        # A copy lives on the project's team. An insight alert in one of its environments is never
-        # handed over, so the copy of one is the insight stack's and refuses the edit.
-        .filter(team_id=team_id, id=legacy_configuration_id)
-        .first()
-    )
-    if alert is None:
-        return None
-    return lambda edit: _write_insight_row(alert, edit)
-
-
-def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
-    # The inverse of `platform_upsert_of`.
-    _refuse_what_only_the_insight_api_checks(alert, edit)
-    condition = edit.source_config[SOURCE_CONDITION_KEY]
-    update_fields = ["name", "condition", "schedule_restriction"]
-    if edit.enabled != alert.enabled:
-        # The shadow evaluation still runs this row, so an on or off moves its state the way the insight API does.
-        update_fields.extend(apply_enable(alert) if edit.enabled else apply_disable(alert))
-    if condition["comparison"] != alert.condition or condition["threshold"] != _threshold_of(alert):
-        update_fields.extend(apply_threshold_change(alert))
-        _write_threshold(alert, condition["threshold"])
-        update_fields.append("threshold")
-    alert.name = edit.name
-    alert.condition = condition["comparison"]
-    alert.schedule_restriction = edit.schedule_restriction
-    alert.save(update_fields=list(dict.fromkeys(update_fields)))
-
-
 def guard_native_insight_edit(
     *,
     team_id: int,
@@ -327,8 +285,7 @@ def guard_native_insight_edit(
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
 ) -> None:
-    """Refuses a platform edit to an insight alert with no insight row that `_write_insight_row`
-    refuses for an alert with one."""
+    """Refuses a platform edit to an insight alert with no insight row that only the insight API may make."""
     insight = insight_of(team_id, current.source_config)
     if insight is None:
         raise InvalidPlatformAlertEdit("source_config", "The alert's insight no longer exists.")
@@ -453,22 +410,6 @@ def admit_platform_write(
     if current is None:
         raise PlatformAlertCreateRefused(error)
     raise InvalidPlatformAlertEdit("enabled", error)
-
-
-def _threshold_of(alert: AlertConfiguration) -> dict | None:
-    return alert.threshold.configuration if alert.threshold else None
-
-
-def _write_threshold(alert: AlertConfiguration, configuration: dict | None) -> None:
-    if configuration is None:
-        alert.threshold = None
-    elif alert.threshold is not None:
-        alert.threshold.configuration = configuration
-        alert.threshold.save(update_fields=["configuration"])
-    else:
-        alert.threshold = Threshold.objects.create(
-            team_id=alert.team_id, insight_id=alert.insight_id, configuration=configuration
-        )
 
 
 def remove_alert_destinations(*, team_id: int, alert_id: UUID) -> None:

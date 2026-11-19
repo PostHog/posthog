@@ -17,7 +17,6 @@ from products.alerts.backend.platform_ownership import (
     admit_platform_write,
     creates_native_alert,
     guard_native_insight_edit,
-    mirror_platform_edit,
     remove_alert_destinations,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -100,7 +99,8 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     model=InsightPlatformAlertSourceConfig,
     validate=validate_insight_edit,
     admit=admit_platform_write,
-    mirror=mirror_platform_edit,
+    # No `mirror`: the insight API writes a moved alert's edits to its copy alone, and the platform API
+    # serves no insight alert.
     # For an insight alert with no insight row: the platform deletes it, and its destinations stay
     # HogFunctions. `creates_native_alert` turns its creates on per team. A native create picks any
     # insight cadence, daily by default.

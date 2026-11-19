@@ -1176,10 +1176,6 @@ class TestEvaluateAlert:
         assert result.should_notify is expect_notify
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.notification_suppressed_by_agent is expect_held
-        if owner == PlatformAlertOwner.PLATFORM:
-            await alert.arefresh_from_db()
-            assert check.notification_sent_at is not None
-            assert alert.last_notified_at == check.notification_sent_at
 
     @pytest.mark.parametrize("already_firing", [False, True])
     async def test_ai_detector_alert_notifies_and_investigates_only_the_first_firing_check(

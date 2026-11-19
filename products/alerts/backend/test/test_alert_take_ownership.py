@@ -20,9 +20,8 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.facade.api import take_alert_ownership
 from products.alerts.backend.facade.contracts import AlertWriteRefused
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.platform_insight_alert import native_insight_alert_view
-from products.alerts.backend.test.insight_alerts import create_insight_alert
+from products.alerts.backend.test.insight_alerts import create_insight_alert, move_to_platform
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
@@ -175,8 +174,7 @@ class TestAlertTakeOwnership(APIBaseTest):
         alert.insight.save()
         alert_id = alert.id
         if storage == "platform":
-            [cutover] = cut_over_team(self.team.id)
-            assert cutover.skipped is None
+            move_to_platform(alert)
             with team_scope(self.team.id):
                 alert_id = platform_testing.copy_of(alert.id).id
                 platform_testing.forget_source_row(alert_id)
