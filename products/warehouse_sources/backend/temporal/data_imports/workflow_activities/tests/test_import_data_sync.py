@@ -72,6 +72,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SourceExtractionNotImplementedError,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -903,6 +904,7 @@ async def test_http_401_is_reraised_for_activity_retry():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("error_class", [RESTClientRetryableError, RetryableHTTPError])
 @pytest.mark.parametrize(
     "retry_after, expected_delay",
     [
@@ -914,14 +916,16 @@ async def test_http_401_is_reraised_for_activity_retry():
     ],
 )
 async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in(
-    retry_after: float | None, expected_delay: timedelta | None
+    error_class: type[RESTClientRetryableError | RetryableHTTPError],
+    retry_after: float | None,
+    expected_delay: timedelta | None,
 ):
     # RESTClientRetryableError only escapes the shared REST engine's tenacity retry loop once its
     # own attempts (rate limits, transient 5xx, connection resets/timeouts) are exhausted. It must
     # be honored by type even when the source's get_retryable_errors doesn't list the message, so
     # every REST-based source gets this benign, self-recovering failure logged as a warning instead
     # of minting error-tracking noise.
-    error = RESTClientRetryableError("HTTP 429 for https://api.example.com/v3/orders/", retry_after=retry_after)
+    error = error_class("HTTP 429 for https://api.example.com/v3/orders/", retry_after=retry_after)
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -939,7 +943,7 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
         assert raised.value is error
     else:
         assert isinstance(raised.value, ApplicationError)
-        assert raised.value.type == "RESTClientRetryableError"
+        assert raised.value.type == error_class.__name__
         assert raised.value.next_retry_delay == expected_delay
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()

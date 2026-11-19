@@ -123,6 +123,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
     history_start_for_schema,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import known_source_key
@@ -1256,14 +1257,15 @@ async def _handle_import_error(
     # Honor it by type so every REST-based source gets this benign, self-recovering failure logged
     # as a warning, rather than depending on each source separately listing "HTTP 429"/"HTTP 5xx"
     # in get_retryable_errors.
-    if isinstance(error, RESTClientRetryableError):
+    # `RetryableHTTPError` is the same contract for a bespoke client on `vendor_retry`.
+    if isinstance(error, RESTClientRetryableError | RetryableHTTPError):
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         if error.retry_after:
             # Defer the next Temporal attempt past the server's window instead of holding a worker in it.
             raise NonReportableApplicationError(
                 error_msg,
-                type=RESTClientRetryableError.__name__,
+                type=type(error).__name__,
                 # Clamp the float first: timedelta raises OverflowError for inf or huge header values.
                 next_retry_delay=dt.timedelta(seconds=min(error.retry_after, MAX_SERVER_RETRY_DELAY.total_seconds())),
             ) from error
