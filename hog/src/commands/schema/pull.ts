@@ -1,5 +1,5 @@
 import { defineCommand } from '@/core/command'
-import { SCHEMA_SDKS, updateConfig, type SchemaLanguage, type SchemaSdk, type TypeScriptSdk } from '@/core/config'
+import { SCHEMA_SDKS, updateConfig, type SchemaLanguage, type SchemaSdk } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { absolutePath, storedPath } from '@/core/paths'
@@ -8,11 +8,11 @@ import { plural } from '@/core/text'
 import {
     chosenFile,
     configRoot,
-    DEFAULT_TYPESCRIPT_SDK,
     effectiveSdk,
     fetchDefinitions,
     isLanguage,
     LANGUAGE_INFO,
+    LANGUAGE_SDKS,
     LANGUAGES,
     moduleInfo,
     sdkLanguage,
@@ -210,28 +210,29 @@ export default defineCommand({
     }),
 })
 
-// The SDK to generate for: the flag, then the saved entry. TypeScript always records one, and asks when it
-// has neither. Go records one only when it was chosen, so an entry without `sdk` stays as it is.
+// The SDK to generate for: the flag, then the saved entry, then the language's own rule for a module that
+// nothing chose an SDK for.
 async function moduleSdk(
     ctx: Context,
     language: Language,
     flag: SchemaSdk | undefined,
     saved: SchemaLanguage | undefined
 ): Promise<SchemaSdk | undefined> {
+    const sdks = LANGUAGE_SDKS[language]
+    if (!sdks) {
+        return undefined
+    }
     if (flag) {
         return flag
     }
-    if (language === 'golang') {
-        return saved?.sdk === undefined ? undefined : effectiveSdk(language, saved.sdk)
+    if (saved?.sdk !== undefined) {
+        return effectiveSdk(language, saved.sdk)
     }
-    if (language !== 'typescript') {
+    if (!sdks.recordsDefault) {
         return undefined
     }
-    if (saved || !ctx.prompts) {
-        return effectiveSdk(language, saved?.sdk) ?? DEFAULT_TYPESCRIPT_SDK
+    if (saved || !ctx.prompts || !sdks.prompt) {
+        return sdks.choices[0]
     }
-    return ctx.prompts.select<TypeScriptSdk>('Which PostHog SDK does this app use?', [
-        { value: 'posthog-js', label: 'posthog-js: hog wraps it so capture() checks your events' },
-        { value: 'none', label: 'Another SDK, such as posthog-react-native: hog writes only the event types' },
-    ])
+    return ctx.prompts.select(sdks.prompt.message, sdks.prompt.options)
 }
