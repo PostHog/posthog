@@ -4093,7 +4093,9 @@ export const workflowLogic = kea<workflowLogicType>([
                 // The list stops at one page, so a step whose template sorts past it would read as "Template not found".
                 loadMissingHogFunctionTemplates: async (templateIds: string[]) => {
                     const fetched = await Promise.all(
-                        templateIds.map((templateId) => api.hogFunctions.getTemplate(templateId).catch(() => null))
+                        templateIds.map((templateId) =>
+                            api.hogFunctions.getTemplate(encodeURIComponent(templateId)).catch(() => null)
+                        )
                     )
                     const added = { ...values.hogFunctionTemplatesById }
                     for (const template of fetched) {
