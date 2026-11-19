@@ -220,7 +220,7 @@ class FakeCdpApi:
     takes_attachments: bool = True
     received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
-    idempotency_keys: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
+    idempotency_keys: dict[tuple[str, str], tuple[str, dict[str, Any]]] = field(default_factory=dict)
 
     @property
     def queued_sends(self) -> list[dict[str, Any]]:
@@ -241,10 +241,12 @@ class FakeCdpApi:
             return _response(422, {"error": "recipient_unreachable"})
         if issues:
             return _response(400, {"error": _json_dumps(issues)})
+        # cdp-api holds a key per project, so two projects can use the same key.
         key = request.get("idempotency_key")
-        fingerprint = _send_fingerprint(url, request) if key is not None else ""
-        if key is not None and key in self.idempotency_keys:
-            stored_fingerprint, reply = self.idempotency_keys[key]
+        claim = (url.split("/api/projects/")[1].split("/")[0], key) if key is not None else None
+        fingerprint = _send_fingerprint(url, request) if claim is not None else ""
+        if claim is not None and claim in self.idempotency_keys:
+            stored_fingerprint, reply = self.idempotency_keys[claim]
             if stored_fingerprint != fingerprint:
                 return _response(422, {"error": "idempotency_key_reused"})
             return _response(202, {"status": "queued", "replayed": True, **reply})
@@ -259,8 +261,8 @@ class FakeCdpApi:
             "scheduled_at": _iso_milliseconds(scheduled_at) if scheduled_at else None,
             **(_sender_kind(request["send"]) if is_code_send else {}),
         }
-        if key is not None:
-            self.idempotency_keys[key] = (fingerprint, reply)
+        if claim is not None:
+            self.idempotency_keys[claim] = (fingerprint, reply)
         return _response(202, reply)
 
     @contextmanager
