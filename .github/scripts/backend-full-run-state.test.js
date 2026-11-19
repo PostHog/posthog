@@ -32,6 +32,12 @@ test('a full run counts as passed only when its gate check succeeded and no queu
             false,
         ],
         [
+            'a passed full run whose suite app an app token reads as null',
+            { commits: [{ checkSuites: { nodes: [{ app: null, checkRuns: { nodes: [passed] } }] } }] },
+            true,
+            false,
+        ],
+        [
             'a passed full run posted by an app other than the gate',
             { commits: [commitFromApp(15368, passed)] },
             false,

@@ -58,9 +58,11 @@ function headsOf(pullRequest) {
     ]
 }
 
+// The query asks GitHub for GATE_APP_ID's suites only. An app token reads each suite's app as
+// null, so a null app counts and only another app's id excludes a suite.
 function gateChecksOf(commit) {
     return (commit?.checkSuites?.nodes ?? [])
-        .filter((suite) => suite?.app?.databaseId === GATE_APP_ID)
+        .filter((suite) => suite?.app === null || suite?.app?.databaseId === GATE_APP_ID)
         .flatMap((suite) => suite.checkRuns?.nodes ?? [])
 }
 
