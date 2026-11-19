@@ -2356,6 +2356,36 @@ class SignalReportPriorityUpdateSerializer(serializers.Serializer):
     )
 
 
+class SignalReportActionabilityUpdateSerializer(serializers.Serializer):
+    # A string like the flat `actionability` field, for the reason `ReportActionabilityDecisionSerializer` gives.
+    actionability = serializers.CharField(
+        required=False,
+        help_text=(
+            "`immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current "
+            "value. Required when the report has no actionability yet."
+        ),
+    )
+    already_addressed = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to "
+            "keep the current value."
+        ),
+    )
+
+    def validate_actionability(self, value: str) -> str:
+        if value not in {choice.value for choice in ActionabilityChoice}:
+            raise serializers.ValidationError(
+                "Use `immediately_actionable`, `requires_human_input`, or `not_actionable`."
+            )
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        if "actionability" not in attrs and "already_addressed" not in attrs:
+            raise serializers.ValidationError("Set `actionability`, `already_addressed`, or both.")
+        return attrs
+
+
 class SignalReportRepositoryUpdateSerializer(serializers.Serializer):
     repository = serializers.CharField(
         min_length=1,
