@@ -7,7 +7,7 @@ import { Button, Input, Tabs, TabsList, TabsTrigger } from '@posthog/quill'
 import { dashboardV2Logic } from '../dashboardV2Logic'
 
 export function DashboardV2Tabs(): JSX.Element | null {
-    const { dashboard, activeTab, canEditLayout, dropTarget } = useValues(dashboardV2Logic)
+    const { dashboard, activeTab, hasPermission, dropTarget } = useValues(dashboardV2Logic)
     const { setActiveTab, applyDashboardEdit } = useActions(dashboardV2Logic)
     const [draft, setDraft] = useState<string | null>(null)
 
@@ -18,7 +18,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
         setDraft(null)
     }
 
-    if (dashboard.tabs.length === 1 && !canEditLayout) {
+    if (dashboard.tabs.length === 1 && !hasPermission('addTab')) {
         return null
     }
     return (
@@ -48,7 +48,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                     ))}
                 </TabsList>
             </Tabs>
-            {canEditLayout && draft !== null && (
+            {hasPermission('renameTab') && draft !== null && (
                 <Input
                     autoFocus
                     className="h-6 w-48 text-sm"
@@ -66,7 +66,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
                     }}
                 />
             )}
-            {canEditLayout && draft === null && (
+            {hasPermission('renameTab') && draft === null && (
                 <>
                     <Button
                         size="icon-xs"

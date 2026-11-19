@@ -9354,7 +9354,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List inbox reports in the current project. A report groups related findings into one issue or trend. Each parameter's description says how it filters. To find the reports about a topic, an error message or an entity name, use inbox-reports-search: the `search` filter here matches the exact text only.\nWithout `view`, the list holds reports from the whole project, not only the user's. When the user says \"my inbox\", \"my top 10\", or \"what should I look at\", pass `view=for_you` with `sort=personal` and `limit=10`. Do not pass `ordering` with it, because `ordering` replaces `sort`. The response's `ranker` is `personal` when the user's stored personal ranking ordered the page, and each row the ranking placed carries `personal_tier` and `personal_reason`. Any other `ranker` means no stored ranking applied and the page is in the recommended order. For later pages, pass the first page's `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`. For the reports that need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to keep their personal order.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.\n`source_products` and `scout_name` come from a separate read with a short time limit. When the response has `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null `scout_name` does not mean the report has none. Say so instead of reporting them as values.\nA report in `monitoring` has shipped its fix, and its follow-up checks are verifying the outcome. `view=monitoring` lists those reports. On each one, `monitoring_started_at` says when the period began and `monitoring_summary` says where it stands, for example whether the latest reading meets its target. Rows outside Monitoring have no `monitoring_summary`. Its interim readings are left out: read them as `check_observation` entries in inbox-report-artefacts-list, and each check's timing and result in inbox-report-checks-list.",
+        "description": "List inbox reports in the current project. A report groups related findings into one issue or trend. Each parameter's description says how it filters. To find the reports about a topic, an error message or an entity name, use inbox-reports-search: the `search` filter here matches the exact text only.\nWithout `view`, the list holds reports from the whole project, not only the user's. When the user says \"my inbox\", \"my top 10\", or \"what should I look at\", pass `view=for_you` with `sort=personal` and `limit=10`. Do not pass `ordering` with it, because `ordering` replaces `sort`. The response's `ranker` is `personal` when the user's stored personal ranking ordered the page, and each row the ranking placed carries `personal_tier` and `personal_reason`. Any other `ranker` means no stored ranking applied and the page is in the recommended order. For later pages, pass the first page's `ranking_id` with `offset`, because the `next` link does not carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`. For the reports that need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to keep their personal order.\nWithout `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with inbox-report-artefacts-list before you act on it.\nEach row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.\n`source_products` and `scout_name` come from a separate read with a short time limit. When the response has `source_metadata_available: false`, that read did not finish, and an empty `source_products` or a null `scout_name` does not mean the report has none. Say so instead of reporting them as values.\nA report in `monitoring` has shipped its fix, and its follow-up checks are verifying the outcome. `view=monitoring` lists those reports. On each one, `monitoring_started_at` says when the period began and `monitoring_summary` says where it stands, for example whether the latest reading meets its target. Rows outside Monitoring have no `monitoring_summary`. Its interim readings are left out: read them as `check_observation` entries in inbox-report-artefacts-list, and each check's timing and result in inbox-report-checks-list. `monitoring_summary.checks` gives every check's state at a glance.\n`view=monitoring_recent` also lists the resolved and closed reports whose Monitoring ended in the last 14 days. Each of those has `monitoring_ended_at` and a `monitoring_outcome` that says how it ended and, for a closed report, the follow-up report researching why. To list only the reports tied to the user, pass `connected=assigned,suggested_reviewer`.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List inbox reports",
@@ -13162,7 +13162,7 @@
         }
     },
     "provider-imports-create": {
-        "description": "Start a background import from another email tool, such as Resend or Postmark, into the active project. Before the first call, tell the user the project's name and id and ask whether the data belongs there. Check for an active run first, then ask the user to create the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers, and leave out steps with `opt_in: true` unless the user asks for them. Returns at once with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it is. Creates people only when the `new_people` step is selected, and each new person counts as one event, so ask the user before including it. Imported drafts never send on their own.",
+        "description": "Start a background import from another email tool, such as Resend, Postmark or SendGrid, into the active project. Before the first call, tell the user the project's name and id and ask whether the data belongs there. Check for an active run first, then ask the user to create the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers, and leave out steps with `opt_in: true` unless the user asks for them. Returns at once with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it is. Creates people only when the `new_people` step is selected, and each new person counts as one event, so ask the user before including it. Imported drafts never send on their own.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "Start an import from another email tool",
@@ -13174,8 +13174,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "provider-imports-get": {
         "description": "Get one import run: each step's status and last error, a breakdown in `counts`, and in `items` each template, workflow or domain it handled with a link and notes on what to review. Show the user the notes and each step's failures. A step that is `running` with a `last_error` is retrying by itself.",
@@ -13190,8 +13189,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "provider-imports-list": {
         "description": "List this project's most recent imports from other email tools, newest first. Use it to find a run that is already active before you start another.",
@@ -13206,8 +13204,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "provider-imports-providers": {
         "description": "List the email tools this project can import from, what each one can bring over (`steps`, with the keys to pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward (`next_steps`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every import needs it again. Load the migrating-from-email-providers skill before you start a move.",
@@ -13222,8 +13219,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-resend-import"
+        }
     },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",

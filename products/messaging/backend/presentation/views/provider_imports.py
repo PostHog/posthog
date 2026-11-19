@@ -145,7 +145,7 @@ class StartProviderImportSerializer(serializers.Serializer):
         required=False,
         write_only=True,
         max_length=512,
-        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time.",
+        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. PostHog deletes a Resend, Postmark or SendGrid key when the run ends, so send it every time.",
     )
 
 
@@ -182,7 +182,7 @@ class ProviderUnavailable(APIException):
 
 class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
-    Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+    Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
 
     A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
     """
