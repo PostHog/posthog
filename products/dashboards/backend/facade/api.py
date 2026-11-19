@@ -18,7 +18,7 @@ subscriptions facade, which loads the exports facade, and the exports facade imp
 """
 
 import re
-from collections.abc import Callable, Collection, Iterator, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -49,6 +49,7 @@ from products.dashboards.backend.facade.contracts import (
     InsightPlacement,
     MembershipChange,
     PlacedInsightTile,
+    QueryBatchInput,
     TeamDashboardRef,
     TilePlacement,
 )
@@ -68,8 +69,10 @@ from products.dashboards.backend.v2 import (
     cached_tiles as v2_cached_tiles,
     first_load as v2_first_load,
     flag as v2_flag,
+    query_batch as v2_query_batch,
 )
 from products.dashboards.backend.v2.cached_tiles import CachedTileStatus
+from products.dashboards.backend.v2.query_batch import MAX_QUERIES_PER_BATCH
 
 if TYPE_CHECKING:
     from posthog.api.services.query import PlannedQuery
@@ -1028,6 +1031,7 @@ __all__ = [
     "DashboardRef",
     "DashboardSummary",
     "InsightTilePlacement",
+    "MAX_QUERIES_PER_BATCH",
     "MembershipChange",
     "PlacedInsightTile",
     "active_tile_count",
@@ -1129,3 +1133,21 @@ def read_cached_tiles(
         serialize_tile=serialize_tile,
         context=context,
     )
+
+
+def query_batch_stream(
+    *,
+    team: "Team",
+    user: User,
+    inputs: Sequence[QueryBatchInput],
+    dashboard_id: int | None,
+    client_query_id: str,
+    asynchronous: bool,
+) -> Iterator[bytes] | AsyncIterator[bytes]:
+    """The `dashboard-v2` query batch as NDJSON: plans every query for `user` and reads the cache before it returns,
+    then streams one line per query. Pass a `dashboard_id` the user may view to run its queries as that dashboard's
+    tiles, under the dashboard query limits."""
+    batch = v2_query_batch.QueryBatch(
+        team=team, user=user, inputs=inputs, dashboard_id=dashboard_id, client_query_id=client_query_id
+    )
+    return batch.astream() if asynchronous else batch.stream()

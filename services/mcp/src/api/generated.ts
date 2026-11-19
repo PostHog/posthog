@@ -105535,6 +105535,89 @@ export namespace Schemas {
       branch: string;
     }
 
+    /**
+     * * `insight` - Insight
+     * * `hogql` - HogQL
+     */
+    export type QueryBatchLanguageEnum = typeof QueryBatchLanguageEnum[keyof typeof QueryBatchLanguageEnum];
+
+
+    export const QueryBatchLanguageEnum = {
+      Insight: 'insight',
+      Hogql: 'hogql',
+    } as const;
+
+    /**
+     * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+     * @nullable
+     */
+    export type QueryBatchQueryVariables = { [key: string]: unknown } | null;
+
+    export interface QueryBatchTarget {
+      /**
+         * The panel's ID for this query. Not used for caching.
+         * @maxLength 200
+         */
+      refId: string;
+      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+       *
+       * * `insight` - Insight
+       * * `hogql` - HogQL */
+      language: QueryBatchLanguageEnum;
+      /**
+         * The query text, read according to `language`.
+         * @maxLength 200000
+         */
+      query: string;
+    }
+
+    export interface QueryBatchTime {
+      /**
+         * End of the range: `now`, `now-1h`, or ISO 8601.
+         * @maxLength 100
+         */
+      to: string;
+      /**
+         * Start of the range: `now-7d`, `now-30m`, or ISO 8601.
+         * @maxLength 100
+         */
+      from: string;
+    }
+
+    export interface QueryBatchQuery {
+      /** What to run. */
+      target: QueryBatchTarget;
+      /** The panel's time range. Relative expressions keep the cache key the same across reloads. */
+      time: QueryBatchTime;
+      /**
+         * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+         * @nullable
+         */
+      variables?: QueryBatchQueryVariables;
+      /**
+         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+         * @maxLength 20
+         */
+      interval?: string;
+      /** Serve a stale cached result at once and recompute it in the background for the next read. */
+      swr?: boolean;
+      /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
+      cacheOnly?: boolean;
+    }
+
+    export interface QueryBatchRequest {
+      /**
+         * The panels' queries, at most 500.
+         * @maxItems 500
+         */
+      queries: QueryBatchQuery[];
+      /**
+         * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
+         * @nullable
+         */
+      dashboard?: number | null;
+    }
+
     export type QueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
 
     export interface SavedInsightNode {
