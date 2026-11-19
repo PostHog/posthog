@@ -406,7 +406,7 @@ Clients that honor `destructiveHint`, such as Claude, ask about every `exec-writ
 - `exec-read` refuses a `call` to a tool whose definition lacks `readOnlyHint: true`, and to every tool from a connected MCP server, because PostHog can't check that server's claim. The refusal names `exec-write`.
 - `exec-read` refuses writes on every request and every connection, so a client that cached it as read-only never has it run a write, whatever later requests send.
 - `exec-write` answers only on a request that asks for the split. A connection that sends `consumer`, such as the AI plugin, PostHog Code or a Tasks sandbox, never gets it, because those wrappers gate writes on the `exec` name.
-- `exec` keeps working on every connection.
+- `exec` keeps working on every connection that doesn't ask for the split. A split connection answers it as not found, so allow rules written for `exec` don't carry over.
 
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.

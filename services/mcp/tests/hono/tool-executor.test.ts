@@ -191,23 +191,25 @@ describe('ToolExecutor', () => {
                 )
             })
 
-            it('refuses survey summarization through exec-read', async () => {
+            it.each([
+                ['surveys-summarize-responses-create', '{"id":"1"}'],
+                ['agent-feedback', '{"summary":"s","feedback_type":"other","sentiment":"neutral","details":"d"}'],
+            ])('refuses %s through exec-read', async (toolName, input) => {
                 const request = vi.fn()
-                const tools = catalog
-                    .getFilteredTools({ scopes: ['*'] })
-                    .filter((tool) => tool.name === 'surveys-summarize-responses-create')
+                const trackEvent = vi.fn()
+                const tools = catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === toolName)
                 const state = makeToolExecutorState(tools, {
                     useSingleExec: true,
-                    context: { ...makeToolExecutorState([]).context, api: mockApi({ request }) } as any,
+                    context: { ...makeToolExecutorState([]).context, api: mockApi({ request }), trackEvent } as any,
                 })
 
                 const result = (await executor.handleToolCall(
-                    { name: 'exec-read', arguments: { command: 'call surveys-summarize-responses-create {"id":"1"}' } },
+                    { name: 'exec-read', arguments: { command: `call ${toolName} ${input}` } },
                     state
                 )) as any
 
                 expect(result.content[0].text).toContain('exec-write')
-                expect(request).not.toHaveBeenCalled()
+                expect([request.mock.calls.length, trackEvent.mock.calls.length]).toEqual([0, 0])
             })
 
             it.each([
@@ -1216,6 +1218,13 @@ describe('ToolExecutor', () => {
                 missingScopes: ['endpoint:write'],
                 requiredScopes: ['endpoint:write', 'query:read'],
             },
+            {
+                name: 'dashboard-get',
+                title: 'Get dashboard',
+                description: 'Get a dashboard',
+                missingScopes: ['dashboard:read'],
+                requiredScopes: ['dashboard:read'],
+            },
         ]
         const gated = {
             scopeGatedTools,
@@ -1251,6 +1260,17 @@ describe('ToolExecutor', () => {
             )) as any
 
             expect(result.content[0].text).toBe(`Tool ${name} not found`)
+        })
+
+        it('asks for the scope of a read-only tool on exec-read', async () => {
+            const result = executor.handleToolCall(
+                { name: 'exec-read', arguments: { command: 'call dashboard-get {"id":1}' } },
+                makeToolExecutorState([], { useSingleExec: true, ...gated, supportsStepUp: true })
+            )
+
+            await expect(result).rejects.toMatchObject({
+                challenge: 'Bearer error="insufficient_scope", scope="dashboard:read"',
+            })
         })
 
         it('sends the write to exec-write instead of asking for its scope on exec-read', async () => {

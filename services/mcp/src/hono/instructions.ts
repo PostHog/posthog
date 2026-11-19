@@ -3,7 +3,7 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import type { QueryToolInfo } from '@/lib/instructions'
+import { nameExecRead, type QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import { formatPrompt } from '@/lib/utils'
@@ -33,13 +33,6 @@ import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
-
-/** The shared templates name `exec`, which a split connection replaces with `exec-read`. */
-export function nameExecRead(text: string): string {
-    return text
-        .replaceAll('posthog:exec(', `posthog:${EXEC_READ_TOOL_NAME}(`)
-        .replaceAll('`exec`', `\`${EXEC_READ_TOOL_NAME}\``)
-}
 
 export type ExecToolState = Pick<
     ResolvedState,
@@ -101,8 +94,7 @@ export class InstructionsBuilder {
 
         const ctx = this.buildContext(state)
         if (state.useSingleExec) {
-            const instructions = this.formatter.buildExecInstructions(ctx)
-            return state.splitWrites ? nameExecRead(instructions) : instructions
+            return this.formatter.buildExecInstructions({ ...ctx, splitWrites: state.splitWrites })
         }
         return this.formatter.buildToolsInstructions({ ...ctx, learnToolEnabled: this.isLearnToolEnabled(state) })
     }

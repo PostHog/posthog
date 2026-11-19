@@ -40,7 +40,7 @@
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": false,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "tasks-artifacts-list": {
