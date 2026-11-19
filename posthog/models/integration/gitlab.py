@@ -32,8 +32,16 @@ class GitLabOverwriteNotAllowed(Exception):
     """The team already has this project connected, and the caller may not replace it."""
 
 
-def _project_identity(config: Mapping[str, Any]) -> tuple[str, str]:
-    return str(config.get("hostname") or "").strip().rstrip("/").lower(), str(config.get("project_id"))
+def _normalized_base_url(url: object) -> str:
+    # GitLab can run under a path prefix, and paths are case-sensitive, so only the scheme and host fold case.
+    parsed = urlparse(str(url or "").strip())
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path.rstrip('/')}"
+
+
+def _same_project(stored: Mapping[str, Any], new: Mapping[str, Any]) -> bool:
+    return _normalized_base_url(stored.get("hostname")) == _normalized_base_url(new.get("hostname")) and str(
+        stored.get("project_id")
+    ) == str(new.get("project_id"))
 
 
 # Caps one listing at 1,000 projects so that a token with access to a whole instance stays cheap.
@@ -253,7 +261,7 @@ class GitLabIntegration:
         # The key is the display name, which two GitLab hosts can share. A reconnect must name the
         # same project, because destinations that use this integration send their requests to it.
         existing = accessor.find(team_id, external_id=name)
-        if existing is not None and _project_identity(existing.config) != _project_identity(config):
+        if existing is not None and not _same_project(existing.config, config):
             raise GitLabIntegrationError(
                 f'Another GitLab project named "{name}" is already connected. '
                 "Disconnect it before you connect this project."

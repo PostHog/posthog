@@ -1095,7 +1095,7 @@ class TestGitLabIntegration:
         existing = self._connected_project(errors=ERROR_TOKEN_REFRESH_FAILED, created_by=first_connector)
         client.force_login(self.user)
 
-        response = self._connect(client, "https://gitlab.example.com/", "1", "new-token")
+        response = self._connect(client, "https://GitLab.example.com/", "1", "new-token")
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["id"] == existing.id
@@ -1126,19 +1126,25 @@ class TestGitLabIntegration:
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @pytest.mark.parametrize(
-        "hostname,project_id",
-        [("https://gitlab.other.example.com", "1"), ("https://gitlab.example.com", "2")],
-        ids=["other_host", "other_project_id"],
+        "stored_hostname,hostname,project_id",
+        [
+            ("https://gitlab.example.com", "https://gitlab.other.example.com", "1"),
+            ("https://gitlab.example.com/engineering", "https://gitlab.example.com/Engineering", "1"),
+            ("https://gitlab.example.com", "https://gitlab.example.com", "2"),
+        ],
+        ids=["other_host", "other_path_case", "other_project_id"],
     )
     @patch("requests.request")
     @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
     def test_connecting_another_project_with_the_same_name_keeps_the_existing_connection(
-        self, _mock_is_url_allowed, mock_request, hostname, project_id, client: HttpClient
+        self, _mock_is_url_allowed, mock_request, stored_hostname, hostname, project_id, client: HttpClient
     ):
         mock_request.side_effect = self._gitlab_api(
             {"id": int(project_id), "name_with_namespace": "Acme / App", "path_with_namespace": "acme/app"}
         )
-        existing = self._connected_project()
+        existing = self._connected_project(
+            config={"hostname": stored_hostname, "path_with_namespace": "acme/app", "project_id": 1}
+        )
         client.force_login(self.user)
 
         response = self._connect(client, hostname, project_id, "new-token")
@@ -1146,7 +1152,7 @@ class TestGitLabIntegration:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already connected" in response.json()["detail"]
         existing.refresh_from_db()
-        assert existing.config["hostname"] == "https://gitlab.example.com"
+        assert existing.config["hostname"] == stored_hostname
         assert existing.config["project_id"] == 1
         assert existing.sensitive_config["access_token"] == "old-token"
 
