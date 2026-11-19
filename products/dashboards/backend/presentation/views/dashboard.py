@@ -4455,20 +4455,33 @@ class DashboardsViewSet(
     def _read_cached_tiles(
         self, request: Request, dashboard: Dashboard, tile_ids: builtins.list[int]
     ) -> builtins.list[dict[str, Any]]:
+        tiles_by_id = {
+            tile.id: (tile, insight)
+            for tile in DashboardTile.dashboard_queryset(dashboard.tiles.filter(id__in=tile_ids))
+            if (insight := tile.insight) is not None and insight.query is not None
+        }
+        restricted_levels = self._restricted_insight_levels(list(tiles_by_id.values()))
+
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = dashboard_access_method(request)
         context["compute_surface"] = ComputeSurface.DASHBOARD_CACHED_TILES
+        # Built once: a serializer per tile deep-copies every declared insight field each time.
+        insight_serializer = CachedTileInsightResultSerializer(context=context)
+
+        def tile_insight(tile_id: int) -> Insight:
+            tile, insight = tiles_by_id[tile_id]
+            context["dashboard_tile"] = tile
+            return insight
+
         return read_cached_tiles(
             team=self.team,
             distinct_id=str(cast(User, request.user).distinct_id),
-            dashboard=dashboard,
             tile_ids=tile_ids,
-            restricted_insight_levels=lambda tiles: self._restricted_insight_levels(
-                [(tile, insight) for tile in tiles if (insight := tile.insight) is not None]
-            ),
-            # Built once: a serializer per tile deep-copies every declared insight field each time.
-            insight_serializer=CachedTileInsightResultSerializer(context=context),
+            found_tile_ids=tiles_by_id.keys(),
+            forbidden_tile_ids=restricted_levels.keys(),
+            plan_tile=lambda tile_id: insight_serializer.plan_tile_query(tile_insight(tile_id)),
+            serialize_tile=lambda tile_id: insight_serializer.to_representation(tile_insight(tile_id)),
             context=context,
         )
 

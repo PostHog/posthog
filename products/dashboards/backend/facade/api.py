@@ -69,9 +69,10 @@ from products.dashboards.backend.v2 import (
     first_load as v2_first_load,
     flag as v2_flag,
 )
-from products.dashboards.backend.v2.cached_tiles import CachedTileStatus, TileInsightSerializer
+from products.dashboards.backend.v2.cached_tiles import CachedTileStatus
 
 if TYPE_CHECKING:
+    from posthog.api.services.query import PlannedQuery
     from posthog.models.team import Team
 
     from products.product_analytics.backend.facade.models import Insight
@@ -1109,19 +1110,22 @@ def read_cached_tiles(
     *,
     team: "Team",
     distinct_id: str,
-    dashboard: Dashboard,
-    tile_ids: list[int],
-    restricted_insight_levels: Callable[[list[DashboardTile]], dict[int, str]],
-    insight_serializer: TileInsightSerializer,
+    tile_ids: Sequence[int],
+    found_tile_ids: Collection[int],
+    forbidden_tile_ids: Collection[int],
+    plan_tile: Callable[[int], "PlannedQuery | None"],
+    serialize_tile: Callable[[int], dict[str, Any]],
     context: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """The `dashboard-v2` batched cached-tiles read. The caller passes in its access check and serializer."""
+    """The `dashboard-v2` batched cached-tiles read. The caller looks the tiles up, checks access, and passes in
+    how to plan and serialize one tile by ID."""
     return v2_cached_tiles.read_cached_tiles(
         team=team,
         distinct_id=distinct_id,
-        dashboard=dashboard,
         tile_ids=tile_ids,
-        restricted_insight_levels=restricted_insight_levels,
-        insight_serializer=insight_serializer,
+        found_tile_ids=found_tile_ids,
+        forbidden_tile_ids=forbidden_tile_ids,
+        plan_tile=plan_tile,
+        serialize_tile=serialize_tile,
         context=context,
     )
