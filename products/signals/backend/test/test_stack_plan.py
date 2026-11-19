@@ -12,6 +12,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     PullRequestLink,
+    ReviewerCorrections,
     ReviewerProposal,
     ReviewerState,
     SafetyJudgment,
@@ -33,6 +34,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_plan import report_plan
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.stack_plan import (
     create_layer_reports,
     dependency_head_branch,
@@ -259,6 +261,40 @@ class TestStackPlan(BaseTest):
                 outcome = async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=child_id)
                 assert outcome.status == "blocked"
                 assert outcome.reason == "Reports filed by a person do not auto-start"
+
+    @parameterized.expand([("writer_off", False, False), ("writer_on", True, False), ("needs_review", True, True)])
+    def test_layers_preserve_reviewer_restrictions(self, _name: str, writer_enabled: bool, needs_review: bool) -> None:
+        reviewer = SuggestedReviewerEntry(user_uuid=str(self.user.uuid))
+        corrections = ReviewerCorrections(pinned=(reviewer,), needs_review=needs_review)
+        with (
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
+            patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=True),
+        ):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(self.parent.id),
+                content=SuggestedReviewers(root=[reviewer]),
+                attribution=ArtefactAttribution.system(),
+                implementation_authorization=ImplementationAuthorization(mode="reviewer"),
+                reevaluate_autostart=False,
+                reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="research"),
+            )
+            SignalReportArtefact._create(
+                team_id=self.team.id,
+                report_id=str(self.parent.id),
+                content=corrections,
+                attribution=ArtefactAttribution.from_user(self.user.id),
+            )
+
+            child_ids = self._create_layers()
+
+            for child_id in child_ids:
+                assignment = ReviewerRules.read_for_report(team_id=self.team.id, report_id=child_id)
+                assert assignment.corrections == corrections
+                assert assignment.reviewers == (reviewer,)
+                outcome = async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=child_id)
+                assert outcome.status == "blocked"
+                assert outcome.reason == "No automatic reviewer remains after human corrections"
 
     @parameterized.expand(
         [

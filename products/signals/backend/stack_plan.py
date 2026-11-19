@@ -39,6 +39,7 @@ from products.signals.backend.implementation_authorization import Implementation
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_generation.research import ReportLayer
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.typed_report_links import has_open_or_merged_pull_request, incoming_links, outgoing_links
 
@@ -113,7 +114,9 @@ def create_layer_reports(
     if has_open_or_merged_pull_request(team_id=team_id, report_ids=[str(parent.id)]):
         logger.info("signals.stack_plan.layers_skipped_for_own_pull_request", report_id=str(parent.id), team_id=team_id)
         return []
+    SignalReport.objects.select_for_update().get(team_id=team_id, id=parent.id)
     judgments = _inherited_judgments(parent)
+    assignment = ReviewerRules.read_for_report(team_id=team_id, report_id=str(parent.id))
     # A layer does the plan's work, so it keeps the plan's exemption. The scout policy matches only
     # the report the scout emitted, and a layer's id is never in that list.
     billing_exempt_reason = parent.billing_exempt_reason or system_billing_exempt_reason(team_id, parent.id)
@@ -148,6 +151,14 @@ def create_layer_reports(
                 reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="stack_plan")
                 if isinstance(judgment, SuggestedReviewers)
                 else None,
+            )
+        if assignment.state.corrections_id is not None or assignment.corrections.needs_review:
+            # Keep routing pins from becoming execution authority when the reviewer version moves to a layer.
+            SignalReportArtefact._create(
+                team_id=team_id,
+                report_id=child_id,
+                content=assignment.corrections,
+                attribution=attribution,
             )
         SignalReportArtefact.add_log(
             team_id=team_id,
