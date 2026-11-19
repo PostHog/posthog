@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { buildCliCatalog } from '@/cli/catalog/build'
+import { catalogTool } from '@/cli/catalog/executor'
 import { GENERATED_TOOLS } from '@/tools/generated/workflows'
-import type { Context } from '@/tools/types'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
     return {
@@ -88,58 +90,84 @@ describe('workflow write response shape', () => {
 
     const testSenderLive = [{ code: 'test_sender_live', message: 'Set up your sending domain.' }]
 
-    it.each([
-        ['a draft workflow on the test sender', undefined, testSenderLive, true, '/project/42/workflows/wf-1/workflow'],
-        ['a broadcast on the test sender', 'broadcasts', testSenderLive, true, '/project/42/broadcasts/wf-1'],
-        ['a workflow on its own sender', undefined, [], false, '/project/42/workflows/wf-1/workflow'],
-        ['a workflow with malformed warnings', undefined, [null], false, '/project/42/workflows/wf-1/workflow'],
-        [
-            'a workflow whose warning has no message',
-            undefined,
-            [{ code: 'test_sender_live', message: ' ' }],
-            false,
-            '/project/42/workflows/wf-1/workflow',
-        ],
-    ])('relays the test sender warning only when it enables %s', async (_name, origin, warnings, relays, path) => {
-        const request = vi.fn().mockResolvedValue({ ...workflow(), origin_product: origin, warnings })
+    // `hog api call` runs a downloaded catalog entry through its own executor, so the note must survive both routes.
+    const cliCatalog = buildCliCatalog(null)
+    const routes = ['the MCP tool', 'the CLI catalog'] as const
+    const toolFor = (name: string, route: string): ToolBase<ZodObjectAny> =>
+        route === 'the MCP tool'
+            ? (GENERATED_TOOLS[name]!() as unknown as ToolBase<ZodObjectAny>)
+            : catalogTool(cliCatalog.tools.find((entry) => entry.name === name)!)
+    const throughEachRoute = (rows: any[][]): any[][] =>
+        rows.flatMap(([name, ...rest]) => routes.map((route) => [name, route, ...rest]))
 
-        const result: any = await GENERATED_TOOLS['workflows-enable']!().handler(createMockContext(request), {
-            id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
-        } as any)
+    it.each(
+        throughEachRoute([
+            [
+                'a draft workflow on the test sender',
+                undefined,
+                testSenderLive,
+                true,
+                '/project/42/workflows/wf-1/workflow',
+            ],
+            ['a broadcast on the test sender', 'broadcasts', testSenderLive, true, '/project/42/broadcasts/wf-1'],
+            ['a workflow on its own sender', undefined, [], false, '/project/42/workflows/wf-1/workflow'],
+            ['a workflow with malformed warnings', undefined, [null], false, '/project/42/workflows/wf-1/workflow'],
+            [
+                'a workflow whose warning has no message',
+                undefined,
+                [{ code: 'test_sender_live', message: ' ' }],
+                false,
+                '/project/42/workflows/wf-1/workflow',
+            ],
+        ])
+    )(
+        'relays the test sender warning only when it enables %s, through %s',
+        async (_name, route, origin, warnings, relays, path) => {
+            const request = vi.fn().mockResolvedValue({ ...workflow(), origin_product: origin, warnings })
 
-        expect(request.mock.calls[0]?.[0]).toMatchObject({
-            method: 'PATCH',
-            path: '/api/projects/42/hog_flows/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/',
-            body: { status: 'active' },
-        })
-        expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
-        expect(result.warnings).toEqual(warnings)
-        expect(result._posthogUrl).toBe(`https://us.posthog.com${path}`)
-    })
+            const result: any = await toolFor('workflows-enable', route).handler(createMockContext(request), {
+                id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+            } as any)
 
-    it.each([
-        [
-            'a publish onto the test sender',
-            { confirm: true, confirm_token: 'preview-token' },
-            { published: true, workflow: { ...workflow(), warnings: testSenderLive } },
-            true,
-        ],
-        [
-            'a publish on its own sender',
-            { confirm: true, confirm_token: 'preview-token' },
-            { published: true, workflow: { ...workflow(), warnings: [] } },
-            false,
-        ],
-        ['a preview', {}, { published: false, confirm_token: 'preview-token', impact: null }, false],
-    ])('relays the test sender warning only for %s', async (_name, confirmation, response, relays) => {
-        const request = vi.fn().mockResolvedValue(response)
+            expect(request.mock.calls[0]?.[0]).toMatchObject({
+                method: 'PATCH',
+                path: '/api/projects/42/hog_flows/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/',
+                body: { status: 'active' },
+            })
+            expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
+            expect(result.warnings).toEqual(warnings)
+            expect(result._posthogUrl).toBe(`https://us.posthog.com${path}`)
+        }
+    )
 
-        const result: any = await GENERATED_TOOLS['workflows-publish']!().handler(createMockContext(request), {
-            id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
-            ...confirmation,
-        } as any)
+    it.each(
+        throughEachRoute([
+            [
+                'a publish onto the test sender',
+                { confirm: true, confirm_token: 'preview-token' },
+                { published: true, workflow: { ...workflow(), warnings: testSenderLive } },
+                true,
+            ],
+            [
+                'a publish on its own sender',
+                { confirm: true, confirm_token: 'preview-token' },
+                { published: true, workflow: { ...workflow(), warnings: [] } },
+                false,
+            ],
+            ['a preview', {}, { published: false, confirm_token: 'preview-token', impact: null }, false],
+        ])
+    )(
+        'relays the test sender warning only for %s, through %s',
+        async (_name, route, confirmation, response, relays) => {
+            const request = vi.fn().mockResolvedValue(response)
 
-        expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
-        expect(result.workflow?.warnings).toEqual((response as any).workflow?.warnings)
-    })
+            const result: any = await toolFor('workflows-publish', route).handler(createMockContext(request), {
+                id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+                ...confirmation,
+            } as any)
+
+            expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
+            expect(result.workflow?.warnings).toEqual((response as any).workflow?.warnings)
+        }
+    )
 })
