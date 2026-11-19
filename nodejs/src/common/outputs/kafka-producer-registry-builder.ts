@@ -76,6 +76,7 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
      */
     async build(config: Record<CK, string>): Promise<KafkaProducerRegistry<P>> {
         const producers: Record<string, KafkaProducer> = {}
+        const lazies: LazyKafkaProducer[] = []
         for (const name of this.blackholes) {
             producers[name] = new BlackholeKafkaProducer(name)
         }
@@ -97,6 +98,7 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
                 const connect = () => KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, resolvedConfig, name)
                 if (this.lazy.has(name)) {
                     const lazy = new LazyKafkaProducer(connect)
+                    lazies.push(lazy)
                     // A healthy cluster is connected before the pod takes traffic; a down one delays boot by this much.
                     await lazy.waitConnected(LAZY_CONNECT_WAIT_MS)
                     producers[name] = lazy
@@ -104,7 +106,11 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
                     producers[name] = await connect()
                 }
             })
-        )
+        ).catch(async (error) => {
+            // A failed build returns no registry to disconnect them, so their background retries would run on.
+            await Promise.all(lazies.map((lazy) => lazy.disconnect()))
+            throw error
+        })
 
         // TypeScript cannot verify that an imperatively-built Record has all keys of a
         // generic union P. The builder guarantees this: every `register()` and

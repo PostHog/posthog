@@ -170,10 +170,60 @@ describe('KafkaProducerRegistryBuilder', () => {
                 .build({ BROKER_LIST: 'msk:9094', LINGER_MS: '5' })
             const msk = registry.getProducer('MSK')
 
-            await expect(msk.produce(message)).rejects.toThrow('not connected yet')
+            const refused = { topic: 't', value: Buffer.from('refused'), key: null }
+
+            await expect(msk.produce(refused)).rejects.toThrow('not connected yet')
             await jest.advanceTimersByTimeAsync(10_000)
             await msk.produce(message)
-            expect(produce).toHaveBeenCalledWith(message)
+            expect(produce.mock.calls).toEqual([[message]])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('registerLazy stops waiting on a connect that never settles after 5s, and fails its produces', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.mocked(KafkaProducerWrapper.createWithConfig).mockReturnValue(new Promise(() => {}))
+            let built = false
+
+            const building = new KafkaProducerRegistryBuilder(undefined)
+                .registerLazy('MSK', configMap)
+                .build({ BROKER_LIST: 'msk:9094', LINGER_MS: '5' })
+                .then((registry) => {
+                    built = true
+                    return registry
+                })
+            await jest.advanceTimersByTimeAsync(4_999)
+            expect(built).toBe(false)
+            await jest.advanceTimersByTimeAsync(1)
+
+            const message = { topic: 't', value: Buffer.from('v'), key: null }
+            await expect((await building).getProducer('MSK').produce(message)).rejects.toThrow('not connected yet')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('stops a lazy producer from retrying when another producer fails the build', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.mocked(KafkaProducerWrapper.createWithConfig).mockImplementation((_rack, config) =>
+                Promise.reject(
+                    new Error(config['metadata.broker.list'] === 'bad-host:9092' ? 'eager down' : 'lazy down')
+                )
+            )
+
+            await expect(
+                new KafkaProducerRegistryBuilder(undefined)
+                    .register('DEFAULT', configMap)
+                    .registerLazy('MSK', { 'metadata.broker.list': 'MSK_BROKER_LIST' } as const)
+                    .build({ BROKER_LIST: 'bad-host:9092', LINGER_MS: '20', MSK_BROKER_LIST: 'msk:9094' })
+            ).rejects.toThrow('eager down')
+            const attempts = jest.mocked(KafkaProducerWrapper.createWithConfig).mock.calls.length
+            await jest.advanceTimersByTimeAsync(30_000)
+
+            expect(jest.mocked(KafkaProducerWrapper.createWithConfig).mock.calls.length).toBe(attempts)
         } finally {
             jest.useRealTimers()
         }
