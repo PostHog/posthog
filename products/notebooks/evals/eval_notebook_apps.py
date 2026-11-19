@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from products.notebooks.evals.scorers import CellRunsCompleted, NotebookCreated, NotebookRunCompleted
+from products.notebooks.evals.scorers import CellRunsCompleted, NotebookAppReady, NotebookCreated, NotebookRunCompleted
 from products.notebooks.evals.seeders import seed_case_team
 from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
@@ -29,6 +29,7 @@ async def eval_notebook_apps(ctx: EvalContext) -> None:
                     "notebook_created": {},
                     "cell_runs_completed": {"node_types": ["hogql", "python"]},
                     "notebook_run_completed": {"variables": {"weeks": 8, "target": 1000}},
+                    "notebook_app_ready": {"inputs": ["weeks", "target"]},
                 },
                 setup=seed_case_team,
             )
@@ -37,6 +38,7 @@ async def eval_notebook_apps(ctx: EvalContext) -> None:
             NotebookCreated(),
             CellRunsCompleted(),
             NotebookRunCompleted(),
+            NotebookAppReady(),
             RequiredToolCall({"notebooks-app-update"}, name="app_saved"),
             RequiredToolCall({"notebooks-widget-generate"}, name="widget_generation_requested"),
             RequiredToolCall({"notebooks-widget-status"}, name="widget_status_checked"),
