@@ -35,6 +35,7 @@ from products.ai_observability.backend.logic.traces.trace_selection_queries impo
     SelectionCounts,
     load_selection_page,
 )
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 T0 = datetime(2026, 9, 1, 10, 0, 0, 123456, tzinfo=UTC)
@@ -382,6 +383,33 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
         )
 
         assert [position.trace_id for position in page.positions] == ["after-identify", "before-identify"]
+
+    @parameterized.expand([("in the selection", False), ("in the test account filters", True)])
+    def test_a_hogql_filter_can_read_a_saved_view(self, _name: str, as_test_account_filter: bool) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="chosen_traces",
+            query={"kind": "HogQLQuery", "query": "SELECT 'chosen' AS trace_id"},
+            columns={"trace_id": "String"},
+        )
+        seed(
+            self.team,
+            [
+                {"event": "$ai_generation", "trace_id": "chosen", "minutes": 0},
+                {"event": "$ai_generation", "trace_id": "other", "minutes": 1},
+            ],
+        )
+        hogql_filter = {"type": "hogql", "key": "properties.$ai_trace_id IN (SELECT trace_id FROM chosen_traces)"}
+        if as_test_account_filter:
+            self.team.test_account_filters = [hogql_filter]
+            self.team.save()
+        selection = self._selection(
+            properties=[] if as_test_account_filter else [hogql_filter], filter_test_accounts=as_test_account_filter
+        )
+
+        page = load_selection_page(self.team, self.user, selection, after=None, limit=10)
+
+        assert [position.trace_id for position in page.positions] == ["chosen"]
 
     def test_the_read_is_tagged(self) -> None:
         comments: list[dict[str, Any]] = []

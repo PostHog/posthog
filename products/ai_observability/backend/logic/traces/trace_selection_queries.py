@@ -6,6 +6,7 @@ from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
@@ -17,9 +18,11 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_column_rewriter import EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES
 from posthog.hogql_queries.ai.utils import filled_property_filters
 from posthog.models import Team, User
+from posthog.models.group_type_mapping import get_group_types_for_project
 
 from .trace_queries import FEEDBACK_EVENT_NAMES, TRACE_EVENT_NAMES
 from .trace_selection import (
+    QUERY_SCOPED_FILTERS,
     InvalidTraceSelectionError,
     QuickFilter,
     TracePosition,
@@ -33,6 +36,7 @@ SEARCH_CANDIDATE_TRACE_LIMIT = 100_000
 AI_TRACE_EVENTS = (*TRACE_EVENT_NAMES, *FEEDBACK_EVENT_NAMES)
 _SELECTION_QUERY_SECONDS = 30
 _QUICK_FILTER_FACTS: dict[QuickFilter, str] = {"errors": "has_error", "feedback": "has_feedback"}
+_QUERY_SCOPED_FILTER_TYPES = frozenset(cls.model_fields["type"].default for cls in QUERY_SCOPED_FILTERS)
 
 
 @frozen
@@ -223,6 +227,14 @@ def _selection_query(
     )
 
 
+def _database(team: Team, selection: TraceSelection) -> Database | None:
+    test_account_filters = (team.test_account_filters or []) if filters_test_accounts(team, selection) else []
+    filter_types = [prop.type for prop in selection.properties] + [prop.get("type") for prop in test_account_filters]
+    if _QUERY_SCOPED_FILTER_TYPES.intersection(filter_types):
+        return None
+    return Database.create_for_posthog_tables(team, group_types=get_group_types_for_project(team.project_id))
+
+
 def load_selection_page(
     team: Team, user: User | None, selection: TraceSelection, *, after: TracePosition | None, limit: int
 ) -> SelectionPage:
@@ -235,7 +247,10 @@ def load_selection_page(
             query_type=SELECTION_QUERY_NAME,
             workload=Workload.ONLINE,
             context=HogQLContext(
-                team_id=team.pk, user=user, property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES
+                team_id=team.pk,
+                user=user,
+                database=_database(team, selection),
+                property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
             ),
             settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS, timeout_overflow_mode="throw"),
         )

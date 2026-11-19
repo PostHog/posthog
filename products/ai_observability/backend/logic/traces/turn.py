@@ -145,9 +145,7 @@ def _message_of(side: contracts.TraceSideContent | None) -> str | None:
     if not isinstance(side, contracts.TraceMessagesSide):
         return None
     tail = side.messages[-TURN_INPUT_TAIL:]
-    chosen = _last_with_text([m for m in tail if m.role == "user"]) or _last_with_content(
-        [m for m in tail if m.role != "system"]
-    )
+    chosen = _last_with_text([m for m in tail if m.role == "user"])
     return _content_of(chosen) if chosen else None
 
 

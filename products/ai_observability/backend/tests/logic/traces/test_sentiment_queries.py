@@ -1,14 +1,21 @@
+import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin, patch_clickhouse_client_execute
 
 from posthog.models import Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
-from products.ai_observability.backend.logic.traces.events_fallback import FALLBACK_AFTER_HINT, page_window
+from products.ai_observability.backend.logic.traces.events_fallback import (
+    AI_EVENTS_RETENTION_DAYS,
+    FALLBACK_AFTER_HINT,
+    page_window,
+)
 from products.ai_observability.backend.logic.traces.sentiment_queries import (
     MAX_GENERATION_SENTIMENT_EVALUATIONS_PER_TRACE,
+    SENTIMENT_QUERY_NAME,
     TraceSentimentRow,
     load_sentiments,
 )
@@ -80,12 +87,44 @@ class TestSentimentQueries(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        sentiments = load_sentiments(self.team, self.user, ["busy", "quiet"], WINDOW, WITHIN_RETENTION)
+        returned_rows: list[int] = []
+
+        def record_rows(execute: Any, query: str, *args: Any, **kwargs: Any) -> Any:
+            result = execute(query, *args, **kwargs)
+            tags = json.loads((kwargs.get("settings") or {}).get("log_comment", "{}"))
+            if tags.get("name") == SENTIMENT_QUERY_NAME:
+                returned_rows.append(len(result[0] if kwargs.get("with_column_types") else result))
+            return result
+
+        with patch_clickhouse_client_execute(record_rows):
+            sentiments = load_sentiments(self.team, self.user, ["busy", "quiet"], WINDOW, WITHIN_RETENTION)
 
         assert sentiments == {
             "busy": TraceSentimentRow(label="positive", score=0.9),
             "quiet": TraceSentimentRow(label="negative", score=0.8),
         }
+        assert returned_rows == [2]
+
+    def test_newer_results_that_counted_no_messages_leave_room_for_an_older_one(self) -> None:
+        bulk_create_ai_events(
+            [
+                _event(self.team, "busy", _sentiment("negative", 0.8, "generation-rated"), T0, 0),
+                *(
+                    _event(
+                        self.team,
+                        "busy",
+                        {**_sentiment("positive", 0.9, f"generation-{index}"), "$ai_sentiment_message_count": 0},
+                        T0 + timedelta(seconds=index),
+                        index,
+                    )
+                    for index in range(1, MAX_GENERATION_SENTIMENT_EVALUATIONS_PER_TRACE + 1)
+                ),
+            ]
+        )
+
+        sentiments = load_sentiments(self.team, self.user, ["busy"], WINDOW, WITHIN_RETENTION)
+
+        assert sentiments == {"busy": TraceSentimentRow(label="negative", score=0.8)}
 
     def test_a_page_within_retention_reads_only_ai_events(self) -> None:
         bulk_create_events([_event(self.team, "aged", _sentiment("negative", 0.8, "generation-1"), T0, 0)])
@@ -96,7 +135,8 @@ class TestSentimentQueries(ClickhouseTestMixin, BaseTest):
         assert sentiments == {}
         assert len(queries) == 1
 
-    def test_a_page_past_retention_reads_the_shared_table_from_the_window_start_until_now(self) -> None:
+    def test_a_page_past_retention_reads_the_shared_table_until_its_generations_leave_ai_events(self) -> None:
+        retention_end = WINDOW.end + timedelta(days=AI_EVENTS_RETENTION_DAYS + 1)
         bulk_create_events(
             [
                 _event(self.team, "inside", _sentiment("negative", 0.8, "generation-1"), T0, 0),
@@ -116,16 +156,16 @@ class TestSentimentQueries(ClickhouseTestMixin, BaseTest):
                 ),
                 _event(
                     self.team,
-                    "future",
+                    "rated-after-retention",
                     _sentiment("negative", 0.8, "generation-4"),
-                    PAST_RETENTION + timedelta(hours=1),
+                    retention_end + timedelta(hours=1),
                     3,
                 ),
             ]
         )
 
         sentiments = load_sentiments(
-            self.team, self.user, ["inside", "rated-later", "before", "future"], WINDOW, PAST_RETENTION
+            self.team, self.user, ["inside", "rated-later", "before", "rated-after-retention"], WINDOW, PAST_RETENTION
         )
 
         assert sentiments == {
