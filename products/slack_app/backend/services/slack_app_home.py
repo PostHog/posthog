@@ -888,7 +888,7 @@ def _posthog_account_text(account_state: AccountState) -> str:
     if account_state.linked_email:
         text = f"*PostHog*\nConnected as {escape_slack_mrkdwn(account_state.linked_email)}"
         if account_state.relink_url:
-            text += ". Link again so I can read your Slack messages."
+            text += ". This link is missing permissions added since you connected. Link again to get them."
         return text
     return "*PostHog*\nNot connected. Link your Slack identity so @PostHog knows it's you without matching on email."
 
@@ -1053,8 +1053,7 @@ def _daily_focus_section_blocks(state: DailyFocusHomeState) -> list[dict]:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "I read your Slack messages since the last workday and DM you where I can help. "
-                    "Your current link can't read your messages. Link again to turn this on.",
+                    "text": "Your linked account can't read your messages. Link again to turn on the daily work focus.",
                 },
             },
             {"type": "actions", "elements": [_relink_button(state.relink_url)]},

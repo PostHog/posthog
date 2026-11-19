@@ -726,7 +726,7 @@ class TestDailyFocusRelinkPrompt:
             daily_focus=DailyFocusHomeState(enabled=False, at=time(9, 0), zone="", relink_url="https://app/link"),
         )
 
-        assert "Link again to turn this on" in _all_text(view)
+        assert "Link again to turn on the daily work focus" in _all_text(view)
         assert ACTION_SET_DAILY_FOCUS not in _action_ids(view)
         button = next(
             element
@@ -978,7 +978,7 @@ class TestLinkedAccountsCard:
             account_state=AccountState(enabled=True, linked_email="user@posthog.com", relink_url="https://app/link")
         )
         text, button = self._row(view, "*PostHog*")
-        assert "Link again so I can read your Slack messages" in text
+        assert "This link is missing permissions added since you connected" in text
         assert button is not None and button["url"] == "https://app/link"
         assert ACTION_UNLINK_ACCOUNT in _action_ids(view)
 
