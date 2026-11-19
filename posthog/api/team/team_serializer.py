@@ -53,6 +53,7 @@ from products.authorization.backend.facade.contracts import Resource
 from products.authorization.backend.facade.enums import Action
 from products.cohorts.backend.realtime_limits import max_realtime_cohorts, realtime_cohorts_used
 from products.dashboards.backend.models import Dashboard
+from products.error_tracking.backend.facade.contracts import ErrorTrackingAIFeature
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import (
     flag_calls_only_in_flag_evaluations,
@@ -134,6 +135,19 @@ def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[st
     }
 
 
+def available_error_tracking_ai_features(team: Team) -> list[str]:
+    from products.error_tracking.backend.facade import api as error_tracking_api
+
+    return [feature.value for feature in error_tracking_api.available_ai_features(team.id)]
+
+
+AVAILABLE_ERROR_TRACKING_AI_FEATURES_FIELD_SCHEMA = serializers.ListField(
+    child=serializers.ChoiceField(choices=ErrorTrackingAIFeature.choices),
+    help_text="Error tracking AI features available to this project. Its error tracking settings show a switch for "
+    "each one. Empty when the project has none.",
+)
+
+
 REALTIME_COHORTS_FIELD_SCHEMA = TeamRealtimeCohortsSerializer(
     help_text="Realtime cohorts as the request's user sees them in this project."
 )
@@ -162,6 +176,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
     )
     realtime_cohorts = serializers.SerializerMethodField()
+    available_error_tracking_ai_features = serializers.SerializerMethodField()
     available_setup_task_ids = serializers.SerializerMethodField()
     api_host = serializers.SerializerMethodField(
         help_text=(
@@ -229,6 +244,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "flag_evaluations_mode",
             "flag_calls_only_in_flag_evaluations",
             "realtime_cohorts",
+            "available_error_tracking_ai_features",
             "available_setup_task_ids",
             "api_host",
         )
@@ -256,6 +272,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "flag_evaluations_mode",
             "flag_calls_only_in_flag_evaluations",
             "realtime_cohorts",
+            "available_error_tracking_ai_features",
             "available_setup_task_ids",
             "api_host",
         )
@@ -340,6 +357,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Team) -> dict[str, str | int | None]:
         return realtime_cohorts_for_request(self.context.get("request"), obj)
+
+    @extend_schema_field(AVAILABLE_ERROR_TRACKING_AI_FEATURES_FIELD_SCHEMA)
+    def get_available_error_tracking_ai_features(self, obj: Team) -> list[str]:
+        return available_error_tracking_ai_features(obj)
 
     @extend_schema_field(
         # nosemgrep: choices-need-a-class -- an existing list, moved here unchanged from posthog/api/team.py

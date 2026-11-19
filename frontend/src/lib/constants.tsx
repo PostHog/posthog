@@ -333,7 +333,6 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_BUILT_IN_FILTERS: 'error-tracking-built-in-filters', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
-    ERROR_TRACKING_ISSUE_SUMMARIES: 'error-tracking-issue-summaries', // owner: #team-error-tracking, the backend gates issue summaries on it and the settings page shows the AI features section
     ERROR_TRACKING_ISSUE_TAGS: 'error-tracking-issue-tags', // owner: #team-error-tracking, shows issue tags on the issue page and the tag filter on the issue list
     ERROR_TRACKING_NEW_WIZARD: 'error-tracking-new-wizard', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING: 'error-tracking-rate-limiting', // owner: @ablaszkiewicz #team-error-tracking

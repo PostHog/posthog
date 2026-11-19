@@ -536,6 +536,10 @@ class ErrorTrackingIssueSummary:
     checked_at: datetime
 
 
+class ErrorTrackingAIFeature(LabeledStrEnum):
+    ISSUE_SUMMARIES = "issue_summaries"
+
+
 class IssueSummaryStatus(LabeledStrEnum):
     READY = "ready"
     NOT_GENERATED = "not_generated"

@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -6,6 +7,8 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.error_tracking.backend.logic import team_flags
+from products.error_tracking.backend.logic.issue_summary_config import ISSUE_SUMMARY_FLAG
 from products.error_tracking.backend.models import ErrorTrackingSettings
 
 
@@ -150,3 +153,28 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {value}",
         )
         self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("app_context_flag_on", "/_app_context", True, ["issue_summaries"]),
+            ("app_context_flag_off", "/_app_context", False, []),
+            ("project_flag_on", "/api/projects/@current/", True, ["issue_summaries"]),
+            ("project_flag_off", "/api/projects/@current/", False, []),
+        ]
+    )
+    def test_team_lists_available_ai_features_from_the_local_project_flag(self, _name, url, flag_on, expected):
+        with patch.object(team_flags, "feature_enabled_or_false", return_value=flag_on) as flag_check:
+            response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        team = body["app_context"]["current_team"] if url == "/_app_context" else body
+        self.assertEqual(team["available_error_tracking_ai_features"], expected)
+        flag_check.assert_called_once_with(
+            ISSUE_SUMMARY_FLAG,
+            str(self.team.id),
+            groups={"project": str(self.team.id)},
+            group_properties={"project": {"id": str(self.team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
