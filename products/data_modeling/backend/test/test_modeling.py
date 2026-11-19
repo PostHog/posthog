@@ -11,6 +11,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
 from products.data_modeling.backend.logic.model_references import (
+    DOES_NOT_PARSE,
+    PARSE_CHECK_FAILED,
     ModelReferenceRewriteError,
     model_spellings,
     rename_model_references,
@@ -341,12 +343,12 @@ class TestRenameModelReferences(BaseTest):
 
     @parameterized.expand(
         [
-            ("does_not_parse", "revenue", "select * from revenue where", "does not parse"),
+            ("does_not_parse", "revenue", "select * from revenue where", DOES_NOT_PARSE),
             (
                 "comment_inside_a_table_name",
                 "marts.orders",
                 "select 1 from marts /* c */ . orders",
-                "parse check failed",
+                PARSE_CHECK_FAILED,
             ),
         ]
     )

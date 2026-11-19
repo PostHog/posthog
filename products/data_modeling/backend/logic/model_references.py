@@ -13,8 +13,8 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 
 MODELS_ROOT = "models"
 
-DOES_NOT_PARSE = "does not parse"
-PARSE_CHECK_FAILED = "parse check failed"
+DOES_NOT_PARSE = "Its query does not parse."
+PARSE_CHECK_FAILED = "The updated query could not be checked against the original."
 
 Chain = tuple[str, ...]
 # Maps the chain of a table reference to the chain that replaces it, or None to leave it.

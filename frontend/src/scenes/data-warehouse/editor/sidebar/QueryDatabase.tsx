@@ -906,7 +906,7 @@ export const QueryDatabase = ({
                                 }
                                 data-attr="data-warehouse-view-rename"
                             >
-                                Rename view
+                                Rename
                             </ButtonPrimitive>
                         </MenuItem>
                     ) : null}

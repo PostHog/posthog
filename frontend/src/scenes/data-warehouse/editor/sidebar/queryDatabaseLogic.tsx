@@ -2533,7 +2533,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }),
                 closeRenameView: () => null,
                 setRenameViewName: (state, { name }) =>
-                    state ? { ...state, name, nameError: undefined, plan: undefined } : state,
+                    state
+                        ? {
+                              ...state,
+                              name,
+                              nameError: name.trim() ? validateSavedQueryName(name.trim()) : undefined,
+                              plan: undefined,
+                          }
+                        : state,
                 setRenameViewNameError: (state, { error }) => (state ? { ...state, nameError: error } : state),
                 setRenameViewSubmitError: (state, { error }) => (state ? { ...state, submitError: error } : state),
                 setRenameViewSaving: (state, { isSaving }) => (state ? { ...state, isSaving } : state),
@@ -2797,7 +2804,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                             await warehouseSavedQueriesRenamePlanCreate(projectId, view.id, { name })
                         )
                         actions.setRenameViewSubmitError(
-                            'The models that read this view changed. Review the new changes, then rename again.'
+                            'The views that reference this one changed. Review the new changes, then rename again.'
                         )
                         return
                     } catch (planError) {
