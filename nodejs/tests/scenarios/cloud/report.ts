@@ -167,6 +167,7 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
         above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
         unshown.length > 0 &&
             `no reader maximum before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
+        readerAtT0 === null && `no reader maximum for the minute before T0 (${iso(t0Minute - MINUTE_MS)})`,
     ].filter((reason): reason is string => typeof reason === 'string')
     return reasons.length === 0 ? { scalars, readerAtT0 } : { scalars, readerAtT0, reason: reasons.join('; ') }
 }

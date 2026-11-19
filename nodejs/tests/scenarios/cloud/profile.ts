@@ -69,7 +69,11 @@ export const CloudProfile = z
         engineVersion: Name,
         writerClass: Name,
         readerAcu: z
-            .object({ min: z.literal(1), max: z.number().int().positive(), idleMax: z.number().positive().optional() })
+            .object({
+                min: z.literal(1),
+                max: z.number().int().positive(),
+                idleMax: z.number().nonnegative().optional(),
+            })
             .strict(),
         host: z
             .object({

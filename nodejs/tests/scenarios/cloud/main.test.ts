@@ -486,11 +486,11 @@ describe('cloud controller', () => {
     it.each<[string, () => void]>([
         ['after the runner profile is gone', () => rmSync(path.join(dir, 'runner.yaml'))],
         [
-            'after its idle limit was edited below the reader minimum',
+            'after its idle limit was edited to zero, below the reader minimum',
             () =>
                 writeFileSync(
                     profilePath(),
-                    stringify({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax: 0.5 } })
+                    stringify({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax: 0 } })
                 ),
         ],
     ])('cleans up with only the cloud profile, %s', async (_, edit) => {
@@ -997,6 +997,15 @@ describe('cloud controller', () => {
             '',
         ],
         [
+            'an average-only minute before T0 at the reader minimum',
+            {
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) => (minute.minute === -3 ? { minute: -3, avg: 1 } : minute)),
+            },
+            () => undefined,
+            'passed',
+            '',
+        ],
+        [
             'a minute after T0 whose maximum CloudWatch left out',
             {
                 readerAcu: [...IDLE_THEN_PROMOTED, { minute: 3, avg: 9 }],
@@ -1064,6 +1073,13 @@ describe('cloud controller', () => {
             () => undefined,
             'invalid',
             'reader above its 2.5 ACU idle limit before T0',
+        ],
+        [
+            'no capacity for the minute before T0',
+            { readerAcu: IDLE_THEN_PROMOTED.filter(({ minute }) => minute !== -1) },
+            () => undefined,
+            'invalid',
+            'no reader maximum for the minute before T0',
         ],
         [
             'a series that ends before T0',
