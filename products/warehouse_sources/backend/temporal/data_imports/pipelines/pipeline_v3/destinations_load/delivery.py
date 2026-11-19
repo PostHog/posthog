@@ -183,7 +183,8 @@ def deliver_batch_to_destinations(
     Returns the number of destinations written. Raises `DestinationDeliveryError` on the
     first failure, which fails the batch and leaves it to be retried. That includes a
     destination from the run's snapshot that was deleted mid-run: it is reported as failed
-    rather than silently skipped, so the run cannot complete while owing it data.
+    rather than silently skipped, so the run cannot complete while owing it data. Raises
+    `DeliveryRecordError` when the egress record of a written batch cannot be saved.
 
     Connection hygiene belongs to the caller: `close_old_connections` here would drop the
     connection a caller's transaction is running in, which is what the load consumer already
@@ -253,6 +254,9 @@ def deliver_batch_to_destinations(
             if not already_written:
                 async_to_sync(writer.prepare_run)(run_ctx)
                 outcome = async_to_sync(_write)(writer, export_signal, batch_ctx)
+                # Recorded before the marker, so a batch whose record failed is written and
+                # recorded again on retry rather than skipped with its egress lost.
+                _record_delivery(export_signal, destination, outcome)
                 # Marked before publication, not after. `finalize_run` is a no-op the second
                 # time, but `write_batch` is not: on a full refresh it rebuilds the staging
                 # table out of this one batch, so a replay that ran both again would publish
@@ -265,7 +269,6 @@ def deliver_batch_to_destinations(
                     export_signal.batch_index,
                     destination_id=destination_id,
                 )
-                _record_delivery(export_signal, destination, outcome)
                 written += 1
             if export_signal.is_final_batch:
                 async_to_sync(writer.finalize_run)(run_ctx)
@@ -280,6 +283,9 @@ def deliver_batch_to_destinations(
                         f"{f' ({export_signal.total_rows:,} rows)' if export_signal.total_rows else ''}"
                     ),
                 )
+        except DeliveryRecordError:
+            # PostHog's own database failed, not the destination, so its health is left alone.
+            raise
         except Exception as e:
             logger.warning(
                 "destination_batch_failed",
@@ -313,15 +319,17 @@ def deliver_batch_to_destinations(
     return written
 
 
+class DeliveryRecordError(Exception):
+    """The egress record of a delivered batch could not be saved, so the batch is retried."""
+
+
 def _record_delivery(
     export_signal: ExportSignalMessage, destination: ExternalDataDestination, outcome: BatchWriteOutcome | None
 ) -> None:
     """Record the egress of one delivered batch for billing.
 
-    The unique constraint on (job, destination, batch_index) makes a re-delivered batch insert
-    nothing, so it is billed once. A failure here only loses the egress record, so it is logged
-    and the batch, which the destination already has, is not failed. The savepoint keeps a failed
-    insert from aborting a transaction the caller may have open.
+    The unique constraint makes a re-delivered batch insert nothing, so it is billed once. The
+    savepoint keeps a failed insert from aborting a transaction the caller may have open.
     """
     try:
         with transaction.atomic():
@@ -331,6 +339,7 @@ def _record_delivery(
                         team_id=export_signal.team_id,
                         job_id=export_signal.job_id,
                         destination_id=destination.id,
+                        run_uuid=export_signal.run_uuid,
                         batch_index=export_signal.batch_index,
                         rows_written=outcome.rows_written if outcome else 0,
                         bytes_exported=outcome.bytes_written if outcome else 0,
@@ -339,13 +348,7 @@ def _record_delivery(
                 ignore_conflicts=True,
             )
     except Exception as e:
-        logger.warning(
-            "destination_delivery_record_failed",
-            destination_name=destination.name,
-            destination_type=destination.type,
-            batch_index=export_signal.batch_index,
-            error=str(e),
-        )
+        raise DeliveryRecordError(f"Could not record the egress of batch {export_signal.batch_index}: {e}") from e
 
 
 async def _write(

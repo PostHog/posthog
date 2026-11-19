@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 from posthog.test.base import BaseTest
 from unittest import TestCase, mock
@@ -192,16 +193,38 @@ class TestDelivery(DeliveryTestCase):
         assert self._writes() == ["warehouse a", "warehouse a"]
         assert self._recorded_egress() == {"warehouse a": 2048}
 
-    def test_a_failed_egress_record_does_not_fail_the_batch(self) -> None:
+    def test_a_later_attempt_bills_its_batches_too(self) -> None:
         a = self._destination("warehouse a")
+        RecordingWriter.bytes_written = {"warehouse a": 2048}
+        first_attempt = self._signal([str(a.id)])
+
+        # A resumed attempt of the same job numbers its batches from zero again.
+        delivery.deliver_batch_to_destinations(first_attempt)
+        delivery.deliver_batch_to_destinations(dataclasses.replace(first_attempt, run_uuid="run-a2"))
+
+        recorded = ExternalDataDestinationDelivery.objects.for_team(self.team.pk).values_list(
+            "run_uuid", "bytes_exported"
+        )
+        assert sorted(recorded) == [("run-a1", 2048), ("run-a2", 2048)]
+
+    def test_a_failed_egress_record_fails_the_batch_so_the_retry_records_it(self) -> None:
+        a = self._destination("warehouse a")
+        RecordingWriter.bytes_written = {"warehouse a": 2048}
         signal = self._signal([str(a.id)])
 
         with mock.patch.object(
             ExternalDataDestinationDelivery.objects, "for_team", side_effect=OperationalError("database unavailable")
         ):
-            assert delivery.deliver_batch_to_destinations(signal) == 1
+            with self.assertRaises(delivery.DeliveryRecordError):
+                delivery.deliver_batch_to_destinations(signal)
 
-        assert self._seen == {f"{signal.run_uuid}:{signal.batch_index}:{a.id}"}
+        assert self._seen == set()
+        a.refresh_from_db()
+        assert a.status == ExternalDataDestination.Status.HEALTHY
+
+        delivery.deliver_batch_to_destinations(signal)
+
+        assert self._recorded_egress() == {"warehouse a": 2048}
 
     @parameterized.expand(
         [

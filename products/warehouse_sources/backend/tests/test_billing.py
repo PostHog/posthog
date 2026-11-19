@@ -122,6 +122,7 @@ class TestWarehouseRowsBilling(BaseTest):
                 team_id=job.team_id,
                 job=job,
                 destination=destination,
+                run_uuid="run-a1",
                 batch_index=batch_index,
                 rows_written=1,
                 bytes_exported=bytes_exported,
