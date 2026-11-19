@@ -5,15 +5,16 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { MetricsQuery, NodeKind } from '~/queries/schema/schema-general'
 import type { DashboardTile, InsightModel } from '~/types'
 
 import type { DashboardLogicProps, DashboardSettings } from './dashboardLogic'
 import { TaskQueue } from './dashboardUtils'
 
-// Metrics tiles still share the server's per-organization dashboard slots with analytics tiles.
-// Both queues together stay within those 6 slots (DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES).
-const TELEMETRY_TILE_REFRESH_CONCURRENCY = 2
+// With dashboard-v2, metrics tiles run in the server's own per-organization telemetry slots
+// (DEFAULT_APP_TELEMETRY_CONCURRENT_QUERIES), apart from the analytics slots. One tab takes half
+// of them, so a second viewer in the organization doesn't queue behind it.
+const TELEMETRY_TILE_REFRESH_CONCURRENCY = 6
 // With dashboard-v2, a first load queries this many tiles up front, in layout order.
 // The rest load when they scroll near the viewport.
 const EAGER_TILE_LOADS = 12
@@ -22,9 +23,20 @@ export function telemetryTileLoadQueue(cache: Record<string, any>): TaskQueue {
     return (cache.telemetryTileLoadQueue ??= new TaskQueue(TELEMETRY_TILE_REFRESH_CONCURRENCY))
 }
 
+// Mirrors DERIVED_METRIC_PREFIX in products/metrics/backend/facade/contracts.py.
+const DERIVED_METRIC_PREFIX = 'posthog.derived.'
+
+/**
+ * Whether the server runs this tile in the telemetry slots, mirroring `MetricsQueryRunner._query_lane`.
+ * Derived metrics scan spans or logs, and histograms have no lane of their own, so both take the analytics slots
+ * and must wait in the analytics queue.
+ */
 export function isTelemetryInsight(insight: InsightModel): boolean {
-    const kind = insight.query?.kind
-    return kind === NodeKind.MetricsQuery || kind === NodeKind.MetricsHistogramQuery
+    const query = insight.query
+    if (query?.kind !== NodeKind.MetricsQuery) {
+        return false
+    }
+    return !(query as MetricsQuery).clauses?.some((clause) => clause.metricName?.startsWith(DERIVED_METRIC_PREFIX))
 }
 
 interface OffscreenTileSplit<T extends DashboardTile> {
