@@ -107,7 +107,17 @@ docs/internal/ci-things-already-tried.md @PostHog/team-devex
 # A changed commit in the lockfile means a workflow now runs different third-party code.
 .github/workflows/actions.lock @PostHog/team-devex
 
-# The mobile owner reviews app changes and the workflows that build and release it.
-products/mobile/** @cvolzer3
-products/desktop/apps/mobile/** @cvolzer3
-.github/workflows/*mobile*.yml @cvolzer3
+# Team Mobile App reviews app changes and the workflows that build and release it.
+products/mobile/** @PostHog/team-mobile-app
+# Documentation, tests, and local development tools do not need required app review.
+products/mobile/docs/**
+products/mobile/**/*.md
+products/mobile/**/*.test.*
+products/mobile/.argent/**
+products/mobile/jest.config.js
+products/mobile/jest.setup.ts
+products/mobile/biome.json
+products/mobile/.gitignore
+products/mobile/app/** @PostHog/team-mobile-app
+products/desktop/apps/mobile/** @PostHog/team-mobile-app
+.github/workflows/*mobile*.yml @PostHog/team-mobile-app

@@ -57,6 +57,9 @@ The window starts at the first of the 30 minutes on screen and ends one minute a
 The activity chart and breakdown queries stop at the end of the current minute so totals cover the displayed buckets.
 HogQL counts visitors by their first minute in the window and deduplicates across the full window for each breakdown category.
 These jobs return counts to the app.
+
+**Exclude internal users** applies the project's filters in Live and its country drill-down. Filtered online counts use HogQL.
+
 The events query selects `toUnixTimestamp64Milli(timestamp)` instead of the web's `toString(timestamp)`, which is wall-clock time in the project's time zone with no offset.
 The `usersPageviews` query leaves out the web's bot column, because Live has no bot cards.
 `paths` sets `breakdown_path_cleaning` when the project has path cleaning rules, as the web does.
@@ -104,14 +107,20 @@ Many pulls to refresh in a row can still empty the minute bucket. Reads then fai
 
 1. Title. Home and pushed Live show the All/Web/Mobile selector beside More. The pushed screen retains its live dot and status line. There is no Pause control.
 2. Mobile activity shows DAU, WAU, sessions and installs; information buttons explain each metric.
-3. Stats (`live-stats`): Users online, Unique visitors and Pageviews, with the web's tooltips in a toast when a label is tapped. A changed number counts to its new value in 300 ms and flashes blue.
+3. Stats (`live-stats`): Users online, Unique visitors and Pageviews, with metric explanations in a toast when a label is tapped. All, Web and Mobile explanations fit one or two lines at the default text size. Toasts wrap without truncation, including at larger accessibility text sizes. A changed number counts to its new value in 300 ms and flashes blue.
 4. Where visitors are (`live-map`): "18 countries · last 30 minutes", a world map, and "🇺🇸 United States leads with 15 visitors". Land is `segmentEmpty`; a country with visitors is blue by its share of the leading country's visitors, with the web's 30% floor toward the land color. The whole card opens Visitors by country.
 5. Active users per minute (`live-activity`): 30 stacked bars, new visitors (green) under returning visitors (blue), as the web draws them. A visitor is new in the first minute of the window that shows them. The line under the chart names the scrubbed minute, or the current one: "21:14 · 18 visitors · 9 pageviews". The last bar is in progress.
 6. Top pages and Top referrers (`live-top-pages`, `live-top-referrers`): ten rows with views and their share of the window's pageviews. A row that changes rank slides to its place with a ↑ or ↓ badge that fades after 4 seconds. "Direct / None" is in italics. App only shows Top screens (`live-top-screens`, column "Screen") in place of Top pages, with shares of the listed screen views, and no Top referrers.
 7. Breakdown (`live-breakdown`): Devices, Browsers or Countries, with the total and a share bar per row. Devices or Browsers is not offered when its only row is "Unknown", as for app events. With neither and no countries, the card is hidden. Browsers and countries show their top six and an "Other" row. Countries show a flag and a name from the web analytics helper (`countryName`), which uses `Intl.DisplayNames` where the runtime has it and a short list otherwise; codes neither names stay codes. Rows do not open anything, because the web's visitor drill-down is behind a flag.
-8. Live events (`live-events`): the newest 50, newest first. Events that arrive after the first read slide in with a short highlight. A tap opens the event sheet (`live-event-sheet`): Person with Copy, URL or Screen, Session with "Watch recording", and "View person on web". Watch recording opens the app's session screen when the session replay flag is on, and the web player otherwise.
+8. Live events (`live-events`): the newest 50, newest first. Events that arrive after the first read slide in with a short highlight. A tap opens the event sheet (`live-event-sheet`): Person with Copy, URL or Screen, Session with "Watch recording", "View person on web", and Custom properties. Properties load on demand from the event detail API and exclude PostHog system properties (`$` prefixes, `distinct_id`, and `token`). Values are selectable, with lists and objects formatted as JSON. The sheet opens partway up the screen. A placeholder marks the first property while loading. Properties appear in the scrollable area below the event details, keeping the sheet at its opening height. Empty events and failed requests show an empty message or a retry action. Watch recording opens the app's session screen when the session replay flag is on, and the web player otherwise.
 
-Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the last 30 minutes", "No pageviews recorded in the last 30 minutes", "No screen views recorded in the last 30 minutes", "No referrer data in the last 30 minutes", "No device data", "No browser data", "No country data" or "Waiting for events…". A card whose job has not answered yet says "Couldn't load this yet. Live tries again every 30 seconds."
+Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the last 30 minutes", "No pageviews recorded in the last 30 minutes", "No screen views recorded in the last 30 minutes", "No referrer data in the last 30 minutes", "No device data", "No browser data", "No country data" or "Waiting for events…". A card or headline metric whose job has not answered yet shows a loading indicator.
+On reopening Live, the last successful aggregate values appear from the account-scoped device cache, separately for All, Web and Mobile.
+The PostHog icon in the Home header animates while fresh data loads, and successful reads replace the saved values.
+Live opened from Web analytics uses the same animated logo beside its title during reads.
+Pull-to-refresh keeps the native spinner hidden and uses the logo animation while fresh data loads.
+A failed refresh keeps the previous values and follows the reconnecting behavior below.
+The cache uses the existing size and age limits and clears on sign-out, project access denial or loss of Views access; individual event details are not persisted.
 
 ## No web traffic
 

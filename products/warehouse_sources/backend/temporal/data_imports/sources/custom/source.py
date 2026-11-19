@@ -295,7 +295,8 @@ def _declared_params(manifest: dict[str, Any], endpoint: dict[str, Any]) -> set[
 def _unbound_placeholders(path: str, declared: set[str]) -> list[str] | None:
     """Placeholders in ``path`` that no param fills, or ``None`` when the engine can't parse the path."""
     try:
-        return [name for _, name, _, _ in string.Formatter().parse(path) if name and name not in declared]
+        # An empty or positional field (``{}``, ``{0}``) never binds: the engine formats with keywords only.
+        return [name for _, name, _, _ in string.Formatter().parse(path) if name is not None and name not in declared]
     except ValueError:
         return None
 
@@ -339,6 +340,11 @@ def _check_path_placeholders(manifest: dict[str, Any]) -> None:
         if not isinstance(endpoint, dict) or not isinstance(endpoint.get("path"), str):
             continue
         unbound = _unbound_placeholders(endpoint["path"], _declared_params(manifest, endpoint))
+        if unbound and not unbound[0].isidentifier():
+            raise ManifestValidationError(
+                f"Table {resource.get('name')!r} has {{{unbound[0]}}} in its path. "
+                "Name the placeholder after a parent field, or remove the braces."
+            )
         if unbound:
             raise ManifestValidationError(
                 f"Table {resource.get('name')!r} has {{{unbound[0]}}} in its path, but no parent field fills it. "
@@ -2544,4 +2550,5 @@ def _schema_from_resource(resource: dict[str, Any]) -> SourceSchema:
         supports_append=False,
         incremental_fields=incremental_fields,
         detected_primary_keys=detected_primary_keys,
+        declares_primary_keys=True,
     )

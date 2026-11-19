@@ -83,6 +83,7 @@ export enum Scene {
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
+    ExploreFlagCalls = 'ExploreFlagCalls',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
     Game368 = 'Game368',
@@ -104,16 +105,18 @@ export enum Scene {
     IdentityProviderConfig = 'IdentityProviderConfig',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
+    BusinessKnowledgeLibraries = 'BusinessKnowledgeLibraries',
+    BusinessKnowledgeLibrary = 'BusinessKnowledgeLibrary',
     BusinessKnowledgePlayground = 'BusinessKnowledgePlayground',
     BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
     BusinessKnowledgeSource = 'BusinessKnowledgeSource',
+    BusinessKnowledgeUsage = 'BusinessKnowledgeUsage',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
     Library = 'Library',
     AnalyticsList = 'AnalyticsList',
     AnalyticsSpaces = 'AnalyticsSpaces',
-    AnalyticsProductHome = 'AnalyticsProductHome',
     Tools = 'Tools',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',
@@ -188,9 +191,6 @@ export enum Scene {
     PipelineOverview = 'PipelineOverview',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
-    Stamphog = 'Stamphog',
-    StamphogRuns = 'StamphogRuns',
-    StamphogDigests = 'StamphogDigests',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
@@ -234,6 +234,7 @@ export enum Scene {
     WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
+    ReleaseAll = 'ReleaseAll',
     ReleaseCalendar = 'ReleaseCalendar',
     Releases = 'Releases',
     Release = 'Release',
@@ -446,11 +447,6 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
 
-    // Stamphog
-    [Scene.Stamphog]: AccessControlResourceType.Stamphog,
-    [Scene.StamphogRuns]: AccessControlResourceType.Stamphog,
-    [Scene.StamphogDigests]: AccessControlResourceType.Stamphog,
-
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
@@ -462,9 +458,12 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Business knowledge
     [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeLibraries]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeLibrary]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeUsage]: AccessControlResourceType.BusinessKnowledge,
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,

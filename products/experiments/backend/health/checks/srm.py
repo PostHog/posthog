@@ -24,7 +24,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.bias_risk import multiple_variant_count
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start_at
 from products.experiments.backend.health.checks.forced_variant import SOME_CONDITIONS_PINNED, set_names
-from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
+from products.experiments.backend.health.checks.split_changed import FEW_COULD_SWITCH, split_changed_mid_run
 from products.experiments.backend.health.context import (
     ExposureSegment,
     ExposureTotals,
@@ -365,6 +365,12 @@ def _split_changes(ctx: HealthContext) -> _SplitChanges | None:
     if finding is None or ctx.exposures is None:
         return None
     if isinstance(history, FlagHistory):
+        # A change that moves few people can still change the shares of the variants over time, which a mismatch can
+        # come from. That finding has no steps to follow, so the mismatch names its own.
+        if finding.reason == FEW_COULD_SWITCH:
+            return _SplitChanges(
+                changes=history.counted(SplitChange), team_timezone=history.team_timezone, warning_title=None
+            )
         if finding.severity != ExperimentHealthFindingSeverity.WARNING:
             return None
         return _SplitChanges(

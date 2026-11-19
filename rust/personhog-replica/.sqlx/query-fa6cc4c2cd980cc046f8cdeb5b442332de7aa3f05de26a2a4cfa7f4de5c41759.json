@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='lock_distinct_id_rows' */\n        SELECT distinct_id as \"distinct_id!\", person_id as \"person_id!\",\n               COALESCE(version, 0)::bigint as \"version!\", is_deleted as \"is_deleted!\"\n        FROM posthog_persondistinctid\n        WHERE team_id = $1 AND distinct_id = ANY($2)\n        ORDER BY id FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "person_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "version!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_deleted!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "fa6cc4c2cd980cc046f8cdeb5b442332de7aa3f05de26a2a4cfa7f4de5c41759"
+}

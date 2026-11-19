@@ -553,6 +553,13 @@ class TestAdvance:
                 9,
                 BaselineApprovalState.PROMOTED,
             ),
+            (
+                "stack_layer_based_on_its_parent_branch",
+                "chore: no pull request named",
+                [github_api.MergedPullRequest(number=9, base_ref="feature/layer-1", head_sha="head-9")],
+                9,
+                BaselineApprovalState.PROMOTED,
+            ),
         ],
     )
     def test_a_commit_without_a_usable_subject_asks_github_for_its_pull_request(
@@ -570,6 +577,32 @@ class TestAdvance:
 
         commit = BaselineCommit.objects.get(repo=repo, commit_sha="s1")
         assert (commit.pr_number, commit.resolved) == (expected_pr, True)
+        assert _state(approval)[0] == expected_state
+
+    @pytest.mark.parametrize(
+        ("name", "merge_commit_sha", "expected_commit", "expected_state"),
+        [
+            ("merge_commit_is_this_commit", "s1", (7, True), BaselineApprovalState.PROMOTED),
+            ("merge_commit_is_another_commit", "elsewhere", (None, False), BaselineApprovalState.OPEN),
+        ],
+    )
+    def test_a_stack_layer_lands_at_its_own_merge_commit_whatever_its_base_branch(
+        self, repo, github, name, merge_commit_sha, expected_commit, expected_state
+    ) -> None:
+        approval = approve(repo, 7, "Button", "b7")
+        github.push("s1", "feat: upper layer (#7)")
+        github.pull_requests[7] = github_api.PullRequestState(
+            state="closed",
+            merged=True,
+            merge_commit_sha=merge_commit_sha,
+            base_ref="feature/layer-1",
+            head_sha="head-7",
+        )
+
+        ledger_advance.advance(repo)
+
+        commit = BaselineCommit.objects.get(repo=repo, commit_sha="s1")
+        assert (commit.pr_number, commit.resolved) == expected_commit
         assert _state(approval)[0] == expected_state
 
     @pytest.mark.parametrize(
@@ -726,18 +759,25 @@ class TestReconcileOpenApprovals:
         assert ledger.ledger_at(repo.id, RunType.STORYBOOK, 0)["Button"] == "b0"
 
     @pytest.mark.parametrize(
-        ("merged_days_ago", "expected_state"),
-        [(13, BaselineApprovalState.OPEN), (15, BaselineApprovalState.ABANDONED), (None, BaselineApprovalState.OPEN)],
+        ("merged_days_ago", "merge_commit_sha", "expected_state"),
+        [
+            (13, "m7", BaselineApprovalState.OPEN),
+            (15, "m7", BaselineApprovalState.ABANDONED),
+            (None, "m7", BaselineApprovalState.OPEN),
+            (15, "s1", BaselineApprovalState.PROMOTED),
+        ],
     )
     def test_approvals_of_a_pull_request_merged_into_another_branch_wait_before_they_are_abandoned(
-        self, repo, github, merged_days_ago, expected_state
+        self, repo, github, merged_days_ago, merge_commit_sha, expected_state
     ) -> None:
+        github.push("s1", "chore: no pull request named")
+        ledger_advance.advance(repo)
         approval = approve(repo, 7, "Button", "b7", approved_at=timezone.now() - timedelta(days=30))
         merged_at = None if merged_days_ago is None else timezone.now() - timedelta(days=merged_days_ago)
         github.pull_requests[7] = github_api.PullRequestState(
             state="closed",
             merged=True,
-            merge_commit_sha="m7",
+            merge_commit_sha=merge_commit_sha,
             base_ref="release",
             head_sha="head-7",
             merged_at=merged_at,

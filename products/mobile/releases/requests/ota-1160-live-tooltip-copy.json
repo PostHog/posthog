@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-live-tooltip-copy",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-live-audiences",
+    "notes": "Live metric explanations are shorter and wrap without truncation. Verify every info icon in All, Web and Mobile views on iOS and Android, including larger text sizes."
+}

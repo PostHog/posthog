@@ -7,7 +7,7 @@ import dataclasses
 from collections.abc import Callable, Collection
 from contextlib import suppress
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -189,6 +189,24 @@ class TestBuildDatabaseRootNode(TestCase):
         assert second == ["person", "id"]
         assert parser.call_count == 1
 
+    @parameterized.expand(
+        [
+            ("plain_field", "person.id", ["person", "id"]),
+            ("call_wrapping_field", "JSONExtractString(metadata, 'id')", ["metadata"]),
+            (
+                "if_with_field_in_true_branch",
+                "if(event = 'SaveProduct', properties.merchant_domain, NULL)",
+                ["properties", "merchant_domain"],
+            ),
+            ("comparison_without_field", "'a' = 'b'", None),
+        ]
+    )
+    def test_get_join_field_chain_handles_conditional_calls(
+        self, _name: str, join_key: str, expected_chain: Optional[list[str]]
+    ):
+        _cached_join_field_chain.cache_clear()
+        assert get_join_field_chain(join_key) == expected_chain
+
     def test_slim_pickle_state_falls_back_when_private_or_extra_present(self):
         # Slim path: a plain field round-trips its values.
         field = StringDatabaseField(name="col")
@@ -306,6 +324,54 @@ class TestTableNodeCaseInsensitiveLookup(TestCase):
 
 
 class TestUnknownTableSuggestions(TestCase):
+    @parameterized.expand(
+        [
+            ("ai_events", False),
+            ("trace_spans", False),
+            ("trace_attributes", False),
+            ("metrics", False),
+            ("metric_samples", False),
+            ("trace_spans", True),
+            ("trace_attributes", True),
+        ]
+    )
+    def test_missing_posthog_namespace(self, table_name: str, direct_query: bool) -> None:
+        database = Database()
+        if direct_query:
+            database._connection_id = "test-connection"
+            database.apply_schema_scope()
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        if direct_query:
+            assert str(error.exception) == f"Unknown table `{table_name}`."
+        else:
+            assert str(error.exception) == f"Unknown table `{table_name}`. Did you mean: posthog.{table_name}?"
+            assert database.get_table(f"posthog.{table_name}") is not None
+
+    @parameterized.expand([("metrics", True), ("error_tracking_recent_issue_state", False)])
+    def test_does_not_suggest_denied_or_hidden_namespaced_tables(self, table_name: str, denied: bool) -> None:
+        database = Database()
+        if denied:
+            del database.tables.children["posthog"].children[table_name]
+            assert database._is_warehouse_table_denied(DataWarehouseTable(name=f"posthog.{table_name}"))
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table(f"posthog.{table_name}")
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        assert f"posthog.{table_name}" not in str(error.exception)
+
+    @parameterized.expand([("events", "evnts"), ("posthog.metrics", "metrics")])
+    def test_denied_warehouse_name_does_not_hide_a_resolvable_suggestion(
+        self, table_name: str, unknown_name: str
+    ) -> None:
+        database = Database()
+        table = database.get_table(table_name)
+        assert database._is_warehouse_table_denied(DataWarehouseTable(name=table_name))
+        assert database.get_table(table_name) is table
+        with self.assertRaises(QueryError) as error:
+            database.get_table(unknown_name)
+        assert str(error.exception) == f"Unknown table `{unknown_name}`. Did you mean: {table_name}?"
+
     @parameterized.expand(
         [
             (
@@ -508,6 +574,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 reads_forced_to_events=True,
             ),
             ("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+            param(
+                "only_mode_with_the_union_flag_off",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                union_flag_enabled=False,
+            ),
+            param(
+                "only_mode_with_the_union_disabled",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                union_disabled=True,
+            ),
             # The switch skips FLAG_EVALUATIONS_ONLY, whose flag calls are no longer in events.
             param(
                 "only_mode_with_reads_forced_to_events",
@@ -535,6 +613,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         include_flag_evaluations_table: bool | None = None,
         union_flag_enabled: bool = True,
         table_in_catalog: bool = True,
+        union_disabled: bool = False,
     ) -> None:
         enabled_flags = {"hogql-flag-calls-union"} if union_flag_enabled else set()
         OrganizationFeatureFlagsConfig.objects.update_or_create(
@@ -545,6 +624,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             override_settings(DEBUG=debug),
             self.is_cloud(cloud),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+            override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", union_disabled),
             patch(
                 "posthog.hogql.database.database.feature_enabled_or_false",
                 side_effect=lambda key, *args, **kwargs: key in enabled_flags,
@@ -556,12 +636,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert database.organization_reads_flag_calls_from_flag_evaluations is expected
         assert database.has_table(["posthog", "flag_evaluations"]) is table_in_catalog
-        # The build reads the union flag only when the table gate is on, and the override skips that gate.
-        union_expected = table_in_catalog and union_flag_enabled and include_flag_evaluations_table is None
+        # The build adds the union table only when the table gate is on. The override skips that gate.
+        union_expected = table_in_catalog and include_flag_evaluations_table is None and not union_disabled
         assert database.flag_calls_union_enabled is union_expected
         assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
+        assert database.flag_calls_union_opted_in is (
+            union_expected and union_flag_enabled and expected and mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
         context = HogQLContext(team_id=self.team.pk, database=database)
         assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
+
+    def test_serialize_database_skips_hidden_tables(self):
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        serialized = database.serialize(context, include_hidden_posthog_tables=True)
+
+        assert "posthog.error_tracking_recent_issue_state" not in serialized
+        assert database.has_table("posthog.error_tracking_recent_issue_state")
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -4497,7 +4588,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "session_replay_events",
             "cohort_people",
             "static_cohort_people",
-            "cohort_membership",
             "precalculated_events",
             "precalculated_person_properties",
             "log_entries",

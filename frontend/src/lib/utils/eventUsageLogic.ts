@@ -681,6 +681,7 @@ function funnelProperties(querySource: InsightQueryNode): SanitizedQuery {
     return {
         funnel_viz_type: querySource.funnelsFilter?.funnelVizType,
         funnel_order_type: querySource.funnelsFilter?.funnelOrderType,
+        funnel_summary_on_dashboards: querySource.funnelsFilter?.showSummaryOnDashboards === true,
     }
 }
 

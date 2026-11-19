@@ -11,7 +11,8 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.scopes import APIScopeObject, scopes_not_covered
+from posthog.scopes.catalog import APIScopeObject
+from posthog.scopes.checks import scopes_not_covered
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.access_control.backend.facade.property_access import restriction_fingerprint

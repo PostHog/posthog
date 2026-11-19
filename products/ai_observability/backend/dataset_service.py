@@ -16,7 +16,11 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
-from products.ai_observability.backend.dataset_limits import MAX_DATASET_ITEM_PAYLOAD_BYTES, MAX_ITEMS_PER_DATASET
+from products.ai_observability.backend.dataset_limits import (
+    MAX_DATASET_ITEM_PAYLOAD_BYTES,
+    MAX_ITEMS_PER_DATASET,
+    DatasetConflictResponseResource,
+)
 from products.ai_observability.backend.dataset_queries import latest_dataset_revision
 from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
@@ -28,12 +32,13 @@ MAX_DATASET_DESCRIPTION_LENGTH = 10_000
 MAX_DATASET_NAME_LENGTH = 400
 MAX_CLIENT_ITEM_ID_LENGTH = 255
 MAX_SOURCE_ID_LENGTH = 255
-MAX_DATASETS_PER_TEAM = 20
+MAX_DATASETS_PER_TEAM = 100
 MAX_VERSIONS_PER_ITEM = 40
+MAX_RETAINED_VERSIONS_PER_TEAM = 25_000
 
 # The flag that gates the dataset API. Its payload also carries per-project overrides of
 # `MAX_DATASETS_PER_TEAM`, so a project that asks for more datasets gets them with no deploy:
-# {"team_configs": {"<team_id>": {"max_datasets": 50}}}
+# {"team_configs": {"<team_id>": {"max_datasets": 150}}}
 DATASETS_FEATURE_FLAG = "llm-analytics-datasets"
 PAYLOAD_TEAM_CONFIGS_KEY = "team_configs"
 PAYLOAD_MAX_DATASETS_KEY = "max_datasets"
@@ -44,6 +49,14 @@ class DatasetValidationError(Exception):
         super().__init__(detail)
         self.field = field
         self.detail = detail
+
+
+class DatasetSizeLimitExceeded(DatasetValidationError):
+    def __init__(self, *, field: str, size: int, limit: int) -> None:
+        super().__init__(field, f"This field must be {limit} bytes or fewer.")
+        self.resource = "dataset_item_payload_bytes" if field == "item" else "metadata_bytes"
+        self.current_count = size
+        self.limit = limit
 
 
 class DatasetMutationConflict(Exception):
@@ -75,7 +88,7 @@ class DatasetLimitExceeded(Exception):
     def __init__(
         self,
         *,
-        resource: Literal["datasets", "dataset_items", "dataset_item_versions"],
+        resource: DatasetConflictResponseResource,
         current_count: int,
         limit: int,
         detail: str,
@@ -149,7 +162,7 @@ def _json_size(value: JSONValue | dict[str, JSONValue], *, field: str, limit: in
         raise DatasetValidationError(field, "Enter a valid JSON value.") from error
 
     if payload_size > limit:
-        raise DatasetValidationError(field, f"This field must be {limit} bytes or fewer.")
+        raise DatasetSizeLimitExceeded(field=field, size=payload_size, limit=limit)
 
 
 def _json_values_equal(left: JSONValue, right: JSONValue) -> bool:
@@ -365,6 +378,7 @@ def _create_item_version(
 
     current_count = (
         DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True)
+        .using(connection.alias)
         .filter(
             dataset_id=dataset.id,
             dataset_item_id=item.id,
@@ -383,10 +397,28 @@ def _create_item_version(
             )
         )
         raise DatasetLimitExceeded(
-            resource="dataset_item_versions",
+            resource=DatasetConflictResponseResource.DATASET_ITEM_VERSIONS,
             current_count=current_count,
             limit=MAX_VERSIONS_PER_ITEM,
             detail=detail,
+        )
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"aio-dataset-versions:{dataset.team_id}"]
+        )
+    retained_versions = (
+        DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True).using(connection.alias).count()
+    )
+    if retained_versions >= MAX_RETAINED_VERSIONS_PER_TEAM:
+        raise DatasetLimitExceeded(
+            resource=DatasetConflictResponseResource.PROJECT_DATASET_ITEM_VERSIONS,
+            current_count=retained_versions,
+            limit=MAX_RETAINED_VERSIONS_PER_TEAM,
+            detail=(
+                f"This project has reached its limit of {MAX_RETAINED_VERSIONS_PER_TEAM:,} retained dataset item versions. "
+                "New versions can be added after unused versions expire."
+            ),
         )
 
     revision = _create_revision(dataset=dataset, created_by=created_by)
@@ -466,10 +498,15 @@ def create_dataset(
     normalized_name = _validate_dataset_fields(name=name, description=description, metadata=normalized_metadata)
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"aio-dataset-allocation:{team.id}"])
-    current_count = Dataset.objects.for_team(team.id, canonical=True).filter(expired_at__isnull=True).count()
+    current_count = (
+        Dataset.objects.for_team(team.id, canonical=True)
+        .using(connection.alias)
+        .filter(expired_at__isnull=True)
+        .count()
+    )
     if current_count >= max_datasets:
         raise DatasetLimitExceeded(
-            resource="datasets",
+            resource=DatasetConflictResponseResource.DATASETS,
             current_count=current_count,
             limit=max_datasets,
             detail=(
@@ -632,10 +669,15 @@ def create_dataset_item(
                 current_item_id=existing_item.id,
             )
 
-    current_count = DatasetItem.objects.for_team(dataset.team_id, canonical=True).filter(dataset=dataset).count()
+    current_count = (
+        DatasetItem.objects.for_team(dataset.team_id, canonical=True)
+        .using(connection.alias)
+        .filter(dataset=dataset)
+        .count()
+    )
     if current_count >= MAX_ITEMS_PER_DATASET:
         raise DatasetLimitExceeded(
-            resource="dataset_items",
+            resource=DatasetConflictResponseResource.DATASET_ITEMS,
             current_count=current_count,
             limit=MAX_ITEMS_PER_DATASET,
             detail=(

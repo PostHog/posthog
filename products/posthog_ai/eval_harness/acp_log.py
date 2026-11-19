@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -39,10 +39,23 @@ class SpanDescriptor:
     timestamp: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
+class ToolTiming:
+    """When one tool call started and finished."""
+
+    started_at: str = ""
+    """Timestamp of the ``tool_call`` line."""
+
+    ended_at: str = ""
+    """Timestamp of the terminal ``tool_call_update`` line. Empty when the call never finished."""
+
+
+@dataclass(frozen=False)
 class ParsedLog:
     generations: list[GenerationDescriptor] = field(default_factory=list)
     spans: list[SpanDescriptor] = field(default_factory=list)
+    tool_timings: dict[str, ToolTiming] = field(default_factory=dict)
+    """Timing per tool call id."""
     first_timestamp: str = ""
     last_timestamp: str = ""
     model: str = ""
@@ -51,6 +64,9 @@ class ParsedLog:
     response's ``configOptions`` entry with ``id == "model"`` (the only channel
     the posthog claude/codex adapters actually populate).
     Empty when the log predates this capture (callers should fall back)."""
+
+    trailing_messages: list[dict[str, Any]] = field(default_factory=list)
+    """History after the last generation, such as tool results that arrive just before ``end_turn``."""
 
     @property
     def messages(self) -> list[dict[str, Any]]:
@@ -65,7 +81,7 @@ class ParsedLog:
         msgs = list(last.input_messages)
         if last.output_content:
             msgs.append({"role": "assistant", "content": list(last.output_content)})
-        return msgs
+        return msgs + list(self.trailing_messages)
 
     @property
     def total_token_usage(self) -> dict[str, int]:
@@ -124,6 +140,9 @@ class AcpLogParser:
         # Flush anything remaining (e.g. if end_turn was missing)
         self._drain_pending_tool_results_into_history()
         self._flush_generation()
+        if self._result.generations:
+            last = self._result.generations[-1]
+            self._result.trailing_messages = self._history[len(last.input_messages) + 1 :]
         return self._result
 
     def _handle_entry(self, entry: dict) -> None:
@@ -306,6 +325,8 @@ class AcpLogParser:
         )
         tool_call_id = update.get("toolCallId", str(uuid.uuid4()))
         raw_input = update.get("rawInput", {})
+        if tool_call_id not in self._result.tool_timings:
+            self._result.tool_timings[tool_call_id] = ToolTiming(started_at=ts)
 
         self._current_output.append(
             {
@@ -347,6 +368,9 @@ class AcpLogParser:
         if status in ("failed", "error"):
             tool_result["is_error"] = True
         self._pending_tool_results.append(tool_result)
+        timing = self._result.tool_timings.get(tool_call_id)
+        if timing is not None and ts:
+            self._result.tool_timings[tool_call_id] = replace(timing, ended_at=ts)
         if ts:
             self._last_tool_result_ts = ts
 

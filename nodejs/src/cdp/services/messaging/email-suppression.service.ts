@@ -15,6 +15,31 @@ const cdpEmailSuppressionTotal = new Counter({
     labelNames: ['result'],
 })
 
+const SUPPRESSION_WRITE_OPERATIONS = [
+    'transient_bounce',
+    'hard_bounce',
+    'global_hard_bounce',
+    'complaint',
+    'delivery_reset',
+    'global_hard_bounce_clear',
+    'global_hard_bounce_copy',
+    'global_hard_bounce_release',
+] as const
+
+const cdpEmailSuppressionDroppedWrites = new Counter({
+    name: 'cdp_email_suppression_dropped_writes_total',
+    help: 'Suppression-list writes that failed and were dropped instead of returned to the caller, by operation. `transient_bounce`, `hard_bounce`, `complaint` = recording a bounce or complaint on the team list; `global_hard_bounce` = recording a hard bounce on the global list; `delivery_reset` = resetting soft-bounce counts after a delivery; `global_hard_bounce_clear` = ending a global entry after a delivery; `global_hard_bounce_copy` = copying a global entry to the team list; `global_hard_bounce_release` = releasing such a copy once the global entry ends.',
+    labelNames: ['operation'],
+})
+
+for (const operation of SUPPRESSION_WRITE_OPERATIONS) {
+    cdpEmailSuppressionDroppedWrites.inc({ operation }, 0)
+}
+
+const countDroppedWrite = (operation: (typeof SUPPRESSION_WRITE_OPERATIONS)[number]): void => {
+    cdpEmailSuppressionDroppedWrites.inc({ operation })
+}
+
 const DIAGNOSTIC_MAX_LENGTH = 1000
 
 const EVENT_ID_MAX_LENGTH = 128
@@ -317,6 +342,7 @@ export class EmailSuppressionService {
             if (throwOnFailure) {
                 throw error
             }
+            countDroppedWrite('transient_bounce')
         }
     }
 
@@ -348,6 +374,7 @@ export class EmailSuppressionService {
             if (throwOnFailure) {
                 throw error
             }
+            countDroppedWrite('hard_bounce')
         }
     }
 
@@ -452,6 +479,7 @@ export class EmailSuppressionService {
             if (throwOnFailure) {
                 throw error
             }
+            countDroppedWrite('global_hard_bounce')
         }
     }
 
@@ -536,6 +564,7 @@ export class EmailSuppressionService {
             if (throwOnFailure) {
                 throw error
             }
+            countDroppedWrite('complaint')
         }
     }
 
@@ -586,6 +615,7 @@ export class EmailSuppressionService {
             if (throwOnFailure) {
                 throw error
             }
+            countDroppedWrite('delivery_reset')
         }
 
         if (!clearGlobal) {
@@ -626,6 +656,7 @@ export class EmailSuppressionService {
             if (throwOnFailure) {
                 throw error
             }
+            countDroppedWrite('global_hard_bounce_clear')
         }
     }
 
@@ -767,6 +798,7 @@ export class EmailSuppressionService {
             try {
                 await this.upsertHardBounces(teamId, identifiers, GLOBAL_HARD_BOUNCE_DIAGNOSTIC, { keepRemoved: true })
             } catch (error) {
+                countDroppedWrite('global_hard_bounce_copy')
                 logger.error('[EmailSuppression] Failed to copy global hard bounces to the team list', {
                     teamId,
                     error,
@@ -792,6 +824,7 @@ export class EmailSuppressionService {
                     'releaseGlobalHardBounceCopies'
                 )
             } catch (error) {
+                countDroppedWrite('global_hard_bounce_release')
                 logger.error('[EmailSuppression] Failed to release copied global hard bounces', { teamId, error })
             }
         }

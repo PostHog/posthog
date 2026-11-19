@@ -153,8 +153,16 @@ jobs:
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name == 'pull_request' # Master pushes and the nightly run test everything
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  reuse-checks: Visual regression tests pass
+                  reuse-blocking-labels: |
+                      run-ci-frontend
+                      ci-no-reuse
+                  reuse-proof-checks: Build Storybook (depot-ubuntu-24.04)
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       frontend:
                         - 'patches/jest-junit@16.0.0.patch'
@@ -375,6 +383,7 @@ jobs:
             # missing, so a failed upload costs one narrowing opportunity rather
             # than the build and the whole visual-regression matrix behind it.
             - name: Upload module-graph artifact
+              if: github.event_name == 'pull_request'
               continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
@@ -385,6 +394,7 @@ jobs:
 
             # Consumed by check-baseline-removals, which needs only the story index.
             - name: Upload story index artifact
+              if: github.event_name == 'pull_request' && needs.changes.outputs.snapshots_baseline == 'true'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-index
@@ -650,10 +660,36 @@ jobs:
             OPT_OUT_CAPTURE: 1
             JEST_JUNIT_SUITE_NAME: '{filepath}'
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
+            - name: Sparse source checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with: &storybook-runner-checkout
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  sparse-checkout-cone-mode: false
+                  sparse-checkout: |
+                      package.json
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                      .npmrc
+                      .nvmrc
+                      tsconfig.json
+                      babel.config.*
+                      .babelrc
+                      *.stories.*
+                      owners.yaml
+                      CODEOWNERS
+                      /common/storybook/
+                      /frontend/plugins/
+                      /frontend/snapshots.yml
+                      /patches/
+                      /.github/actions/trunk-quarantine-gate/
+                      /.github/scripts/verify-storybook-new-stories.sh
+                      /.github/scripts/trunk-codeowners.sh
+                      /packages/owners-yaml/
+                      /bin/fix-rdkafka-paths
+                      /.husky/
+                      /.git-blame-ignore-revs
+                      product.yaml
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -991,15 +1027,13 @@ jobs:
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots and webkit-only breaks before they land on master.
-    # Story files the diff affects without changing them run too, warn only (see the script).
     flake-verification:
         name: Storybook flake verification
         runs-on: ubuntu-24.04
-        needs: [changes, build-storybook, select-stories]
+        needs: [changes, build-storybook]
         # Skipped on trunk-merge/**: the job diffs against the merge base to find changed stories,
         # which on a queue branch is the same set the PR's own run already verified.
-        # `!cancelled()` keeps the job running when select-stories is skipped (run-ci-frontend
-        # label) or fails. The affected list is then empty and only changed story files run.
+        # Changed files come from git, so this job can start before story selection finishes.
         if: |
             !cancelled()
             && needs.build-storybook.result == 'success'
@@ -1014,9 +1048,7 @@ jobs:
             OPT_OUT_CAPTURE: 1
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+              with: *storybook-runner-checkout
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -1095,7 +1127,8 @@ jobs:
                   REPO: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  AFFECTED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json || '[]' }}
+                  # Empty even on old PR heads: their verifier then runs changed stories only.
+                  AFFECTED_FILES_JSON: '[]'
               # The merge base comes from the API because the depth-1 checkout cannot compute it.
               # It is resolved here, not in the script, because unrebased branches keep their old script.
               run: |
@@ -1110,7 +1143,7 @@ jobs:
                       || skip "The GitHub API did not return the merge base of $BASE_SHA and $HEAD_SHA"
                   MERGE_BASE=$(node -e 'process.stdout.write(require(process.argv[1]).merge_base_commit?.sha ?? "")' "$RUNNER_TEMP/compare.json") || MERGE_BASE=""
                   [ -n "$MERGE_BASE" ] || skip "The compare response has no merge base for $BASE_SHA and $HEAD_SHA"
-                  git fetch --no-tags --depth=1 "https://github.com/$REPO" "$MERGE_BASE" \
+                  git fetch --no-tags --depth=1 --filter=blob:none "https://github.com/$REPO" "$MERGE_BASE" \
                       || skip "Could not fetch merge base $MERGE_BASE"
                   echo "Diffing from merge base $MERGE_BASE (PR base is $BASE_SHA)"
                   .github/scripts/verify-storybook-new-stories.sh "$MERGE_BASE" 3

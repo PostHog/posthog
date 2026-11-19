@@ -8,12 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 import * as todayApi from 'products/today/frontend/generated/api'
 
-import {
-    HIGHLIGHTS_POLL_MS,
-    TODAY_ACCESS_RETRIES,
-    TODAY_ACCESS_RETRY_MS,
-    todayHighlightsLogic,
-} from './todayHighlightsLogic'
+import { HIGHLIGHTS_FIRST_POLL_MS, HIGHLIGHTS_POLL_MS, todayHighlightsLogic } from './todayHighlightsLogic'
 import { makeHighlightItem, makeHighlights, makePulseMetric } from './todayTestFixtures'
 
 describe('todayHighlightsLogic', () => {
@@ -233,18 +228,19 @@ describe('todayHighlightsLogic', () => {
         expect(logic.values.pulseSlots.map((slot) => slot.status)).toEqual(['ready', 'error', 'ready', 'ready'])
     })
 
-    it.each([404, 500])('reports a persistent %s from highlights as a failure', async (status) => {
+    it.each([404, 500])('reports a %s from highlights without waiting for access', async (status) => {
         jest.useFakeTimers()
         highlightResponses = [[status, { detail: 'Error' }]]
         const logic = todayHighlightsLogic()
         logic.mount()
 
-        await jest.advanceTimersByTimeAsync(TODAY_ACCESS_RETRY_MS * TODAY_ACCESS_RETRIES)
+        await jest.advanceTimersByTimeAsync(0)
         expect(logic.values).toMatchObject({ highlights: null, highlightsFailed: true, highlightsPending: false })
-        expect(highlightCalls).toBe(status === 404 ? TODAY_ACCESS_RETRIES + 1 : 1)
+        await jest.advanceTimersByTimeAsync(120_000)
+        expect(highlightCalls).toBe(1)
     })
 
-    it.each(['highlights', 'pulse_pins'])('loads %s after enrollment reaches the server', async (endpoint) => {
+    it.each(['highlights', 'pulse_pins'])('loads %s on a new attempt after access is granted', async (endpoint) => {
         jest.useFakeTimers()
         const highlights = makeHighlights({ pulse: [makePulseMetric()] })
         const pins = [{ key: 'insight:a', name: 'Signups', dashboard_id: null }]
@@ -253,7 +249,7 @@ describe('todayHighlightsLogic', () => {
             get: {
                 [`/api/projects/:team_id/today/${endpoint}/`]: () => {
                     calls += 1
-                    return calls < 3
+                    return calls === 1
                         ? [404, { detail: 'Not found' }]
                         : [200, endpoint === 'highlights' ? highlights : { pins }]
                 },
@@ -263,15 +259,20 @@ describe('todayHighlightsLogic', () => {
         logic.mount()
 
         await jest.advanceTimersByTimeAsync(0)
-        expect(endpoint === 'highlights' ? logic.values.highlightsPending : !logic.values.pulsePinsSettled).toBe(true)
-        await jest.advanceTimersByTimeAsync(TODAY_ACCESS_RETRY_MS * 2)
+        expect(endpoint === 'highlights' ? logic.values.highlightsPending : !logic.values.pulsePinsSettled).toBe(false)
+        if (endpoint === 'highlights') {
+            logic.actions.retryPulse()
+        } else {
+            logic.actions.loadPulsePins()
+        }
+        await jest.advanceTimersByTimeAsync(0)
         expect(endpoint === 'highlights' ? logic.values.highlights : logic.values.pulsePins).toEqual(
             endpoint === 'highlights' ? highlights : pins
         )
-        expect(calls).toBe(3)
+        expect(calls).toBe(2)
     })
 
-    it('stops retrying a persistent pins denial', async () => {
+    it('settles denied pins immediately without retrying', async () => {
         jest.useFakeTimers()
         let calls = 0
         useMocks({
@@ -285,32 +286,14 @@ describe('todayHighlightsLogic', () => {
         const logic = todayHighlightsLogic()
         logic.mount()
 
-        await jest.advanceTimersByTimeAsync(TODAY_ACCESS_RETRY_MS * (TODAY_ACCESS_RETRIES + 10))
+        await jest.advanceTimersByTimeAsync(0)
         expect(logic.values).toMatchObject({
             pulsePinsLoaded: false,
             pulsePinsLoadFailed: true,
             pulsePinsLoading: false,
+            pulsePinsSettled: true,
         })
-        expect(calls).toBe(TODAY_ACCESS_RETRIES + 1)
-    })
-
-    it.each(['highlights', 'pulse_pins'])('cancels %s enrollment retries on unmount', async (endpoint) => {
-        jest.useFakeTimers()
-        let calls = 0
-        useMocks({
-            get: {
-                [`/api/projects/:team_id/today/${endpoint}/`]: () => {
-                    calls += 1
-                    return [404, { detail: 'Not found' }]
-                },
-            },
-        })
-        const logic = todayHighlightsLogic()
-        const unmount = logic.mount()
-
-        await jest.advanceTimersByTimeAsync(0)
-        unmount()
-        await jest.advanceTimersByTimeAsync(TODAY_ACCESS_RETRY_MS * 2)
+        await jest.advanceTimersByTimeAsync(120_000)
         expect(calls).toBe(1)
     })
 
@@ -341,6 +324,39 @@ describe('todayHighlightsLogic', () => {
 
         await jest.advanceTimersByTimeAsync(HIGHLIGHTS_POLL_MS * 3)
         expect(highlightCalls).toBe(3)
+    })
+
+    it('polls soon while numbers compute, backs off to the normal interval, and starts soon again after a ready answer', async () => {
+        jest.useFakeTimers()
+        const computing = makeHighlights({ status: 'computing', generated_at: null })
+        highlightResponses = [
+            [200, computing],
+            [200, computing],
+            [200, makeHighlights()],
+            [200, computing],
+        ]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        const calls: number[] = []
+        for (const wait of [HIGHLIGHTS_FIRST_POLL_MS, HIGHLIGHTS_FIRST_POLL_MS * 2, HIGHLIGHTS_POLL_MS * 3]) {
+            await jest.advanceTimersByTimeAsync(wait)
+            calls.push(highlightCalls)
+        }
+        logic.actions.loadHighlights()
+        await jest.advanceTimersByTimeAsync(0)
+        for (const wait of [
+            HIGHLIGHTS_FIRST_POLL_MS,
+            HIGHLIGHTS_FIRST_POLL_MS * 2,
+            HIGHLIGHTS_FIRST_POLL_MS * 4,
+            HIGHLIGHTS_POLL_MS,
+            HIGHLIGHTS_POLL_MS,
+        ]) {
+            await jest.advanceTimersByTimeAsync(wait)
+            calls.push(highlightCalls)
+        }
+
+        expect(calls).toEqual([2, 3, 3, 5, 6, 7, 8, 9])
     })
 
     it('keeps a highlight hidden in another project visible here, and forgets earlier days', async () => {
@@ -407,7 +423,7 @@ describe('todayHighlightsLogic', () => {
         highlightResponses = [[status, body]]
         const logic = todayHighlightsLogic()
         logic.mount()
-        await jest.advanceTimersByTimeAsync(TODAY_ACCESS_RETRY_MS * TODAY_ACCESS_RETRIES)
+        await jest.advanceTimersByTimeAsync(0)
         logic.actions.pulseViewMounted(false)
         logic.actions.pulseViewUpdated()
 
@@ -477,32 +493,42 @@ describe('todayHighlightsLogic', () => {
         logic.actions.pulseViewUnmounted()
     })
 
-    it('records a slow unanswered load and abandonment without stopping the request', async () => {
-        jest.useFakeTimers()
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-        const api = await import('products/today/frontend/generated/api')
-        jest.spyOn(api, 'todayHighlightsRetrieve').mockImplementation(() => new Promise(() => {}))
-        const logic = todayHighlightsLogic()
-        logic.mount()
-        logic.actions.pulseViewMounted(false)
-        await jest.advanceTimersByTimeAsync(30_000)
+    it.each([
+        { hidden: false, slow: [expect.objectContaining({ duration_ms: 30_000, request_count: 1 })] },
+        { hidden: true, slow: [] },
+    ])(
+        'records a slow unanswered load only when the tab stayed visible (hidden: $hidden), and abandonment without stopping the request',
+        async ({ hidden, slow }) => {
+            jest.useFakeTimers()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            const api = await import('products/today/frontend/generated/api')
+            jest.spyOn(api, 'todayHighlightsRetrieve').mockImplementation(() => new Promise(() => {}))
+            const logic = todayHighlightsLogic()
+            logic.mount()
+            logic.actions.pulseViewMounted(false)
+            if (hidden) {
+                const visibility = jest.spyOn(document, 'visibilityState', 'get')
+                visibility.mockReturnValue('hidden')
+                document.dispatchEvent(new Event('visibilitychange'))
+                visibility.mockReturnValue('visible')
+                document.dispatchEvent(new Event('visibilitychange'))
+            }
+            await jest.advanceTimersByTimeAsync(30_000)
 
-        expect(logic.values.highlightsLoading).toBe(true)
-        expect(capture).toHaveBeenCalledWith(
-            'today pulse load slow',
-            expect.objectContaining({
-                duration_ms: 30_000,
-                request_count: 1,
-            })
-        )
-        logic.actions.pulseViewUnmounted()
-        await jest.advanceTimersByTimeAsync(30_000)
-        expect(capture.mock.calls.filter(([event]) => event === 'today pulse load slow')).toHaveLength(1)
-        expect(capture).toHaveBeenCalledWith(
-            'today pulse load finished',
-            expect.objectContaining({ outcome: 'abandoned' })
-        )
-    })
+            expect(logic.values.highlightsLoading).toBe(true)
+            logic.actions.pulseViewUnmounted()
+            await jest.advanceTimersByTimeAsync(30_000)
+            expect(
+                capture.mock.calls
+                    .filter(([event]) => event === 'today pulse load slow')
+                    .map(([, properties]) => properties)
+            ).toEqual(slow)
+            expect(capture).toHaveBeenCalledWith(
+                'today pulse load finished',
+                expect.objectContaining({ outcome: 'abandoned' })
+            )
+        }
+    )
 
     it('does not measure sample visits', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)

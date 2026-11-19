@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "default": "",
+            "description": "next_cursor of the previous page.",
+            "maxLength": 100,
+            "type": "string"
+        },
+        "feature_flag_id": {
+            "description": "Only releases that link this feature flag.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "limit": {
+            "default": 50,
+            "description": "How many releases to return, at most 100.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "order": {
+            "default": "-created_at",
+            "description": "Sort by creation time: -created_at for newest first, created_at for oldest first.\n\n* `-created_at` - Newest first\n* `created_at` - Oldest first",
+            "minLength": 1,
+            "type": "string"
+        },
+        "owner": {
+            "description": "Comma-separated user IDs. Only releases owned by one of them are listed.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "search": {
+            "description": "Part of the release name to match.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

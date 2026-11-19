@@ -7,9 +7,9 @@ from products.warehouse_sources.sources.sdk import DependentEndpointConfig, Incr
 PER_PAGE = 200
 
 
-def _updated_at_incremental_fields(column: str = "updated_at") -> list[IncrementalField]:
-    # Every incremental-capable Aha! Ideas endpoint filters server-side with `updated_since`,
-    # which keys off `updated_at`. Advertising just `updated_at` keeps the user's chosen cursor
+def _timestamp_incremental_fields(column: str = "updated_at") -> list[IncrementalField]:
+    # Aha! filters server-side on one timestamp per endpoint (`updated_since` keys off `updated_at`,
+    # `created_since` off `created_at`). Advertising just that column keeps the user's chosen cursor
     # aligned with what the API actually filters on.
     return [
         {
@@ -28,8 +28,9 @@ class AhaIdeasEndpointConfig:
     # Root key of the list in the JSON response. Usually equals `path` minus the slash, but
     # `/ideas/endorsements` exposes idea votes under an `idea_endorsements` root key.
     response_key: str
-    # Aha! exposes `updated_since` (filters by `updated_at`) on this endpoint's list action.
+    # Aha! exposes a server-side timestamp filter (`incremental_param`) on this endpoint's list action.
     supports_incremental: bool
+    incremental_param: str = "updated_since"
     # Stable creation-time field to partition by. None when the resource has no reliable created_at.
     partition_key: Optional[str] = "created_at"
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -51,7 +52,7 @@ AHA_IDEAS_ENDPOINTS: dict[str, AhaIdeasEndpointConfig] = {
         path="/ideas",
         response_key="ideas",
         supports_incremental=True,
-        incremental_fields=_updated_at_incremental_fields(),
+        incremental_fields=_timestamp_incremental_fields(),
     ),
     "idea_portals": AhaIdeasEndpointConfig(
         name="idea_portals",
@@ -66,14 +67,14 @@ AHA_IDEAS_ENDPOINTS: dict[str, AhaIdeasEndpointConfig] = {
         path="/idea_organizations",
         response_key="idea_organizations",
         supports_incremental=True,
-        incremental_fields=_updated_at_incremental_fields(),
+        incremental_fields=_timestamp_incremental_fields(),
     ),
     "idea_users": AhaIdeasEndpointConfig(
         name="idea_users",
         path="/idea_users",
         response_key="idea_users",
         supports_incremental=True,
-        incremental_fields=_updated_at_incremental_fields(),
+        incremental_fields=_timestamp_incremental_fields(),
     ),
     "idea_themes": AhaIdeasEndpointConfig(
         name="idea_themes",
@@ -87,7 +88,7 @@ AHA_IDEAS_ENDPOINTS: dict[str, AhaIdeasEndpointConfig] = {
         path="/ideas/endorsements",
         response_key="idea_endorsements",
         supports_incremental=True,
-        incremental_fields=_updated_at_incremental_fields(),
+        incremental_fields=_timestamp_incremental_fields(),
     ),
     "idea_comments": AhaIdeasEndpointConfig(
         name="idea_comments",
@@ -149,7 +150,7 @@ AHA_IDEAS_ENDPOINTS: dict[str, AhaIdeasEndpointConfig] = {
         path="/ideas",
         response_key="ideas",
         supports_incremental=True,
-        incremental_fields=_updated_at_incremental_fields("idea_updated_at"),
+        incremental_fields=_timestamp_incremental_fields("idea_updated_at"),
         params={"fields": "id,updated_at,workflow_status_times"},
         nested_rows_field="workflow_status_times",
         # Embedded status times carry no id. An idea can re-enter a status, so `started_at` is
@@ -157,10 +158,82 @@ AHA_IDEAS_ENDPOINTS: dict[str, AhaIdeasEndpointConfig] = {
         primary_keys=["idea_id", "status_id", "started_at"],
         partition_key="started_at",
     ),
+    "idea_subscriptions": AhaIdeasEndpointConfig(
+        name="idea_subscriptions",
+        path="/ideas/{idea_id}/subscriptions",
+        response_key="idea_subscriptions",
+        # "List subscriptions for an idea" documents only `page`/`per_page`/`fields`.
+        supports_incremental=False,
+        primary_keys=["id", "idea_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="ideas",
+            resolve_param="idea_id",
+            resolve_field="id",
+            # Each subscription already carries `idea_id`.
+            include_from_parent=[],
+        ),
+    ),
+    "portal_users": AhaIdeasEndpointConfig(
+        name="portal_users",
+        path="/portal_users",
+        response_key="portal_users",
+        supports_incremental=True,
+        incremental_fields=_timestamp_incremental_fields(),
+    ),
+    "idea_categories": AhaIdeasEndpointConfig(
+        name="idea_categories",
+        path="/products/{product_id}/idea_categories",
+        response_key="idea_categories",
+        # "List idea categories in a product" documents only `page`/`per_page`.
+        supports_incremental=False,
+        # This table aggregates every workspace and the docs don't state that category ids are
+        # unique across workspaces, so the workspace id is part of the key defensively.
+        primary_keys=["id", "product_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="products",
+            resolve_param="product_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "product_id"},
+        ),
+    ),
+    "audits": AhaIdeasEndpointConfig(
+        name="audits",
+        path="/audits",
+        response_key="audits",
+        # Audits are immutable, so `created_since` is a complete incremental filter. Aha! keeps them
+        # for 12 calendar months only, so an incremental table also keeps history past that window.
+        supports_incremental=True,
+        incremental_param="created_since",
+        incremental_fields=_timestamp_incremental_fields("created_at"),
+        # Account-wide change log for every record type, so it can be very large. Opt in only.
+        should_sync_default=False,
+    ),
+    # Staff comments on an idea in the Aha! app. Portal comments are in `idea_comments`.
+    "idea_internal_comments": AhaIdeasEndpointConfig(
+        name="idea_internal_comments",
+        path="/ideas/{idea_id}/comments",
+        response_key="comments",
+        # "List comments on an idea" documents only `page`/`per_page`.
+        supports_incremental=False,
+        primary_keys=["id", "idea_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="ideas",
+            resolve_param="idea_id",
+            resolve_field="id",
+            # Comment rows identify their record only through the nested `commentable` object.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "idea_id"},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(AHA_IDEAS_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in AHA_IDEAS_ENDPOINTS.items()
+}
+
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {
+    name: config.should_sync_default for name, config in AHA_IDEAS_ENDPOINTS.items()
 }

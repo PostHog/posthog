@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { IconCode, IconLetter, IconLock } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -11,11 +12,13 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TagSelect } from 'lib/components/TagSelect'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,12 +27,18 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { CodeBadge } from './code/CodeBadge'
+import { SendFromCodeBanner } from './sendFromCode/SendFromCodeBanner'
+import { SendFromCodeEmptyState } from './sendFromCode/SendFromCodeEmptyState'
+import { useSendFromCodeGuideLink } from './sendFromCode/useSendFromCodeGuideLink'
 import { ManagedBy, TransactionalEmailRow } from './transactionalEmailRows'
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 import { TransactionalTemplatesLoadError } from './TransactionalTemplatesLoadError'
 
 // Below this width the table keeps only the name and the sparkline, so it fits beside an open side panel.
 const COLUMN_BREAKPOINTS = { 0: 'narrow', 760: 'wide' } as const
+
+const SENDING_ALLOWANCE_DOCS_URL =
+    'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
 
 export function TransactionalEmailsTable(): JSX.Element {
     const {
@@ -44,6 +53,10 @@ export function TransactionalEmailsTable(): JSX.Element {
     } = useValues(transactionalEmailsLogic)
     const { setFilters, saveTransactionalTags } = useActions(transactionalEmailsLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const sendFromCodeEnabled = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE')
+    const [guideOpen, setGuideOpen] = useState(false)
+    useSendFromCodeGuideLink(() => setGuideOpen(true))
     const { ref: widthRef, size } = useResizeBreakpoints(COLUMN_BREAKPOINTS, { initialSize: 'wide' })
     const wide = size === 'wide'
     // Same check as the "New transactional email" button: changing a template needs Editor access.
@@ -53,7 +66,9 @@ export function TransactionalEmailsTable(): JSX.Element {
     )
 
     if (hasNoEmails) {
-        return (
+        return sendFromCodeEnabled ? (
+            <SendFromCodeEmptyState />
+        ) : (
             <ProductIntroduction
                 thingName="transactional email"
                 description="Send emails from your code with one API call. Use them for emails a person triggers, like password resets, receipts and sign-in codes. This tab shows how many were sent, delivered and failed in the last 7 days."
@@ -78,6 +93,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                 message="Your emails couldn't load. Check your connection and try again."
                 dataAttr="transactional-emails-templates-retry"
             />
+            <SendFromCodeBanner guideOpen={guideOpen} onGuideOpenChange={setGuideOpen} />
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"
@@ -296,6 +312,12 @@ export function TransactionalEmailsTable(): JSX.Element {
                           : 'No transactional emails'
                 }
             />
+            {isCloudOrDev && (
+                <p className="text-xs text-secondary mb-0">
+                    Transactional emails count toward your daily sending allowance and are still sent after it's used
+                    up. <Link to={SENDING_ALLOWANCE_DOCS_URL}>How sending allowances work</Link>
+                </p>
+            )}
         </div>
     )
 }

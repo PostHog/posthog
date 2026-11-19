@@ -476,7 +476,7 @@ describe('ReportCard', () => {
         expect(impactMetric?.contains(tag) ?? false).toBe(false)
     })
 
-    it('marks an unscored report under a model sort and adds no tag under a time sort', () => {
+    it('marks an unscored report under a model sort, shows a stale score, and adds no tag under a time sort', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableImpactColumn()
@@ -492,8 +492,8 @@ describe('ReportCard', () => {
             },
         })
         rerender(<ReportCard report={stale} rankingSortField="ranking_fix" />)
-        expect(screen.getByText('Score out of date')).toBeInTheDocument()
-        expect(screen.queryByText('2.7x more likely')).not.toBeInTheDocument()
+        expect(screen.getByText('2.7x more likely')).toBeInTheDocument()
+        expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
@@ -528,7 +528,9 @@ describe('ReportCard', () => {
         expect(screen.getByText('2.7x more likely')).toBeInTheDocument()
 
         rerender(<ReportCard report={{ ...scored, ranking: { ...scored.ranking!, status: 'stale' } }} rankingPill />)
-        expect(screen.getByText('Score out of date')).toBeInTheDocument()
+        expect(container.querySelector('[data-attr="inbox-ranking-pill"]')?.textContent).toBe(
+            'Open2.9xAction<0.1xFix2.7x'
+        )
 
         rerender(<ReportCard report={scored} />)
         expect(container.querySelector('[data-attr="inbox-ranking-pill"]')).toBeNull()

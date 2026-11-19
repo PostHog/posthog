@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AEOBrandApi,
     AEOBrandCreateRequestApi,
+    AEOCompetitorCandidateApi,
     AEOEngineSettingApi,
     AEOKeywordApi,
     AEOKeywordCreateRequestApi,
@@ -36,10 +37,12 @@ import type {
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
+    AeoBrandsCompetitorCandidatesParams,
     AeoBrandsListParams,
     AeoKeywordsModifiersParams,
     AeoKeywordsReportParams,
     AeoPromptsChecksParams,
+    AeoPromptsCitationsParams,
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
     AeoPromptsRankingsParams,
@@ -75,6 +78,7 @@ import type {
     LlmsTxtFetchResponseApi,
     PaginatedAEOBrandListApi,
     PaginatedAEOPromptCheckListApi,
+    PaginatedAEOPromptCitationListApi,
     PaginatedAEOPromptListApi,
     PaginatedContentAutopilotOpportunityListApi,
     PaginatedContentAutopilotProposalListListApi,
@@ -215,6 +219,40 @@ export const aeoBrandsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedAEOBrandUpdateRequestApi),
+    })
+}
+
+export const getAeoBrandsCompetitorCandidatesUrl = (
+    projectId: string,
+    params?: AeoBrandsCompetitorCandidatesParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_brands/competitor_candidates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_brands/competitor_candidates/`
+}
+
+/**
+ * Lists suggested brands that are likely competitors, from the answers of the last 7 days. A brand is a candidate when answers to non-branded prompts both name it and cite its domain. Brands that are the project's own, confirmed or ignored are left out. The list is ordered by the smaller of the two counts, highest first. Nothing is saved: confirm a candidate as a competitor or ignore it with aeo_brands_partial_update.
+ * @summary List likely AEO competitors
+ */
+export const aeoBrandsCompetitorCandidates = async (
+    projectId: string,
+    params?: AeoBrandsCompetitorCandidatesParams,
+    options?: RequestInit
+): Promise<AEOCompetitorCandidateApi[]> => {
+    return apiMutator<AEOCompetitorCandidateApi[]>(getAeoBrandsCompetitorCandidatesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -602,6 +640,37 @@ export const aeoPromptsBulkImport = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aEOPromptBulkImportRequestApi),
+    })
+}
+
+export const getAeoPromptsCitationsUrl = (projectId: string, params?: AeoPromptsCitationsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/citations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/citations/`
+}
+
+/**
+ * Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one domain, or ran one web search, over the last 'days' days (default 30) in the project's timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview or the rankings, with the same 'days' and 'branded' values.
+ * @summary List the answers behind a cited page, site or search
+ */
+export const aeoPromptsCitations = async (
+    projectId: string,
+    params?: AeoPromptsCitationsParams,
+    options?: RequestInit
+): Promise<PaginatedAEOPromptCitationListApi> => {
+    return apiMutator<PaginatedAEOPromptCitationListApi>(getAeoPromptsCitationsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1381,7 +1450,7 @@ export const getWebAnalyticsAchievementsOverviewUrl = (projectId: string) => {
 }
 
 /**
- * Returns the achievement track definitions (thresholds resolved for the requesting user's streak-cadence arm), the user's and team's progress, and any newly unlocked stages awaiting an in-session celebration.
+ * Returns the achievement track definitions (thresholds resolved for the requesting user's streak-cadence arm), the user's progress, and any newly unlocked stages awaiting an in-session celebration.
  * @summary Get Web analytics achievements overview
  */
 export const webAnalyticsAchievementsOverview = async (

@@ -7,19 +7,19 @@ import type { ReactNode } from 'react'
 
 import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { cohortsSetupLogic } from '../emptyState/cohortsSetupLogic'
 import { RealtimeCohortsWaitlistBanner } from './RealtimeCohortsWaitlistBanner'
+import { useRealtimeCohortsServing } from './useRealtimeCohortsServing'
 
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
     useActions: jest.fn(),
 }))
-jest.mock('lib/hooks/useFeatureFlag', () => ({
-    useFeatureFlag: jest.fn(() => false),
+jest.mock('./useRealtimeCohortsServing', () => ({
+    useRealtimeCohortsServing: jest.fn(() => false),
 }))
 jest.mock('posthog-js', () => ({ __esModule: true, default: { get_property: jest.fn() } }))
 jest.mock('@posthog/react', () => ({
@@ -31,7 +31,7 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({ lemonToast: { success: jest.fn() }
 
 const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
-const mockedUseFeatureFlag = useFeatureFlag as jest.Mock
+const mockedUseRealtimeCohortsServing = useRealtimeCohortsServing as jest.Mock
 const mockedGetProperty = posthog.get_property as jest.Mock
 
 const mockLoadEarlyAccessFeatures = jest.fn()
@@ -55,17 +55,17 @@ function setupMocks(
     }>,
     {
         isDismissed = false,
-        hasRealtimeTargeting = false,
+        realtimeCohortsServing = false,
         setupStatus = 'has-data',
         joinedInThisBrowser = false,
     }: {
         isDismissed?: boolean
-        hasRealtimeTargeting?: boolean
+        realtimeCohortsServing?: boolean
         setupStatus?: string
         joinedInThisBrowser?: boolean
     } = {}
 ): void {
-    mockedUseFeatureFlag.mockReturnValue(hasRealtimeTargeting)
+    mockedUseRealtimeCohortsServing.mockReturnValue(realtimeCohortsServing)
     mockedGetProperty.mockReturnValue(
         joinedInThisBrowser ? { [`$feature_enrollment/${FEATURE_FLAGS.REALTIME_COHORTS}`]: true } : {}
     )
@@ -142,7 +142,7 @@ describe('RealtimeCohortsWaitlistBanner', () => {
 
     it.each([
         ['the banner was dismissed', { isDismissed: true }],
-        ['the team already has realtime cohort targeting', { hasRealtimeTargeting: true }],
+        ['the team already sees realtime cohorts', { realtimeCohortsServing: true }],
         ['the project has no cohorts yet', { setupStatus: 'needs-setup' }],
         ['cohort detection has not answered yet', { setupStatus: 'loading' }],
         ['this browser already joined the waitlist', { joinedInThisBrowser: true }],

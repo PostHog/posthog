@@ -77,12 +77,14 @@ export function EvaluationFilterBar(): JSX.Element | null {
                             <LemonButton
                                 key={v}
                                 size="xsmall"
-                                type="secondary"
+                                type={selected ? 'primary' : 'secondary'}
                                 active={selected}
+                                className="[--lemon-button-bg-color-active:var(--color-accent-highlight-primary)]"
+                                aria-pressed={selected}
                                 onClick={() => toggleVerdict(v)}
                                 data-attr={`clusters-eval-verdict-filter-${v}`}
                             >
-                                {v} <span className="text-muted ml-1">({count})</span>
+                                {v} <span className="ml-1">({count})</span>
                             </LemonButton>
                         )
                     })}

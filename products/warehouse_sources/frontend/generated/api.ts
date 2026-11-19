@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddSourcesRequestApi,
     AddSourcesResponseApi,
+    AddTableRequestApi,
     ApplyMigrationItemApi,
     ApplyMigrationItemResponseApi,
     CdcDisableResponseApi,
@@ -30,6 +31,7 @@ import type {
     DestinationConnectLinkApi,
     DestinationConnectStatusApi,
     DestinationConnectionTestResponseApi,
+    DestinationDeliveryFailuresResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
@@ -289,6 +291,27 @@ export const externalDataDestinationsAddSourcesCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(addSourcesRequestApi),
     })
+}
+
+export const getExternalDataDestinationsDeliveryFailuresRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/delivery_failures/`
+}
+
+/**
+ * List recent sync runs that could not deliver to this destination, with the error of each one.
+ */
+export const externalDataDestinationsDeliveryFailuresRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DestinationDeliveryFailuresResponseApi> => {
+    return apiMutator<DestinationDeliveryFailuresResponseApi>(
+        getExternalDataDestinationsDeliveryFailuresRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataDestinationsTestConnectionCreateUrl = (projectId: string, id: string) => {
@@ -818,6 +841,28 @@ export const externalDataSourcesDestroy = async (
     return apiMutator<void>(getExternalDataSourcesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getExternalDataSourcesAddTableCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/add_table/`
+}
+
+/**
+ * Creates a table in an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2) from a folder, a file or a wildcard pattern in the source's bucket. PostHog reads only that location to check the files, and does not sync data. The new table is turned off. Turn it on with a schema update to start syncing it.
+ * @summary Add a table to an object storage source by its path
+ */
+export const externalDataSourcesAddTableCreate = async (
+    projectId: string,
+    id: string,
+    addTableRequestApi: AddTableRequestApi,
+    options?: RequestInit
+): Promise<ExternalDataSchemaApi> => {
+    return apiMutator<ExternalDataSchemaApi>(getExternalDataSourcesAddTableCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addTableRequestApi),
     })
 }
 

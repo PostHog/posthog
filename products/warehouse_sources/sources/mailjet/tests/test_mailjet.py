@@ -80,11 +80,12 @@ class TestToUnixTs:
 
 class TestOffsetPagination:
     def test_multi_page_advances_offset(self) -> None:
+        # Mailjet's `Total` equals the row count of the page, so it must not end the sync.
         result = _driver().run(
             "contact",
             [
-                _response([{"ID": i} for i in range(LIMIT)], total=LIMIT + 2),
-                _response([{"ID": i} for i in range(2)], total=LIMIT + 2),
+                _response([{"ID": i} for i in range(LIMIT)], total=LIMIT),
+                _response([{"ID": LIMIT + i} for i in range(2)], total=2),
             ],
         )
 

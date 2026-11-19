@@ -5,12 +5,15 @@ it. Which destinations an alert has is resolved before this, so a change to that
 reaches no transport.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC
 
 from django.utils import timezone
 
 import structlog
 
+from products.alerts_platform.backend.delivery import incident_io, pagerduty
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
 from products.alerts_platform.backend.delivery.refusal_notices import notify_refused
 from products.alerts_platform.backend.delivery.root_state import state_line
@@ -23,6 +26,7 @@ from products.alerts_platform.backend.delivery.transport import (
     DestinationMisconfigured,
     DestinationRefused,
     MessageHandle,
+    RefusedEverywhere,
     RootEditor,
     RootImageEditor,
 )
@@ -49,9 +53,10 @@ from products.alerts_platform.backend.temporal.metrics import (
 
 logger = structlog.get_logger(__name__)
 
-# PagerDuty dedups on the event's `dedup_key`, so a retry of a send whose answer was lost cannot
-# page twice. It keeps release-and-retry, which also delivers the event the first try never did.
-_IDEMPOTENT_PROVIDERS = frozenset({"pagerduty"})
+# PagerDuty dedups on the event's `dedup_key`, and incident.io on its `deduplication_key`, so a retry
+# of a send whose answer was lost cannot page twice. They keep release-and-retry, which also delivers
+# the event the first try never did, such as a resolve that would otherwise leave the incident open.
+_IDEMPOTENT_PROVIDERS = frozenset({pagerduty.PROVIDER, incident_io.PROVIDER})
 
 
 def _recorded_as_delivered(error: Exception, provider: str) -> bool:
@@ -62,6 +67,48 @@ def _recorded_as_delivered(error: Exception, provider: str) -> bool:
     so the rate stays visible.
     """
     return isinstance(error, DeliveryAmbiguous) and provider not in _IDEMPOTENT_PROVIDERS
+
+
+class SendTally:
+    """The outcome of a run of sends to several destinations. A destination that fails does not stop
+    the ones after it, and `raise_failures` reports them all once each has had its try."""
+
+    def __init__(self) -> None:
+        self.sent = 0
+        self._busy: list[str] = []
+        self._failures: list[str] = []
+        self._retryable = False
+
+    @property
+    def problems(self) -> int:
+        return len(self._busy) + len(self._failures)
+
+    @contextmanager
+    def attempt(self, *, counted: bool = True) -> Iterator[None]:
+        """With `counted` False the caller counts its own successes, such as one per destination."""
+        try:
+            yield
+        except ThreadBusy as error:
+            self._busy.append(str(error))
+        except DeliveryError as error:
+            self._failures.append(str(error))
+            self._retryable = self._retryable or not isinstance(error, DestinationMisconfigured)
+        except Exception as error:
+            # Named by class only, because an exception's text can carry a credential URL.
+            self._failures.append(type(error).__name__)
+            self._retryable = True
+        else:
+            if counted:
+                self.sent += 1
+
+    def raise_failures(self, noun: str) -> None:
+        # A held thread wins over a failure, as in `deliver_evaluation`: the workflow waits it out and
+        # reruns every send, which retries the failed ones too.
+        if self._busy:
+            raise ThreadBusy("; ".join([*self._busy, *self._failures]))
+        if self._failures:
+            failed = DeliveryError if self._retryable else RefusedEverywhere
+            raise failed(f"{len(self._failures)} {noun}(s) failed: " + "; ".join(self._failures))
 
 
 def deliver(

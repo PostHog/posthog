@@ -182,10 +182,11 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        const tabBefore = contentAutopilotLogic.values.workspaceTab
         logic.actions.selectOverviewTopic('Session replay')
         await expectLogic(logic).toDispatchActions(['setTopic', 'loadPromptSetOverviewSuccess']).toFinishAllListeners()
 
-        expect(contentAutopilotLogic.values.workspaceTab).toEqual('prompts')
+        expect(contentAutopilotLogic.values.workspaceTab).toEqual(tabBefore)
         expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             days: 30,
             branded: 'non_branded',
@@ -196,6 +197,14 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
             String(MOCK_DEFAULT_TEAM.id),
             expect.objectContaining({ topic: 'Session replay' })
         )
+
+        logic.actions.selectOverviewTopic('Session replay')
+        await expectLogic(logic).toDispatchActions(['setTopic', 'loadPromptSetOverviewSuccess']).toFinishAllListeners()
+
+        expect(mockOverview).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            days: 30,
+            branded: 'non_branded',
+        })
     })
 
     it('sends the date range and engine to the overview and the tiles', async () => {

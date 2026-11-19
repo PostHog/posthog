@@ -54,6 +54,11 @@ PAGE_LIMIT = 50000  # runReport allows up to 250k rows/request; keep payloads mo
 RUNREPORT_MAX_RETRIES = 5
 RUNREPORT_BACKOFF_BASE_SECONDS = 5.0
 
+# Stable prefixes of the errors `_run_report` raises once its inline retries run out.
+# `GoogleAnalyticsSource.get_retry_exhausted_errors` keys on them.
+QUOTA_EXHAUSTED_ERROR_PREFIX = "Google Analytics Data API quota for property"
+SERVER_ERROR_PREFIX = "Google Analytics Data API returned"
+
 _INTEGER_METRIC_TYPES = frozenset({"TYPE_INTEGER"})
 
 
@@ -292,7 +297,7 @@ def _run_report(
             if is_quota:
                 logger.warning("ga4_runreport_quota_exhausted", property_id=pid)
                 raise GoogleAnalyticsQuotaExceededError(
-                    f"Google Analytics Data API quota for property '{pid}' is used up. PostHog will retry "
+                    f"{QUOTA_EXHAUSTED_ERROR_PREFIX} '{pid}' is used up. PostHog will retry "
                     "when the quota refills. If this keeps happening, set a lower 'Days of history to sync "
                     "initially' value on the source, or remove high-cardinality dimensions from your custom "
                     "reports (retryable)"
@@ -300,7 +305,7 @@ def _run_report(
             # A transient 5xx or 409 that never cleared — raise a retryable error so Temporal
             # retries the activity without paging error tracking for an outage on Google's side.
             raise GoogleAnalyticsServerError(
-                f"Google Analytics Data API returned {response.status_code} for property '{pid}' "
+                f"{SERVER_ERROR_PREFIX} {response.status_code} for property '{pid}' "
                 "after retries. PostHog will retry automatically (retryable)"
             )
 

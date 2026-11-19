@@ -40,7 +40,10 @@ from products.replay_vision.backend.quota import (
 )
 from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL, CREATE_OBSERVATION_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import SCANNER_ADMISSION_BUSY_ERROR_TYPE
+from products.replay_vision.backend.temporal.errors import (
+    BILLING_SYNC_PENDING_ERROR_TYPE,
+    SCANNER_ADMISSION_BUSY_ERROR_TYPE,
+)
 from products.replay_vision.backend.temporal.metrics import (
     record_consent_skip,
     record_quota_exhausted_skip,
@@ -379,11 +382,18 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
 
     organization_id = scanner.team.organization_id
     cap = org_credit_cap_for(scanner.team.organization, organization_id)
+    if cap.awaiting_billing_sync:
+        # A lost-result retry reclaims its own PENDING row first, or the row holds its reserved credits until the reaper.
+        reclaimed_output = _reclaim_own_pending_insert(inputs)
+        if reclaimed_output is not None:
+            return reclaimed_output
+        # Its zero credits are a placeholder, so retry until the sync lands rather than drop the session as over quota.
+        raise ApplicationError("Billing has not synced this organization yet", type=BILLING_SYNC_PENDING_ERROR_TYPE)
     # A free-only scanner stops at the org's free credits, below any billing limit.
     ceiling = free_credits_ceiling(cap) if scanner.free_only else cap.credit_limit
     # The free credits, not the org's own limit, are what stops the scanner when they sit below that limit.
-    free_credits_bound = scanner.free_only and (
-        cap.credit_limit is None or free_credits_ceiling(cap) < cap.credit_limit
+    free_credits_bound = (
+        scanner.free_only and ceiling is not None and (cap.credit_limit is None or ceiling < cap.credit_limit)
     )
     # Unlocked pre-check, so an exhausted org skips the snapshot and admission work.
     if ceiling is not None:
