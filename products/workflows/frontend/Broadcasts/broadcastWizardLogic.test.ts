@@ -239,9 +239,17 @@ describe('broadcastWizardLogic', () => {
             step: 'content',
             aiDraftBy: 'template',
         },
+        {
+            link: 'an AI draft that arrives after the person edits the audience',
+            email: undefined,
+            verified: true,
+            step: 'recipients',
+            aiDraftBy: 'ai',
+            editsAudience: true,
+        },
     ])(
         'opens a link with $link on the $step step without creating a draft',
-        async ({ email, verified, step, aiDraftBy }) => {
+        async ({ email, verified, step, aiDraftBy, editsAudience }) => {
             const createDraft = jest.fn()
             useMocks({
                 get: {
@@ -274,10 +282,13 @@ describe('broadcastWizardLogic', () => {
             logic = broadcastWizardLogic({ id: 'new' })
             logic.mount()
             integrationsLogic.mount()
+            if (editsAudience) {
+                logic.actions.stayOnRecipients()
+            }
 
             await expectLogic(logic, () => {
                 integrationsLogic.actions.loadIntegrations()
-            }).toDispatchActions(['landOnStep'])
+            }).toDispatchActions([editsAudience ? 'loadAiEmailDraftSuccess' : 'landOnStep'])
             if (aiDraftBy === 'ai') {
                 // The applied draft starts a brand lookup, which must not outlive this test.
                 await expectLogic(logic).toDispatchActions(['loadEmailBrandSuccess'])

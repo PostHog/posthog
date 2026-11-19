@@ -199,7 +199,8 @@ export function BroadcastRecipientsStep(): JSX.Element {
         useValues(broadcastWizardLogic)
     // A realtime cohort has to be the audience's only condition.
     const realtimeCohortAlone = !!blastRadius?.realtime_cohort || !!blastRadius?.realtime_cohort_with_other_conditions
-    const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
+    const { setAudienceProperties, sendToEveryoneAfterRejectedLink, stayOnRecipients } =
+        useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { openListModal } = useActions(broadcastAudienceListLogic(props))
     const { editableAudience } = useValues(broadcastAudienceCohortsLogic(props))
@@ -255,7 +256,10 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 allowRelativeDateOptions
                 hideBehavioralCohorts={!cohortConditionsEnabled}
                 logicalRowDivider
-                onChange={(properties) => setAudienceProperties(properties)}
+                onChange={(properties) => {
+                    stayOnRecipients()
+                    setAudienceProperties(properties)
+                }}
                 taxonomicGroupTypes={[
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.Cohorts,
@@ -276,7 +280,10 @@ export function BroadcastRecipientsStep(): JSX.Element {
                         type="secondary"
                         size="small"
                         icon={<IconUpload />}
-                        onClick={openListModal}
+                        onClick={() => {
+                            stayOnRecipients()
+                            openListModal()
+                        }}
                         data-attr="broadcast-audience-add-list"
                     >
                         Upload a list
