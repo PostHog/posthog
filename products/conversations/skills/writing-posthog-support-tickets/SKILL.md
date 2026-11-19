@@ -45,7 +45,7 @@ A request for a staff action needs exact inputs, so read its reference before yo
 | ------------------------------------------------------------- | ---------------------------------------------------------------- |
 | Delete events, or remove personal or sensitive data from them | [references/deleting-events.md](./references/deleting-events.md) |
 
-When a lookup finds nothing, or fails, say so in one line of **Already checked**, such as "No flag with the key `checkout-v2` in project 12345".
+When a lookup finds nothing, or fails, say so in its own line of **Already checked**, such as "Claude Code checked: no flag with the key `checkout-v2` in project 12345" or "Claude Code checked: the billing lookup failed, so the quota is unknown".
 Ask the person only for what you cannot look up, such as when it started or what they expected.
 
 ## 2. Write it
@@ -79,12 +79,12 @@ Error:
   - Leave out a question that is already answered, and put the answer in **Already checked**, so support sees it was asked. Keep it as a question only when the person wants support to confirm the answer. A question about their own account, bill or data stays open when only a general rule answers it, but one you answered from their own data is answered.
 - **Already checked** lists what was checked and what it showed, one line each, with the person's steps ("I tried") apart from yours ("<your name> checked").
   - Write "<your name> checked" only for a lookup run in this conversation. A number the person gave you is theirs, so it goes in **Request** or **Details**.
-  - Keep checks that ruled a cause out, so support doesn't run them again. When there are more than five, keep the ones that bear on the open questions, and name the rest in one line, such as "Also ruled out: bot traffic and a mid-run flag change".
+  - Keep checks that ruled a cause out, so support doesn't run them again. When there are more than five, keep the ones that bear on the open questions, and name the rest in one line, such as "Claude Code checked: no bot traffic and no mid-run flag change".
   - When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
 - **Error** is an error the person saw. A lookup of yours that failed goes in **Already checked**.
 - Copy IDs, queries and errors exactly.
 - Write dates as Dec 10, 2026, never as 10 December or 2026-12-10. A query keeps its own date format.
-- Keep it to about 150 words, not counting the numbered questions, a query or an error.
+- Keep it to about 150 words, not counting links, IDs, the numbered questions, a query or an error.
 
 Cut these:
 
