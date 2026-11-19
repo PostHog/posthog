@@ -15,7 +15,7 @@ from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.workflows.backend.facade.testing import create_workflow_for_test
+from products.workflows.backend.facade.testing import create_batch_job_for_test, create_workflow_for_test
 
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 
@@ -159,6 +159,31 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert {listed.status_code, detail.status_code, activity.status_code} == {status.HTTP_404_NOT_FOUND}
         assert self.flag_enabled.call_args.args[0] == "workflows-email-activity"
 
+    def test_pages_through_sends_logged_at_the_same_moment_without_repeats(self):
+        sent_at = NOW - timedelta(hours=1)
+        for i in range(6):
+            self._sent_log(self._run_id(sent_at), "welcome", sent_at, distinct_id=f"person-{i}")
+
+        pages = [
+            self.client.get(self._url(), {"workflow_id": self.workflow_id, "limit": "2", "offset": str(offset)}).json()
+            for offset in (0, 2, 4)
+        ]
+
+        recipients = [send["recipient"] for page in pages for send in page["results"]]
+        assert sorted(recipients) == sorted(f"person-{i}@example.com" for i in range(6))
+
+    def test_a_broadcast_send_belongs_to_its_workflow(self):
+        batch_job_id = create_batch_job_for_test(team_id=self.team.id, workflow_id=self.workflow_id)
+        run_id = self._run_id(NOW - timedelta(hours=2))
+        self._sent(run_id, "welcome", NOW - timedelta(hours=1), workflow_id=batch_job_id)
+        flush_persons_and_events()
+
+        listed = self.client.get(self._url(), {"workflow_id": self.workflow_id}).json()
+        detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"}).json()
+
+        assert [(s["invocation_id"], s["workflow_id"]) for s in listed["results"]] == [(run_id, self.workflow_id)]
+        assert detail["workflow_id"] == self.workflow_id
+
     def test_a_send_event_without_the_run_s_log_line_is_not_a_send(self):
         run_id = self._run_id(NOW - timedelta(hours=2))
         self._email_event("sent", run_id, "welcome", NOW - timedelta(hours=1))
@@ -218,6 +243,7 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         [
             ("another_projects_send", "other_team", (200, 404, 404)),
             ("a_workflow_the_user_cannot_view", "hog_flow", (404, 404, 404)),
+            ("a_broadcast_of_a_workflow_the_user_cannot_view", "broadcast", (404, 404, 404)),
             ("no_person_access", "person", (403, 403, 403)),
             ("no_query_access", "query", (200, 200, 403)),
         ]
@@ -237,8 +263,8 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
             self.organization_membership.save()
             create_access_control(
                 team_id=self.team.id,
-                resource=denied,
-                resource_id=self.workflow_id if denied == "hog_flow" else None,
+                resource="hog_flow" if denied == "broadcast" else denied,
+                resource_id=self.workflow_id if denied in ("hog_flow", "broadcast") else None,
                 access_level="none",
                 organization_member_id=self.organization_membership.id,
             )

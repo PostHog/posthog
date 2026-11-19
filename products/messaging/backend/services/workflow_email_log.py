@@ -5,6 +5,7 @@ token can capture a `$workflows_email_*` event, so those events only add a subje
 delivery and engagement to a send the logs already show. They exist only while the team records engagement events.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -27,6 +28,7 @@ from products.messaging.backend.facade.contracts import (
     WorkflowEmailSend,
 )
 from products.messaging.backend.services.transactional_email_activity import ACTIVITY_WINDOW_DAYS, get_email_activity
+from products.workflows.backend.facade.api import get_batch_job_workflow_ids, get_workflow_batch_job_ids
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
 FOLLOW_UP_EVENTS = {
@@ -111,7 +113,7 @@ def _logged_sends(
         FROM log_entries
         WHERE log_source = 'hog_flow' AND message LIKE {{sent_line}} AND {where}
         GROUP BY instance_id, action_id
-        ORDER BY sent_at {order}
+        ORDER BY sent_at {order}, instance_id {order}, action_id {order}
         LIMIT {{limit}} OFFSET {{offset}}
         """,
         {
@@ -225,12 +227,14 @@ def list_workflow_emails(
     now = datetime.now(UTC)
     start = date_from or now - timedelta(days=DEFAULT_LIST_DAYS)
     end = min(date_to, now + _CLOCK_SKEW) if date_to else now + _CLOCK_SKEW
+    # A broadcast's runs log under their batch job, not the workflow.
+    sources = [workflow_id, *get_workflow_batch_job_ids(team_id=team.id, workflow_id=workflow_id)]
     logged = _logged_sends(
         team,
         user,
-        "log_source_id = {workflow_id} AND timestamp >= {start} AND timestamp < {end}",
+        "log_source_id IN {sources} AND timestamp >= {start} AND timestamp < {end}",
         {
-            "workflow_id": ast.Constant(value=workflow_id),
+            "sources": ast.Constant(value=sources),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
         },
@@ -253,7 +257,10 @@ def list_workflow_emails(
     )
     return WorkflowEmailPage(
         sends=[
-            _send(send, events.get(_SendKey(invocation_id=send.invocation_id, action_id=send.action_id)))
+            _send(
+                replace(send, workflow_id=workflow_id),
+                events.get(_SendKey(invocation_id=send.invocation_id, action_id=send.action_id)),
+            )
             for send in shown
         ],
         has_more=len(logged) > limit,
@@ -308,6 +315,10 @@ def get_workflow_email(
         send = _find_send(team, user, invocation_id, action_id, window.start + _FIRST_SEARCH, window.end)
     if send is None:
         return None
+    workflow_id = get_batch_job_workflow_ids(team_id=team.id, batch_job_ids=[send.workflow_id]).get(
+        send.workflow_id, send.workflow_id
+    )
+    send = replace(send, workflow_id=workflow_id)
     if access is not None and not access.allows(send.workflow_id):
         return None
     follow_ups_end = min(send.sent_at + FOLLOW_UP_WINDOW, now + _CLOCK_SKEW)
