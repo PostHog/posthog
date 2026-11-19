@@ -57,6 +57,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.query import add_query_response_identity_headers, get_query_request_analytics_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.query import PlannedQuery
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import insight_query_access_error
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -78,6 +79,7 @@ from posthog.clickhouse.query_tagging import (
     tags_context,
 )
 from posthog.constants import INSIGHT
+from posthog.dataclasses import frozen
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
@@ -375,6 +377,20 @@ def _dashboards_field_access_method(request: Request | None) -> str:
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return "personal_api_key"
     return type(authenticator).__name__
+
+
+@frozen
+class _InsightCalculationInputs:
+    is_shared: bool
+    execution_mode: ExecutionMode
+    cache_age_seconds: int | None
+    filters_override: dict
+    variables_override: dict[str, dict] | None
+    tile_filters_override: dict
+    user: Any
+    user_access_control: UserAccessControl | None
+    allow_raw_results: bool
+    limit_context: LimitContext
 
 
 def _limit_context_for_access_method() -> LimitContext:
@@ -1449,74 +1465,32 @@ class InsightSerializer(InsightBasicSerializer):
 
         with upgrade_insight(insight):
             try:
-                is_shared = self.context.get("is_shared", False)
-                execution_mode, shared_cache_age_seconds = resolve_execution_mode(
-                    self.context["request"],
-                    surface=self.context.get("compute_surface", ComputeSurface.LEGACY_UNKNOWN),
-                    is_shared=is_shared,
-                )
-                filters_override = filters_override_requested_by_client(
-                    self.context["request"], dashboard, is_shared=is_shared
-                )
-                variables_override = variables_override_requested_by_client(
-                    self.context["request"], dashboard, list(self.context["insight_variables"]), is_shared=is_shared
-                )
-
-                dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-                tile_filters_override = tile_filters_override_requested_by_client(
-                    self.context["request"],
-                    dashboard_tile.filters_overrides if dashboard_tile else None,
-                    is_shared=is_shared,
-                )
-
+                inputs = self._calculation_inputs(insight, dashboard)
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
-                shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
-                request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
-                if request_user is None and is_shared:
-                    # Anonymous shared views execute as the shared-link user, so
-                    # warehouse-backed tiles resolve instead of failing with "no access"
-                    request_user = self.context.get("shared_link_user")
-                # Reuse the request's single UserAccessControl across all of a dashboard's insight
-                # runners, so the cache fingerprint resolves access once per request, not per tile.
-                # Real users only - a shared-link viewer has no access-control snapshot.
-                view = self.context.get("view")
-                request_user_access_control = (
-                    getattr(view, "user_access_control", None) if isinstance(request_user, User) else None
-                )
-                # Raw cached results (orjson.Fragment) are only valid when the response is
-                # rendered by orjson: SafeJSONRenderer directly, or a caller that declares it
-                # renders tiles with SafeJSONRenderer itself (the SSE tile stream sets
-                # raw_results_supported — SSE content negotiation alone doesn't guarantee an
-                # orjson boundary). Pretty-printed output (?indent=) would not indent inside a
-                # fragment, so keep the parsed path there.
-                accepted_renderer = getattr(self.context["request"], "accepted_renderer", None)
-                allow_raw_results = (
-                    (isinstance(accepted_renderer, SafeJSONRenderer) or bool(self.context.get("raw_results_supported")))
-                    and not self.context["request"].query_params.get("indent")
-                    and not self.context.get("require_parsed_results")
-                )
+                shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if inputs.is_shared else {}
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     insight_result = calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
                         dashboard=dashboard,
-                        execution_mode=execution_mode,
-                        user=request_user,
-                        user_access_control=request_user_access_control,
-                        filters_override=filters_override,
-                        variables_override=variables_override,
-                        tile_filters_override=tile_filters_override,
-                        cache_age_seconds=shared_cache_age_seconds,
+                        execution_mode=inputs.execution_mode,
+                        user=inputs.user,
+                        user_access_control=inputs.user_access_control,
+                        filters_override=inputs.filters_override,
+                        variables_override=inputs.variables_override,
+                        tile_filters_override=inputs.tile_filters_override,
+                        cache_age_seconds=inputs.cache_age_seconds,
                         analytics_props=get_query_request_analytics_properties(self.context["request"]),
-                        allow_raw_results=allow_raw_results,
-                        limit_context=_limit_context_for_access_method(),
+                        allow_raw_results=inputs.allow_raw_results,
+                        limit_context=inputs.limit_context,
+                        planned=self.planned_query(insight),
                     )
                     access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
                     if (
                         dashboard is not None
                         and access_method is not None
-                        and execution_mode
+                        and inputs.execution_mode
                         not in {
                             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                             ExecutionMode.CALCULATE_ASYNC_ALWAYS,
@@ -1564,6 +1538,88 @@ class InsightSerializer(InsightBasicSerializer):
                     error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
                     last_refresh=now() if is_rate_limited else None,
                 )
+
+    def _calculation_inputs(self, insight: Insight, dashboard: Any) -> _InsightCalculationInputs:
+        """What this request asks of the insight's query. Running and planning the query both read it from here."""
+        is_shared = self.context.get("is_shared", False)
+        execution_mode, shared_cache_age_seconds = resolve_execution_mode(
+            self.context["request"],
+            surface=self.context.get("compute_surface", ComputeSurface.LEGACY_UNKNOWN),
+            is_shared=is_shared,
+        )
+        filters_override = filters_override_requested_by_client(self.context["request"], dashboard, is_shared=is_shared)
+        variables_override = variables_override_requested_by_client(
+            self.context["request"], dashboard, list(self.context["insight_variables"]), is_shared=is_shared
+        )
+
+        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+        tile_filters_override = tile_filters_override_requested_by_client(
+            self.context["request"],
+            dashboard_tile.filters_overrides if dashboard_tile else None,
+            is_shared=is_shared,
+        )
+
+        request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
+        if request_user is None and is_shared:
+            # Anonymous shared views execute as the shared-link user, so
+            # warehouse-backed tiles resolve instead of failing with "no access"
+            request_user = self.context.get("shared_link_user")
+        # Reuse the request's single UserAccessControl across all of a dashboard's insight
+        # runners, so the cache fingerprint resolves access once per request, not per tile.
+        # Real users only - a shared-link viewer has no access-control snapshot.
+        view = self.context.get("view")
+        request_user_access_control = (
+            getattr(view, "user_access_control", None) if isinstance(request_user, User) else None
+        )
+        # Raw cached results (orjson.Fragment) are only valid when the response is
+        # rendered by orjson: SafeJSONRenderer directly, or a caller that declares it
+        # renders tiles with SafeJSONRenderer itself (the SSE tile stream sets
+        # raw_results_supported — SSE content negotiation alone doesn't guarantee an
+        # orjson boundary). Pretty-printed output (?indent=) would not indent inside a
+        # fragment, so keep the parsed path there.
+        accepted_renderer = getattr(self.context["request"], "accepted_renderer", None)
+        allow_raw_results = (
+            (isinstance(accepted_renderer, SafeJSONRenderer) or bool(self.context.get("raw_results_supported")))
+            and not self.context["request"].query_params.get("indent")
+            and not self.context.get("require_parsed_results")
+        )
+        return _InsightCalculationInputs(
+            is_shared=is_shared,
+            execution_mode=execution_mode,
+            cache_age_seconds=shared_cache_age_seconds,
+            filters_override=filters_override,
+            variables_override=variables_override,
+            tile_filters_override=tile_filters_override,
+            user=request_user,
+            user_access_control=request_user_access_control,
+            allow_raw_results=allow_raw_results,
+            limit_context=_limit_context_for_access_method(),
+        )
+
+    def plan_query(self, insight: Insight) -> PlannedQuery | None:
+        """The query `insight_result` would run for the insight in this context, planned but not run."""
+        from posthog.caching.calculate_results import plan_query_based_insight
+
+        dashboard: Any = self.context.get("dashboard")
+        with upgrade_insight(insight):
+            inputs = self._calculation_inputs(insight, dashboard)
+            return plan_query_based_insight(
+                insight,
+                team=self.context["get_team"](),
+                dashboard=dashboard,
+                user=inputs.user,
+                user_access_control=inputs.user_access_control,
+                filters_override=inputs.filters_override,
+                variables_override=inputs.variables_override,
+                tile_filters_override=inputs.tile_filters_override,
+                allow_raw_results=inputs.allow_raw_results,
+                limit_context=inputs.limit_context,
+            )
+
+    def planned_query(self, insight: Insight) -> PlannedQuery | None:
+        """A query planned earlier in this request for the insight, which `insight_result` runs instead of planning
+        it again."""
+        return None
 
     def _degraded_insight_result(
         self,

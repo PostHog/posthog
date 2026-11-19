@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -10,6 +12,7 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog import redis
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
@@ -20,6 +23,24 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.dashboards.backend.constants import MAX_CACHED_TILES_BATCH_SIZE
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models import PropertyDefinition
+
+
+class _CountingReadClient:
+    def __init__(self, client: Any) -> None:
+        self.client = client
+        self.round_trips = 0
+
+    def __getattr__(self, name: str) -> Any:
+        if name in ("get", "mget", "mget_nonatomic"):
+            self.round_trips += 1
+        return getattr(self.client, name)
+
+
+@contextmanager
+def _count_cache_reads() -> Iterator[_CountingReadClient]:
+    counter = _CountingReadClient(redis.get_client())
+    with patch("posthog.query_cache.storage.query_cache_read_client", return_value=counter):
+        yield counter
 
 
 def _event_count_query(event: str) -> dict:
@@ -220,16 +241,17 @@ class TestDashboardCachedTiles(APIBaseTest):
 
         self.assertEqual(self._statuses([tile_id]), [(tile_id, "hit")])
 
-    def test_postgres_queries_do_not_grow_with_tile_count(self) -> None:
+    def test_postgres_queries_and_cache_reads_do_not_grow_with_tile_count(self) -> None:
         tiles = [self._add_insight_tile(event) for event in ("$pageview", "$autocapture", "$identify", "$pageleave")]
         for insight_id, _ in tiles:
             self._per_tile(insight_id, "blocking")
         tile_ids = [tile_id for _, tile_id in tiles]
         self._statuses(tile_ids)
 
-        with CaptureQueriesContext(connection) as one_tile:
+        with CaptureQueriesContext(connection) as one_tile, _count_cache_reads() as one_tile_reads:
             self.assertEqual(self._statuses(tile_ids[:1]), [(tile_ids[0], "hit")])
-        with CaptureQueriesContext(connection) as four_tiles:
+        with CaptureQueriesContext(connection) as four_tiles, _count_cache_reads() as four_tile_reads:
             self.assertEqual(self._statuses(tile_ids), [(tile_id, "hit") for tile_id in tile_ids])
 
         self.assertEqual(len(four_tiles.captured_queries), len(one_tile.captured_queries))
+        self.assertEqual((one_tile_reads.round_trips, four_tile_reads.round_trips), (1, 1))
