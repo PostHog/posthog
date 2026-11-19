@@ -1982,6 +1982,18 @@ _INCOMPLETE_INVOICE = {
 }
 
 
+def _subscription_is(
+    *, status: str, discounts: list[Any], items: list[dict[str, Any]]
+) -> Callable[[dict[str, Any]], bool]:
+    def check(row: dict[str, Any]) -> bool:
+        assert row["status"] == status
+        assert orjson.loads(row["discounts"]) == discounts
+        assert orjson.loads(row["items"])["data"] == items
+        return True
+
+    return check
+
+
 class TestWebhookRefetch:
     def _transform(self, endpoint: str, obj: dict[str, Any]) -> list[dict[str, Any]]:
         refetcher = WebhookObjectRefetcher(
@@ -2024,9 +2036,9 @@ class TestWebhookRefetch:
                 lambda row: len(orjson.loads(row["lines"])["data"]) == len(_ALL_LINES),
             ),
             (
-                "tiers of a tiered price",
+                "tiers of a price archived since the event",
                 PRICE_RESOURCE_NAME,
-                {"id": "price_1", "object": "price", "billing_scheme": "tiered"},
+                {"id": "price_1", "object": "price", "billing_scheme": "tiered", "active": True},
                 {
                     "/v1/prices/price_1": (
                         {"expand[0]": "tiers"},
@@ -2034,27 +2046,58 @@ class TestWebhookRefetch:
                             "id": "price_1",
                             "object": "price",
                             "billing_scheme": "tiered",
+                            "active": False,
                             "tiers": [{"up_to": 10, "unit_amount": 5}, {"up_to": None, "unit_amount": 3}],
                         },
                     )
                 },
-                lambda row: len(orjson.loads(row["tiers"])) == 2,
+                lambda row: row["active"] is True and len(orjson.loads(row["tiers"])) == 2,
             ),
             (
-                "expanded subscription discounts",
+                "discounts of a subscription changed since the event",
                 SUBSCRIPTION_RESOURCE_NAME,
-                {"id": "sub_1", "object": "subscription", "discounts": ["di_1"]},
+                {
+                    "id": "sub_1",
+                    "object": "subscription",
+                    "status": "active",
+                    "discounts": ["di_1", "di_removed"],
+                    "items": {
+                        "object": "list",
+                        "data": [{"id": "si_1", "discounts": ["di_2"]}, {"id": "si_2", "discounts": []}],
+                    },
+                },
                 {
                     "/v1/subscriptions/sub_1": (
                         {"expand[0]": "discounts", "expand[1]": "items.data.discounts"},
                         {
                             "id": "sub_1",
                             "object": "subscription",
-                            "discounts": [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}],
+                            "status": "canceled",
+                            "discounts": [
+                                {"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}},
+                                {"id": "di_added", "object": "discount", "coupon": {"id": "co_3"}},
+                            ],
+                            "items": {
+                                "object": "list",
+                                "data": [
+                                    {
+                                        "id": "si_1",
+                                        "discounts": [{"id": "di_2", "object": "discount", "coupon": {"id": "co_2"}}],
+                                    },
+                                    {"id": "si_2", "discounts": []},
+                                ],
+                            },
                         },
                     )
                 },
-                lambda row: orjson.loads(row["discounts"])[0]["coupon"]["id"] == "co_1",
+                _subscription_is(
+                    status="active",
+                    discounts=[{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}, "di_removed"],
+                    items=[
+                        {"id": "si_1", "discounts": [{"id": "di_2", "object": "discount", "coupon": {"id": "co_2"}}]},
+                        {"id": "si_2", "discounts": []},
+                    ],
+                ),
             ),
         ]
     )
