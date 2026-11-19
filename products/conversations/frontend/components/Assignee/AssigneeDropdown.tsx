@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { outOfOfficeLogic } from '../OutOfOffice/outOfOfficeLogic'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
 import { Assignee, TicketAssignee, toTicketAssignee } from './types'
@@ -18,6 +19,7 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
     const { search, filteredRoles, otherFilteredMembers, currentUserMember, rolesLoading, membersLoading } =
         useValues(assigneeSelectLogic)
     const { setSearch } = useActions(assigneeSelectLogic)
+    const { awayUserIds } = useValues(outOfOfficeLogic)
 
     return (
         <div className="max-w-100 deprecated-space-y-2">
@@ -47,7 +49,12 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                             }}
                             onSelect={onChange}
                             activeId={assignee?.id}
-                            labelSuffix={<span className="text-secondary">(you)</span>}
+                            labelSuffix={
+                                <>
+                                    <span className="text-secondary">(you)</span>
+                                    {awayUserIds.has(currentUserMember.user.id) && <AwayTag />}
+                                </>
+                            }
                         />
                     </li>
                 )}
@@ -87,12 +94,19 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                         }))}
                         onSelect={onChange}
                         activeId={assignee?.id}
+                        awayUserIds={awayUserIds}
                     />
                 )}
             </ul>
         </div>
     )
 }
+
+const AwayTag = (): JSX.Element => (
+    <LemonTag size="small" type="caution">
+        Away
+    </LemonTag>
+)
 
 const AssigneeItem = ({
     item,
@@ -130,6 +144,7 @@ const Section = ({
     activeId,
     emptyState,
     title,
+    awayUserIds,
 }: {
     title: string
     loading: boolean
@@ -138,6 +153,7 @@ const Section = ({
     onSelect: (value: TicketAssignee) => void
     activeId?: string | number
     emptyState?: JSX.Element
+    awayUserIds?: Set<number>
 }): JSX.Element => {
     return (
         <li>
@@ -145,7 +161,14 @@ const Section = ({
                 <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item?.id || 'unassigned'}>
-                        <AssigneeItem item={item} onSelect={onSelect} activeId={activeId} />
+                        <AssigneeItem
+                            item={item}
+                            onSelect={onSelect}
+                            activeId={activeId}
+                            labelSuffix={
+                                item?.type === 'user' && awayUserIds?.has(item.user.id) ? <AwayTag /> : undefined
+                            }
+                        />
                     </li>
                 ))}
 

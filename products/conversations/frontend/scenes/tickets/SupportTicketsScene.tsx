@@ -17,6 +17,7 @@ import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ComposeTicketButton } from '../../components/ComposeTicket/ComposeTicketButton'
+import { OutOfOfficeSwitch } from '../../components/OutOfOffice/OutOfOfficeSwitch'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { SupportTicketsBanner } from '../../components/SupportTicketsBanner/SupportTicketsBanner'
 import { TicketListFilters } from '../../components/TicketListFilters/TicketListFilters'
@@ -206,7 +207,12 @@ export function SupportTicketsScene(): JSX.Element {
                 name={ticketsTitle?.name ?? 'Support'}
                 description=""
                 resourceType={ticketsTitle?.resourceType ?? { type: 'conversation' }}
-                actions={<ComposeTicketButton />}
+                actions={
+                    <>
+                        <OutOfOfficeSwitch />
+                        <ComposeTicketButton />
+                    </>
+                }
             />
             <SupportTicketsBanner aiEnabled={aiEnabled} />
             <ScenesTabs />
