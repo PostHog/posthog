@@ -156,9 +156,10 @@ class TestTransactionalEmail(APIBaseTest):
     def _send_with_scheduled_at(
         self, client: APIClient, route: str, scheduled_at: str | None, without: tuple[str, ...] = ()
     ) -> Any:
-        if route in ("code", "code_form"):
+        if route in ("code", "code_form", "code_key_scoped"):
             body = {k: v for k, v in self._code_send(scheduled_at=scheduled_at).items() if k not in without}
-            return client.post(self.send_email_url, body, format="json" if route == "code" else "multipart")
+            url = "/api/messaging/send/email/" if route == "code_key_scoped" else self.send_email_url
+            return client.post(url, body, format="multipart" if route == "code_form" else "json")
         body = {k: v for k, v in self.body.items() if k not in without}
         return self._send(client, route, {**body, "scheduled_at": scheduled_at})
 
@@ -1184,6 +1185,7 @@ class TestTransactionalEmail(APIBaseTest):
             )
             for case, scheduled_at in (("a_time", "2026-11-20T09:00:00Z"), ("an_empty_string", ""))
         ]
+        + [("template_key_on_the_key_scoped_path_a_time", "code_key_scoped", "2026-11-20T09:00:00Z")]
     )
     def test_a_send_refuses_a_scheduled_at_while_scheduled_sends_are_off(
         self, mock_post, flag, _capture, _name, route, scheduled_at
