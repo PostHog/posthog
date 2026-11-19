@@ -34,6 +34,7 @@ from products.signals.backend.facade.api import (
     AnomalyGroupBy,
     AnomalyHistoryFilters,
     AnomalyInterval,
+    AnomalyOrder,
     AnomalySearchFilters,
 )
 
@@ -81,7 +82,36 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         default=AnomalyGroupBy.SERIES,
         help_text="`series` returns one row per series in `series`. `insight` returns one row per insight in `insights`.",
     )
+    order = serializers.ChoiceField(
+        choices=AnomalyOrder.choices,
+        default=AnomalyOrder.UNUSUAL,
+        help_text=(
+            "`unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose "
+            "newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, "
+            "then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as "
+            "`unusual`. With `group_by: insight`, each insight sorts by its first series."
+        ),
+    )
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="Only insights whose name contains this text, ignoring case.",
+    )
     limit = serializers.IntegerField(min_value=1, max_value=100, default=25, help_text="The most rows to return.")
+    offset = serializers.IntegerField(
+        min_value=0,
+        max_value=10_000,
+        default=0,
+        help_text="Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.",
+    )
+    include_points = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. "
+            "Costs one more query. Has no effect with `group_by: insight`."
+        ),
+    )
 
 
 class AnomalyInsightQuerySerializer(serializers.Serializer):
@@ -113,6 +143,17 @@ class AnomalyFlaggedPointSerializer(serializers.Serializer):
     score = serializers.FloatField(
         allow_null=True, help_text="The detector score of the bucket. Compare it only with buckets of the same series."
     )
+
+
+class AnomalySeriesPointSerializer(serializers.Serializer):
+    bucket_start = ProjectDateTimeField(help_text="The start of the scored bucket, in the project timezone.")
+    value = serializers.FloatField(allow_null=True, help_text="The series value of the bucket at scoring time.")
+    flag = serializers.BooleanField(help_text="Whether the detector flagged the bucket.")
+
+
+class AnomalyDashboardSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="The numeric id of the dashboard.")
+    name = serializers.CharField(allow_null=True, help_text="The name of the dashboard. Null when it has none.")
 
 
 class AnomalySeriesSerializer(serializers.Serializer):
@@ -174,6 +215,25 @@ class AnomalySeriesSerializer(serializers.Serializer):
     flagged_points = AnomalyFlaggedPointSerializer(
         many=True, help_text="Up to 5 flagged buckets in the range, newest first."
     )
+    dashboards = AnomalyDashboardSerializer(
+        many=True,
+        help_text="The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none.",
+    )
+    points = AnomalySeriesPointSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. "
+            "A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. "
+            "Fewer points than `scored_buckets` means the cap left older buckets out."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if instance.points is None:
+            data.pop("points")
+        return data
 
 
 class AnomalyTopSeriesSerializer(serializers.Serializer):
@@ -214,7 +274,7 @@ class AnomalyInsightRowSerializer(serializers.Serializer):
     last_flagged_bucket = ProjectDateTimeField(
         source="rollup.last_flagged_bucket", allow_null=True, help_text="The newest flagged bucket of any series."
     )
-    top_series = AnomalyTopSeriesSerializer(many=True, help_text="Up to 3 flagged series, most anomalous first.")
+    top_series = AnomalyTopSeriesSerializer(many=True, help_text="Up to 3 flagged series, in the requested `order`.")
 
 
 class AnomalySearchResponseSerializer(serializers.Serializer):
@@ -250,11 +310,15 @@ class AnomalySearchResponseSerializer(serializers.Serializer):
     date_from = ProjectDateTimeField(help_text="The applied start of the range, in the project timezone.")
     date_to = ProjectDateTimeField(help_text="The applied end of the range, in the project timezone.")
     group_by = serializers.ChoiceField(choices=AnomalyGroupBy.choices, help_text="The applied grouping.")
+    order = serializers.ChoiceField(choices=AnomalyOrder.choices, help_text="The applied order.")
     series = AnomalySeriesSerializer(
-        many=True, help_text="One row per series, most anomalous first. Empty unless `group_by` is `series`."
+        many=True, help_text="One row per series, in the requested `order`. Empty unless `group_by` is `series`."
     )
     insights = AnomalyInsightRowSerializer(
-        many=True, help_text="One row per insight, most anomalous first. Empty unless `group_by` is `insight`."
+        many=True, help_text="One row per insight, in the requested `order`. Empty unless `group_by` is `insight`."
+    )
+    has_more = serializers.BooleanField(
+        help_text="True when rows exist after this page. Read them with `offset` set to `offset + limit`."
     )
     truncated = serializers.BooleanField(help_text="True when `limit` or a read cap left rows out.")
     message = serializers.CharField(allow_null=True, help_text="Says why the result is empty. Null when it is not.")
@@ -423,7 +487,11 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             interval=IntervalType(query["interval"]) if query.get("interval") else None,
             only_flagged=query["only_flagged"],
             group_by=AnomalyGroupBy(query["group_by"]),
+            order=AnomalyOrder(query["order"]),
             limit=query["limit"],
+            offset=query["offset"],
+            search=query.get("search") or None,
+            include_points=query["include_points"],
         )
         try:
             result = signals_facade.search_anomalies(team=self.team, user=user, filters=filters, now=now)
@@ -433,6 +501,10 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request,
             "search",
             group_by=filters.group_by.value,
+            order=filters.order.value,
+            offset=filters.offset,
+            searched=filters.search is not None,
+            include_points=filters.include_points,
             scoring_enabled=result.scoring_enabled,
             rows=len(result.series) + len(result.insights),
             insights_scored_in_range=result.insights_scored_in_range,
@@ -448,8 +520,10 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "date_from": date_range.date_from,
                     "date_to": date_range.date_to,
                     "group_by": filters.group_by,
+                    "order": filters.order,
                     "series": result.series,
                     "insights": result.insights,
+                    "has_more": result.has_more,
                     "truncated": result.truncated,
                     "message": result.message,
                 }

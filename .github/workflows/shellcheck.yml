@@ -24,6 +24,7 @@ jobs:
                       /.github/scripts/
                       /.agents/skills/triaging-merge-queue-failures/scripts/
                       /bin/deploy-hobby
+                      /rust/bin/
                       **/AGENTS.md
                       **/CLAUDE.md
                   sparse-checkout-cone-mode: false
@@ -48,10 +49,26 @@ jobs:
                   .github/scripts/check-windows-paths.test.sh
                   .github/scripts/check-windows-paths.sh
 
-            - name: Check desktop backend coupling script
+            - name: Check desktop backend coupling scripts
               run: |
                   shellcheck .github/scripts/desktop/*.sh
                   .github/scripts/desktop/check-pr-backend-coupling.test.sh
+
+            - name: Check backend deploy wait scripts
+              run: |
+                  # An open PR that has not rebased onto this commit does not carry these
+                  # scripts, so the step skips rather than failing before its own tests run.
+                  [ -d .github/scripts/deploy ] || exit 0
+                  shellcheck .github/scripts/deploy/*.sh
+                  .github/scripts/deploy/wait-for-backend-deploy.test.sh
+
+            - name: Check Rust deploy requirements scripts
+              run: |
+                  # An open PR that has not rebased onto this commit does not carry these
+                  # scripts, so the step skips rather than failing before its own tests run.
+                  [ -f rust/bin/deploy-requirements-check.test.sh ] || exit 0
+                  shellcheck rust/bin/deploy-requirements-check rust/bin/deploy-requirements-check.test.sh rust/bin/write-deploy-requirements
+                  rust/bin/deploy-requirements-check.test.sh
 
             - name: Check product JUnit preparation script
               run: |

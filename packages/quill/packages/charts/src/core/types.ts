@@ -228,6 +228,8 @@ export interface ChartDimensions {
     plotWidth: number
     /** Height of the drawable plot area. */
     plotHeight: number
+    /** Backing pixels per CSS pixel to rasterise the canvas at. Absent means `devicePixelRatio`. */
+    pixelRatio?: number
 }
 
 /** Spacing between the container edges and the plot area. */

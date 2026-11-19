@@ -1,31 +1,37 @@
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, Optional, cast
 
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
     PageNumberPaginator,
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
+    build_dependent_resource,
     frozen,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
+from products.warehouse_sources.sources.waydev.settings import (
+    FANOUT_ENDPOINTS,
+    INCIDENTS_PAGE_SIZE,
+    REPOSITORIES_PAGE_SIZE,
+    TEAMS_PAGE_SIZE,
+)
 
 BASE_URL = "https://api.waydev.co/v2"
-# The public reference documents a `limit` param (default 25) with no stated maximum;
-# 100 keeps page count down without a documented ceiling to test against.
-INCIDENTS_PAGE_SIZE = 100
-REPOSITORIES_PAGE_SIZE = 500
-# Teams documents a default of 10 per page and no maximum.
-TEAMS_PAGE_SIZE = 100
 
 
 @frozen
 class WaydevResumeConfig:
-    next_page: int
+    next_page: Optional[int] = None
+    # Fan-out progress (finished parents, the parent in flight and its page). Shape owned by the
+    # shared fan-out helper.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -110,6 +116,68 @@ def get_resource(name: str) -> EndpointResource:
     return resources[name]
 
 
+def _count_values_pages() -> Endpoint:
+    return {
+        "data_selector": "values",
+        "paginator": PageNumberPaginator(base_page=1, page_param="page", stop_after_empty_page=True),
+    }
+
+
+def _last_page_pages() -> Endpoint:
+    return {
+        "data_selector": "data",
+        "paginator": PageNumberPaginator(
+            base_page=1, page_param="page", total_path="last_page", stop_after_empty_page=True
+        ),
+    }
+
+
+# Team members share the teams envelope; pulls and commits share the repositories one.
+_PAGES_BY_PARENT: dict[str, Callable[[], Endpoint]] = {
+    "Repositories": _count_values_pages,
+    "Teams": _last_page_pages,
+}
+
+
+def _fanout_resource(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[WaydevResumeConfig],
+) -> Resource:
+    fanout = FANOUT_ENDPOINTS[endpoint].fanout
+    assert fanout is not None
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None and resume_config.fanout_state:
+            initial_paginator_state = resume_config.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(WaydevResumeConfig(fanout_state=state))
+
+    pages = _PAGES_BY_PARENT[fanout.parent_name]
+    resource = build_dependent_resource(
+        endpoint_configs=FANOUT_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra=pages(),
+        child_endpoint_extra=pages(),
+        page_size_param=None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+        resume_parent_pagination=True,
+    )
+    return cast(Resource, resource)
+
+
 def waydev_source(
     api_key: str,
     endpoint: str,
@@ -117,6 +185,9 @@ def waydev_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[WaydevResumeConfig],
 ) -> Resource:
+    if endpoint in FANOUT_ENDPOINTS and FANOUT_ENDPOINTS[endpoint].fanout is not None:
+        return _fanout_resource(api_key, endpoint, team_id, job_id, resumable_source_manager)
+
     config: RESTAPIConfig = {
         "client": _client_config(api_key),
         "resources": [get_resource(endpoint)],
@@ -125,7 +196,7 @@ def waydev_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
+        if resume_config is not None and resume_config.next_page is not None:
             initial_paginator_state = {"page": resume_config.next_page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:

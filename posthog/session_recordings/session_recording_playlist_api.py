@@ -20,7 +20,7 @@ from opentelemetry import trace
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import RecordingsQuery
+from posthog.schema import RecordingOrder, RecordingsQuery
 
 from posthog.api.documentation import extend_schema
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
@@ -554,6 +554,10 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         return recordings_counts
 
     def validate_filters(self, value: Any) -> Any:
+        order = value.get("order") if isinstance(value, dict) else None
+        # Saved filters are parsed into a RecordingsQuery on every server-side read, so an order it rejects breaks the playlist.
+        if order is not None and (not isinstance(order, str) or order not in {o.value for o in RecordingOrder}):
+            raise ValidationError(f"{order!r} is not a sort order recordings support.")
         experiment_exposure = value.get("experiment_exposure") if isinstance(value, dict) else None
         experiment_id = experiment_exposure.get("experiment_id") if isinstance(experiment_exposure, dict) else None
         if isinstance(experiment_id, int):

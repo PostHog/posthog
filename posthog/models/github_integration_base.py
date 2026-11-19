@@ -218,6 +218,17 @@ class PullRequestRef:
         return f"{self.owner}/{self.repo}"
 
 
+@frozen
+class PullRequestCiStatus:
+    """The coarse CI rollup of a pull request's head commit, and whether it conflicts with its base."""
+
+    # `passing`, `failing`, `pending`, or `none`, as `_map_ci_status` returns it.
+    ci_status: str
+    # True only when GitHub reports `CONFLICTING`. `UNKNOWN` means GitHub has not computed it yet,
+    # and it reads False so that a caller waits for the next refresh instead of guessing.
+    has_conflict: bool
+
+
 # `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
 # paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
 # authenticated request to a different endpoint.
@@ -1374,6 +1385,8 @@ class GitHubIntegrationBase:
             "merged_at": pr.get("merged_at"),
             "merged_by": pr.get("merged_by"),
             "closed_at": pr.get("closed_at"),
+            # REST reports `false` for a conflict and `null` while GitHub still computes it.
+            "mergeable": pr.get("mergeable"),
             "comments": pr.get("comments", 0),
             "review_comments": pr.get("review_comments", 0),
             "commits": pr.get("commits", 0),
@@ -1887,8 +1900,9 @@ class GitHubIntegrationBase:
         """Fetch the CI status for a PR — GitHub Actions check runs plus commit statuses from external
         CI and GitHub Apps, merged into one normalized list (mirrors the checks GitHub shows on the PR page).
 
-        Returns ``{"success": True, "checks": [...]}`` on success, or ``{"success": False, "error": ...}``
-        on a handled failure. Rate limits raise :class:`GitHubRateLimitError`.
+        Returns ``{"success": True, "checks": [...], "has_conflict": bool}`` on success, or
+        ``{"success": False, "error": ...}`` on a handled failure. ``has_conflict`` comes from the pull
+        request this already reads, so it costs no extra call. Rate limits raise :class:`GitHubRateLimitError`.
         """
         pr = self.get_pull_request(repository, pr_number)
         if not pr.get("success"):
@@ -1963,7 +1977,7 @@ class GitHubIntegrationBase:
                     }
                 )
 
-        return {"success": True, "checks": checks}
+        return {"success": True, "checks": checks, "has_conflict": pr.get("mergeable") is False}
 
     @staticmethod
     def _map_commit_status_state(state: str | None) -> tuple[str, str | None]:
@@ -2575,10 +2589,12 @@ class GitHubIntegrationBase:
     # already landed, so a caller that must keep those feeds this method one batch at a time.
     PR_CI_STATUS_BATCH_SIZE = 25
 
-    def get_pull_request_ci_statuses(self, references: Iterable[PullRequestRef]) -> dict[PullRequestRef, str]:
-        """The coarse CI rollup of many pull requests, keyed by reference.
+    def get_pull_request_ci_statuses(
+        self, references: Iterable[PullRequestRef]
+    ) -> dict[PullRequestRef, PullRequestCiStatus]:
+        """The coarse CI rollup and the conflict state of many pull requests, keyed by reference.
 
-        Values use the same vocabulary as :meth:`get_pull_request_snapshot`'s ``ci_status``
+        ``ci_status`` uses the same vocabulary as :meth:`get_pull_request_snapshot`'s ``ci_status``
         (``passing`` / ``failing`` / ``pending`` / ``none``). One GraphQL call covers up to
         ``PR_CI_STATUS_BATCH_SIZE`` pull requests, which is what makes this affordable for a list of
         pull requests rather than a single one.
@@ -2589,7 +2605,7 @@ class GitHubIntegrationBase:
         and other failures raise ``GitHubIntegrationError``. Callers own the back-off for all three.
         """
         unique = list(dict.fromkeys(references))
-        statuses: dict[PullRequestRef, str] = {}
+        statuses: dict[PullRequestRef, PullRequestCiStatus] = {}
         for start in range(0, len(unique), self.PR_CI_STATUS_BATCH_SIZE):
             batch = unique[start : start + self.PR_CI_STATUS_BATCH_SIZE]
             declarations = ", ".join(
@@ -2597,7 +2613,7 @@ class GitHubIntegrationBase:
             )
             selections = "\n".join(
                 f"  pr{i}: repository(owner: $owner{i}, name: $repo{i}) {{"
-                f" pullRequest(number: $number{i}) {{ commits(last: 1) {{ nodes {{ commit {{"
+                f" pullRequest(number: $number{i}) {{ mergeable commits(last: 1) {{ nodes {{ commit {{"
                 f" statusCheckRollup {{ state }} }} }} }} }} }}"
                 for i in range(len(batch))
             )
@@ -2620,7 +2636,10 @@ class GitHubIntegrationBase:
                 rollup_state = None
                 if rollup_nodes:
                     rollup_state = ((rollup_nodes[0].get("commit") or {}).get("statusCheckRollup") or {}).get("state")
-                statuses[reference] = self._map_ci_status(rollup_state)
+                statuses[reference] = PullRequestCiStatus(
+                    ci_status=self._map_ci_status(rollup_state),
+                    has_conflict=self._map_mergeable(pull_request.get("mergeable")) is False,
+                )
         return statuses
 
     _PR_BABYSIT_SNAPSHOT_QUERY = """

@@ -3,12 +3,13 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Expression, JSONField, Model, Prefetch, Value
+from django.db.models import Expression, JSONField, Model, Value
 from django.db.models.fields.json import KeyTransform
 
 import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from opentelemetry import trace
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -229,7 +230,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         self._include_columns = request.validated_query_data["include_columns"]
-        return super().list(request, *args, **kwargs)
+        listed = super().list(request, *args, **kwargs)
+        trace.get_current_span().set_attribute("saved_query_count", len(listed.data["results"]))
+        return listed
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -242,13 +245,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "created_by",
                 "managed_viewset",
                 "column_annotations",
-                Prefetch(
-                    "datamodelingjob_set",
-                    queryset=DataModelingJob.objects.filter(engine=DataModelingJobEngine.CLICKHOUSE).order_by(
-                        "-last_run_at"
-                    )[:1],
-                    to_attr="jobs",
-                ),
             )
             # Both serializers read `folder.id` and `folder.name`, so without the join Django
             # fetches the folder once per foldered view.
@@ -271,7 +267,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             read_query_keys = managed_trino_query_flag_enabled(
                 self.team.organization_id
             ) or team_has_had_direct_query_source(self.team.pk)
-            base_queryset = base_queryset.annotate(**_view_engine_annotations(read_query_keys=read_query_keys))
+            base_queryset = base_queryset.annotate(
+                **_view_engine_annotations(read_query_keys=read_query_keys),
+                **view_state.serving_run_annotations(),
+            )
 
         if self.action == "list" and not self._include_columns:
             base_queryset = base_queryset.defer("columns")
@@ -348,6 +347,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.facade.api import (
             TRINO_INCREMENTAL_SCOPE,
             MissingDagNodeError,
+            assert_user_can_read_saved_query,
             clear_incremental_state,
             materialize_saved_query,
             raise_if_manual_run_is_refused,
@@ -398,6 +398,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                         hidden_types=hidden_types,
                     )
             else:
+                # A run publishes the view's rows, so it needs the same read access to the sources as the paths above.
+                assert_user_can_read_saved_query(saved_query, cast(User, request.user))
                 # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
                 raise_if_manual_run_is_refused(self.team_id, saved_query.id, from_browser_session=from_browser_session)
                 if body.validated_data["full_refresh"]:

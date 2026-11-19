@@ -29,6 +29,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
@@ -52,6 +53,7 @@ import {
     type ExecInnerCallProperties,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
+import { LEARN_TOOL_NAME } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
@@ -214,15 +216,18 @@ export class ToolExecutor {
         const nameSet = new Set(state.allTools.map((t) => t.name))
         const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
-        return filteredTools.map((entry) => {
+        const tools = filteredTools.map((entry) => {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(state),
                 }
             }
             return entry
         })
+        return this.instructionsBuilder.isLearnToolEnabled(state)
+            ? [...tools, this.instructionsBuilder.buildLearnToolEntry()]
+            : tools
     }
 
     private findOriginalTool(toolName: string, state: ResolvedState): ListToolsResult['tools'][number] | undefined {
@@ -344,6 +349,20 @@ export class ToolExecutor {
             return this.callExecTool(callParams, state, analyticsMeta)
         }
 
+        // Tools mode has no `exec` tool, so it lists `learn` as a tool of its own (Cursor is the main
+        // tools-mode client). The call runs the `exec learn` path so that both modes serve one skill catalog.
+        if (toolName === LEARN_TOOL_NAME && this.instructionsBuilder.isLearnToolEnabled(state)) {
+            const command = String((callParams.arguments as Record<string, unknown> | undefined)?.command ?? '').trim()
+            return this.callExecTool(
+                {
+                    ...callParams,
+                    arguments: { command: /^learn(\s|$)/.test(command) ? command : `learn ${command}` },
+                },
+                state,
+                analyticsMeta
+            )
+        }
+
         if (toolName === 'render-ui') {
             // render-ui is only advertised to MCP Apps hosts; reject calls from others.
             if (!state.renderUiEnabled) {
@@ -357,7 +376,10 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
             const scopeGatedTool = state.findScopeGatedTool(toolName)
             if (scopeGatedTool) {
-                const error = missingToolScopeError(scopeGatedTool, state.context, state.oauthClientId)
+                const error = missingToolScopeError(scopeGatedTool, state.context, {
+                    oauthClientId: state.oauthClientId,
+                    supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
+                })
                 return handleToolError(error, toolName, state.distinctId, undefined, state.suppressAnalytics)
             }
             const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
@@ -389,9 +411,9 @@ export class ToolExecutor {
     // from the catalog, on both the native tools/list path and exec's `info` output.
     // trackToolCall stamps the catalog text by default, so it needs the served text
     // for this tool or $mcp_tool_description records words the agent never saw.
-    private servedToolDescription(toolName: string): string | undefined {
+    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
         if (toolName === EXECUTE_SQL_TOOL_NAME) {
-            return this.instructionsBuilder.formatExecuteSqlDescription()
+            return this.instructionsBuilder.formatExecuteSqlDescription(state)
         }
         return undefined
     }
@@ -475,7 +497,7 @@ export class ToolExecutor {
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
                 analyticsMeta,
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
             return {
                 content: [{ type: 'text', text: message }],
@@ -541,6 +563,7 @@ export class ToolExecutor {
                     distinctId,
                     mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
                         .mcpClientName,
+                    appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
                 })
             }
 
@@ -560,7 +583,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 { ...analyticsMeta, parameters: validation.data, response: handlerResult },
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -617,7 +640,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 { ...analyticsMeta, parameters: validation.data },
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
 
             const errorMessage = extractErrorMessage(error)
@@ -803,7 +826,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 execAnalyticsMeta(),
-                this.servedToolDescription(analyticsToolName())
+                this.servedToolDescription(analyticsToolName(), state)
             )
 
             return guided
@@ -835,7 +858,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 execAnalyticsMeta(),
-                this.servedToolDescription(analyticsToolName())
+                this.servedToolDescription(analyticsToolName(), state)
             )
 
             const sessionUuid = await sessionUuidForError(state)
@@ -958,7 +981,7 @@ export class ToolExecutor {
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(state),
                   }
                 : tool
         )
@@ -973,6 +996,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
@@ -982,6 +1006,9 @@ export class ToolExecutor {
                 ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
                 oauthClientId: state.oauthClientId,
+                // Matches challengeStepUpForGatedTool: a call through the MCP store gets no challenge.
+                supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
+                metricCatalogLookup: resolveMetricCatalogMode(state.metricCatalog) === 'lookup',
                 ...(state.gatewayToolsEnabled
                     ? {
                           gatewayToolsProvider: () => this.gatewayToolsFor(state),
@@ -1044,7 +1071,8 @@ export class ToolExecutor {
             state.context,
             getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
             (toolName, toolInput, appKey) =>
-                this.loadRenderUiAppData(toolName, toolInput, appKey, state, analyticsMeta ?? {})
+                this.loadRenderUiAppData(toolName, toolInput, appKey, state, analyticsMeta ?? {}),
+            { appDataInStructuredContent: state.clientProfile.isCursor() }
         )
         if (!renderUiTool) {
             return {

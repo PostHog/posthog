@@ -130,6 +130,9 @@ export enum ProductTab {
 export const isContentAutopilotEnabled = (featureFlags: FeatureFlagsSet): boolean =>
     !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]
 
+// pinned: the AI visibility filters' URL search params, links people share depend on them
+export const AI_VISIBILITY_URL_PARAMS = ['days', 'engine', 'topic', 'branded'] as const
+
 export type DeviceType = 'Desktop' | 'Mobile'
 
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99

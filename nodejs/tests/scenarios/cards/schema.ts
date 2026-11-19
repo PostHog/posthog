@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { Duration } from '../duration'
+import { Duration, durationMs } from '../duration'
 
 export const CdpRole = z.enum([
     'cdp-processed-events',
@@ -34,6 +34,9 @@ export const ValveEntry = z
     .refine((entry) => (entry.at === undefined) !== (entry.when === undefined), 'exactly one of at, when')
 export type ValveEntry = z.infer<typeof ValveEntry>
 
+export const RampStep = z.object({ scale: z.number().positive(), for: Duration }).strict()
+export type RampStep = z.infer<typeof RampStep>
+
 export const Card = z
     .object({
         id: z.string(),
@@ -47,22 +50,104 @@ export const Card = z
                 for: Duration,
                 traffic: z.array(Named).min(1),
                 minOffered: z.number().min(0).max(1).default(0.9),
+                ramp: z.array(RampStep).min(1).optional(),
             })
-            .strict(),
+            .strict()
+            .refine(
+                ({ for: lasts, ramp }) =>
+                    ramp === undefined ||
+                    ramp.reduce((sum, step) => sum + durationMs(step.for), 0) === durationMs(lasts),
+                { message: 'the ramp steps must add up to drive.for', path: ['ramp'] }
+            )
+            .refine(
+                ({ ramp }) => ramp === undefined || ramp.every((step, i) => i === 0 || step.scale > ramp[i - 1].scale),
+                {
+                    message: 'each ramp step must scale higher than the one before',
+                    path: ['ramp'],
+                }
+            ),
         valves: z.array(ValveEntry).default([]),
         convergeWithin: Duration,
         invariants: z.array(Named).min(1),
         measure: z.array(Named).default([]),
+        bars: z.array(Named).default([]),
         gates: z.record(z.string(), z.number()).default({}),
     })
     .strict()
 export type Card = z.infer<typeof Card>
+
+export type Step = { scale: number; fromMs: number; toMs: number }
+
+export function stepsOf(drive: Card['drive']): Step[] {
+    let fromMs = 0
+    return (drive.ramp ?? [{ scale: 1, for: drive.for }]).map(({ scale, for: lasts }) => {
+        const step = { scale, fromMs, toMs: fromMs + durationMs(lasts) }
+        fromMs = step.toMs
+        return step
+    })
+}
+
+export const BacklogQueue = z.enum(['hogflow', 'email'])
+
+const StateBytes = z
+    .object({
+        p50: z.number().int().min(1),
+        p90: z.number().int().min(1),
+        p99: z.number().int().min(1),
+    })
+    .strict()
+    .refine(({ p50, p90, p99 }) => p50 <= p90 && p90 <= p99, 'p50, p90 and p99 must not decrease')
+
+export const Backlog = z
+    .object({
+        teams: z.number().int().min(1),
+        jobs: z
+            .partialRecord(BacklogQueue, z.number().int().min(1))
+            .refine((jobs) => Object.keys(jobs).length > 0, 'name at least one queue'),
+        stateBytes: StateBytes,
+        compressibility: z.number().min(0).max(1),
+        parkFor: Duration,
+        tolerance: z.number().min(0).max(1),
+    })
+    .strict()
+export type Backlog = z.infer<typeof Backlog>
+
+export const Load = z
+    .object({
+        targets: z
+            .object({
+                claimsPerSecond: z.partialRecord(BacklogQueue, z.number().positive()),
+                newJobsPerSecond: z.number().positive().optional(),
+            })
+            .strict()
+            .refine(
+                ({ claimsPerSecond, newJobsPerSecond }) =>
+                    Object.keys(claimsPerSecond).length > 0 || newJobsPerSecond !== undefined,
+                'name at least one target'
+            ),
+        tolerance: z.number().min(0).max(1),
+    })
+    .strict()
+export type Load = z.infer<typeof Load>
+
+export const Host = z.object({ cpuCeiling: z.number().min(0).max(1) }).strict()
+export type Host = z.infer<typeof Host>
 
 export const Profile = z
     .object({
         name: z.string(),
         traffic: z.record(z.string(), z.unknown()).default({}),
         settings: z.record(z.string(), z.string()).default({}),
+        replicas: z
+            .partialRecord(CdpRole, z.number().int().min(1))
+            .refine((replicas) => (replicas['cdp-api'] ?? 1) === 1, {
+                message: 'cdp-api runs once, since every intake offer goes to replica 0',
+                path: ['cdp-api'],
+            })
+            .default({}),
+        backlog: Backlog.optional(),
+        load: Load.optional(),
+        host: Host.optional(),
     })
     .strict()
 export type Profile = z.infer<typeof Profile>

@@ -49,7 +49,8 @@ from posthog.permissions import (
     get_authenticator_client,
     resource_for_ref,
 )
-from posthog.scopes import APIScopeObject, scopes_not_covered
+from posthog.scopes.catalog import APIScopeObject
+from posthog.scopes.checks import scopes_not_covered
 from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef

@@ -18,28 +18,28 @@ export const getNodeJSInstallSteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                npm install posthog-node@5
+                                npm install posthog-node@6
                             `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                yarn add posthog-node@5
+                                yarn add posthog-node@6
                             `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                pnpm add posthog-node@5
+                                pnpm add posthog-node@6
                             `,
                             },
                             {
                                 language: 'bash',
                                 file: 'bun',
                                 code: dedent`
-                                bun add posthog-node@5
+                                bun add posthog-node@6
                             `,
                             },
                         ]}

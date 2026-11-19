@@ -738,6 +738,67 @@ export interface OrganizationNotificationLockBulkUpdateApi {
 }
 
 /**
+ * * `not_a_partner` - Not a provisioning partner
+ * * `in_review` - In review
+ * * `waiting_for_staff` - Waiting for PostHog staff
+ * * `on` - On
+ * * `off` - Off
+ * * `blocked` - Blocked
+ */
+export type PartnerProvisioningStatusEnumApi =
+    (typeof PartnerProvisioningStatusEnumApi)[keyof typeof PartnerProvisioningStatusEnumApi]
+
+export const PartnerProvisioningStatusEnumApi = {
+    NotAPartner: 'not_a_partner',
+    InReview: 'in_review',
+    WaitingForStaff: 'waiting_for_staff',
+    On: 'on',
+    Off: 'off',
+    Blocked: 'blocked',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `accepted` - Accepted
+ * * `rejected` - Rejected
+ * * `needs_human` - Needs staff review
+ */
+export type ProvisioningReviewStatusEnumApi =
+    (typeof ProvisioningReviewStatusEnumApi)[keyof typeof ProvisioningReviewStatusEnumApi]
+
+export const ProvisioningReviewStatusEnumApi = {
+    Pending: 'pending',
+    Accepted: 'accepted',
+    Rejected: 'rejected',
+    NeedsHuman: 'needs_human',
+} as const
+
+/**
+ * The review an app went through to become a provisioning partner, as its owners see it.
+ *
+ * The verdict's internal reason and the evidence stay with PostHog staff: they describe what the
+ * review checks, which would teach an abusive app what to fake.
+ */
+export interface PartnerReviewApi {
+    /** pending: the automated review is running. needs_human: PostHog staff decide next. accepted: the app may provision. rejected: provisioning is blocked.
+     *
+     * * `pending` - Pending
+     * * `accepted` - Accepted
+     * * `rejected` - Rejected
+     * * `needs_human` - Needs staff review */
+    readonly status: ProvisioningReviewStatusEnumApi
+    /** When the app registered for provisioning. */
+    readonly opened_at: string
+    /**
+     * When the current decision was made. Null while pending.
+     * @nullable
+     */
+    readonly decided_at: string | null
+    /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing. */
+    readonly partner_message: string
+}
+
+/**
  * Serializer for organization-scoped OAuth applications (read-only).
  */
 export interface OrganizationOAuthApplicationApi {
@@ -749,6 +810,18 @@ export interface OrganizationOAuthApplicationApi {
     readonly redirect_uris_list: readonly string[]
     /** True if this application has been verified by PostHog */
     is_verified?: boolean
+    /** True when the app registered itself from a client ID metadata document (CIMD). */
+    readonly is_cimd_client: boolean
+    /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+     *
+     * * `not_a_partner` - Not a provisioning partner
+     * * `in_review` - In review
+     * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `on` - On
+     * * `off` - Off
+     * * `blocked` - Blocked */
+    readonly provisioning_status: PartnerProvisioningStatusEnumApi
+    readonly provisioning_review: PartnerReviewApi | null
     readonly created: string
     readonly updated: string
 }
@@ -1887,6 +1960,8 @@ export interface TeamWorkflowsConfigApi {
     email_utm_tags_enabled?: boolean
     /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
     email_utm_params?: EmailUtmParamsApi
+    /** Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default. */
+    email_workflow_run_link_tag_enabled?: boolean
     /**
      * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
      * @minimum 0
@@ -2941,6 +3016,36 @@ export const AvailableSetupTaskIdsEnumApi = {
     UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
 
+/**
+ * * `off` - Off
+ * * `serving` - Serving
+ */
+export type RealtimeCohortsAccessEnumApi =
+    (typeof RealtimeCohortsAccessEnumApi)[keyof typeof RealtimeCohortsAccessEnumApi]
+
+export const RealtimeCohortsAccessEnumApi = {
+    Off: 'off',
+    Serving: 'serving',
+} as const
+
+export interface TeamRealtimeCohortsApi {
+    /** `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+     *
+     * * `off` - Off
+     * * `serving` - Serving */
+    access: RealtimeCohortsAccessEnumApi
+    /**
+     * How many cohorts in this project have realtime on. Null when `access` is `off`.
+     * @nullable
+     */
+    cohorts_used: number | null
+    /**
+     * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+     * @nullable
+     */
+    max_cohorts: number | null
+}
+
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
 
 export const FlagEvaluationsModeEnumApi = {
@@ -3782,8 +3887,12 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts: TeamRealtimeCohortsApi
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations: boolean
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
     readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
@@ -4678,8 +4787,12 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts?: TeamRealtimeCohortsApi
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations?: boolean
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
     readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
@@ -7585,6 +7698,11 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+    /**
+     * A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights that carry at least one of them.
+     * @minLength 1
+     */
+    tags?: string
     /**
      * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
      */

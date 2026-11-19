@@ -608,7 +608,7 @@ function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
 
 describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // Minted directly into a server-issued token, never advertised via OAuth metadata
-    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
+    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes/exposure.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
         'context_layer_internal:write',
@@ -623,7 +623,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'signal_scratchpad_internal:write',
     ])
 
-    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py)
+    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes/exposure.py)
     // are PAT-grantable but never OAuth-advertised: tools requiring one (e.g. the staff-only
     // managed-migrations support tools) only surface for personal API keys carrying it.
     const oauthHiddenScopes = new Set<string>(OAUTH_SCOPES_HIDDEN)
@@ -1130,6 +1130,7 @@ describe('Tool Filtering - Feature Flags', () => {
         const branchFlags = [
             'workflows-supabase-auth-emails',
             'scout-trials',
+            'scout-scratchpad-discard-mcp',
             'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
@@ -1163,6 +1164,8 @@ describe('Tool Filtering - Feature Flags', () => {
             'platform-alerts-source-warehouse',
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
+            'workflows-resend-import',
+            'signals-source-filters',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1205,13 +1208,14 @@ describe('Tool Filtering - Feature Flags', () => {
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
                 'logs-agent-tools',
+                'release-objects',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(37)
+        expect(flags).toHaveLength(39)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

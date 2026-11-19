@@ -4,7 +4,7 @@ name: Dependency proof
 # request head. Everything here runs from the default branch: the triggering run only names a
 # head SHA, the pull request is looked up through the API, settings come from this commit, and
 # pnpm runs in the merge-base tree. Nothing from the pull request tree is executed.
-# The prover is .github/scripts/dependency_proof, and the trigger is dependency-proof-trigger.yml.
+# The prover is tools/change-prover, and the trigger is dependency-proof-trigger.yml.
 
 on:
     workflow_run:
@@ -42,7 +42,7 @@ jobs:
               with:
                   persist-credentials: false
                   sparse-checkout: |
-                      .github/scripts/dependency_proof
+                      tools/change-prover
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -57,7 +57,7 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
                   BASE_BRANCH: ${{ github.event.repository.default_branch }}
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-              run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py identify
+              run: uv run --frozen --project tools/change-prover python -I tools/change-prover/change_prover/__main__.py identify
 
     # pnpm resolves packages here, so this job holds no permission and no step is given a token.
     prove:
@@ -78,7 +78,7 @@ jobs:
               with:
                   persist-credentials: false
                   sparse-checkout: |
-                      .github/scripts/dependency_proof
+                      tools/change-prover
                       .github/actions/setup-uv
                       .nvmrc
                   sparse-checkout-cone-mode: false
@@ -99,16 +99,103 @@ jobs:
                   MERGE_BASE_DIR: ${{ runner.temp }}/merge-base
                   PULL_REQUEST: ${{ needs.identify.outputs.pr }}
                   MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
-              run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py prove
+              run: uv run --frozen --project tools/change-prover python -I tools/change-prover/change_prover/__main__.py prove
+
+    scan:
+        name: Scan the added packages
+        needs: identify
+        if: needs.identify.outputs.eligible == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        permissions: {}
+        outputs:
+            clean: ${{ steps.scan.outputs.clean }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      tools/change-prover
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Scan the added packages
+              id: scan
+              env:
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+              run: uv run --frozen --project tools/change-prover --group scan python -I tools/change-prover/change_prover/__main__.py scan-gate
+
+    # The `conclude` command in change_prover/core/conclusion.py decides the check run and whether the
+    # run fails. It runs here, with no environment and no token, so the job that holds the App key
+    # installs and runs nothing but `gh`. `publish` checks every job's result before it exits.
+    # hogli-lint: not-a-required-gate — decides the check run that `publish` posts
+    conclude:
+        name: Decide the Dependency proof check
+        needs: [identify, prove, scan]
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        outputs:
+            check_run: ${{ steps.conclude.outputs.check_run }}
+            unproved: ${{ steps.conclude.outputs.unproved }}
+        steps:
+            # The private mirror skips `identify`, so nothing is decided or posted there.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.repository == 'PostHog/posthog'
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      tools/change-prover
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              if: github.repository == 'PostHog/posthog'
+              with:
+                  enable-cache: false
+
+            - name: Decide the check run
+              id: conclude
+              if: github.repository == 'PostHog/posthog'
+              env:
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  WORKFLOW_SHA: ${{ github.sha }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  IDENTIFY_RESULT: ${{ needs.identify.result }}
+                  IDENTIFY_PR: ${{ needs.identify.outputs.pr }}
+                  IDENTIFY_MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+                  IDENTIFY_ELIGIBLE: ${{ needs.identify.outputs.eligible }}
+                  IDENTIFY_REFUSED: ${{ needs.identify.outputs.refused }}
+                  PROVE_RESULT: ${{ needs.prove.result }}
+                  PROVE_FILES: ${{ needs.prove.outputs.files }}
+                  PROVE_BLOBS: ${{ needs.prove.outputs.blobs }}
+                  PROVE_REFUSED: ${{ needs.prove.outputs.refused }}
+                  SCAN_RESULT: ${{ needs.scan.result }}
+                  SCAN_CLEAN: ${{ needs.scan.outputs.clean }}
+              run: |
+                  set -euo pipefail
+                  # `conclude` prints the check run, and exits 1 when the update went unproved.
+                  unproved=0
+                  check_run="$(uv run --frozen --project tools/change-prover \
+                      python -I tools/change-prover/change_prover/__main__.py conclude)" || unproved=$?
+                  {
+                      echo "unproved=$unproved"
+                      echo "check_run<<CHECK_RUN_JSON_EOF"
+                      echo "$check_run"
+                      echo "CHECK_RUN_JSON_EOF"
+                  } >> "$GITHUB_OUTPUT"
 
     # stamphog waits for a completed check on every pull request that changes a dependency file, so
-    # every run posts one. A head with no eligible pull request gets a success that attests nothing.
-    # A refused update gets a neutral check, and the run passes because a refusal is an answer.
-    # A job that fails gets a neutral check too, and the run fails, so only a broken prover shows
-    # up red in the Actions tab.
+    # every run posts one.
     publish:
         name: Publish the Dependency proof check
-        needs: [identify, prove]
+        needs: [identify, prove, scan, conclude]
         if: ${{ !cancelled() }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -130,54 +217,28 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-                  WORKFLOW_SHA: ${{ github.sha }}
-                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  CHECK_RUN: ${{ needs.conclude.outputs.check_run }}
+                  UNPROVED: ${{ needs.conclude.outputs.unproved }}
                   IDENTIFY_RESULT: ${{ needs.identify.result }}
-                  IDENTIFY_PR: ${{ needs.identify.outputs.pr }}
-                  IDENTIFY_MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
-                  IDENTIFY_ELIGIBLE: ${{ needs.identify.outputs.eligible }}
-                  IDENTIFY_REFUSED: ${{ needs.identify.outputs.refused }}
                   PROVE_RESULT: ${{ needs.prove.result }}
-                  PROVE_FILES: ${{ needs.prove.outputs.files }}
-                  PROVE_BLOBS: ${{ needs.prove.outputs.blobs }}
-                  PROVE_REFUSED: ${{ needs.prove.outputs.refused }}
+                  SCAN_RESULT: ${{ needs.scan.result }}
+                  CONCLUDE_RESULT: ${{ needs.conclude.result }}
               run: |
                   set -euo pipefail
 
                   if [[ "$REPOSITORY" != "PostHog/posthog" ]]; then
                       exit 0
                   fi
-                  conclusion=neutral
-                  files='[]'
-                  blobs='{}'
-                  if [[ "$IDENTIFY_REFUSED" == "true" || "$PROVE_REFUSED" == "true" ]]; then
-                      title="The dependency update was refused"
-                  elif [[ "$IDENTIFY_RESULT" == "success" && "$IDENTIFY_ELIGIBLE" == "false" ]]; then
-                      conclusion=success
-                      title="Nothing to attest"
-                  elif [[ "$IDENTIFY_RESULT" == "success" && "$PROVE_RESULT" == "success" ]] \
-                      && proved_files="$(jq -ce 'select(type == "array" and length > 0 and all(.[]; type == "string"))' <<< "$PROVE_FILES")" \
-                      && proved_blobs="$(jq -ce 'select(type == "object" and all(.[]; . == null or (type == "string" and test("^[0-9a-f]{40}$"))))' <<< "$PROVE_BLOBS")"; then
-                      conclusion=success
-                      files="$proved_files"
-                      blobs="$proved_blobs"
-                      title="Attested $(jq length <<< "$files") dependency file(s)"
-                  else
-                      unproved=true
-                      title="The dependency update could not be proved"
+                  # An empty check run means `conclude` itself broke. stamphog waits for a completed
+                  # check, so a neutral one that proves nothing is posted, and the run still fails.
+                  if [[ -z "$CHECK_RUN" ]]; then
+                      CHECK_RUN="$(jq -cn --arg head_sha "$HEAD_SHA" '{
+                          name: "Dependency proof", head_sha: $head_sha, status: "completed", conclusion: "neutral",
+                          output: {title: "Not proved", summary: "The proof job failed before it decided."}
+                      }')"
+                      UNPROVED=1
                   fi
-                  pr="$IDENTIFY_PR"
-                  merge_base="$IDENTIFY_MERGE_BASE"
-                  [[ "$pr" =~ ^[0-9]+$ ]] || pr=0
-                  [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || merge_base=""
-                  marker="$(jq -cn --argjson files "$files" --argjson blobs "$blobs" --argjson pr "$pr" \
-                      --arg head_sha "$HEAD_SHA" --arg merge_base "$merge_base" --arg workflow_sha "$WORKFLOW_SHA" \
-                      '{files: $files, blobs: $blobs, pr: $pr, head_sha: $head_sha, merge_base: $merge_base, workflow_sha: $workflow_sha}')"
-                  jq -n --arg head_sha "$HEAD_SHA" --arg conclusion "$conclusion" --arg details_url "$RUN_URL" \
-                      --arg title "$title" --arg summary "<!-- stamphog:v1 $marker -->" \
-                      '{name: "Dependency proof", head_sha: $head_sha, status: "completed", conclusion: $conclusion,
-                        details_url: $details_url, output: {title: $title, summary: $summary}}' \
-                      | gh api --method POST "repos/$REPOSITORY/check-runs" --input - > /dev/null
+                  gh api --method POST "repos/$REPOSITORY/check-runs" --input - <<< "$CHECK_RUN" > /dev/null
 
                   if [[ "$IDENTIFY_RESULT" != "success" ]]; then
                       exit 1
@@ -185,4 +246,10 @@ jobs:
                   if [[ "$PROVE_RESULT" != "success" && "$PROVE_RESULT" != "skipped" ]]; then
                       exit 1
                   fi
-                  [[ "${unproved:-false}" == "false" ]]
+                  if [[ "$SCAN_RESULT" != "success" && "$SCAN_RESULT" != "skipped" ]]; then
+                      exit 1
+                  fi
+                  if [[ "$CONCLUDE_RESULT" != "success" && "$CONCLUDE_RESULT" != "skipped" ]]; then
+                      exit 1
+                  fi
+                  exit "${UNPROVED:-1}"

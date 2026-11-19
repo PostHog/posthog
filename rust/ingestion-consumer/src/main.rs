@@ -32,6 +32,7 @@ use ingestion_consumer::discovery::{
 };
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
+use ingestion_consumer::startup_gate::{wait_for_peer_list, ConsumerReadiness};
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
 
 common_alloc::used!();
@@ -130,7 +131,7 @@ async fn async_main(config: Config) -> Result<()> {
     let metrics_handle =
         manager.register("metrics", ComponentOptions::new().is_observability(true));
 
-    let readiness = manager.readiness_handler();
+    let readiness = ConsumerReadiness::new(manager.readiness_handler());
     let liveness = manager.liveness_handler();
 
     // Install Prometheus recorder with custom histogram buckets matching the
@@ -314,7 +315,13 @@ async fn async_main(config: Config) -> Result<()> {
     // Select the worker discovery provider and start it (static applies the
     // configured list immediately; endpointslice watches and keeps in sync).
     let discovery: Box<dyn WorkerDiscovery> = match config.worker_discovery_mode {
-        DiscoveryMode::Static => Box::new(StaticDiscovery::new(config.worker_urls())),
+        DiscoveryMode::Static => {
+            let urls = config.worker_urls();
+            if urls.is_empty() {
+                anyhow::bail!("No worker addresses configured");
+            }
+            Box::new(StaticDiscovery::new(urls))
+        }
         DiscoveryMode::EndpointSlice => {
             if config.worker_service_name.is_empty() {
                 anyhow::bail!("WORKER_SERVICE_NAME is required for endpointslice discovery");
@@ -523,8 +530,8 @@ async fn async_main(config: Config) -> Result<()> {
     });
 
     // For dynamic discovery, wait for the first workers before consuming so the
-    // first batch has somewhere to route. Readiness stays 503 until the consumer
-    // starts; the server above keeps the probes answering during the wait.
+    // first batch has somewhere to route. Readiness stays 503 until the gate
+    // opens below; the server above keeps the probes answering during the wait.
     if config.worker_discovery_mode == DiscoveryMode::EndpointSlice {
         info!("Waiting for the first workers from EndpointSlice discovery");
         while registry.worker_count() == 0 {
@@ -535,6 +542,12 @@ async fn async_main(config: Config) -> Result<()> {
                 }
                 _ = tokio::time::sleep(Duration::from_millis(250)) => {}
             }
+        }
+    }
+
+    if config.routing_strategy == RoutingStrategy::Aperture {
+        if let Some(tracker) = &peer_tracker {
+            wait_for_peer_list(tracker, &config.peer_service_name, &consumer_handle).await;
         }
     }
 
@@ -568,6 +581,7 @@ async fn async_main(config: Config) -> Result<()> {
         });
     }
 
+    readiness.open();
     let consumer = IngestionConsumer::new(
         &config,
         batcher,

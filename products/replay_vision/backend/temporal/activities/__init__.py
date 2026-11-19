@@ -10,12 +10,10 @@ from products.replay_vision.backend.temporal.activities.backfill import (
     reap_backfill_schedules_activity,
 )
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
-from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.complete_observation_requests import (
     complete_observation_requests_activity,
 )
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
@@ -26,7 +24,6 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
-from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
     list_stale_scanner_estimates_activity,
 )
@@ -71,9 +68,7 @@ __all__ = [
     "advance_backfill_cursor_activity",
     "advance_scanner_watermark_activity",
     "call_scanner_provider_activity",
-    "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
-    "count_in_flight_by_team_activity",
     "create_observation_activity",
     "delete_backfill_schedule_activity",
     "delete_scanner_schedule_activity",
@@ -86,7 +81,6 @@ __all__ = [
     "fetch_session_network_activity",
     "finalize_observation_media_activity",
     "find_backfill_candidates_activity",
-    "find_scanner_candidates_activity",
     "list_enabled_scanners_activity",
     "list_scanner_schedules_activity",
     "list_stale_scanner_estimates_activity",

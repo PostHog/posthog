@@ -7,12 +7,13 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import HashIndex
+from django.contrib.postgres.indexes import GinIndex, HashIndex, OpClass
 from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
 from django.db.models.fields.json import KeyTransform
+from django.db.models.functions import Upper
 from django.db.models.signals import post_delete, post_save
 
 import pytz
@@ -284,6 +285,10 @@ class Team(UUIDTClassicModel):
                 condition=models.Q(conversations_enabled=True),
                 name="posthog_team_widget_token_idx",
             ),
+            # The admin console looks teams up by any part of their name. Django compiles icontains to
+            # UPPER(name) LIKE UPPER(pattern) on Postgres, so the index is on UPPER(name).
+            GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="posthog_team_name_trgm"),
+            models.Index(fields=["updated_at"], name="posthog_team_updated_at_idx"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -765,8 +770,12 @@ class Team(UUIDTClassicModel):
         # where this model loads in every process.
         from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
 
+        from posthog.models.event.new_events_schema import project_moved_to_new_events_table  # noqa: PLC0415
+
         modifiers = HogQLQueryModifiers()
         set_default_modifier_values(modifiers, self)
+        # Whether PostHog moved the project. Project settings hides the early opt-in switch once it is true.
+        modifiers.useNewEventsSchema = project_moved_to_new_events_table(self.pk)
         return modifiers.model_dump()
 
     @property

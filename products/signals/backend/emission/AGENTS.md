@@ -39,7 +39,7 @@ They still honor steering, through the gate in `direct_gate.py` that `emit_signa
 Two rules keep that gate predictable.
 A team that wrote no steering gets no LLM call and no change in behavior.
 A team that wrote steering is filtered by that text alone, because the prompt there carries no actionability criteria of its own, unlike the record-shaped prompts in `_prompts.py`.
-The gate fails open on model errors, and reports a dropped signal as `signal_data_source_filtered` with `steering_applied`, the same stage event the pipeline fires.
+The gate fails open on model errors, and reports a dropped signal as `signal_data_source_filtered` with `filter_reason` `steering_rejected`, the same stage event the pipeline fires.
 
 Error tracking also has a deterministic issue filter, which runs before `emit_signal` and so before the steering gate.
 The filter is a compiled property filter in the `issue_filters` key (`contracts.ISSUE_FILTERS_KEY`) of each error tracking row.

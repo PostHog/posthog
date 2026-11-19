@@ -1,6 +1,6 @@
 import { printPending, resumeApproval, waitIdentity } from '@/core/approval'
 import { defineCommand } from '@/core/command'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_USAGE, HogError, waitingExitCode } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import { ADD_COMMAND, loginWait } from '@/posthog/login/flow'
 import type { StepUpResult } from '@/posthog/login/step-up'
@@ -54,6 +54,8 @@ export default defineCommand({
         const { parseScope } = await import('@/posthog/scopes')
         return stepUp(ctx, args.scopes.map(parseScope))
     },
+
+    exitCode: waitingExitCode,
 
     human({ result, out }) {
         switch (result.status) {

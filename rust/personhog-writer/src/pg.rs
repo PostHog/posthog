@@ -3,6 +3,7 @@ use std::str::from_utf8;
 
 use chrono::{DateTime, TimeZone, Utc};
 use metrics::counter;
+use personhog_common::query_tag;
 use personhog_proto::personhog::types::v1::Person;
 use sqlx::postgres::PgPool;
 use tracing::error;
@@ -45,12 +46,12 @@ impl PgStore {
 
         // Most columns take the record's value outright — the record is the
         // leader's authoritative snapshot and the version guard orders
-        // records — but three merge against the existing row instead. The
-        // meta columns coalesce because changelog records carry no meta
-        // (the leader does not maintain those columns; ingestion's direct
-        // writer does), so assignment would erase real values. last_seen_at
-        // takes GREATEST — which ignores NULL — because records may predate
+        // records — but last_seen_at merges against the existing row instead.
+        // It takes GREATEST, which ignores NULL, because records may predate
         // the field, and the column's invariant is that it only advances.
+        // The meta columns always get '{}' because nothing reads them.
+        // uuid stays out of SET because a key column there makes ON CONFLICT
+        // lock FOR UPDATE, which blocks foreign-key checks on the person.
         let upsert_sql = format!(
             "INSERT INTO {table} (
                 id, team_id, uuid, properties, properties_last_updated_at,
@@ -58,7 +59,7 @@ impl PgStore {
                 last_seen_at, is_deleted
             )
             SELECT id, team_id, uuid, properties::jsonb,
-                   properties_last_updated_at::jsonb, properties_last_operation::jsonb,
+                   '{{}}'::jsonb, '{{}}'::jsonb,
                    created_at, version, is_identified, last_seen_at, is_deleted
             FROM UNNEST(
                 $1::bigint[], $2::int[], $3::uuid[],
@@ -69,12 +70,9 @@ impl PgStore {
                    properties_last_operation, created_at, version, is_identified, last_seen_at,
                    is_deleted)
             ON CONFLICT (team_id, id) DO UPDATE SET
-                uuid = EXCLUDED.uuid,
                 properties = EXCLUDED.properties,
-                properties_last_updated_at =
-                    COALESCE(EXCLUDED.properties_last_updated_at, {table}.properties_last_updated_at),
-                properties_last_operation =
-                    COALESCE(EXCLUDED.properties_last_operation, {table}.properties_last_operation),
+                properties_last_updated_at = '{{}}'::jsonb,
+                properties_last_operation = '{{}}'::jsonb,
                 created_at = EXCLUDED.created_at,
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
@@ -84,7 +82,10 @@ impl PgStore {
             table = table_name
         );
 
-        Self { pool, upsert_sql }
+        Self {
+            pool,
+            upsert_sql: query_tag!("upsert_persons", upsert_sql),
+        }
     }
 }
 

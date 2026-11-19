@@ -1,13 +1,22 @@
+import datetime
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
+
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 # Baseten's management API returns full arrays for its entity list endpoints (no server-side
-# `updated_since` filter on any of them), so every table syncs as a full refresh. A couple of
-# endpoints (users, model_apis) use cursor+limit pagination; the rest are single unpaginated
-# requests, and a few are fan-out children fetched once per parent resource.
+# `updated_since` filter on any of them), so those tables sync as a full refresh. A few endpoints
+# (users, model_apis, audit_logs) use cursor+limit pagination; the rest are single unpaginated
+# requests, and a few are fan-out children fetched once per parent resource. audit_logs alone has a
+# server-side time filter (`start_epoch_millis`), so it alone syncs incrementally.
+
+# The usage summary rejects ranges that start before this date.
+BILLING_USAGE_EARLIEST_DATE = datetime.date(2026, 1, 1)
+# The usage summary caps a range at 31 days.
+BILLING_USAGE_WINDOW_DAYS = 30
 
 
-@dataclass
+@dataclass(frozen=True)
 class BasetenEndpointConfig:
     name: str
     # Path template. For fan-out children it carries a `{<fan_out_path_param>}` placeholder that is
@@ -22,6 +31,12 @@ class BasetenEndpointConfig:
     partition_key: Optional[str] = None
     # True for endpoints that page via cursor+limit, returning a `pagination` object.
     paginated: bool = False
+    # Credits apply only per usage type and window, so "usage_totals" keeps that grain next to the
+    # daily rows of "usage_daily".
+    mode: Literal["list", "usage_daily", "usage_totals"] = "list"
+    params: dict[str, str] = field(default_factory=dict)
+    # Field the server can filter on, in epoch milliseconds, for incremental syncs.
+    incremental_field: Optional[str] = None
     # Fan-out: iterate the named parent endpoint and call this child once per parent row.
     fan_out_parent: Optional[str] = None
     fan_out_path_param: str = "parent_id"  # placeholder name in `path`
@@ -124,6 +139,51 @@ BASETEN_ENDPOINTS: dict[str, BasetenEndpointConfig] = {
         data_key="secrets",
         partition_key="created_at",
     ),
+    "teams": BasetenEndpointConfig(
+        name="teams",
+        path="/v1/teams",
+        data_key="teams",
+        partition_key="created_at",
+    ),
+    "audit_logs": BasetenEndpointConfig(
+        name="audit_logs",
+        path="/v1/audit_logs",
+        data_key="items",
+        partition_key="created",
+        paginated=True,
+        params={"direction": "ASC"},
+        incremental_field="created",
+    ),
+    "billing_usage": BasetenEndpointConfig(
+        name="billing_usage",
+        path="/v1/billing/usage_summary",
+        data_key="",
+        # The usage type keeps resource ids apart from the team and model names of Model API rows.
+        primary_keys=["usage_type", "resource_id", "date"],
+        partition_key="date",
+        mode="usage_daily",
+    ),
+    "billing_usage_totals": BasetenEndpointConfig(
+        name="billing_usage_totals",
+        path="/v1/billing/usage_summary",
+        data_key="",
+        primary_keys=["usage_type", "window_start"],
+        partition_key="window_start",
+        mode="usage_totals",
+    ),
 }
 
 ENDPOINTS = tuple(BASETEN_ENDPOINTS.keys())
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: [
+        {
+            "label": config.incremental_field,
+            "type": IncrementalFieldType.DateTime,
+            "field": config.incremental_field,
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ]
+    for name, config in BASETEN_ENDPOINTS.items()
+    if config.incremental_field
+}

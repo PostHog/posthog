@@ -910,6 +910,8 @@ class TestCohortIsFlagCompatible(BaseTest):
             ("realtime_mixed_only_person_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, None, False),
             ("realtime_mixed_only_events_ts", CohortType.REALTIME, _MIXED_FILTERS, None, _FIXED_TS, False),
             ("realtime_mixed_both_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Nothing maintains the membership of a cohort that is off, whatever stamps it carries.
+            ("realtime_off_mixed_both_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, _FIXED_TS, False),
             # Realtime + no recognized filter types: never compatible, regardless of timestamps
             ("realtime_empty_filters_no_ts", CohortType.REALTIME, {}, None, None, False),
             ("realtime_empty_filters_with_ts", CohortType.REALTIME, {}, _FIXED_TS, _FIXED_TS, False),
@@ -947,6 +949,7 @@ class TestCohortIsFlagCompatible(BaseTest):
             team=self.team,
             filters=filters,
             cohort_type=cohort_type,
+            realtime_enabled_at=None if _label.startswith("realtime_off") else _FIXED_TS,
             last_backfill_person_properties_at=person_ts,
             last_backfill_events_at=events_ts,
         )
@@ -973,6 +976,7 @@ class TestCohortIsFlagCompatible(BaseTest):
             team=self.team,
             filters=_BEHAVIORAL_FILTERS,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=_FIXED_TS,
             last_backfill_events_at=_FIXED_TS,
         )
         self.assertEqual(cohort.is_flag_compatible, expected)

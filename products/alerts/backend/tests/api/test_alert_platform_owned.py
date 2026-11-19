@@ -25,8 +25,10 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, AlertState
+from posthog.tasks.alerts.utils import evaluated_by_insight_stack_q
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
 from products.alerts.backend.facade.api import (
     WATCHED_ROWS_PER_INSIGHT,
@@ -565,24 +567,122 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert (row["config"], row["skip_weekend"]) == (row_config, True)
 
-    @parameterized.expand([("asked_for_checks", "?checks_limit=5", True), ("plain_read", "", False)])
+    @parameterized.expand([("search",), ("created_by",), ("has_detector",)])
+    def test_the_list_filters_a_moved_alert_on_its_copys_values(self, filter_name: str) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        with team_scope(self.team.id):
+            platform_testing.set_created_by(self.copy_id, self.user.id)
+        # Writes that bypass the API leave the row apart from the copy.
+        AlertConfiguration.objects.filter(id=self.alert.id).update(
+            name="Quarterly revenue drop", created_by=other, detector_config={"type": "zscore"}
+        )
+        matching, missing = {
+            "search": ({"search": self.alert.name}, {"search": "Quarterly revenue drop"}),
+            "created_by": ({"created_by": str(self.user.uuid)}, {"created_by": str(other.uuid)}),
+            "has_detector": ({"has_detector": "false"}, {"has_detector": "true"}),
+        }[filter_name]
+
+        def listed(params: dict[str, str]) -> list[str]:
+            response = self.client.get(f"{self.url}/", params)
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            return [alert["id"] for alert in response.json()["results"]]
+
+        assert (listed(matching), listed(missing)) == ([str(self.alert.id)], [])
+
+    @parameterized.expand(
+        [
+            ("list", "list", None, False),
+            ("retrieve", "retrieve", None, False),
+            ("shared_with_an_alert_the_insight_stack_owns", "list", None, True),
+            ("threshold_insight_hidden", "list", "threshold", False),
+            ("alert_moved_to_a_hidden_insight", "list", "alert", False),
+        ]
+    )
+    def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(
+        self, _name: str, action: str, hidden: str | None, shared_with_row_alert: bool
+    ) -> None:
+        assert self.alert.threshold is not None
+        threshold_insight_id = self.alert.insight_id
+        AlertConfiguration.objects.filter(id=self.alert.id).update(name="Drifted")
+        copy_threshold = self.alert.threshold.configuration
+        row_threshold = {"type": "absolute", "bounds": {"upper": 999.0}}
+        Threshold.objects.filter(id=self.alert.threshold.id).update(configuration=row_threshold, name="Revenue bound")
+        expected = [(copy_threshold, self.alert.name, copy_threshold, "Revenue bound")]
+        if shared_with_row_alert:
+            row_alert = AlertConfiguration.objects.create(
+                team=self.team,
+                insight=self.alert.insight,
+                threshold=self.alert.threshold,
+                name="Row alert",
+                created_by=self.user,
+            )
+            # Edits to the row alert still write the threshold row, so the row's bounds are current.
+            expected = sorted(
+                [
+                    (row_threshold, self.alert.name, copy_threshold, "Revenue bound"),
+                    (row_threshold, row_alert.name, row_threshold, "Revenue bound"),
+                ]
+            )
+        if hidden is not None:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            hidden_insight_id = threshold_insight_id
+            if hidden == "alert":
+                # An edit can move an alert to another insight and keep its threshold.
+                hidden_insight_id = Insight.objects.create(team=self.team, query=self.alert.insight.query).id
+                AlertConfiguration.objects.filter(id=self.alert.id).update(insight_id=hidden_insight_id)
+            AccessControl.objects.create(
+                resource="insight", resource_id=hidden_insight_id, team=self.team, access_level="none"
+            )
+        url = f"/api/projects/{self.team.id}/insights/{threshold_insight_id}/thresholds/"
+
+        response = self.client.get(url if action != "retrieve" else f"{url}{self.alert.threshold_id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        thresholds = [response.json()] if action == "retrieve" else response.json()["results"]
+        assert sorted(
+            (threshold["configuration"], alert["name"], alert["threshold"]["configuration"], alert["threshold"]["name"])
+            for threshold in thresholds
+            for alert in threshold["alerts"]
+        ) == (expected if hidden is None else [])
+
+    @parameterized.expand(
+        [
+            ("asked_for_checks", "?checks_limit=5", True),
+            ("plain_read", "", False),
+            ("list", None, False),
+        ]
+    )
     def test_a_platform_history_failure_never_shows_the_alerts_stale_checks(
-        self, _name: str, query: str, refused: bool
+        self, _name: str, query: str | None, refused: bool
     ) -> None:
         self._record(30, "firing", value=150.0)
 
-        with patch(
-            "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
-            side_effect=RuntimeError("ClickHouse is down"),
+        with (
+            patch(
+                "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
+                side_effect=RuntimeError("ClickHouse is down"),
+            ),
+            patch(
+                "products.alerts.backend.platform_alert_reads.last_check_by_public_id",
+                side_effect=RuntimeError("ClickHouse is down"),
+            ),
         ):
-            response = self.client.get(f"{self.url}/{self.alert.id}/{query}")
+            response = self.client.get(f"{self.url}/" if query is None else f"{self.url}/{self.alert.id}/{query}")
 
         if refused:
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
             assert response.json()["code"] == "alert_check_history_unavailable"
-        else:
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert (response.json()["checks"], response.json()["checks_total"]) == ([], 0)
+            return
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()["results"][0] if query is None else response.json()
+        assert (body["last_checked_at"], body["last_value"]) == (None, None)
+        if query is not None:
+            assert (body["checks"], body["checks_total"]) == ([], 0)
 
 
 class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
@@ -595,6 +695,51 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         with team_scope(self.team.id):
             self.copy_id = platform_testing.copy_of(self.alert.id).id
         self.url = f"/api/projects/{self.team.id}/alerts"
+
+    def test_a_destination_moves_between_its_row_and_hog_functions_through_customize_and_reset(self) -> None:
+        sync_template_to_db(template_discord)
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/"
+        hog_function_ids = self.client.post(
+            f"{destinations_url}webhook/",
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
+            format="json",
+        ).json()["hog_function_ids"]
+        (stock,) = self.client.get(destinations_url).json()
+
+        with patch("products.alerts.backend.presentation.views.alert.posthoganalytics.capture") as capture:
+            reset = self.client.post(f"{destinations_url}reset/", {"hog_function_ids": hog_function_ids}, format="json")
+            assert reset.status_code == status.HTTP_200_OK, reset.json()
+            (row_only,) = self.client.get(destinations_url).json()
+            assert (row_only["id"], row_only["hog_function_ids"]) == (reset.json()["id"], [])
+            assert row_only["id"] == stock["id"]
+
+            customized = self.client.post(
+                f"{destinations_url}customize/", {"destination_id": row_only["id"]}, format="json"
+            )
+
+        assert customized.status_code == status.HTTP_200_OK, customized.json()
+        (listed,) = self.client.get(destinations_url).json()
+        assert (listed["id"], listed["hog_function_ids"]) == (row_only["id"], customized.json()["hog_function_ids"])
+        (hog_function_id,) = listed["hog_function_ids"]
+        assert HogFunction.objects.get(id=hog_function_id).encrypted_inputs["webhookUrl"]["value"] == (
+            "https://discord.com/api/webhooks/1/secret"
+        )
+        assert [call.kwargs["event"] for call in capture.call_args_list] == [
+            "insight alert destination reset",
+            "insight alert destination customized",
+        ]
+        changes = [
+            (change["action"], (change["before"] or change["after"])["id"])
+            for row in ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=str(self.alert.id), detail__type="alert_destination_change"
+            ).order_by("created_at")
+            for change in (row.detail or {})["changes"]
+        ]
+        assert changes[-3:] == [
+            ("deleted", hog_function_ids[0]),
+            ("created", reset.json()["id"]),
+            ("created", hog_function_id),
+        ]
 
     @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
     def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:
@@ -707,6 +852,29 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         cleared = self.client.patch(f"{self.url}/{self.alert.id}/", {"subscribed_users": []}, format="json")
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
         assert copied(self.alert.id) == {}
+
+    def test_an_insight_edit_starts_from_the_copy_after_the_row_drifts(self) -> None:
+        copy = self._copy()
+        # Writes that bypass the API leave the row apart from the copy.
+        AlertConfiguration.objects.filter(id=self.alert.id).update(skip_weekend=not copy.source_config["skip_weekend"])
+        Threshold.objects.filter(alertconfiguration__id=self.alert.id).update(
+            configuration={"type": "absolute", "bounds": {"upper": 999.0}}
+        )
+
+        edit = self.client.patch(f"{self.url}/{self.alert.id}/", {"name": "Renamed"}, format="json")
+
+        assert edit.status_code == status.HTTP_200_OK, edit.json()
+        edited = self._copy()
+        assert (edited.name, edited.source_config["skip_weekend"], edited.source_config["condition"]["threshold"]) == (
+            "Renamed",
+            copy.source_config["skip_weekend"],
+            copy.source_config["condition"]["threshold"],
+        )
+        row = AlertConfiguration.objects.select_related("threshold").get(id=self.alert.id)
+        assert (row.skip_weekend, row.threshold.configuration if row.threshold else None) == (
+            copy.source_config["skip_weekend"],
+            copy.source_config["condition"]["threshold"],
+        )
 
     def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
         stored_config = self._copy().source_config
@@ -1136,13 +1304,24 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         else:
             assert due_after == due_before
 
-    @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
-    def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:
+    @parameterized.expand(
+        [
+            ("a_team_on_the_platform", "platform", "platform"),
+            ("a_team_off_the_platform", "source", "source"),
+            ("a_team_with_no_other_alert", None, "platform"),
+        ]
+    )
+    def test_a_new_alert_follows_its_team_and_starts_on_the_platform_in_a_team_without_alerts(
+        self, _name: str, team_owner: str | None, expected_owner: str
+    ) -> None:
         team_cutover_at = self.now - timedelta(days=4)
-        AlertConfiguration.objects.filter(id=self.alert.id).update(
-            owner="platform" if begun else "source", owner_changed_at=team_cutover_at
-        )
         insight = create_insight_alert(self.team).insight
+        if team_owner is None:
+            AlertConfiguration.objects.filter(team_id=self.team.id).delete()
+        else:
+            AlertConfiguration.objects.filter(team_id=self.team.id).update(
+                owner=team_owner, owner_changed_at=team_cutover_at
+            )
 
         response = self.client.post(
             f"{self.url}",
@@ -1160,10 +1339,14 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         created = AlertConfiguration.objects.get(id=response.json()["id"])
-        assert created.owner == ("platform" if begun else "source")
-        if begun:
+        assert created.owner == expected_owner
+        if team_owner == "platform":
             # The insight stack shadows the new alert only for what is left of the team's week.
             assert created.owner_changed_at == team_cutover_at
+        # A team's first alert has no insight history to shadow.
+        assert AlertConfiguration.objects.filter(
+            evaluated_by_insight_stack_q(timezone.now()), id=created.id
+        ).exists() is (team_owner is not None)
 
     @parameterized.expand(
         [
@@ -1472,7 +1655,6 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                     check_interval_minutes=60 * 24,
                     recurrence_unit="day",
                     owner=PlatformAlertOwner.PLATFORM,
-                    destinations_owner=PlatformAlertOwner.PLATFORM,
                 )
 
         watched = insight_short_ids_watched_by(team_id=self.team.id, user_id=subscriber.id, limit=1)

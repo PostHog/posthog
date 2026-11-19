@@ -4,30 +4,19 @@ Wraps a provider lookup and the live-store write into one coroutine that any
 orchestrator can await — the real-time Temporal workflow (fire-and-forget from
 signup) today, a batch Dagster asset later. No orchestration concerns leak in here.
 
-Two scores ride each enrichment: the legacy clay-parity `icp_score` (score.py), still
-written because its live consumers are threshold-tuned to that scale, and the ICP fit
-score (fit_score.py) on its own `icp_fit_*` keys. The clay path retires once its
-consumers migrate to the fit keys.
+Each enrichment scores the org with the ICP fit score (fit_score.py) on its `icp_fit_*` keys.
 """
 
 import datetime as dt
 import dataclasses
 from typing import Any, Optional
 
-from django.conf import settings
-
 from asgiref.sync import sync_to_async
 from posthoganalytics.client import Client
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.person.util import get_person_by_distinct_id
 
-from products.growth.backend.enrichment.bridge import (
-    ClayBridgeInputs,
-    OrganizationBridgeInputs,
-    read_organization_bridge_inputs,
-)
-from products.growth.backend.enrichment.clearbit import ClearbitInputs, clearbit_inputs_from_person_properties
+from products.growth.backend.enrichment.bridge import OrganizationBridgeInputs, read_organization_bridge_inputs
 from products.growth.backend.enrichment.context import EnrichmentContext
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.fit_recomputation import latest_fetch, latest_matched_payload
@@ -35,7 +24,6 @@ from products.growth.backend.enrichment.fit_score import IcpFitResult
 from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
 from products.growth.backend.enrichment.icp_lists import load_active_lists
 from products.growth.backend.enrichment.providers import EnrichmentProvider, ProviderLookup
-from products.growth.backend.enrichment.score import IcpScoreInputs, compute_icp_score
 from products.growth.backend.enrichment.scoring_context import saved_wizard_ai_sdk, score_with_saved_inputs
 from products.growth.backend.enrichment.writer import (
     archive_provider_fetch,
@@ -69,11 +57,6 @@ class EnrichmentOutcome:
     fit: Optional[IcpFitResult] = None
     fit_evaluated_at: Optional[dt.datetime] = None
     enrichment_status: Optional[str] = None
-
-
-def _persisted_score_exists(organization_id: str) -> bool:
-    record = OrganizationEnrichment.objects.filter(organization_id=organization_id).only("data").first()
-    return bool(record and record.data.get("icp_score") is not None)
 
 
 def _reconstruct_fields_from_record(organization_id: str) -> Optional[EnrichmentFields]:
@@ -164,89 +147,6 @@ async def _resolve_fields(ctx: EnrichmentContext, lookup: ProviderLookup) -> Opt
     return fields
 
 
-def _fetch_recheck_person_inputs(distinct_id: str) -> tuple[bool, ClearbitInputs]:
-    """Fetch the signer's person once for the two recheck-only reads: mirror eligibility and Clearbit's fallback inputs.
-
-    Clay's own writes never stamp icp_score_version; ours always do, so an unversioned icp_score
-    on the person is Clay's — never clobber it with a possibly-lower mirror. A lookup failure or
-    a malformed person record (unreadable properties) degrades both reads (no mirror, no
-    Clearbit fallback) rather than raising out of the scoring path, preferring a missed mirror
-    over a possible clobber.
-    """
-    try:
-        person = get_person_by_distinct_id(team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID, distinct_id=distinct_id)
-        if person is None:
-            return True, ClearbitInputs()
-
-        properties = person.properties or {}
-        clay_owned = properties.get("icp_score") is not None and properties.get("icp_score_version") is None
-    except Exception as e:
-        capture_exception(e)
-        return False, ClearbitInputs()
-
-    return not clay_owned, clearbit_inputs_from_person_properties(properties)
-
-
-def _company_type_from_ownership(ownership_status: Optional[str]) -> Optional[str]:
-    """Map Harmonic's ownershipStatus onto the private/public vocabulary the formula matches on.
-
-    Only PRIVATE carries ownership information the formula can score. ACQUIRED_OR_MERGED,
-    ACTIVE and OUT_OF_BUSINESS describe a company's state rather than who owns it, so they
-    score nothing instead of being folded into either side.
-    """
-    return "private" if ownership_status == "PRIVATE" else None
-
-
-def _score_and_mirror(
-    ctx: EnrichmentContext, *, bridge_inputs: Optional[OrganizationBridgeInputs], fields: EnrichmentFields
-) -> tuple[Optional[int], Optional[str]]:
-    """Score one org under the legacy clay formula; on the recheck, also mirror onto the person.
-
-    Clay's bridge columns are read as an optional input on every attempt — used when present,
-    never waited for. Clay's own write lands after ours far more often than not, so most orgs
-    score on our fields alone at signup; the +4h recheck re-reads the bridge and can upgrade the
-    score if Clay's columns landed since. The recheck adds one person lookup that serves two
-    things: the mirror-ownership check and the Clearbit fallback for est_revenue (Clay wins when
-    both exist). company_type comes from Harmonic's own ownershipStatus, fetched server-side in
-    the same lookup as the other firmographics.
-    """
-    try:
-        if bridge_inputs is None:
-            if _persisted_score_exists(ctx.organization_id):
-                return None, None
-            clay = ClayBridgeInputs()
-        else:
-            clay = bridge_inputs.clay
-
-        mirror_ok = False
-        clearbit = ClearbitInputs()
-        if ctx.is_recheck and ctx.distinct_id:
-            mirror_ok, clearbit = _fetch_recheck_person_inputs(ctx.distinct_id)
-
-        icp_score = compute_icp_score(
-            IcpScoreInputs(
-                employees=fields.headcount,
-                # A Clay-written 0 is not information the formula can use either (_in_band is false
-                # at 0 same as at None), so it must not shadow a real Clearbit band.
-                est_revenue=clay.est_revenue or clearbit.est_revenue,
-                role=ctx.role_at_organization,
-                # Clay never projects its GitHub column into PostHog, so this input is always
-                # absent here — product-role orgs score 3, not 6, until v-next substitutes the
-                # signup's own GitHub auth. Kept on IcpScoreInputs for formula fidelity.
-                github_profile_url=None,
-                company_type=_company_type_from_ownership(fields.ownership_status),
-                founded_year=fields.founded_year,
-                country=fields.country,
-            )
-        )
-
-        mirror_distinct_id = ctx.distinct_id if mirror_ok else None
-        return icp_score, mirror_distinct_id
-    except Exception as e:
-        capture_exception(e, {"organization_id": ctx.organization_id})
-        return None, None
-
-
 def _read_bridge_inputs(
     ctx: EnrichmentContext, fields: Optional[EnrichmentFields]
 ) -> Optional[OrganizationBridgeInputs]:
@@ -283,10 +183,9 @@ def _score_fit(
     after the first score.
 
     The fit person mirror needs no ownership guard and no person read: `icp_fit_score` is a
-    brand-new person key nothing else writes, so every evaluation mirrors blindly on every
-    attempt (unlike the clay mirror, which shares Clay's key and stays recheck-only behind
-    the ownership check) — including a score-less one, whose status overwrites a stale
-    number left by an earlier scored attempt.
+    person key nothing else writes, so every evaluation mirrors blindly on every attempt,
+    including a score-less one, whose status overwrites a stale number left by an earlier
+    scored attempt.
     """
     try:
         wizard_ai_sdk = False
@@ -331,10 +230,6 @@ def _persist_lookup(
     pha_client: Client,
     enrichment_status: Optional[str],
 ) -> EnrichmentOutcome:
-    icp_score: Optional[int] = None
-    mirror_distinct_id: Optional[str] = None
-    if fields is not None:
-        icp_score, mirror_distinct_id = _score_and_mirror(ctx, bridge_inputs=bridge_inputs, fields=fields)
     with lock_organization_enrichment(ctx.organization_id):
         current_fetch = latest_fetch(ctx.organization_id)
         if fetch is not None and (current_fetch is None or current_fetch.id != fetch.id):
@@ -348,8 +243,6 @@ def _persist_lookup(
                 organization_id=ctx.organization_id,
                 fields=fields,
                 pha_client=pha_client,
-                icp_score=icp_score,
-                mirror_distinct_id=mirror_distinct_id,
                 fit=fit,
                 fit_evaluation_kind=ctx.phase.fit_evaluation_kind,
                 fit_evaluated_at=fit_evaluated_at,
@@ -361,8 +254,6 @@ def _persist_lookup(
             organization_id=ctx.organization_id,
             fields=fields,
             pha_client=pha_client,
-            icp_score=icp_score,
-            mirror_distinct_id=mirror_distinct_id,
             fit=fit,
             fit_mirror_distinct_id=fit_mirror_distinct_id,
         )

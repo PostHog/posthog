@@ -4,8 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useMocks } from '~/mocks/jest'
@@ -86,8 +84,6 @@ describe('ReportContextMenu', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
     })
 
     // The menu content renders in a portal, so cleanup keeps one case's rows out of the next.
@@ -222,13 +218,6 @@ describe('ReportContextMenu', () => {
         fireEvent.click(screen.getAllByText('Take over').at(-1)!)
 
         await waitFor(() => expect(claimRequests).toEqual([{ reportId: 'report-1', body: { takeover: true } }]))
-    })
-
-    it('hides Create PR when AI is unavailable', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false })
-        openMenu(makeReport())
-        expect(screen.queryByText('Create PR')).not.toBeInTheDocument()
-        expect(screen.getByText('Dismiss')).toBeInTheDocument()
     })
 
     // Only a run in flight blocks Create PR. A claim leads to a dialog instead, so it must not disable the item.

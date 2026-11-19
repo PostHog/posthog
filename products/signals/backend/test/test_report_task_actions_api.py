@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -6,22 +8,46 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from posthog.models.github_integration_base import PullRequestCiStatus
+
+from products.signals.backend.artefact_schemas import ReportLink
+from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportPullRequest,
+    SignalReportTask,
+)
+from products.signals.backend.report_assignments import claim_report
+from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_task_actions import (
+    BACKGROUND_RUN_INSTRUCTIONS,
     FIX_CI_REQUEST,
+    IMPLEMENT_ALREADY_ADDRESSED_DISABLED_REASON,
+    IMPLEMENT_HAS_PR_DISABLED_REASON,
+    IMPLEMENT_NO_REPOSITORY_DISABLED_REASON,
+    IMPLEMENT_NOT_ACTIONABLE_DISABLED_REASON,
+    IMPLEMENT_PLAN_DISABLED_REASON,
+    IMPLEMENT_RUN_ACTIVE_DETAIL,
     INBOX_REPORT_ACTION_EVENT,
-    MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON,
     MAKE_IT_GREEN_NO_PR_DISABLED_REASON,
+    MAKE_IT_GREEN_NOTHING_TO_FIX_DISABLED_REASON,
     MERGE_PR_REQUEST,
     REPORT_DISCUSSION_STATE_INSTRUCTIONS,
+    RESOLVE_CONFLICTS_NO_CONFLICT_DISABLED_REASON,
+    RESOLVE_CONFLICTS_NO_PR_DISABLED_REASON,
+    RESOLVE_CONFLICTS_REQUEST,
+    create_pr_report_prompt,
     fix_ci_intro,
     is_pull_request_run_request,
     merge_pr_intro,
+    resolve_conflicts_intro,
     task_create_data,
 )
 from products.signals.backend.serializers import SignalReportTaskActionRunRequestSerializer
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import compute_quota_limit_response
+from products.tasks.backend.facade.access import DesktopAccessDecision, compute_quota_limit_response
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -31,15 +57,28 @@ def _flag(flag_key: str, *args: object, **kwargs: object) -> bool:
 
 INBOX_REPORT_URL = "https://us.posthog.com/project/1/inbox/0190f1f0-0000-7000-8000-000000000000"
 
+NOTHING_TO_FIX = MAKE_IT_GREEN_NOTHING_TO_FIX_DISABLED_REASON
+MAKE_IT_GREEN_NO_PR = MAKE_IT_GREEN_NO_PR_DISABLED_REASON
+NO_CONFLICT = RESOLVE_CONFLICTS_NO_CONFLICT_DISABLED_REASON
+RESOLVE_NO_PR = RESOLVE_CONFLICTS_NO_PR_DISABLED_REASON
+
 
 def _inbox_description(intro: str, message: str) -> str:
     return f"<posthog_trusted_context>\n- {intro}\n</posthog_trusted_context>\n\n{message}"
 
 
-def _ci(ci_status: str):
+def _desktop_access(decision: DesktopAccessDecision = DesktopAccessDecision.ALLOWED):
+    return patch(
+        "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision", return_value=decision
+    )
+
+
+def _ci(ci_status: str, has_conflict: bool = False):
     return patch(
         "products.signals.backend.report_task_actions.pr_ci_statuses_for_references",
-        side_effect=lambda _team_id, refs: dict.fromkeys(refs, ci_status),
+        side_effect=lambda _team_id, refs: dict.fromkeys(
+            refs, PullRequestCiStatus(ci_status=ci_status, has_conflict=has_conflict)
+        ),
     )
 
 
@@ -80,6 +119,17 @@ class TestReportTaskActionsAPI(APIBaseTest):
             team=self.team, report=report, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, pull_request=pr
         )
 
+    def _judge(self, report: SignalReport, actionability: str, already_addressed: bool = False) -> None:
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps({"actionability": actionability, "already_addressed": already_addressed}),
+        )
+
+    def _implement(self, report: SignalReport) -> dict:
+        return next(action for action in self._actions(report) if action["action"] == "implement")
+
     def _actions(self, report: SignalReport) -> list[dict]:
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/actions/")
         assert response.status_code == status.HTTP_200_OK, response.data
@@ -111,7 +161,9 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert actions[0]["available"] is available
         assert (actions[0]["disabled_reason"] is None) is available
         assert actions[1]["action"] == "make_it_green"
-        assert [(a["action"], a["suggested_prompt_index"], a["text"]) for a in actions[2:]] == [
+        assert actions[2]["action"] == "resolve_conflicts"
+        assert actions[3]["action"] == "implement"
+        assert [(a["action"], a["suggested_prompt_index"], a["text"]) for a in actions[4:]] == [
             ("suggested_prompt", 0, "Why does checkout fail?"),
             ("suggested_prompt", 1, "Create the alert"),
         ]
@@ -161,34 +213,45 @@ class TestReportTaskActionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("failing_draft", SignalReportPullRequest.State.DRAFT, "failing", None),
-            ("failing_unapproved", SignalReportPullRequest.State.OPEN, "failing", None),
-            ("pending", SignalReportPullRequest.State.OPEN, "pending", MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON),
-            ("passing", SignalReportPullRequest.State.OPEN, "passing", MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON),
-            ("merged", SignalReportPullRequest.State.MERGED, "failing", MAKE_IT_GREEN_NO_PR_DISABLED_REASON),
-            ("no_pr", None, "failing", MAKE_IT_GREEN_NO_PR_DISABLED_REASON),
+            ("failing_draft", SignalReportPullRequest.State.DRAFT, "failing", False, None, NO_CONFLICT),
+            ("failing_unapproved", SignalReportPullRequest.State.OPEN, "failing", False, None, NO_CONFLICT),
+            ("failing_conflicting", SignalReportPullRequest.State.OPEN, "failing", True, None, None),
+            ("passing_conflicting", SignalReportPullRequest.State.OPEN, "passing", True, None, None),
+            ("pending", SignalReportPullRequest.State.OPEN, "pending", False, NOTHING_TO_FIX, NO_CONFLICT),
+            ("passing", SignalReportPullRequest.State.OPEN, "passing", False, NOTHING_TO_FIX, NO_CONFLICT),
+            ("merged", SignalReportPullRequest.State.MERGED, "failing", True, MAKE_IT_GREEN_NO_PR, RESOLVE_NO_PR),
+            ("no_pr", None, "failing", True, MAKE_IT_GREEN_NO_PR, RESOLVE_NO_PR),
         ]
     )
-    def test_lists_make_it_green_only_while_ci_fails_on_an_open_pr(
+    def test_lists_pr_repair_actions_only_while_an_open_pr_needs_them(
         self,
         _workflow: MagicMock,
         _flag_mock: MagicMock,
         _name: str,
         pr_state: str | None,
         ci_status: str,
-        disabled_reason: str | None,
+        has_conflict: bool,
+        make_it_green_reason: str | None,
+        resolve_conflicts_reason: str | None,
     ) -> None:
         report = self._report()
         if pr_state is not None:
             self._attach_pr(report, None, state=pr_state)
 
-        with _ci(ci_status):
-            make_it_green = self._actions(report)[1]
+        with _ci(ci_status, has_conflict) as statuses:
+            actions = self._actions(report)
 
+        make_it_green, resolve_conflicts = actions[1], actions[2]
         assert make_it_green["action"] == "make_it_green"
-        assert make_it_green["disabled_reason"] == disabled_reason
-        assert make_it_green["available"] is (disabled_reason is None)
+        assert make_it_green["disabled_reason"] == make_it_green_reason
+        assert make_it_green["available"] is (make_it_green_reason is None)
         assert make_it_green["text"] == FIX_CI_REQUEST
+        assert resolve_conflicts["action"] == "resolve_conflicts"
+        assert resolve_conflicts["disabled_reason"] == resolve_conflicts_reason
+        assert resolve_conflicts["available"] is (resolve_conflicts_reason is None)
+        assert resolve_conflicts["text"] == RESOLVE_CONFLICTS_REQUEST
+        # Both actions read one GitHub answer, so listing them costs no second lookup.
+        assert statuses.call_count == (0 if make_it_green_reason == MAKE_IT_GREEN_NO_PR else 1)
 
     def test_make_it_green_starts_a_run_that_never_merges_and_shares_the_pr_run_guard(
         self, workflow: MagicMock, _flag_mock: MagicMock
@@ -196,7 +259,7 @@ class TestReportTaskActionsAPI(APIBaseTest):
         report = self._report()
         self._attach_pr(report, "approved")
 
-        with _ci("failing"), patch("products.signals.backend.views.report_user_action") as capture:
+        with _ci("failing", has_conflict=True), patch("products.signals.backend.views.report_user_action") as capture:
             response = self._run(report, {"action": "make_it_green"})
 
         assert response.status_code == status.HTTP_201_CREATED, response.data
@@ -206,9 +269,9 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert capture.call_args.args[2]["question_intent"] == "fix_ci"
         assert capture.call_args.args[2]["report_action"] == "make_it_green"
 
-        # Both runs push to the same branch, so either kind refuses while the other works.
-        for action in ("make_it_green", "get_it_merged"):
-            with _ci("failing"):
+        # Every PR action pushes to the same branch, so each kind refuses while another works.
+        for action in ("make_it_green", "get_it_merged", "resolve_conflicts"):
+            with _ci("failing", has_conflict=True):
                 second = self._run(report, {"action": action})
             assert second.status_code == status.HTTP_409_CONFLICT, action
             assert second.json()["task_id"] == str(task.id)
@@ -231,6 +294,190 @@ class TestReportTaskActionsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.data
         assert set(Task.objects.filter(signal_report=report).values_list("id", flat=True)) == {pending.id}
+        workflow.assert_not_called()
+
+    def test_resolve_conflicts_starts_a_run_that_only_updates_the_branch(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._report()
+        self._attach_pr(report, None)
+
+        with _ci("passing"):
+            refused = self._run(report, {"action": "resolve_conflicts"})
+        with _ci("passing", has_conflict=True), patch("products.signals.backend.views.report_user_action") as capture:
+            response = self._run(report, {"action": "resolve_conflicts"})
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        assert refused.json()["code"] == "report_action_unavailable"
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        task = Task.objects.get(id=response.json()["task_id"])
+        assert task.description.endswith(f"</posthog_trusted_context>\n\n{RESOLVE_CONFLICTS_REQUEST}")
+        assert "Do not fix CI failures that the update did not cause" in task.description
+        assert "Do not merge the pull request, do not add it to a merge queue" in task.description
+        assert capture.call_args.args[2]["question_intent"] == "resolve_conflicts"
+        assert capture.call_args.args[2]["report_action"] == "resolve_conflicts"
+        assert capture.call_args.args[2]["suggestion_count"] == 1
+        workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("ready_actionable", SignalReport.Status.READY, "immediately_actionable", None, None),
+            ("ready_needs_input", SignalReport.Status.READY, "requires_human_input", None, None),
+            ("pending_input_unjudged", SignalReport.Status.PENDING_INPUT, None, None, None),
+            ("ready_unjudged", SignalReport.Status.READY, None, None, IMPLEMENT_NOT_ACTIONABLE_DISABLED_REASON),
+            (
+                "ready_not_actionable",
+                SignalReport.Status.READY,
+                "not_actionable",
+                None,
+                IMPLEMENT_NOT_ACTIONABLE_DISABLED_REASON,
+            ),
+            (
+                "resolved",
+                SignalReport.Status.RESOLVED,
+                "immediately_actionable",
+                None,
+                IMPLEMENT_NOT_ACTIONABLE_DISABLED_REASON,
+            ),
+            (
+                "already_addressed",
+                SignalReport.Status.READY,
+                "immediately_actionable",
+                "already_addressed",
+                IMPLEMENT_ALREADY_ADDRESSED_DISABLED_REASON,
+            ),
+            ("has_pr", SignalReport.Status.READY, "immediately_actionable", "pr", IMPLEMENT_HAS_PR_DISABLED_REASON),
+            ("plan", SignalReport.Status.READY, "immediately_actionable", "plan", IMPLEMENT_PLAN_DISABLED_REASON),
+            (
+                "self_improvement_without_repository",
+                SignalReport.Status.READY,
+                "immediately_actionable",
+                "self_improvement",
+                IMPLEMENT_NO_REPOSITORY_DISABLED_REASON,
+            ),
+            ("own_claim", SignalReport.Status.READY, "immediately_actionable", "own_claim", None),
+            (
+                "teammate_claim",
+                SignalReport.Status.READY,
+                "immediately_actionable",
+                "teammate_claim",
+                "Ada is working on this report. Take the claim over with `inbox-reports-claim` before you implement it.",
+            ),
+        ]
+    )
+    def test_lists_implement_only_when_the_report_can_be_implemented(
+        self,
+        _workflow: MagicMock,
+        _flag_mock: MagicMock,
+        _name: str,
+        status_: str,
+        actionability: str | None,
+        setup: str | None,
+        reason: str | None,
+    ) -> None:
+        title = "Scout self-improvement: tighten the rules" if setup == "self_improvement" else "Checkout fails"
+        report = self._report(status_=status_, title=title)
+        if actionability is not None:
+            self._judge(report, actionability, already_addressed=setup == "already_addressed")
+        if setup == "pr":
+            self._attach_pr(report, None, state=SignalReportPullRequest.State.MERGED)
+        if setup == "plan":
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(self._report().id),
+                content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(report.id)),
+                attribution=ArtefactAttribution.system(),
+            )
+        if setup in ("own_claim", "teammate_claim"):
+            holder = self.user if setup == "own_claim" else self._create_user("ada@example.com", first_name="Ada")
+            claim_report(
+                report=report, actor=ArtefactAttribution.from_user(holder.id), user=holder, was_impersonated=False
+            )
+
+        implement = self._implement(report)
+
+        assert implement["disabled_reason"] == reason
+        assert implement["available"] is (reason is None)
+
+    def test_implement_starts_an_implementation_run_that_claims_the_report_and_refuses_a_second_one(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._report()
+        self._judge(report, "immediately_actionable")
+
+        with _desktop_access(), patch("products.signals.backend.views.report_user_action") as capture:
+            response = self._run(
+                report, {"action": "implement", "message": "Keep the fix in the API layer", "repository": "Example/App"}
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        body = response.json()
+        task = Task.objects.get(id=body["task_id"])
+        run = TaskRun.objects.get(id=body["run_id"])
+        assert task.repository == "example/app"
+        assert run.mode == "background"
+        assert task.description.startswith(f"{create_pr_report_prompt(report)}\n\n{BACKGROUND_RUN_INSTRUCTIONS}")
+        assert "Additional feedback from the user (take this into account):\nKeep the fix in the API layer" in (
+            task.description
+        )
+        assert SignalReportTask.objects.filter(report=report, task=task, relationship="implementation").exists()
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is not None
+        report.refresh_from_db()
+        assert report.selected_repository() == "example/app"
+        workflow.assert_called_once()
+        properties = capture.call_args.args[2]
+        assert properties["report_action"] == "implement"
+        assert properties["action_type"] == "create_pr"
+        assert properties["outcome"] == "success"
+        assert "Keep the fix in the API layer" not in str(properties)
+        assert self._implement(report)["disabled_reason"] == IMPLEMENT_RUN_ACTIVE_DETAIL
+
+        with _desktop_access():
+            second = self._run(report, {"action": "implement"})
+
+        assert second.status_code == status.HTTP_409_CONFLICT, second.data
+        assert second.json()["code"] == "report_action_run_active"
+        assert second.json()["task_id"] == str(task.id)
+        assert second.json()["run_id"] == str(run.id)
+        assert Task.objects.filter(signal_report=report).count() == 1
+
+    @parameterized.expand(
+        [
+            (
+                "no_code_access",
+                DesktopAccessDecision.STARTUP_PLAN,
+                status.HTTP_403_FORBIDDEN,
+                "code_access_required",
+            ),
+            (
+                "no_repository_resolves",
+                DesktopAccessDecision.ALLOWED,
+                status.HTTP_400_BAD_REQUEST,
+                "report_implementation_repository_unresolved",
+            ),
+        ]
+    )
+    def test_implement_that_cannot_open_a_pr_starts_nothing(
+        self,
+        workflow: MagicMock,
+        _flag_mock: MagicMock,
+        _name: str,
+        access: DesktopAccessDecision,
+        expected_status: int,
+        code: str,
+    ) -> None:
+        report = self._report()
+        self._judge(report, "immediately_actionable")
+
+        with (
+            _desktop_access(access),
+            patch("products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value=None),
+        ):
+            response = self._run(report, {"action": "implement"})
+
+        assert response.status_code == expected_status, response.data
+        assert response.json()["code"] == code
+        assert not Task.objects.filter(signal_report=report).exists()
         workflow.assert_not_called()
 
     def test_get_it_merged_without_an_approved_pr_starts_nothing(
@@ -346,6 +593,11 @@ class TestPullRequestRunDetection(SimpleTestCase):
         [
             ("inbox_merge", _inbox_description(merge_pr_intro(INBOX_REPORT_URL), MERGE_PR_REQUEST), True),
             ("inbox_fix_ci", _inbox_description(fix_ci_intro(INBOX_REPORT_URL), FIX_CI_REQUEST), True),
+            (
+                "inbox_resolve_conflicts",
+                _inbox_description(resolve_conflicts_intro(INBOX_REPORT_URL), RESOLVE_CONFLICTS_REQUEST),
+                True,
+            ),
             ("custom_message", _inbox_description(merge_pr_intro(INBOX_REPORT_URL), "Rebase onto #12 first"), True),
             ("no_block", MERGE_PR_REQUEST, False),
             (
@@ -373,9 +625,11 @@ class TestReportTaskActionRunRequestValidation(SimpleTestCase):
                 "message",
             ),
             ("message_too_long", {"action": "get_it_merged", "message": "x" * 2001}, "message"),
+            ("repository_without_implement", {"action": "ask", "message": "Hi", "repository": "a/b"}, "repository"),
+            ("repository_not_owner_repo", {"action": "implement", "repository": "app"}, "repository"),
         ]
     )
-    def test_rejects_an_invalid_message(self, _name: str, data: dict, field: str) -> None:
+    def test_rejects_an_invalid_request(self, _name: str, data: dict, field: str) -> None:
         serializer = SignalReportTaskActionRunRequestSerializer(data=data)
 
         assert not serializer.is_valid()

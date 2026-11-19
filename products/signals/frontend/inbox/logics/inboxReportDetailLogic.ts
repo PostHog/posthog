@@ -49,6 +49,7 @@ import {
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
     signalsReportsPriorityUpdate,
+    signalsReportsRepositoryUpdate,
     signalsReportsStateCreate,
     signalsReportsReviewersUpdate,
 } from 'products/signals/frontend/generated/api'
@@ -80,6 +81,7 @@ import {
 } from '../components/detail/reviewerDisplay'
 import {
     captureInboxReportAction,
+    captureInboxReportDecisionChanged,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
     InboxReportActionSurface,
@@ -91,6 +93,7 @@ import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, 
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { implementationClaimDisabledReason } from '../utils/reportActions'
 import { isReportClaimable, reportClaimant, requestReportClaim, teammateClaimHolder } from '../utils/reportClaim'
+import { ReportDecisionAttributions, reportDecisionAttributions } from '../utils/reportDecisions'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -345,6 +348,7 @@ export interface inboxReportDetailLogicValues {
     chartsById: Map<string, ReportChartApi>
     claimSaving: boolean
     currentUserGithubLogin: string | null
+    decisionAttributions: ReportDecisionAttributions | null
     detailTab: ReportDetailTab
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
@@ -386,6 +390,8 @@ export interface inboxReportDetailLogicValues {
     prComments: readonly PullRequestCommentApi[] | null
     prCommentsError: GitHubLoadError | null
     prCommentsLoading: boolean
+    prConflictReported: boolean
+    prHasConflict: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
     prioritySaving: boolean
@@ -408,6 +414,7 @@ export interface inboxReportDetailLogicValues {
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
+    repositorySaving: boolean
     savedFeedback: SignalReportFeedbackStateApi | null
     savedFeedbackLoading: boolean
     selectedPullRequest: ReportPullRequest
@@ -724,6 +731,9 @@ export interface inboxReportDetailLogicActions {
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
+    setPrConflictReported: (hasConflict: boolean) => {
+        hasConflict: boolean
+    }
     setPrioritySaving: (saving: boolean) => {
         saving: boolean
     }
@@ -740,6 +750,9 @@ export interface inboxReportDetailLogicActions {
         takeover: boolean
     }
     setReportStateSaving: (saving: boolean) => {
+        saving: boolean
+    }
+    setRepositorySaving: (saving: boolean) => {
         saving: boolean
     }
     setSelectedTaskId: (taskId: string | null) => {
@@ -764,6 +777,9 @@ export interface inboxReportDetailLogicActions {
     }
     updatePriority: (priority: ReportPriorityApi) => {
         priority: ReportPriorityApi
+    }
+    updateRepository: (repository: string) => {
+        repository: string
     }
     updateReviewers: (
         content: Record<string, string>[],
@@ -807,6 +823,7 @@ export interface inboxReportDetailLogicMeta {
             selectedPullRequest: ReportPullRequest,
             prChecks: readonly PullRequestCheckApi[] | null
         ) => boolean
+        prHasConflict: (selectedPullRequest: ReportPullRequest, prConflictReported: boolean) => boolean
         prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
         currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
@@ -821,6 +838,10 @@ export interface inboxReportDetailLogicMeta {
         trailingCharts: (reportCharts: ReportChartApi[], chartPlacements: ChartPlacements) => ReportChartApi[]
         priorityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
         actionabilityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
+        decisionAttributions: (
+            report: SignalReport | null,
+            reportArtefacts: SignalReportArtefact[] | null
+        ) => ReportDecisionAttributions | null
         displayReviewers: (
             reportReviewers: EnrichedReviewer[] | null,
             optimisticReviewers: EnrichedReviewer[] | null,
@@ -915,9 +936,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Which comment is being edited inline (null = none).
         setEditingCommentId: (commentId: string | null) => ({ commentId }),
         selectPullRequest: (url: string) => ({ url }),
+        setPrConflictReported: (hasConflict: boolean) => ({ hasConflict }),
         setReport: (report: SignalReport | null) => ({ report }),
         updatePriority: (priority: ReportPriorityApi) => ({ priority }),
         setPrioritySaving: (saving: boolean) => ({ saving }),
+        updateRepository: (repository: string) => ({ repository }),
+        setRepositorySaving: (saving: boolean) => ({ saving }),
         changeReportState: (state: SignalReportStateRequestApi['state']) => ({ state }),
         setReportStateSaving: (saving: boolean) => ({ saving }),
         setReportClaimed: (claimed: boolean, takeover: boolean = false, shownAssignee?: SignalReport['assignee']) => ({
@@ -977,7 +1001,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         feedbackSaved: (feedback: SignalReportFeedbackStateApi) => ({ feedback }),
     }),
 
-    loaders(({ props, values, cache }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         savedFeedback: [
             null as SignalReportFeedbackStateApi | null,
             {
@@ -1186,6 +1210,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (values.selectedPullRequest.url !== pr.url) {
                         return null
                     }
+                    // A backend from before this field omits it, and kea rejects an undefined reducer value.
+                    actions.setPrConflictReported(response.has_conflict === true)
                     return response.checks
                 },
             },
@@ -1240,6 +1266,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
+        repositorySaving: [false, { setRepositorySaving: (_, { saving }) => saving }],
         reportStateSaving: [false, { setReportStateSaving: (_, { saving }) => saving }],
         claimSaving: [false, { setClaimSaving: (_, { saving }) => saving }],
         report: [
@@ -1332,6 +1359,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadPrChecksSuccess: () => null,
                 loadPrChecksFailure: (_, { errorObject }) =>
                     githubLoadErrorFrom(errorObject, "Couldn't load the PR checks from GitHub."),
+            },
+        ],
+        // What the last checks response said about conflicts on the selected PR. It arrives with the
+        // checks, so it adds no GitHub call. A failed poll keeps the last answer, as `prChecks` does.
+        prConflictReported: [
+            false,
+            {
+                setPrConflictReported: (_, { hasConflict }) => hasConflict,
+                selectPullRequest: () => false,
             },
         ],
         // Consecutive failed checks fetches — feeds `prChecksBackedOff`.
@@ -1468,6 +1504,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     (check) => check.status === 'completed' && FAILED_CHECK_CONCLUSIONS.includes(check.conclusion ?? '')
                 ),
         ],
+        // Whether the selected PR conflicts with its base while it is still open, so it is worth updating.
+        prHasConflict: [
+            (s) => [s.selectedPullRequest, s.prConflictReported],
+            (pr: ReportPullRequest, prConflictReported: boolean): boolean =>
+                !pr.merged && pr.state !== 'closed' && pr.state !== 'merged' && prConflictReported,
+        ],
         // True once GitHub has failed enough consecutive times that the 15s cadence stops being worth
         // it — the poll tick then drops to a slow retry (see PR_CHECKS_FAILURE_BACKOFF_TICKS).
         prChecksBackedOff: [
@@ -1587,6 +1629,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (s) => [s.reportArtefacts],
             (reportArtefacts: SignalReportArtefact[] | null): string | null =>
                 latestJudgmentExplanation(reportArtefacts, 'actionability_judgment'),
+        ],
+        decisionAttributions: [
+            (s) => [s.report, s.reportArtefacts],
+            (
+                report: SignalReport | null,
+                reportArtefacts: SignalReportArtefact[] | null
+            ): ReportDecisionAttributions | null => reportDecisionAttributions(report?.decisions, reportArtefacts),
         ],
         // The reviewer list to render: optimistic override (if any) wins over the artefact-derived list,
         // then the current user is pinned to the top. Mirrors desktop `displayReviewers`.
@@ -1766,6 +1815,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             if (!teamId || !currentReport || values.prioritySaving || currentReport.priority === priority) {
                 return
             }
+            const previousAttribution = values.decisionAttributions?.priority ?? null
             actions.setPrioritySaving(true)
             let updated: SignalReportApi
             try {
@@ -1780,6 +1830,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 }
                 return
             }
+            captureInboxReportDecisionChanged({
+                report: currentReport,
+                decision: 'priority',
+                previousValue: currentReport.priority ?? null,
+                newValue: priority,
+                previousSetBy: previousAttribution ? (previousAttribution.person ? 'person' : 'agent') : null,
+                surface: 'detail_pane',
+            })
             inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
             if (!inboxReportDetailLogic.isMounted(props)) {
                 return
@@ -1787,6 +1845,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const report: SignalReport = {
                 ...(values.report ?? currentReport),
                 priority,
+                decisions: updated.decisions,
                 updated_at: updated.updated_at,
             }
             actions.setReport(report)
@@ -1796,6 +1855,54 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             }
             actions.loadReportArtefacts()
             actions.setPrioritySaving(false)
+        },
+        updateRepository: async ({ repository }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.repositorySaving || currentReport.repo_slug === repository) {
+                return
+            }
+            const previousAttribution = values.decisionAttributions?.repository ?? null
+            actions.setRepositorySaving(true)
+            let updated: SignalReportApi
+            try {
+                updated = await withInboxWriteTimeout('repository', (options) =>
+                    signalsReportsRepositoryUpdate(String(teamId), props.reportId, { repository }, options)
+                )
+            } catch {
+                inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([props.reportId])
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setRepositorySaving(false)
+                    lemonToast.error("Couldn't save the repository. Try again.")
+                }
+                return
+            }
+            captureInboxReportDecisionChanged({
+                report: currentReport,
+                decision: 'repository',
+                previousValue: currentReport.repo_slug ?? null,
+                newValue: repository,
+                previousSetBy: previousAttribution ? (previousAttribution.person ? 'person' : 'agent') : null,
+                surface: 'detail_pane',
+            })
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
+            }
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                repo_slug: updated.repo_slug ?? repository,
+                research_context: updated.research_context,
+                decisions: updated.decisions,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setRepositorySaving(false)
         },
         setReportClaimed: async ({ claimed, takeover, shownAssignee }) => {
             const teamId = teamLogic.values.currentTeamId

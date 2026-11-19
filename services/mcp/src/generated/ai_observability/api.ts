@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 98 enabled ops
+ * PostHog API - MCP 99 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2443,6 +2443,21 @@ export const LlmAnalyticsClusteringConfigListParams = () => zod.object({
 /**
  * Team-level clustering configuration (event filters for automated pipelines).
  */
+export const LlmAnalyticsClusteringConfigSetEnabledCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const LlmAnalyticsClusteringConfigSetEnabledCreateBody = () => zod.object({
+    enabled: zod.boolean().describe('Enable or disable automated clustering for this project.'),
+})
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
 export const LlmAnalyticsClusteringConfigSetEventFiltersCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -4147,6 +4162,7 @@ export const TaggersListQueryParams = () => zod.object({
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
     id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    migrated_to_evaluation_id: zod.string().optional().describe('Only the tagger that was migrated to this evaluation'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .array(zod.string())

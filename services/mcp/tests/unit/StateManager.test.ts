@@ -1,9 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
-import { ErrorCode, PostHogApiError, PostHogTransportError } from '@/lib/errors'
+import {
+    ErrorCode,
+    findPostHogPermissionError,
+    formatPermissionErrorMessage,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogTransportError,
+} from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -491,6 +498,80 @@ describe('StateManager', () => {
             expect(api.config.oauthClientName).toBe(expected)
             expect(secondApi.config.oauthClientName).toBe(expected)
             expect(await cache.get('clientName')).toBe(expected)
+        })
+
+        describe('with a project secret API key', () => {
+            const pinned: PinnedActiveContext = { pin: { projectId: '42' }, sessionScoped: false, projectId: '42' }
+
+            function secretKeyApi(request: ApiClient['request']): ApiClient {
+                return { config: { apiToken: 'phs_test' }, request } as unknown as ApiClient
+            }
+
+            it('resolves the session from one read of what the key can access', async () => {
+                const request = vi.fn(async () => ({ results: [] }))
+                const manager = new StateManager(cache, secretKeyApi(request as ApiClient['request']), pinned)
+
+                const apiKey = await manager.getApiKey()
+
+                expect(request).toHaveBeenCalledWith({
+                    method: 'GET',
+                    path: '/api/projects/@current/business_knowledge/access/',
+                })
+                expect(apiKey.scopes).toEqual(['business_knowledge:read'])
+                expect(apiKey.scoped_teams).toEqual([42])
+                expect(apiKey.mcp_allowed_tools).toContain('business-knowledge-documents-search')
+                expect(await manager.getDistinctId()).toMatch(/^psak-42-/)
+                expect(await manager.getAnalyticsContext()).toEqual({ projectId: '42' })
+                expect(await manager.getAiConsentGiven()).toBeUndefined()
+            })
+
+            it('checks the key again when the same key arrives with another project', async () => {
+                const request = vi.fn(async () => ({ results: [] }))
+                const api = secretKeyApi(request as ApiClient['request'])
+                await new StateManager(cache, api, pinned).getApiKey()
+
+                const other: PinnedActiveContext = { pin: { projectId: '7' }, sessionScoped: false, projectId: '7' }
+                const apiKey = await new StateManager(cache, api, other).getApiKey()
+
+                expect(apiKey.scoped_teams).toEqual([7])
+                expect(apiKey.user_distinct_id).toMatch(/^psak-7-/)
+            })
+
+            it.each([
+                ['an unknown key', new Error(ErrorCode.INVALID_API_KEY), ErrorCode.INVALID_API_KEY],
+                [
+                    'a key without the scope',
+                    new PostHogPermissionError({
+                        detail: "API key missing required scope 'business_knowledge:read'",
+                        missingScope: 'business_knowledge:read',
+                        url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
+                        method: 'GET',
+                    }),
+                    'Connect your agent',
+                ],
+                [
+                    'a project ID that does not exist',
+                    new PostHogApiError({
+                        status: 404,
+                        statusText: 'Not Found',
+                        body: '{"detail":"Project not found."}',
+                        url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
+                        method: 'GET',
+                    }),
+                    'Connect your agent',
+                ],
+            ])('rejects %s with a message for that case', async (_, failure, expected) => {
+                const request = vi.fn(async () => {
+                    throw failure
+                })
+                const manager = new StateManager(cache, secretKeyApi(request as ApiClient['request']), pinned)
+
+                const error = await manager.getApiKey().catch((e: Error) => e)
+
+                const permissionError = findPostHogPermissionError(error)
+                const text = permissionError ? formatPermissionErrorMessage(permissionError) : (error as Error).message
+                expect(text).toContain(expected)
+            })
         })
     })
 
@@ -1375,6 +1456,53 @@ describe('StateManager', () => {
 
             expect(await stateManager.getOrFetchBusinessKnowledgeContent('42')).toEqual(expected)
             expect(request).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }))
+        })
+    })
+
+    describe('getOrFetchMetricCatalog', () => {
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('re-reads an empty catalog after a minute so a newly saved metric counts', async () => {
+            vi.useFakeTimers()
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce({ has_metrics: false })
+                .mockResolvedValueOnce({ has_metrics: true })
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
+            vi.advanceTimersByTime(61 * 1000)
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: true })
+            expect(request).toHaveBeenCalledWith(
+                expect.objectContaining({ path: '/api/projects/42/data_catalog/metric_availability/' })
+            )
+        })
+
+        it('drops a cached empty catalog when its refresh fails', async () => {
+            vi.useFakeTimers()
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce({ has_metrics: false })
+                .mockRejectedValue(new Error('Synthetic metric availability failure'))
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
+            vi.advanceTimersByTime(61 * 1000)
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
+        })
+
+        it('reads a failed lookup as unknown', async () => {
+            vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const request = vi.fn(() => Promise.reject(new Error('Synthetic metric availability failure')))
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
+
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
         })
     })
 

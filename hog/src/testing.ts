@@ -16,11 +16,22 @@ import type { Env, Runtime, Secrets } from '@/core/runtime'
 
 import { run } from './cli'
 import { parseProviderIdToken } from './posthog/tokens'
+import { VERSION } from './version'
 
 export interface FakeRuntimeOptions {
     env?: Env
     platform?: NodeJS.Platform
+    arch?: string
+    isDevelopment?: boolean
+    // Without a date the build never checks for updates, so tests that don't pass one send no update requests.
+    build?: { version: string; date?: string }
+    execPath?: string
+    noHome?: boolean
+    musl?: boolean
+    commandExitCode?: number
     stdoutIsTTY?: boolean
+    // Defaults to `stdoutIsTTY`.
+    stdinIsTTY?: boolean
     columns?: number
     cwd?: string
     files?: Record<string, string>
@@ -34,7 +45,7 @@ export interface FakeRuntimeOptions {
     // Answers to prompts, in the order hog asks them. A prompt with no answer left fails the test.
     answers?: string[]
     // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
-    // as is, for JSON that JSON.stringify can't produce.
+    // as is, for JSON that JSON.stringify can't produce, and bytes are sent as they are.
     respond?: (
         url: string,
         body: unknown,
@@ -42,6 +53,7 @@ export interface FakeRuntimeOptions {
         headers: Headers
     ) => { status: number; body: unknown; headers?: Record<string, string> }
     telemetryToken?: string
+    sendTelemetryInBackground?: (body: string) => Promise<boolean>
     // The MCP tool catalog `hog api` loads, or a function that builds it from the catalog hog downloaded.
     // Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary | ((options: ApiToolLibraryOptions) => ApiToolLibrary)
@@ -57,6 +69,8 @@ export interface FakeRuntime extends Runtime {
     stdout: () => string
     stderr: () => string
     requests: { method: string; url: string; body: unknown }[]
+    commands: string[][]
+    executables: Record<string, Uint8Array>
     files: Record<string, string>
     opened: string[]
     tls: { verify: boolean }
@@ -161,12 +175,25 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     const opened: string[] = []
     const tls = { verify: true }
     const keychain = { ...options.keychain }
+    const commands: string[][] = []
+    const executables: Record<string, Uint8Array> = {}
     const clock = fakeClock(options.now ?? Date.UTC(2026, 0, 1))
     const runtime: FakeRuntime = {
         env: options.env ?? {},
         platform: options.platform ?? 'linux',
-        isDevelopment: false,
-        stdinIsTTY: options.stdoutIsTTY ?? false,
+        arch: options.arch ?? 'x64',
+        isDevelopment: options.isDevelopment ?? false,
+        build: { version: options.build?.version ?? VERSION, date: options.build?.date },
+        execPath: options.execPath ?? '/usr/local/bin/hog',
+        isMusl: async () => options.musl ?? false,
+        runCommand: async (argv) => {
+            commands.push(argv)
+            return options.commandExitCode ?? 0
+        },
+        replaceExecutable: async (path, contents) => {
+            executables[path] = contents
+        },
+        stdinIsTTY: options.stdinIsTTY ?? options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,
         stdoutHasColors: options.stdoutIsTTY ?? false,
         stdoutColumns: options.columns,
@@ -186,12 +213,18 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
                 body: { detail: 'no fake response' },
             }
             const text =
-                reply.status === 304 ? null : typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
+                reply.status === 304
+                    ? null
+                    : typeof reply.body === 'string'
+                      ? reply.body
+                      : reply.body instanceof Uint8Array
+                        ? (reply.body as Uint8Array<ArrayBuffer>)
+                        : JSON.stringify(reply.body)
             return new Response(text, { status: reply.status, headers: reply.headers })
         }) as typeof fetch,
         now: clock.now,
         sleep: clock.sleep,
-        homeDir: () => '/home/test',
+        homeDir: () => (options.noHome ? undefined : '/home/test'),
         cwd: () => options.cwd ?? '/work',
         // A path exists when it is a file, or a folder some file sits under.
         exists: async (path) =>
@@ -261,6 +294,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         prompts: fakePrompts([...(options.answers ?? [])]),
         secrets: memorySecrets(keychain),
         telemetryToken: options.telemetryToken,
+        sendTelemetryInBackground: options.sendTelemetryInBackground,
         skipTlsVerification: () => {
             tls.verify = false
         },
@@ -279,6 +313,8 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         stdout: () => stdout,
         stderr: () => stderr,
         requests,
+        commands,
+        executables,
         files,
         opened,
         tls,
@@ -303,6 +339,8 @@ export interface HogRun {
     stdout: string
     stderr: string
     requests: FakeRuntime['requests']
+    commands: string[][]
+    executables: Record<string, Uint8Array>
     files: Record<string, string>
     opened: string[]
     elapsedMs: number
@@ -345,6 +383,8 @@ export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): 
         stdout: runtime.stdout(),
         stderr: runtime.stderr(),
         requests: runtime.requests,
+        commands: runtime.commands,
+        executables: runtime.executables,
         files: runtime.files,
         opened: runtime.opened,
         elapsedMs: runtime.now() - start,

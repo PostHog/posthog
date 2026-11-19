@@ -15,6 +15,7 @@ from django.contrib.auth import (
     logout as auth_logout,
 )
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.signals import user_login_failed
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
@@ -33,7 +34,7 @@ from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session, restore_original_login
+from loginas.utils import is_impersonated_session
 from requests import RequestException
 from rest_framework import exceptions, mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -64,6 +65,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.dev_oauth_connectors import seeded_dev_oauth_connector_links
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.impersonation import end_impersonation
 from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
     UNVERIFIED_SOCIAL_EMAIL_ERROR,
@@ -72,6 +74,7 @@ from posthog.helpers.sso import (
 )
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
+    CODE_TTL_SECONDS,
     LOGIN_CODE_VERIFICATION_COUNTER,
     clear_two_factor_session_flags,
     code_based_verifier,
@@ -82,6 +85,7 @@ from posthog.helpers.two_factor_session import (
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import IdentityProviderConfig, OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -107,7 +111,14 @@ from posthog.utils import (
     get_short_user_agent,
     get_trusted_client_ip,
 )
-from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+from posthog.workos_radar import (
+    RadarAction,
+    RadarAuthMethod,
+    SuspiciousAttemptBlocked,
+    evaluate_auth_attempt,
+    radar_client_id_for_login,
+)
+from posthog.workos_radar_signal_handlers import extend_login_attempt, remember_login_attempt
 
 from products.security.backend.facade.api import (
     REFUSAL_CODE as SECURITY_REFUSAL_CODE,
@@ -152,7 +163,7 @@ def logout(request):
 
     if is_impersonated_session(request):
         impersonated_user_pk = request.user.pk
-        restore_original_login(request)
+        end_impersonation(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
     auth_logout(request)
@@ -259,9 +270,10 @@ class CodeBasedVerificationRequired(APIException):
     default_detail = "Code-based verification is required."
     default_code = "code_based_verification_required"
 
-    def __init__(self, email: str | None = None):
+    def __init__(self, email: str | None = None, inbox_provider: InboxProvider | None = None):
         detail = email if email else self.default_detail
         super().__init__(detail=detail, code=self.default_code)
+        self.extra = {"inbox_provider": inbox_provider}
 
 
 class LoginCodeEmailUndeliverable(APIException):
@@ -286,37 +298,55 @@ class EmailVerificationPending(APIException):
     default_detail = "Email verification is required."
     default_code = "verify_email_pending"
 
-    def __init__(self, user_uuid: str):
+    def __init__(self, user_uuid: str, inbox_provider: InboxProvider | None = None):
         super().__init__(detail=user_uuid, code=self.default_code)
+        self.extra = {"inbox_provider": inbox_provider}
 
 
-def is_email_verified_for_login(user: User) -> bool:
+def require_verified_email_for_login(user: User) -> None:
     """
     Send a verification code when the login policy requires it.
 
-    Returns whether login may continue for this user. Legacy users with a null
-    verification state are still allowed to sign in.
+    Raises EmailVerificationPending when login may not continue for this user. Legacy users with
+    a null verification state get a code but are still allowed to sign in. The error carries the
+    user uuid, so call this only after the caller checked a credential.
     """
     if not is_email_available():
-        return True
+        return
 
     if user.is_email_verified is True:
-        return True
+        return
 
     if is_email_verification_disabled(user):
-        return True
+        return
 
+    if user.is_email_verified is None:
+        email_verification_code_verifier.send_code(user)
+        return
+
+    inbox_lookup = InboxProviderLookup.start(user.email)
     email_verification_code_verifier.send_code(user)
-    if user.is_email_verified is False:
-        return False
+    raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
 
-    # legacy None users are still allowed to log in
-    return True
+
+class _BrowserTokenField(serializers.Field):
+    """A token the login page may send. A value that is not a string reads as empty, so it never fails a login."""
+
+    def to_internal_value(self, data: Any) -> str:
+        return data if isinstance(data, str) else ""
+
+    def to_representation(self, value: Any) -> Any:
+        return value
 
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
+    radar_signals_id = _BrowserTokenField(
+        required=False,
+        default="",
+        help_text="Token from the WorkOS Radar browser script. It links the device signals the browser collected to this login.",
+    )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
@@ -378,14 +408,6 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
 
-        evaluate_auth_attempt(
-            request=request._request,
-            email=validated_data["email"],
-            action=RadarAction.SIGNIN,
-            auth_method=RadarAuthMethod.PASSWORD,
-            user_id=str(existing_user.distinct_id) if existing_user else None,
-        )
-
         axes_request = getattr(request, "_request", request)
         was_authenticated_before_login_attempt = bool(
             getattr(request, "user", None)
@@ -400,6 +422,30 @@ class LoginSerializer(serializers.Serializer):
         # Check if axes has locked out this IP/user before attempting authentication
         if handler.is_locked(axes_request, credentials=axes_credentials):
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
+
+        # A re-auth comes from a signed-in session, so Radar has nothing to add to it. The login
+        # form cannot show a Turnstile challenge, so only a block verdict refuses the login.
+        radar_attempt = None
+        if not was_authenticated_before_login_attempt:
+            try:
+                radar_attempt = evaluate_auth_attempt(
+                    request=request._request,
+                    # Radar knows the account by its stored address, not the variant spelling the lookup folded
+                    email=existing_user.email if existing_user else validated_data["email"],
+                    action=RadarAction.SIGNIN,
+                    auth_method=RadarAuthMethod.PASSWORD,
+                    user_id=str(existing_user.distinct_id) if existing_user else None,
+                    challenge_allowed=False,
+                    call_site="login",
+                    signals_id=str(validated_data.get("radar_signals_id") or ""),
+                    account_id=str(existing_user.uuid) if existing_user else None,
+                )
+            except SuspiciousAttemptBlocked:
+                # Counts toward the lockout above, so a repeating caller stops costing Radar calls
+                user_login_failed.send(
+                    sender=__name__, credentials={"email": validated_data["email"]}, request=axes_request
+                )
+                raise
 
         user = cast(
             User | None,
@@ -418,6 +464,10 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
+        if radar_attempt and radar_attempt.attempt_id:
+            # Reported when the session signs in, so a login that stops at a second factor is never reported
+            remember_login_attempt(request, radar_attempt.attempt_id, user.pk, valid_for_seconds=CODE_TTL_SECONDS)
+
         try:
             refused = security_access_refused(
                 SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(axes_request)),
@@ -430,10 +480,7 @@ class LoginSerializer(serializers.Serializer):
         if refused:
             raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
-        if not is_email_verified_for_login(user):
-            # A fresh code was just emailed; hand the frontend the uuid so it can route to
-            # the code entry page.
-            raise EmailVerificationPending(str(user.uuid))
+        require_verified_email_for_login(user)
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
@@ -464,12 +511,13 @@ class LoginSerializer(serializers.Serializer):
             else:
                 # Code-based verification - skip if this is a reauth (user already authenticated)
                 if not was_authenticated_before_login_attempt:
+                    inbox_lookup = InboxProviderLookup.start(user.email)
                     code_based_verification_sent = _send_login_code(request, user)
                     if code_based_verification_sent:
                         # Increment the resend throttle counter so the initial send counts towards the limit
                         resend_throttle = CodeBasedVerificationResendThrottle()
                         resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
-                        raise CodeBasedVerificationRequired(user.email)
+                        raise CodeBasedVerificationRequired(user.email, inbox_provider=inbox_lookup.result())
                     else:
                         # if we failed to send the email, we should fall through to allow login without code-based verification
                         pass
@@ -529,13 +577,16 @@ class LoginPrecheckSerializer(serializers.Serializer):
         saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
         oidc_available = IdentityProviderConfig.objects.get_is_oidc_available_for_email(email)
 
-        return {
+        response: dict[str, Any] = {
             "sso_enforcement": sso_enforcement_for_login_address(email, user),
             "saml_available": saml_available,
             "oidc_available": oidc_available,
             "webauthn_credentials": webauthn_credentials,
             **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
+        if radar_client_id := radar_client_id_for_login():
+            response["radar_client_id"] = radar_client_id
+        return response
 
     @staticmethod
     def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
@@ -1256,6 +1307,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
                 {"detail": "Could not send verification code."},
                 code="code_based_verification_email_failed",
             )
+        extend_login_attempt(request, valid_for_seconds=CODE_TTL_SECONDS)
 
         return Response({"success": True, "message": "Verification code sent"})
 

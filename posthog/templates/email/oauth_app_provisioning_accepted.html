@@ -1,0 +1,22 @@
+{% extends "email/base.html" %}
+{% block heading %}{{ app_name }} is approved{% endblock %}
+{% block section %}
+    <p>We reviewed <strong>{{ app_name }}</strong> and turned on provisioning for it. It can now use the PostHog provisioning API.</p>
+    {% if partner_message %}
+        <p><strong>Note from the PostHog team:</strong> {{ partner_message }}</p>
+    {% endif %}
+    <p>
+        You're getting this email because you're an admin or owner of {{ organization_name }}, which owns this application. Its
+        client ID is {{ client_id }}.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button primary" href="{{ review_url }}">View the review</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ review_url }}">{{ review_url }}</a>
+        </p>
+    </div>
+{% endblock %}

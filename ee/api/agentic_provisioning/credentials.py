@@ -10,7 +10,7 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.scopes import narrow_scopes_to_ceiling
+from posthog.scopes.ceilings import narrow_scopes_to_ceiling
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import (

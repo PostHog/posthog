@@ -19,6 +19,7 @@ const INTEGRATIONS = [
     'aws-s3',
     's3-compatible',
     'azure-blob',
+    'motherduck',
 ].map((kind, index) => ({
     id: index + 1,
     kind,
@@ -76,3 +77,6 @@ S3.args = { type: 'S3' }
 
 export const AzureBlob = Template.bind({})
 AzureBlob.args = { type: 'AzureBlob' }
+
+export const MotherDuck = Template.bind({})
+MotherDuck.args = { type: 'MotherDuck' }

@@ -51,10 +51,10 @@ describe('live adapters', () => {
         const activity = liveActivity(
             {
                 results: [
-                    [Date.parse(minute('20:44')), 1, 1, 9],
-                    [Date.parse(minute('20:45')), 2, 2, 3],
+                    [Date.parse(minute('20:44')), 1, 1, 9, 99],
+                    [Date.parse(minute('20:45')), 2, 2, 3, 7],
                     [Date.parse(minute('20:50')), 2, 1, 2],
-                    [String(Date.parse(minute('21:14'))), '1', '0', '1'],
+                    [String(Date.parse(minute('21:14'))), '1', '0', '1', '2'],
                     [Date.parse(minute('21:15')), 1, 1, 9],
                 ],
             },
@@ -67,11 +67,18 @@ describe('live adapters', () => {
             newUsers: 2,
             returningUsers: 0,
             pageviews: 3,
+            screenviews: 7,
         })
         expect(activity.minutes[5]).toMatchObject({ users: 2, newUsers: 1, returningUsers: 1 })
-        expect(activity.minutes[29]).toMatchObject({ users: 1, newUsers: 0, returningUsers: 1, pageviews: 1 })
-        expect(activity.minutes[1]).toMatchObject({ users: 0, pageviews: 0 })
-        expect(activity).toMatchObject({ uniqueVisitors: 3, pageviews: 6 })
+        expect(activity.minutes[29]).toMatchObject({
+            users: 1,
+            newUsers: 0,
+            returningUsers: 1,
+            pageviews: 1,
+            screenviews: 2,
+        })
+        expect(activity.minutes[1]).toMatchObject({ users: 0, pageviews: 0, screenviews: 0 })
+        expect(activity).toMatchObject({ uniqueVisitors: 3, pageviews: 6, screenviews: 9 })
     })
 
     test('ranked rows carry their share and how far they moved, and equal counts keep their order', () => {
@@ -193,6 +200,29 @@ describe('live adapters', () => {
 
     test.each([
         ['a project that never ingested an event', QUIET, false, 'not_set_up'],
+        [
+            'a mixed project with no live activity retains weekly metrics',
+            {
+                ...QUIET,
+                profile: { kind: 'mixed' },
+                mobileMetrics: {
+                    dailyActiveUsers: 5,
+                    weeklyActiveUsers: 20,
+                    installs: null,
+                    weeklyInstalls: null,
+                    sessions: null,
+                    updatedAt: NOW,
+                },
+            },
+            true,
+            'web',
+        ],
+        [
+            'a mobile project with no live activity retains mobile cards',
+            { ...QUIET, profile: { kind: 'mobile' } },
+            true,
+            'app_only',
+        ],
         ['a window where every job answered with nothing', QUIET, true, 'quiet'],
         ['an empty window with a part still unanswered', { ...QUIET, events: null }, true, 'web'],
         [

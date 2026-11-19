@@ -89,6 +89,7 @@ export function TaskComposer({
         requestRepository,
         removeRepository,
         toggleDefaultRepository,
+        setComposerFocused,
     } = useActions(taskTrackerSceneLogic)
     const {
         newTaskData,
@@ -145,6 +146,8 @@ export function TaskComposer({
         }
     }, [focusRequest])
 
+    useEffect(() => () => setComposerFocused(false), [setComposerFocused])
+
     const handleSelectSuggestion = (item: SuggestionItem): void => {
         applySuggestion(item)
         if (item.requiresUserInput) {
@@ -163,7 +166,7 @@ export function TaskComposer({
     }, [prefillRequest, applyPrefill])
 
     const field = (
-        <Composer.Field>
+        <Composer.Field onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)}>
             <Composer.Placeholder>
                 {composerOverride?.placeholder ??
                     (skin === 'quill' ? 'What do you want to work on?' : 'Describe the task in detail…')}
@@ -178,7 +181,7 @@ export function TaskComposer({
             onModeChange={pickPermissionMode}
         />
     )
-    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
+    const codexBillingEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const modelPickerProps: ComposerModelEffortPickersProps = {
         models: offeredModels,
         selectedModel: displayModel,

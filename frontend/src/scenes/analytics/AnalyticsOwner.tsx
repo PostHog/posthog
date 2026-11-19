@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback, Text, cn } from '@posthog/quill'
+import { Avatar, AvatarFallback, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { fullName } from 'lib/utils/strings'
 
@@ -41,14 +41,14 @@ export function AnalyticsOwner({
     const full = fullName(owner)
     const label = owner.first_name?.trim() || owner.email.split('@')[0]
     return (
-        <span
-            className={cn('flex min-w-0 items-center gap-1.5', className)}
-            title={full && full !== 'Unknown User' ? full : owner.email}
-        >
-            <AnalyticsOwnerAvatar owner={owner} />
-            <Text size="xs" className="truncate">
-                {label}
-            </Text>
-        </span>
+        <Tooltip>
+            <TooltipTrigger render={<span className={cn('flex min-w-0 items-center gap-1.5', className)} />}>
+                <AnalyticsOwnerAvatar owner={owner} />
+                <Text size="xs" className="truncate">
+                    {label}
+                </Text>
+            </TooltipTrigger>
+            <TooltipContent>{full && full !== 'Unknown User' ? full : owner.email}</TooltipContent>
+        </Tooltip>
     )
 }

@@ -60,7 +60,7 @@ Settings supplies its own navigation shell so the gateway workflows fit the main
 ## How the catalog works
 
 The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per server.
-At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from `backend/apps.py`), which upserts entries into `MCPServerTemplate` rows:
+When a Celery worker starts, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from the `worker_ready` receiver in `backend/apps.py`; other processes that load Django never queue it), which upserts entries into `MCPServerTemplate` rows:
 
 - Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth type, category, icon, docs URL, OAuth scope allowlist, and credential source). The catalog owns content. Edit it in code, not admin.
 - **Operational state normally stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change or suspension must fail closed. A catalog-managed credential source is the exception: sync activates it after a successful shared-client probe and deactivates it when its required settings disappear. Rows absent from the catalog remain untouched.

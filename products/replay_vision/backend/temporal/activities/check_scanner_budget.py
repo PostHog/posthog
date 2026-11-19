@@ -31,7 +31,6 @@ from products.replay_vision.backend.scanner_access import unrunnable_reason
 from products.replay_vision.backend.temporal.activities.create_observation import capture_scan_blocked
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import stop_variant_analysis
 from products.replay_vision.backend.temporal.constants import CHECK_SCANNER_BUDGET_TIMEOUT
-from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.sweep_cadence import SWEEP_PAUSE_RECHECK, SWEEP_PAUSE_RECHECK_SOON
@@ -156,12 +155,6 @@ def _turn_off_free_only_scanner(scanner: ReplayScanner) -> None:
     _notify_scanner_viewers(scanner, f'"{scanner.name}" stopped: free credits used', body)
 
 
-@activity.defn
-@track_activity()
-def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScannerBudgetOutput:
-    return check_scanner_budget(inputs)
-
-
 def check_scanner_budget(inputs: CheckScannerBudgetInputs) -> CheckScannerBudgetOutput:
     """Whether this scanner has room for another observation under its own credit limit.
 
@@ -182,6 +175,10 @@ def check_scanner_budget(inputs: CheckScannerBudgetInputs) -> CheckScannerBudget
         return CheckScannerBudgetOutput(capped=False)
     # Resolve the period once so the cap decisions and the notification stamp cannot straddle a rollover.
     cap = org_credit_cap_for(scanner.team.organization, scanner.team.organization_id)
+    if cap.awaiting_billing_sync:
+        # The zero allowance is a placeholder, so skip without moving the watermark or turning the scanner off.
+        record_sweep_outcome("awaiting_billing_sync")
+        return CheckScannerBudgetOutput(capped=True)
     # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
     if (scanner.has_spend_ceiling or cap.credit_limit is not None) and unrunnable_reason(scanner):
         return CheckScannerBudgetOutput(capped=False)
