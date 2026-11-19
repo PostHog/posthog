@@ -356,6 +356,18 @@ def _set_attestations(d: dict, *, raw: object) -> None:
                 ("invalid-regex", [{**_ATTESTATION, "paths": ["migrations/("]}]),
                 ("sibling-with-directory", [{**_ATTESTATION, "sibling_files": ["migrations/max_migration.txt"]}]),
                 ("publisher-file-escapes-repo", [{**_ATTESTATION, "publisher_files": ["../ci.yml"]}]),
+                (
+                    "issuer-and-publisher-files",
+                    [{**_ATTESTATION, "issuer": "tools/proof/issuer.yml", "publisher_files": ["ci.yml"]}],
+                ),
+                ("issuer-escapes-repo", [{**_ATTESTATION, "issuer": "../issuer.yml"}]),
+                ("issuer-is-a-directory", [{**_ATTESTATION, "issuer": "tools/proof/"}]),
+                ("issuer-glob", [{**_ATTESTATION, "issuer": "tools/*/issuer.yml"}]),
+                ("issuer-not-yaml", [{**_ATTESTATION, "issuer": "tools/proof/yaml.py"}]),
+                ("issuer-beside-the-engine", [{**_ATTESTATION, "issuer": "tools/pr-approval-agent/x.yml"}]),
+                ("issuer-percent-escape", [{**_ATTESTATION, "issuer": "%2e%2e/x.yml"}]),
+                ("title-invalid-regex", [{**_ATTESTATION, "title": "^Revert ("}]),
+                ("issuer-outside-self-governance", [{**_ATTESTATION, "issuer": "tools/proof/issuer.yml"}]),
             ]
         ],
         _unknown_top_level_key,
@@ -505,6 +517,53 @@ def test_load_effective_policy(
     loaded = load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
     assert set(loaded.deny) == set(_valid_policy_dict()["deny"])
     assert loaded.size_gate.max_lines == (overlay or {}).get("size_gate", {}).get("max_lines", 1200)
+
+
+_ISSUER = "tools/proof/issuer.yml"
+
+
+@pytest.mark.parametrize(
+    "manifest, expected",
+    [
+        pytest.param("paths:\n  - tools/proof/\n  - .nvmrc\n", ("tools/proof/", ".nvmrc"), id="valid"),
+        pytest.param(None, (), id="missing"),
+        pytest.param("paths:\n  - .nvmrc\n", (), id="does-not-cover-itself"),
+        pytest.param("paths:\n  - tools/proof/\nextra: 1\n", (), id="extra-key"),
+        pytest.param("paths:\n  - tools/proof/\n  - tools/proof/\n", (), id="duplicate-path"),
+        pytest.param("paths:\n  - tools/proof/\n  - ../x\n", (), id="path-escapes-repo"),
+        pytest.param("paths:\n  - tools/proof/\n  - '*.yml'\n", (), id="glob"),
+        pytest.param(
+            "paths:\n  - tools/proof/\n" + "".join(f"  - f{index}\n" for index in range(32)), (), id="too-many"
+        ),
+        pytest.param("# " + "x" * 16384 + "\npaths:\n  - tools/proof/\n", (), id="too-large"),
+        pytest.param("paths: [unclosed\n", (), id="does-not-parse"),
+    ],
+)
+def test_an_issuer_entry_reads_its_paths_from_the_manifest_in_the_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, manifest: str | None, expected: tuple[str, ...]
+) -> None:
+    (tmp_path / ".stamphog").mkdir()
+    (tmp_path / ".stamphog" / "policy.yml").write_text(
+        yaml.safe_dump(
+            {
+                "deny": {"stamphog_policy": {"match": {"extend_paths": ["^tools/proof/"]}}},
+                "attestations": [{**_ATTESTATION, "lifts": ["migrations"], "issuer": _ISSUER}],
+            }
+        )
+    )
+    if manifest is not None:
+        (tmp_path / "tools" / "proof").mkdir(parents=True)
+        (tmp_path / _ISSUER).write_text(manifest)
+    monkeypatch.setattr(policy, "repo_root", lambda: tmp_path)
+
+    (attestation,) = load_effective_policy(
+        lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS
+    ).attestations
+
+    assert attestation.issuer == _ISSUER
+    assert attestation.pins_publisher
+    assert attestation.issuer_paths == expected
+    assert attestation.usable == bool(expected)
 
 
 def test_attestations_load_with_defaults_and_are_absent_by_default(tmp_path: Path) -> None:

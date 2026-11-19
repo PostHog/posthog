@@ -325,7 +325,9 @@ describe('commentsLogic', () => {
         })
         await expectLogic(logic, () => {
             logic.actions.loadComments()
-        }).toDispatchActions(['loadCommentsSuccess'])
+        })
+            .toDispatchActions(['loadCommentsSuccess'])
+            .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
 
         expect(logic.values.expandedThreadIds.has('thread-1')).toBe(true)
 
