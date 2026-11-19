@@ -70,9 +70,13 @@ describe('setupExpressApp JSON body limit', () => {
         const malformed = await post(Buffer.from('this is not compressed data'))
         const next = await supertest(app).post('/echo').send({ data: 'x' })
 
-        expect({ valid: [valid.status, valid.body], malformed: malformed.status, next: next.status }).toEqual({
+        expect({
+            valid: [valid.status, valid.body],
+            malformed: [malformed.status, malformed.body],
+            next: next.status,
+        }).toEqual({
             valid: [200, { data: 'x' }],
-            malformed: 400,
+            malformed: [400, { status: 'error', error: 'Malformed compressed body' }],
             next: 200,
         })
     })
