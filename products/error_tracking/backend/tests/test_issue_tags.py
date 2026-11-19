@@ -124,9 +124,14 @@ class TestSetIssueTag(BaseTest):
         assert value == tag.value
         assert (version > first_version) is replaced
 
-    @parameterized.expand([("same_answer", 1, False), ("new_question_version", 2, True)])
+    @parameterized.expand(
+        [
+            ("same_answer", 1, ["SELECT"], 0),
+            ("new_question_version", 2, ["SELECT", "UPDATE"], 1),
+        ]
+    )
     def test_a_repeated_answer_is_written_and_synced_only_when_it_changed(
-        self, _name: str, question_version: int, writes: bool
+        self, _name: str, question_version: int, expected_statements: list[str], expected_produces: int
     ) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         answer = self._answer(Source.JEV, value=True)
@@ -145,10 +150,7 @@ class TestSetIssueTag(BaseTest):
             for query in queries.captured_queries
             if "posthog_errortrackingissuetag" in query["sql"]
         ]
-        produced_values = [call.kwargs["data"]["value"] for call in produce.call_args_list]
-        assert (stored, tag_statements, produced_values) == (
-            (True, ["SELECT", "UPDATE"], [1]) if writes else (True, ["SELECT"], [])
-        )
+        assert (stored, tag_statements, produce.call_count) == (True, expected_statements, expected_produces)
         assert _issue_activity(issue).count() == 1
 
     def test_a_later_write_wins_in_clickhouse_when_its_clock_reads_earlier(self) -> None:

@@ -28,7 +28,8 @@ def set_issue_tag(
 ) -> bool:
     """Store the answer unless issue tags are off for the team, or a higher-ranked source answered the tag already.
 
-    Return whether it was stored. An answer that the tag holds already writes nothing and counts as stored.
+    Return whether it was stored. An answer that the tag already holds, field for field, writes nothing and counts as
+    stored.
     """
     if not issue_tags_enabled(team_id):
         return False
