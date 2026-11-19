@@ -18,6 +18,10 @@ lint:
 breaking:
     use:
         - FILE
+        # FILE rejects every field deletion. Where ignore_only lifts
+        # FIELD_NO_DELETE, this rule still fails the check unless the deleted
+        # field's number is reserved, so a later field cannot reuse it.
+        - FIELD_NO_DELETE_UNLESS_NUMBER_RESERVED
     # Temporary: allows deleting a retired RPC and its messages. Safe to
     # remove once the deletion is on master, which these checks compare
     # against.
@@ -29,8 +33,12 @@ breaking:
             - personhog/types/v1/person.proto
         # Temporary: the WorkerIngest stream has no consumers yet, so its
         # response message can be reshaped in place. Remove once on master.
+        # Temporary: the personhog entry allows deleting the Person
+        # properties_last_updated_at and properties_last_operation fields.
+        # Remove once on master.
         FIELD_NO_DELETE:
             - ingestion/worker/v1/worker.proto
+            - personhog/types/v1/person.proto
         FIELD_SAME_CARDINALITY:
             - ingestion/worker/v1/worker.proto
         FIELD_SAME_JSON_NAME:

@@ -72,8 +72,6 @@ pub(super) async fn resolve_distinct_ids(
                 uuid: row.uuid,
                 team_id: row.team_id,
                 properties: None,
-                properties_last_updated_at: None,
-                properties_last_operation: None,
                 created_at: row.created_at,
                 version: row.version,
                 is_identified: row.is_identified,

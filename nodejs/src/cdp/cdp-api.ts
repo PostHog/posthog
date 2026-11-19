@@ -32,7 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeModeOf } from './intake/intake-producer'
+import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
 import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
@@ -1718,7 +1718,12 @@ export class CdpApi {
                 invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
                 intake: {
                     modeOf: intakeModeOf(this.config),
-                    producer: new IntakeProducer(this.outputs, undefined, createInvocationSanitizer(this.config).seal),
+                    producer: new IntakeProducer(
+                        this.outputs,
+                        undefined,
+                        createInvocationSanitizer(this.config).seal,
+                        intakeClusterOf(this.config)
+                    ),
                     sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
                 },
             }),

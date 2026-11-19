@@ -59,7 +59,7 @@ class ApolloSource(ResumableSource[ApolloSourceConfig, ApolloResumeConfig]):
             name=ExternalDataSourceType.APOLLO,
             category=DataWarehouseSourceCategory.CRM,
             label="Apollo",
-            caption="""Enter your Apollo API key to pull your saved contacts, accounts, and deals into the PostHog Data warehouse, along with your sequences, outreach emails, calls, and tasks, and the users and pipeline stages they reference.
+            caption="""Enter your Apollo API key to pull your saved contacts, accounts, and deals into the PostHog Data warehouse, along with your sequences, outreach emails, calls, conversations, and tasks, and the users, lists, custom fields, and pipeline stages they reference.
 
 You can create an API key in Apollo under Settings > Integrations > API. API access requires a paid Apollo plan. Note that Apollo search results are capped at 50,000 records per stream.""",
             iconPath="/static/services/apollo.png",
