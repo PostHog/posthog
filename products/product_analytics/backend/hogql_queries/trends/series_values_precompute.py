@@ -302,11 +302,6 @@ def _series_dict(runner: TrendsQueryRunner, values: dict[datetime, int]) -> dict
     }
 
 
-def _fallback(reason: str) -> SeriesValuesUnavailable:
-    SERIES_VALUES_PRECOMPUTE_FALLBACK.labels(reason=reason).inc()
-    return SeriesValuesUnavailable(reason=reason)
-
-
 def closed_series_values(
     runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
 ) -> ClosedSeriesValues | SeriesValuesUnavailable:
@@ -320,7 +315,7 @@ def closed_series_values(
     if reason is None and _range_unaligned(runner, buckets, date_to):
         reason = "unaligned_range"
     if reason is not None:
-        return _fallback(reason)
+        return SeriesValuesUnavailable(reason=reason)
 
     now_utc = datetime.now(UTC)
     today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -332,20 +327,20 @@ def closed_series_values(
         read_end_utc = live_from.astimezone(UTC)
     read_start_utc = buckets[0].astimezone(UTC)
     if read_start_utc >= read_end_utc:
-        return _fallback("nothing_closed")
+        return SeriesValuesUnavailable(reason="nothing_closed")
 
     range_start = read_start_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     range_end = read_end_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     if range_end < read_end_utc:
         range_end += timedelta(days=1)
     if (range_end - range_start).days > MAX_RANGE_DAYS:
-        return _fallback("date_range_too_long")
+        return SeriesValuesUnavailable(reason="date_range_too_long")
 
     result = _ensure(
         runner, start=range_start, end=range_end, run_inserts=run_inserts, wait_timeout_seconds=wait_timeout_seconds
     )
     if not result.ready or not result.job_ids:
-        return _fallback("not_ready")
+        return SeriesValuesUnavailable(reason="not_ready")
 
     stored = _read_values(
         runner, job_ids=[str(job_id) for job_id in result.job_ids], start=read_start_utc, end=read_end_utc
@@ -362,6 +357,7 @@ def execute_precomputed_trends(runner: TrendsQueryRunner, *, run_inserts: bool) 
     try:
         closed = closed_series_values(runner, run_inserts=run_inserts)
         if isinstance(closed, SeriesValuesUnavailable):
+            SERIES_VALUES_PRECOMPUTE_FALLBACK.labels(reason=closed.reason).inc()
             return None
 
         values = dict(closed.values)
