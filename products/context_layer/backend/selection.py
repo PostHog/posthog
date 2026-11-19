@@ -20,12 +20,13 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, normalize_search_term
-from posthog.llm.system_one import NoulAnswer, NoulQuestion
+from posthog.llm.system_one import JsonValue, NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.ph_client import get_feature_flag_or_none
 
+from products.context_layer.backend.thread_context import ThreadMessage, split_thread_context
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import Task, TaskRun
 
@@ -39,7 +40,7 @@ MAX_PROMPT_CHARS = 20_000
 MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
-CONFIG_VERSION = "context-selection-v13"
+CONFIG_VERSION = "context-selection-v14"
 type SourceKind = Literal["skill", "metric", "certification", "relationship", "business_knowledge"]
 SOURCE_ENDPOINTS: dict[SourceKind, tuple[str, int]] = {
     "skill": ("llm_skills/search/", 10),
@@ -108,6 +109,25 @@ class SelectionRunNotFound(LookupError):
 
 class SelectionUnavailable(RuntimeError):
     pass
+
+
+def search_query(request: str, thread: tuple[ThreadMessage, ...], history: str) -> str:
+    request = normalize_search_term(request)
+    history = normalize_search_term(history)
+    budget = MAX_SEARCH_LENGTH * 3 // 4 if thread or history else MAX_SEARCH_LENGTH
+    query = request[-budget:]
+    # A message's first line is its subject: a bot post's title, or how a person opened.
+    for message in thread:
+        room = MAX_SEARCH_LENGTH - len(query) - 3
+        first_line = next((line.strip() for line in message.body.splitlines() if line.strip()), "")
+        if room <= 0:
+            break
+        if first_line:
+            query += " / " + first_line[:room]
+    room = MAX_SEARCH_LENGTH - len(query) - 1
+    if history and room > 0:
+        query += "\n" + history[-room:]
+    return normalize_search_term(query)
 
 
 def elapsed_ms(started: float) -> int:
@@ -199,11 +219,11 @@ class ContextSelector:
         self.selection_id = str(uuid4())
         self.properties = {"task_id": str(run.task_id), "task_run_id": str(run.id), "message_id": selection.message_id}
         self.mode = "disabled"
-        history = normalize_search_term(selection.history)
-        request_budget = MAX_SEARCH_LENGTH * 3 // 4 if history else MAX_SEARCH_LENGTH
-        self.query = normalize_search_term(selection.prompt)[-request_budget:]
-        if history:
-            self.query += "\n" + history[-(MAX_SEARCH_LENGTH - len(self.query) - 1) :]
+        split = split_thread_context(selection.prompt)
+        self.request = split.request
+        self.thread = split.thread
+        self.history = split_thread_context(selection.history).request
+        self.query = search_query(self.request, self.thread, self.history)
 
     def search(self, kind: SourceKind, deadline: float) -> list[Candidate]:
         started = time.monotonic()
@@ -273,6 +293,12 @@ class ContextSelector:
             url=url,
         )
 
+    def decision_state(self) -> dict[str, JsonValue]:
+        state: dict[str, JsonValue] = {"user_request": self.request, "history": self.history}
+        if self.thread:
+            state["thread"] = [{"author": message.author, "body": message.body} for message in self.thread]
+        return state
+
     @staticmethod
     def source_text(payload: dict[str, object]) -> str:
         text = json.dumps(payload, ensure_ascii=False, default=str)
@@ -339,9 +365,7 @@ class ContextSelector:
 
     def gate(self, deadline: float) -> float:
         client = self.decision_client(deadline, "gate")
-        answer = client.decide(
-            state={"user_request": self.selection.prompt, "history": self.selection.history}, questions={"useful": GATE}
-        ).answers["useful"]
+        answer = client.decide(state=self.decision_state(), questions={"useful": GATE}).answers["useful"]
         if not isinstance(answer, NoulAnswer):
             raise ValueError("invalid_selector_answer")
         return answer.probability
@@ -353,8 +377,7 @@ class ContextSelector:
         client = self.decision_client(deadline, "rerank")
         answers = client.decide(
             state={
-                "user_request": self.selection.prompt,
-                "history": self.selection.history,
+                **self.decision_state(),
                 "candidates": {key: asdict(candidate) for key, candidate in keyed.items()},
             },
             questions={

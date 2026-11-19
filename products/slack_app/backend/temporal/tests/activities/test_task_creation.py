@@ -15,6 +15,7 @@ import pytest
 
 from posthog.models.integration import Integration
 
+from products.context_layer.backend.facade.selection import ThreadMessage, split_thread_context
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage, encode_slack_file_refs
 from products.slack_app.backend.temporal.activities.task_creation import (
@@ -662,3 +663,56 @@ class TestDeriveMentionWorkflowId:
     def test_id_is_stable_without_a_slack_event_id(self):
         inputs = self._inputs(slack_event_id=None)
         assert derive_mention_workflow_id(inputs) == "slack-app-mention-processing-T_SLACK:C001:1001.0000"
+
+
+def _rendered_follow_up(messages: list[SlackThreadMessage], text: str) -> str:
+    update = build_thread_context_update(messages, last_forwarded_ts="1.000", event_ts="9.000")
+    assert update.block is not None
+    return f"{update.block}\n\n{text}"
+
+
+@pytest.mark.parametrize(
+    "prompt,request_text,thread",
+    [
+        (
+            _build_posthog_code_task_description(
+                "is this affected by the rollout?",
+                [
+                    SlackThreadMessage(user="PostHog", text="Funnel alert fired\n\nReply in this thread", ts="1.000"),
+                    SlackThreadMessage(
+                        user="mira", user_id="U_MIRA", text="is this affected by the rollout?", ts="2.000"
+                    ),
+                ],
+                "2.000",
+                mentioner_slack_user_id="U_MIRA",
+            ),
+            "is this affected by the rollout?",
+            [ThreadMessage(author="PostHog", body="Funnel alert fired\n\nReply in this thread")],
+        ),
+        (
+            _build_posthog_code_task_description(
+                "",
+                [
+                    SlackThreadMessage(user="theo", user_id="U_THEO", text="the export looks off", ts="1.000"),
+                    SlackThreadMessage(user="mira", user_id="U_MIRA", text="please check the totals", ts="3.000"),
+                ],
+                "3.000",
+                mentioner_slack_user_id="U_MIRA",
+            ),
+            "please check the totals",
+            [ThreadMessage(author="<@U_THEO|theo>", body="the export looks off")],
+        ),
+        (
+            _rendered_follow_up(
+                [SlackThreadMessage(user="theo", user_id="U_THEO", text="first line\nsecond line", ts="2.000")],
+                "mira: and now?",
+            ),
+            "mira: and now?",
+            [ThreadMessage(author="<@U_THEO|theo>", body="first line\nsecond line")],
+        ),
+    ],
+    ids=["mention_with_text", "mention_without_text", "follow_up"],
+)
+def test_context_selector_separates_rendered_thread_from_request(prompt, request_text, thread):
+    split = split_thread_context(prompt)
+    assert (split.request, list(split.thread)) == (request_text, thread)
