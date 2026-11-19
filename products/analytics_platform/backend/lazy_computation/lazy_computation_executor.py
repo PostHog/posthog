@@ -884,9 +884,12 @@ def find_existing_jobs(
 
 
 def expire_ready_jobs_covering(team: Team, job_ids: Collection[uuid.UUID], days: Collection[date]) -> int:
-    """Mark the READY jobs among `job_ids` that cover any of the UTC `days` as STALE, so the next ensure rebuilds them.
+    """Mark every READY job of the same queries as `job_ids` that covers any of the UTC `days` as STALE,
+    so the next ensure rebuilds those days.
 
-    STALE jobs are never selected again, also not under a serve-stale grace, which only relaxes `expires_at`.
+    Jobs of the same query outside `job_ids` are expired too, so an older overlapping job cannot be served in
+    their place. STALE jobs are never selected again, also not under a serve-stale grace, which only relaxes
+    `expires_at`.
     """
     if not job_ids or not days:
         return 0
@@ -894,8 +897,9 @@ def expire_ready_jobs_covering(team: Team, job_ids: Collection[uuid.UUID], days:
     for day in days:
         day_start = datetime(day.year, day.month, day.day, tzinfo=UTC)
         covers_a_day |= Q(time_range_start__lt=day_start + timedelta(days=1), time_range_end__gt=day_start)
+    query_hashes = PreaggregationJob.objects.filter(team=team, id__in=job_ids).values("query_hash")
     return (
-        PreaggregationJob.objects.filter(team=team, id__in=job_ids, status=PreaggregationJob.Status.READY)
+        PreaggregationJob.objects.filter(team=team, query_hash__in=query_hashes, status=PreaggregationJob.Status.READY)
         .filter(covers_a_day)
         .update(status=PreaggregationJob.Status.STALE)
     )

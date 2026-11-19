@@ -1263,24 +1263,27 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         assert job.team == self.team
 
     def test_expired_jobs_are_rebuilt_even_under_stale_grace(self) -> None:
-        def ensure(start_day: int, end_day: int):
+        def ensure(start_day: int, end_day: int, cache_key_context: dict[str, str] | None = None):
             return ensure_precomputed(
                 team=self.team,
                 insert_query=self.MANUAL_INSERT_QUERY,
                 time_range_start=datetime(2024, 1, start_day, tzinfo=UTC),
                 time_range_end=datetime(2024, 1, end_day, tzinfo=UTC),
                 stale_while_revalidate_seconds=3600,
+                cache_key_context=cache_key_context,
             )
 
         [kept] = ensure(1, 2).job_ids
         [expired] = ensure(2, 3).job_ids
+        [other_query] = ensure(2, 3, {"variant": "other"}).job_ids
 
-        assert expire_ready_jobs_covering(self.team, [kept, expired], [date(2024, 1, 2)]) == 1
+        assert expire_ready_jobs_covering(self.team, [kept], [date(2024, 1, 2)]) == 1
         rebuilt = ensure(1, 3)
 
         assert rebuilt.freshly_built
         assert kept in rebuilt.job_ids and expired not in rebuilt.job_ids
         assert len(rebuilt.job_ids) == 2
+        assert PreaggregationJob.objects.get(id=other_query).status == PreaggregationJob.Status.READY
 
     @parameterized.expand([("unchanged", None), ("versioned", {"classification": "v1"})])
     def test_reuses_existing_jobs(self, _name: str, cache_key_context: dict[str, str] | None) -> None:
