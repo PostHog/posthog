@@ -20,6 +20,7 @@ from change_prover.core import conclusion, identity
 from change_prover.core.policy import Refused
 
 NOT_IDENTIFIED = {"pr": "0", "merge_base": "", "eligible": "false"}
+NOT_DEPENDENCY_IDENTIFIED = {**NOT_IDENTIFIED, "lane": ""}
 NOT_REVERT_IDENTIFIED = {**NOT_IDENTIFIED, "reverted": ""}
 NOT_PROVED = {"files": "[]", "blobs": "{}"}
 # A step's summary line and its outputs.
@@ -40,13 +41,15 @@ def identify_request(env: Mapping[str, str]) -> prove.IdentifyRequest:
 
 def prove_request(env: Mapping[str, str]) -> prove.ProveRequest:
     """The prove job's request, refused unless the identification job handed over well-formed values."""
-    merge_base = env["MERGE_BASE"]
+    merge_base, lane = env["MERGE_BASE"], env["LANE"]
     identity.check_handover(env["PULL_REQUEST"], merge_base)
+    identity.check_lane_handover(lane)
     return prove.ProveRequest(
         head_sha=env["HEAD_SHA"],
         workflow_sha=env["WORKFLOW_SHA"],
         merge_base=merge_base,
         merge_base_dir=Path(env["MERGE_BASE_DIR"]),
+        lane=lane,
     )
 
 
@@ -143,14 +146,19 @@ def identify_dependency(env: Mapping[str, str]) -> StepAnswer:
     request = identify_request(env)
     found = prove.identify(request, prove.GitHub(request.repository, env["GITHUB_TOKEN"]))
     if found is None:
-        return "No pull request at this head is eligible for a proof", NOT_IDENTIFIED
-    outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "eligible": "true"}
+        return "No pull request at this head is eligible for a proof", NOT_DEPENDENCY_IDENTIFIED
+    outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "lane": found.lane, "eligible": "true"}
     return f"Pull request {found.pr} is eligible for a proof", outputs
 
 
 def prove_dependency(env: Mapping[str, str]) -> StepAnswer:
     proof = prove.prove(
-        prove_request(env), prove.Git(Path.cwd()), prove.registry_metadata, prove.run_command, datetime.now(UTC)
+        prove_request(env),
+        prove.Git(Path.cwd()),
+        prove.registry_metadata,
+        prove.PyPI(),
+        prove.run_command,
+        datetime.now(UTC),
     )
     return f"Attested {', '.join(proof.files)}", {"files": json.dumps(proof.files), "blobs": json.dumps(proof.blobs)}
 
@@ -180,7 +188,7 @@ def main(argv: list[str], env: Mapping[str, str]) -> int:
     if command == "scan-gate":
         return scan.gate(scan_gate_request(env))
     if command == "identify":
-        return run_step("Dependency proof", NOT_IDENTIFIED, lambda: identify_dependency(env), env)
+        return run_step("Dependency proof", NOT_DEPENDENCY_IDENTIFIED, lambda: identify_dependency(env), env)
     if command == "prove":
         return run_step("Dependency proof", NOT_PROVED, lambda: prove_dependency(env), env)
     if command == "conclude":
