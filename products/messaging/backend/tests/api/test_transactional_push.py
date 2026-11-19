@@ -266,6 +266,7 @@ class TestTransactionalPushSend(APIBaseTest):
             ("in_flight", 409, "idempotency_key_in_flight", status.HTTP_409_CONFLICT),
             ("reused", 422, "idempotency_key_reused", status.HTTP_422_UNPROCESSABLE_ENTITY),
             ("pipeline_error", 500, "error", status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("too_large", 413, "Request entity too large", status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_reports_a_send_the_pipeline_refuses(
