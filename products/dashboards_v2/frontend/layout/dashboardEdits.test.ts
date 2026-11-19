@@ -65,6 +65,14 @@ describe('dashboardEdits', () => {
         expect(allPlaces(applyEdit(nested, edit))).toEqual(expected)
     })
 
+    it('sets the parts of a tile inside a section and leaves its siblings alone', () => {
+        const parts = { header: false, footer: false }
+        const board = applyEdit(nested, { edit: 'setTileParts', id: 'a', parts })
+
+        expect(findTile(board, 'a')?.widget).toMatchObject({ parts })
+        expect(findTile(board, 'below')?.widget).not.toHaveProperty('parts')
+    })
+
     it('previews a section moved into a narrower grid with the height and children it is saved with', () => {
         const board = dashboard([
             section('wide', 0, 0, 24, [text('left', 0, 0, 12, 4), text('right', 12, 0, 12, 4)]),
