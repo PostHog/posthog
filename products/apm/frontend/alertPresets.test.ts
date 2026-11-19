@@ -7,7 +7,7 @@ import { toWritePayload, validateForm } from 'products/tracing/frontend/alerting
 import { endpointAlertTarget, serviceAlertTarget } from './alertPresets'
 import type { EndpointHealthApi, ServiceHealthApi } from './generated/api.schemas'
 
-const health = { request_rate: 2, error_rate: 0.04, p95_ms: 400, span_count: 1000, error_count: 40 }
+const health = { request_rate: 2, error_rate: 0.04, p95_ms: 400, span_count: 1000, error_count: 40, apdex: 0.9 }
 
 const SERVICE_ROW: ServiceHealthApi = {
     service_name: 'checkout-api',
