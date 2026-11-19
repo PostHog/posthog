@@ -100726,8 +100726,8 @@ export namespace Schemas {
 
     export interface PostHogSupportDraftCreate {
       /**
-         * What the person needs PostHog to do or answer, in one to three sentences, in their own words. Put each question they asked on its own line.
-         * @maxLength 1000
+         * The whole ask, in the person's voice. Open with what happened in one sentence, with the numbers and dates. Then add the action they need in one sentence, or list every question the docs did not answer, numbered in the person's order, with every part of each question.
+         * @maxLength 2000
          */
       request: string;
       /**
@@ -100736,15 +100736,10 @@ export namespace Schemas {
          */
       details?: string;
       /**
-         * Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', one of yours with '<your name> checked:', and one of the person's with 'I tried:'.
+         * Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. Never write a number the person gave you as your own check.
          * @maxLength 1500
          */
       already_checked?: string;
-      /**
-         * The one thing only PostHog can do or confirm, such as 'Delete the 3,817 events this query returns'.
-         * @maxLength 500
-         */
-      left_for_support: string;
       /**
          * The exact error text and its top frames. Remove any credential and say that you removed it.
          * @maxLength 1500

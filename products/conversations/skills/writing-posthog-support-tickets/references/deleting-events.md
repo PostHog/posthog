@@ -11,7 +11,7 @@ Tell the person when one of these fits, and write no ticket unless they still ne
 - **Erasing a known person.** They can delete the person together with their events, which removes all of that person's events. It does not fit when some of the person's other events must stay.
 - **Deleting recordings.** They can delete recordings themselves.
 - **Deleting events by age.** On a paid plan, they can shorten [events retention](https://posthog.com/docs/data/events-retention) in their settings. It fits only when every event older than a date should go. The free plan keeps events for a fixed 1 year. [Recording retention](https://posthog.com/docs/session-replay/recording-retention) is a separate setting, and it applies only to new recordings.
-- **Removing a property and keeping the events.** Support cannot usually do this. Tell the person before you write anything, unless they already said that deleting the events is fine. If they still want to ask, write the ticket as a request to delete those events, with everything below, and say in **Left for support** that they would rather keep the events if PostHog can remove only the properties.
+- **Removing a property and keeping the events.** Support cannot usually do this. Tell the person before you write anything, unless they already said that deleting the events is fine. If they still want to ask, write the ticket as a request to delete those events, with everything below, and say in **Request** that they would rather keep the events if PostHog can remove only the properties.
 
 Do not offer other workarounds from memory. Check them with `posthog:docs-search` first.
 
@@ -39,7 +39,7 @@ Support checks the deletion against this number and stops if they differ.
 
 **The person's confirmation.**
 Show the person the query and the count before you write the ticket, and ask them to confirm that this is exactly what to delete.
-Then **Left for support** asks to delete that many events, such as "Delete the 3,817 events this query returns".
+Then **Request** asks to delete that many events, such as "Please delete the 3,817 events the query below returns".
 A ticket that gives the query and its count and asks for the deletion counts as their confirmation, so support does not ask again.
 
 When you hand it over, tell the person to send it from their own PostHog account, through the draft tool or the Support panel, and not from another email address.
@@ -55,7 +55,7 @@ Support checks that the requester is a member of the organization that owns the 
 ## Example
 
 ````text
-Request: Please delete the test checkout events that our staging build sent to our live project in the first week of October 2026.
+Request: Our staging build sent test checkout events to our live project in the first week of October 2026. Please delete the 3,817 events the query below returns.
 
 Details:
 - Project: Web app, ID 12345, US Cloud, https://us.posthog.com/project/12345
@@ -74,6 +74,4 @@ WHERE timestamp >= toDateTime('2026-10-01 00:00:00', 'UTC')
 Already checked:
 - Claude Code checked: no self-serve route fits, because the same persons have real events that must stay
 - Claude Code checked: the query returns 3,817 events, all from `staging.example.com`
-
-Left for support: Delete the 3,817 events this query returns.
 ````

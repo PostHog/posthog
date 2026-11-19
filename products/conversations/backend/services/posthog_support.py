@@ -58,7 +58,6 @@ class SupportTicketDraft:
 def compose_ticket_message(
     *,
     request: str,
-    left_for_support: str,
     details: str | None = None,
     already_checked: str | None = None,
     error: str | None = None,
@@ -66,19 +65,17 @@ def compose_ticket_message(
     """Lay the ticket out in the shape the writing-posthog-support-tickets skill teaches, so every
     agent-drafted ticket reads the same way to support."""
     # Plain labels, not Markdown bold, because the person reviews the draft in a plain text box.
-    one_line_titles = {"Request", "Left for support"}
     sections = [
         ("Request", request),
         ("Details", details),
         ("Already checked", already_checked),
-        ("Left for support", left_for_support),
         ("Error", error),
     ]
     parts = []
     for title, body in sections:
         if not body or not body.strip():
             continue
-        separator = " " if title in one_line_titles else "\n"
+        separator = " " if title == "Request" else "\n"
         parts.append(f"{title}:{separator}{body.strip()}")
     return "\n\n".join(parts)
 

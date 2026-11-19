@@ -798,13 +798,11 @@ export const ConversationsZendeskImportsCreateBody = /* @__PURE__ */ zod.object(
  * Saves a draft ticket to PostHog support. It does not send it. The person opens review_url, checks and edits the ticket, and sends it from the PostHog web app.
  * @summary Draft a PostHog support ticket for the person to send
  */
-export const posthogSupportDraftsCreateBodyRequestMax = 1000
+export const posthogSupportDraftsCreateBodyRequestMax = 2000
 
 export const posthogSupportDraftsCreateBodyDetailsMax = 3000
 
 export const posthogSupportDraftsCreateBodyAlreadyCheckedMax = 1500
-
-export const posthogSupportDraftsCreateBodyLeftForSupportMax = 500
 
 export const posthogSupportDraftsCreateBodyErrorMax = 1500
 
@@ -816,7 +814,7 @@ export const PosthogSupportDraftsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(posthogSupportDraftsCreateBodyRequestMax)
         .describe(
-            'What the person needs PostHog to do or answer, in one to three sentences, in their own words. Put each question they asked on its own line.'
+            "The whole ask, in the person's voice. Open with what happened in one sentence, with the numbers and dates. Then add the action they need in one sentence, or list every question the docs did not answer, numbered in the person's order, with every part of each question."
         ),
     details: zod
         .string()
@@ -830,13 +828,7 @@ export const PosthogSupportDraftsCreateBody = /* @__PURE__ */ zod.object({
         .max(posthogSupportDraftsCreateBodyAlreadyCheckedMax)
         .optional()
         .describe(
-            "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', one of yours with '<your name> checked:', and one of the person's with 'I tried:'."
-        ),
-    left_for_support: zod
-        .string()
-        .max(posthogSupportDraftsCreateBodyLeftForSupportMax)
-        .describe(
-            "The one thing only PostHog can do or confirm, such as 'Delete the 3,817 events this query returns'."
+            "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', a lookup you ran in this conversation with '<your name> checked:', and a step the person took with 'I tried:'. Never write a number the person gave you as your own check."
         ),
     error: zod
         .string()

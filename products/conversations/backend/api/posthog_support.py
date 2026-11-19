@@ -44,10 +44,11 @@ class PostHogSupportErrorSerializer(serializers.Serializer):
 # for the headings and the ticket context the web app appends, so a valid draft always sends.
 class PostHogSupportDraftCreateSerializer(serializers.Serializer):
     request = serializers.CharField(
-        max_length=1000,
+        max_length=2000,
         help_text=(
-            "What the person needs PostHog to do or answer, in one to three sentences, in their own words. "
-            "Put each question they asked on its own line."
+            "The whole ask, in the person's voice. Open with what happened in one sentence, with the numbers and "
+            "dates. Then add the action they need in one sentence, or list every question the docs did not answer, "
+            "numbered in the person's order, with every part of each question."
         ),
     )
     details = serializers.CharField(
@@ -66,12 +67,9 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
         allow_blank=True,
         help_text=(
             "Markdown bullets of what was already checked, each with its result. Start a docs check with 'Docs:', "
-            "one of yours with '<your name> checked:', and one of the person's with 'I tried:'."
+            "a lookup you ran in this conversation with '<your name> checked:', and a step the person took with "
+            "'I tried:'. Never write a number the person gave you as your own check."
         ),
-    )
-    left_for_support = serializers.CharField(
-        max_length=500,
-        help_text="The one thing only PostHog can do or confirm, such as 'Delete the 3,817 events this query returns'.",
     )
     error = serializers.CharField(
         max_length=1500,
@@ -97,7 +95,6 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
             request=data["request"],
             details=data.get("details"),
             already_checked=data.get("already_checked"),
-            left_for_support=data["left_for_support"],
             error=data.get("error"),
         )
         return data

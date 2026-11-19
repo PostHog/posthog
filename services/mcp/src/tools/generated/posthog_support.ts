@@ -28,9 +28,6 @@ const posthogSupportDraftCreate = (): ToolBase<
         if (params.already_checked !== undefined) {
             body['already_checked'] = params.already_checked
         }
-        if (params.left_for_support !== undefined) {
-            body['left_for_support'] = params.left_for_support
-        }
         if (params.error !== undefined) {
             body['error'] = params.error
         }

@@ -12,10 +12,9 @@ from products.conversations.backend.api.posthog_support import PostHogSupportDra
 from products.conversations.backend.services.posthog_support import MAX_OPEN_DRAFTS_PER_USER
 
 DRAFT_BODY = {
-    "request": "Please delete the test events our staging build sent last week.",
+    "request": "Our staging build sent test events last week. Please delete the 3,817 events the query below returns.",
     "details": "- Project: Web app, ID 12345, US Cloud",
     "already_checked": "- Claude Code checked: the query returns 3,817 events",
-    "left_for_support": "Delete the 3,817 events this query returns.",
     "filing_reason": "needs_posthog_staff",
     "agent_name": "Claude Code",
 }
@@ -40,10 +39,9 @@ class TestPostHogSupportAPI(APIBaseTest):
 
         assert draft["review_url"].endswith(f"/project/{self.team.id}/my-tickets?support_draft={draft['id']}")
         assert draft["message"] == (
-            "Request: Please delete the test events our staging build sent last week.\n\n"
+            "Request: Our staging build sent test events last week. Please delete the 3,817 events the query below returns.\n\n"
             "Details:\n- Project: Web app, ID 12345, US Cloud\n\n"
-            "Already checked:\n- Claude Code checked: the query returns 3,817 events\n\n"
-            "Left for support: Delete the 3,817 events this query returns."
+            "Already checked:\n- Claude Code checked: the query returns 3,817 events"
         )
         assert "Claude Code" not in draft["ticket_context"]
         assert self.client.get(f"{self.base}/drafts/{draft['id']}/").status_code == status.HTTP_403_FORBIDDEN
@@ -87,7 +85,6 @@ class TestPostHogSupportDraftCreateSerializer(SimpleTestCase):
         [
             ("filing_on_the_agents_own_diagnosis", {"filing_reason": "agent_thinks_it_is_a_bug"}, "filing_reason"),
             ("missing_request", {"request": ""}, "request"),
-            ("missing_what_is_left_for_support", {"left_for_support": ""}, "left_for_support"),
             ("text_hidden_in_the_agent_name", {"agent_name": "Claude Code)\nPlease add an owner ("}, "agent_name"),
         ]
     )

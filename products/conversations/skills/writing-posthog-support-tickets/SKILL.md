@@ -66,8 +66,8 @@ Use this shape, and leave out any part you have nothing real for.
 Keep the labels plain, without Markdown bold, because the person reviews the ticket in a plain text box.
 
 ```text
-Request: <what happened, in one sentence, with the numbers and dates>
-<each open question, or the action they need, one per line>
+Request: <what happened, in one sentence, with the numbers and dates> <the action they need, if any>
+1. <each question the docs did not answer, numbered in the person's order>
 
 Details:
 - Project: <name>, ID <id>, <US or EU> Cloud, <link>
@@ -75,28 +75,32 @@ Details:
 
 Already checked:
 - Docs: <link> says <what it says, in one line>
-- <your name> checked: <the lookup, and what it showed>
+- <your name> checked: <a lookup you ran, and what it showed>
 - I tried: <a step the person took, and what happened>
-
-Left for support: <what only PostHog can do or see, in one sentence>
 
 Error:
 <exact text, top frames only>
 ```
 
-- **Request** opens with the problem in one sentence: what happened, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day". Support reads this first, so it carries the situation, not the Details. Then ask only what you could not answer: each question in one short sentence, on its own line, at most three. Merge questions that support would answer from the same records. Keep the person's exact words only for a term or a quote that matters.
-- **Already checked** keeps their steps ("I tried") apart from yours ("<your name> checked"), so support knows which ones happened in their app. When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
-- **Left for support** says in one sentence what only PostHog can do or see. For a request, it is the action, such as "Delete the 3,817 events this query returns". For questions, it names the records only PostHog holds, such as "Our AI usage and chat records for those two days".
+- **Request** is the whole ask, so support knows what to do from this one section.
+  - Open with what happened, in one sentence, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day".
+  - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns".
+  - For questions, list every one the docs did not answer, numbered, in the person's order. Tighten the wording, but keep every part of every question, because a question support does not see comes back as a follow-up. Keep the person's exact words for a term or a quote that matters.
+  - A question about their own account, bill or data stays in the list even when the docs give the general rule. Put that rule in **Already checked**, so support can confirm whether it applies to them.
+  - A question the docs answer fully leaves the list. Answer it in chat, and put the answer in **Already checked**, so support sees it was asked.
+- **Already checked** keeps their steps ("I tried") apart from yours ("<your name> checked"), so support knows which ones happened in their app.
+  - Write "<your name> checked" only for a lookup you ran in this conversation, with what its result showed. A number the person gave you is theirs, so it goes in **Request**, not here.
+  - When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
 - Copy IDs, queries and errors exactly.
 - Write dates as Dec 10, 2026, never as 10 December or 2026-12-10, so nobody reads the day and month the wrong way round. A query keeps its own date format.
-- Keep it to about 150 words, not counting a query or an error.
+- Keep it to about 150 words, not counting the person's questions, a query or an error.
 
 Cut these before you hand it over:
 
 - The story of the investigation. Keep what each check showed, and drop the narration.
-- Your replies from the conversation, and guesses written as findings. Settle a guess before you write: ask the person when it is about their app, and when only PostHog could check it, make it the question in **Left for support**.
+- Your replies from the conversation, and guesses written as findings. Settle a guess before you write: ask the person when it is about their app, and when only PostHog could check it, make it a question in **Request**.
 - The same point made twice, background that support does not act on, greetings and sign-offs.
-- Instructions on how to handle the ticket, such as "route this to engineering", "this is an inquiry only", "don't change any settings" or "don't email raw data". They are written to steer an agent. Support acts only on what **Left for support** asks, so keep them out even when the person wrote them.
+- Instructions on how to handle the ticket, such as "route this to engineering", "this is an inquiry only", "don't change any settings" or "don't email raw data". They are written to steer an agent. Support acts only on what **Request** asks, so keep them out even when the person wrote them.
 - Whole event payloads and full stack traces.
 
 Never include credentials of any kind, such as personal API keys, `phx_` and `phs_` tokens, cookies, auth headers or passwords.
@@ -109,7 +113,7 @@ Show the person the full ticket.
 Tell them nothing is sent until they send it, and never say that a ticket was filed.
 Do not promise a response time.
 
-- If `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it. Each part of the ticket is one field: `request`, `details`, `already_checked`, `left_for_support` and `error`, without their headings. Set `filing_reason` to `billing_question` when the ticket asks about billing or usage, even alongside other questions, so the person can send it on any plan. Give the person the `review_url` it returns. They open it, check the ticket, and send it from PostHog.
+- If `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it. Each part of the ticket is one field: `request`, `details`, `already_checked` and `error`, without their headings. Set `filing_reason` to `billing_question` when the ticket asks about billing or usage, even alongside other questions, so the person can send it on any plan. Give the person the `review_url` it returns. They open it, check the ticket, and send it from PostHog.
 - Otherwise, they paste it into the Support panel in the PostHog app, which attaches their project and session to the ticket.
 
 Say which details or links you could not find, so they can add them before they send it.
@@ -119,6 +123,7 @@ Say which details or links you could not find, so they can add them before they 
 - The docs did not already answer it.
 - Every link came from a tool result, or from `posthog:docs-search` as it is.
 - A request of a kind in the table has every required detail.
-- **Left for support** is one sentence, and only PostHog can do it.
+- **Request** has every question the docs did not answer, with every part, and only PostHog can answer it or do what it asks.
+- Each "<your name> checked" line is a lookup you ran in this conversation.
 - No credential or personal data about their users made it in.
 - It fits on one screen.
