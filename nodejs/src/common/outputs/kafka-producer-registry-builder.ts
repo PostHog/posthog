@@ -108,7 +108,7 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
             })
         ).catch(async (error) => {
             // A failed build returns no registry to disconnect them, so their background retries would run on.
-            await Promise.all(lazies.map((lazy) => lazy.disconnect()))
+            await Promise.allSettled(lazies.map((lazy) => lazy.disconnect()))
             throw error
         })
 

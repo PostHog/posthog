@@ -150,8 +150,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             // Read on each launch, so a team-list change in the settings reaches the next webhook.
             intake: {
                 modeOf: (teamId) => intakeModeOf(this.config)(teamId),
-                producer: new IntakeProducer(this.outputs, undefined, undefined, (kind, teamId) =>
-                    intakeClusterOf(this.config)(kind, teamId)
+                producer: new IntakeProducer(this.outputs, undefined, undefined, (teamId) =>
+                    intakeClusterOf(this.config)(teamId)
                 ),
             },
         })

@@ -58,18 +58,15 @@ export const intakeModeOf = (
 }
 
 export const intakeClusterOf = (
-    config: Pick<CdpConfig, 'CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_TEAMS' | 'CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_TEAMS'> &
+    config: Pick<CdpConfig, 'CDP_INTAKE_MSK_TEAMS'> &
         Pick<KafkaMskCdpIntakeProducerEnvConfig, 'KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST'>
-): ((kind: RunKind, teamId: number) => IntakeCluster) => {
-    // Without MSK brokers the MSK producer opens WarpStream's config, so the lists must not route there.
-    if (!config.KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST) {
-        return () => 'warpstream'
-    }
-    const onMsk: Record<RunKind, (teamId: number) => boolean> = {
-        'transactional-email': buildIntegerMatcher(config.CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_TEAMS, true),
-        'workflow-webhook': buildIntegerMatcher(config.CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_TEAMS, true),
-    }
-    return (kind, teamId) => (onMsk[kind](teamId) ? 'msk' : 'warpstream')
+): ((teamId: number) => IntakeCluster) => {
+    // Without MSK brokers the MSK producer opens WarpStream's config, so the list must not route there.
+    const onMsk = buildIntegerMatcher(
+        config.KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST ? config.CDP_INTAKE_MSK_TEAMS : '',
+        true
+    )
+    return (teamId) => (onMsk(teamId) ? 'msk' : 'warpstream')
 }
 
 // A produce outlives its ack deadline. A caller that bounds its work in flight passes a settlement to its produces and,
@@ -106,7 +103,7 @@ export class IntakeProducer {
         private ackDeadlineMs: number = INTAKE_ACK_DEADLINE_MS,
         // Encrypts a transactional send's content before it reaches the topic, as the job queues do.
         private seal: (invocation: CyclotronJobInvocation) => CyclotronJobInvocation = (invocation) => invocation,
-        private clusterOf: (kind: RunKind, teamId: number) => IntakeCluster = () => 'warpstream'
+        private clusterOf: (teamId: number) => IntakeCluster = () => 'warpstream'
     ) {}
 
     async produce(
@@ -114,7 +111,7 @@ export class IntakeProducer {
         mode: IntakeMode,
         settlement?: PublishSettlement
     ): Promise<IntakeProduceOutcome> {
-        const cluster = this.clusterOf(kind, invocation.teamId)
+        const cluster = this.clusterOf(invocation.teamId)
         const encoded = encodeIntakeMessage({
             kind,
             fingerprint,

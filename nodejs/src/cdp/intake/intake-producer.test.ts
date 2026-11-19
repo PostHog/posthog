@@ -90,18 +90,16 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['b-1:9094', '7', '', 'shadow', 'transactional-email', CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, 'msk'],
-        ['b-1:9094', '*', '', 'async', 'workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, 'warpstream'],
-        ['b-1:9094', '', '7', 'async', 'workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, 'msk'],
-        ['b-1:9094', '8', '8', 'shadow', 'transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'warpstream'],
-        ['', '*', '*', 'async', 'transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'warpstream'],
+        ['b-1:9094', '7', 'shadow', 'transactional-email', CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, 'msk'],
+        ['b-1:9094', '*', 'async', 'workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, 'msk'],
+        ['b-1:9094', '8', 'shadow', 'transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'warpstream'],
+        ['', '*', 'async', 'workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, 'warpstream'],
     ] as const)(
-        'with MSK brokers %p, email teams %p and webhook teams %p, routes a %s %s run of team 7 to %s',
-        async (brokers, emailTeams, webhookTeams, mode, kind, output, cluster) => {
+        'with MSK brokers %p and MSK teams %p, routes a %s %s run of team 7 to %s',
+        async (brokers, mskTeams, mode, kind, output, cluster) => {
             const clusterOf = intakeClusterOf({
                 KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers,
-                CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_TEAMS: emailTeams,
-                CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_TEAMS: webhookTeams,
+                CDP_INTAKE_MSK_TEAMS: mskTeams,
             })
             const acked = async (): Promise<number> => {
                 const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
