@@ -7,7 +7,13 @@ import { urls } from 'scenes/urls'
 
 import { ImpactStep, stepBarPercents } from './impactSteps'
 
-export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
+export function ImpactFunnel({
+    steps,
+    onSettingsLinkOpened,
+}: {
+    steps: ImpactStep[]
+    onSettingsLinkOpened: () => void
+}): JSX.Element {
     const barPercents = stepBarPercents(steps)
     return (
         <ol className="m-0 p-0 list-none grid grid-cols-6 gap-2" data-attr="email-impact-funnel">
@@ -17,7 +23,7 @@ export function ImpactFunnel({ steps }: { steps: ImpactStep[] }): JSX.Element {
                     <span className="text-xs text-secondary truncate" title={step.label}>
                         {step.label}
                     </span>
-                    <StepValue step={step} />
+                    <StepValue step={step} onSettingsLinkOpened={onSettingsLinkOpened} />
                     <StepShare step={step} />
                 </li>
             ))}
@@ -39,7 +45,13 @@ function StepBar({ step, percent }: { step: ImpactStep; percent: number | null }
     )
 }
 
-function StepValue({ step }: { step: ImpactStep }): JSX.Element {
+function StepValue({
+    step,
+    onSettingsLinkOpened,
+}: {
+    step: ImpactStep
+    onSettingsLinkOpened: () => void
+}): JSX.Element {
     if (step.value !== null) {
         return <span className="font-semibold text-base">{humanFriendlyNumber(step.value)}</span>
     }
@@ -49,6 +61,9 @@ function StepValue({ step }: { step: ImpactStep }): JSX.Element {
                 <Link
                     className="text-xs"
                     to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
+                    // Capture also sees Cmd/Ctrl-clicks, and middle-clicks only fire auxclick.
+                    onClickCapture={onSettingsLinkOpened}
+                    onAuxClick={onSettingsLinkOpened}
                     data-attr="email-impact-link-tagging-settings-link"
                 >
                     {step.missing}

@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -93,7 +94,9 @@ describe('ImpactFunnelCard', () => {
         useMocks({ patch: { '/api/projects/:id/': saveTeam, '/api/environments/:id/': saveTeam } })
         answer = [200, IMPACT]
         renderCard()
-        await screen.findByText('Needs link tagging')
+        fireEvent.click(await screen.findByText('Needs link tagging'))
+        expect(router.values.location.pathname).toMatch(/\/settings\/environment-workflows$/)
+        expect(router.values.hashParams).toHaveProperty('workflows-email-run-link-tag')
         cleanup()
 
         render(<WorkflowsRunLinkTagSettings />)
@@ -110,6 +113,28 @@ describe('ImpactFunnelCard', () => {
         expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
         expect(screen.queryByText('Needs link tagging')).not.toBeInTheDocument()
     })
+
+    it.each([
+        ['a Cmd-click', (link: HTMLElement) => fireEvent.click(link, { metaKey: true })],
+        [
+            'a middle-click',
+            (link: HTMLElement) => fireEvent(link, new MouseEvent('auxclick', { bubbles: true, button: 1 })),
+        ],
+    ])(
+        'shows the setting saved in another tab after %s on the link, once this tab has focus again',
+        async (_, open) => {
+            initKeaTests(true, teamWithLinkTagging(false))
+            const savedTeam = teamWithLinkTagging(true)
+            useMocks({ get: { '/api/environments/:id/': savedTeam, '/api/projects/:id/': savedTeam } })
+            answer = [200, IMPACT]
+            renderCard()
+
+            open(await screen.findByText('Needs link tagging'))
+            fireEvent(window, new Event('focus'))
+
+            expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+        }
+    )
 
     it("shows a template's new sensitivity on a mounted Impact tab", async () => {
         initKeaTests(true, teamWithLinkTagging(false))

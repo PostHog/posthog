@@ -59,16 +59,19 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
     })
 
     it('keeps the switch off for a member without project admin, whose save the project API would refuse', async () => {
-        teamLogic.actions.loadCurrentTeamSuccess({
+        initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
             effective_membership_level: OrganizationMembershipLevel.Member,
+            workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
         })
+        teamLogic.mount()
         render(<WorkflowsRunLinkTagSettings />)
         const toggle = screen.getByLabelText('Connect tracked email clicks to sessions')
 
         await userEvent.click(toggle)
 
         expect(toggle).toBeDisabled()
+        expect(toggle).toHaveAttribute('aria-checked', 'false')
         expect(patchBodies).toEqual([])
     })
 })
