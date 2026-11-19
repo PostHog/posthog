@@ -24,6 +24,7 @@ import {
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { ReportClaimAvatar } from '../badges/ReportClaimAvatar'
+import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import {
@@ -124,6 +125,7 @@ function ReportCardRaw({
     personalSort = false,
     timestampField = 'updated_at',
     hideOwnClaim = false,
+    showTags = false,
 }: {
     report: SignalReport
     attached?: boolean
@@ -147,6 +149,8 @@ function ReportCardRaw({
     timestampField?: 'created_at' | 'updated_at'
     /** Hide the user's own claim marker, for views where every card is theirs. */
     hideOwnClaim?: boolean
+    /** Show the report's tags as chips that toggle the inbox Tags filter. Only the inbox list sets it. */
+    showTags?: boolean
 }): JSX.Element {
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
@@ -176,6 +180,7 @@ function ReportCardRaw({
     const now = useMinuteClock(isMonitoring)
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
     const personalReason = personalSort ? report.personal_reason : null
+    const showsTagRow = showTags && !preview && (report.tags?.length ?? 0) > 0
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -355,7 +360,8 @@ function ReportCardRaw({
                 !isMonitoring && rowStateClassName
             )}
         >
-            <div className="relative flex min-w-0 flex-1">
+            {/* The tag chips are buttons, so they sit under the body link rather than inside it. */}
+            <div className={clsx('relative flex min-w-0 flex-1', showsTagRow && 'flex-col gap-2')}>
                 {showsPrBadge && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
                         <PrBadge
@@ -380,6 +386,7 @@ function ReportCardRaw({
                         </Link>
                     </div>
                 )}
+                {showsTagRow && <ReportTagChips report={report} surface="card" />}
             </div>
 
             {/* Refund deliberately isn't offered at the card level – it lives in the report detail

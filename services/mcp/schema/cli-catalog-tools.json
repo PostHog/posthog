@@ -3778,7 +3778,7 @@
             "list": false,
             "filter": {
                 "kind": "pick",
-                "fields": ["hog_function_ids"],
+                "fields": ["id", "hog_function_ids"],
                 "selectable": false
             },
             "stripNulls": false,
@@ -27968,6 +27968,11 @@
                     "csv": false
                 },
                 {
+                    "param": "connected",
+                    "key": "connected",
+                    "csv": false
+                },
+                {
                     "param": "count_only",
                     "key": "count_only",
                     "csv": false
@@ -28172,6 +28177,7 @@
                     "personal_tier",
                     "personal_reason",
                     "monitoring_started_at",
+                    "monitoring_ended_at",
                     "monitoring_summary.state",
                     "monitoring_summary.started_at",
                     "monitoring_summary.ends_at",
@@ -28180,6 +28186,8 @@
                     "monitoring_summary.lead_check.comparison",
                     "monitoring_summary.lead_check.baseline_value",
                     "monitoring_summary.lead_check.next_measurement_at",
+                    "monitoring_summary.checks",
+                    "monitoring_outcome",
                     "created_at",
                     "updated_at"
                 ],

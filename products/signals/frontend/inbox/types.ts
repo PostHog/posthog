@@ -140,6 +140,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     actionability?: SignalReportActionability | null
     /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact. */
     already_addressed?: boolean | null
+    /** Lowercase kebab-case slug tags for grouping and filtering reports, at most 10. */
+    tags?: SignalReportApi['tags']
     /** Distinct source products contributing signals to this report. */
     source_products?: string[]
     /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */

@@ -3740,6 +3740,10 @@ snapshots:
         hash: v1.k794b7964.e8e554b9ea9b5821be4434ce02def6d01297dbf2ad7b649ee03972b7bb3a68e1.WCXI0-68HMyUCcBkDUV4nHfGzHMhblTOvtkh72CcQrY
     exporter-other--event-table-insight-no-results--light:
         hash: v1.k794b7964.e641f5fa9938fc4d21d77ec62a4ed97ffa1804caef547d24409734346ba08f52.f90nZs5fPEvbcbofTQ84U25cCU9xtVFQ8SohmN9lrBU
+    exporter-other--metrics-insight-image-export--dark:
+        hash: v1.k794b7964.0acdd027765cf3395df720f7a9cabca73d9d15b45b819a2409705179c06b3089.U5xM2AT6bR94mnf6tedumlCczyz85MU6-L0ffriHku8
+    exporter-other--metrics-insight-image-export--light:
+        hash: v1.k794b7964.e09e0fff8838816ab61d85e0863bc7400b3945cc666c616013e2ba9fa6898b51.u4CjKwu4NWXhL7n5y-yV2xB7tsp2-35jpXoNXbzntMM
     exporter-other--retention-insight--dark:
         hash: v1.k794b7964.d3ccb2e952ee2db44e25470aa197050828e7da884e7a765b3ea7052017fd8b36.hJzwBbTO7A-no_ho39v7MUsPSOZbmXWhK_3n3wLCXas
     exporter-other--retention-insight--light:
@@ -16679,9 +16683,9 @@ snapshots:
     scenes-app-sidepanels--side-panel-exports--light:
         hash: v1.k794b7964.5fecce427cf8ae3fb2f2a21572ca276b9f2683eb2fd3e171187b006a1cacace4.Qw9yPF1-DMmEkCCheYTuEDG47p4F_eOHlY756g_znFs
     scenes-app-sidepanels--side-panel-info--dark:
-        hash: v1.k794b7964.3fa310c16c9ea6b891a50ca4b696bb594ff5f7575d280514a7c040750757d341.nBEEDdKX9kbZr-UportaPVd48RiBpFmuHR2LQevNn6U
+        hash: v1.k794b7964.a474317c5f936dad36ba771880f331fea68f7e97cda6857c6fa7a69bb8464afd.7yKQt9CBMblPYL3tjXoQAjHYIuO4hNLHSWAZak_tTe0
     scenes-app-sidepanels--side-panel-info--light:
-        hash: v1.k794b7964.5eee4ec6799152421aacb6e8ad6002e1b893eb74c8d5cc237952fbcc334d5b1a.WfSkxTZgaP9HkEtZcC_dY6tFbLGfFcvpqTo2vXMTc8U
+        hash: v1.k794b7964.bb15e62c9ab6efd97b46142d53d4d683f3a007ab1955b7c4d0b2699d8be284e6.H3WRTd47UC2rwhNfizDgKWYQf4IrDuEpZVx7d3ykYzs
     scenes-app-sidepanels--side-panel-max--dark:
         hash: v1.k794b7964.1875e692fd964cdc362ed557d805dd1069c8da07baf1a72c7490002faaeb6764.xzWMJYPIOFixmRAMPiVWq71Un4UbhTGPCw7flIecTGE
     scenes-app-sidepanels--side-panel-max--light:
