@@ -399,8 +399,10 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def test_a_missing_series_resolves_at_once_when_every_partition_has_caught_up(self) -> None:
         self.checkpoint.return_value = self.due_at
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000"), ({"group": "b"}, "2000")))
-        first = self._evaluate()
+        with patch("products.metrics.backend.alerts.evaluation.record_ingestion_checkpoint_lag") as lag:
+            first = self._evaluate()
 
+        lag.assert_called_once_with(SourceKind.METRICS.value, int((self.cutoff - self.due_at).total_seconds()))
         assert self._kinds(first) == {"a": AlertEventKind.FIRING, "b": AlertEventKind.FIRING}
         assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - CHECKPOINT_EVAL_DELAY).timestamp())
 

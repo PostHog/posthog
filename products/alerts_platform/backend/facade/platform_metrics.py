@@ -20,6 +20,7 @@ from products.alerts_platform.backend.temporal.metrics import (
     increment_state_transition,
     record_batch_duration,
     record_check_completion_lag,
+    record_ingestion_checkpoint_lag,
     record_scheduler_lag,
     safe_record,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "increment_state_transition",
     "record_batch_duration",
     "record_check_completion_lag",
+    "record_ingestion_checkpoint_lag",
     "record_scheduler_lag",
     "safe_record",
 ]
