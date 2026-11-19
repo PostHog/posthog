@@ -38,6 +38,10 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
     const named = card.shares.filter((share) => share.name !== OTHER)
     const other = card.shares.find((share) => share.name === OTHER)
     const [leader] = named
+    const rows = [
+        ...named.map((share) => ({ ...share, isOther: false })),
+        ...(other ? [{ ...other, isOther: true }] : []),
+    ]
     return (
         <WrappedCard cardKey={cardKey} kicker={kicker}>
             {leader && (
@@ -46,43 +50,40 @@ export function SharesCard({ cardKey, card, kicker, headline, otherLabel }: Shar
                 </h2>
             )}
             <ol className="m-0 mt-2 flex list-none flex-col gap-3 p-0">
-                {named.map((share, index) => (
+                {rows.map((row, index) => (
                     <li
-                        key={share.name}
-                        className="MCPWrapped__rise grid grid-cols-[1.75rem_1fr_auto] items-center gap-x-2 gap-y-1.5 text-sm tabular-nums"
+                        key={row.name}
+                        className={cn(
+                            'MCPWrapped__rise grid grid-cols-[1.75rem_1fr_auto] items-center gap-x-2 gap-y-1.5 text-sm tabular-nums',
+                            row.isOther && 'opacity-75'
+                        )}
                         style={{ animationDelay: `${index * 80}ms` }}
                     >
-                        <span className="row-span-2 flex size-7 items-center justify-center self-center rounded-full bg-white text-black">
-                            <Logo cardKey={cardKey} name={share.name} className="size-4" />
+                        <span
+                            className={cn(
+                                'row-span-2 flex size-7 items-center justify-center self-center rounded-full',
+                                row.isOther ? 'bg-white/20 text-base font-bold' : 'bg-white text-black'
+                            )}
+                        >
+                            {row.isOther ? '+' : <Logo cardKey={cardKey} name={row.name} className="size-4" />}
                         </span>
-                        <span className="truncate">{share.name}</span>
-                        <span>{formatPercent(share.share)}</span>
+                        <span className="truncate">{row.isOther ? otherLabel : row.name}</span>
+                        <span>{formatPercent(row.share)}</span>
                         <span className="col-span-2 col-start-2 row-start-2 h-3 overflow-hidden rounded-full bg-white/20">
                             <span
                                 className={cn(
                                     'MCPWrapped__grow-x block h-full rounded-full',
-                                    index === 0 ? 'bg-white' : 'bg-white/60'
+                                    index === 0 ? 'bg-white' : row.isOther ? 'bg-white/40' : 'bg-white/60'
                                 )}
+                                // Every bar is out of all calls, so the leftover share reads at its true size.
                                 style={{
-                                    width: `${Math.max(2, (share.share / leader.share) * 100)}%`,
+                                    width: `${Math.max(2, row.share * 100)}%`,
                                     animationDelay: `${index * 80}ms`,
                                 }}
                             />
                         </span>
                     </li>
                 ))}
-                {other && (
-                    <li
-                        className="MCPWrapped__rise grid grid-cols-[1.75rem_1fr_auto] items-center gap-x-2 text-sm tabular-nums opacity-75"
-                        style={{ animationDelay: `${named.length * 80}ms` }}
-                    >
-                        <span className="flex size-7 items-center justify-center rounded-full bg-white/20 text-base font-bold">
-                            +
-                        </span>
-                        <span className="truncate">{otherLabel}</span>
-                        <span>{formatPercent(other.share)}</span>
-                    </li>
-                )}
             </ol>
         </WrappedCard>
     )
