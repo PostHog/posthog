@@ -906,6 +906,100 @@ filters:
         - posthog/workload_identity/resolvers.py
         - posthog/workload_identity/subjects.py
         - 'common/hogvm/**'
+    webAnalyticsWorker:
+        - *sharedWorkerBase
+        - 'products/web_analytics/backend/temporal/page_history/**'
+        - products/web_analytics/backend/heatmap_history.py
+        - products/web_analytics/backend/heatmap_history_expiry.py
+        - products/web_analytics/backend/heatmap_history_storage.py
+        - products/web_analytics/backend/tasks/heatmap_screenshot.py
+        - products/web_analytics/backend/api/heatmaps_utils.py
+        - products/web_analytics/backend/models/heatmap_saved.py
+        - products/web_analytics/backend/models/heatmap_screenshot_history.py
+        - posthog/sync.py
+        - posthog/scheduling/jitter.py
+        - posthog/security/oob_domains.py
+        - posthog/security/crosslang/oob_domains.json
+        - 'posthog/egress/browserless/**'
+        - 'posthog/egress/limiter/**'
+        - 'posthog/egress/transport/**'
+        - 'posthog/egress/observability/**'
+    signupEnrichmentWorker:
+        - *sharedWorkerBase
+        - products/growth/backend/temporal/__init__.py
+        - 'products/growth/backend/temporal/signup_enrichment/**'
+        - '!products/growth/backend/temporal/signup_enrichment/tests/**'
+        - 'products/growth/backend/enrichment/**'
+        - products/growth/backend/models.py
+        - products/wizard/backend/facade/api.py
+        - products/wizard/backend/logic/scans.py
+        - products/wizard/backend/models.py
+        - products/warehouse_sources/backend/facade/types.py
+        - ee/billing/salesforce_enrichment/harmonic_client.py
+        - ee/billing/salesforce_enrichment/constants.py
+        - ee/billing/salesforce_enrichment/enrichment.py
+        - posthog/schema.py
+        - posthog/helpers/generic_emails.txt
+        - 'posthog/hogql/**'
+        - 'posthog/egress/harmonic/**'
+        - 'posthog/egress/limiter/**'
+        - 'posthog/egress/transport/**'
+        - 'posthog/egress/observability/**'
+        - 'common/hogvm/**'
+    healthCheckWorker:
+        - *sharedWorkerBase
+        - 'posthog/temporal/health_checks/**'
+        - '!posthog/temporal/health_checks/**/tests/**'
+        - 'products/*/backend/temporal/health_checks/**'
+        - '!products/*/backend/temporal/health_checks/tests/**'
+        - 'products/signals/backend/**'
+        - 'products/ml_inference/backend/**'
+        - 'products/warehouse_sources/backend/**'
+        - 'products/warehouse_sources/sources/**'
+        - 'products/feature_flags/backend/**'
+        - products/experiments/backend/facade/api.py
+        - products/experiments/backend/models/experiment.py
+        - products/product_tours/backend/models.py
+        - products/early_access_features/backend/models.py
+        - products/cdp/backend/internal_events.py
+        - products/cdp/backend/models/hog_functions/hog_function.py
+        - products/data_warehouse/backend/logic/external_data_source/notifications.py
+        - products/data_warehouse/backend/logic/external_data_source/webhooks.py
+        - products/data_modeling/backend/facade/enums.py
+        - products/data_modeling/backend/models/data_modeling_job.py
+        - products/data_modeling/backend/models/datawarehouse_saved_query.py
+        - products/error_tracking/backend/facade/contracts.py
+        - products/error_tracking/backend/logic/recommendations/base.py
+        - products/error_tracking/backend/logic/recommendations/source_maps.py
+        - products/error_tracking/backend/models.py
+        - products/growth/backend/constants.py
+        - products/growth/backend/models.py
+        - products/growth/backend/sdk_health.py
+        - products/growth/backend/sdk_version_rollup.py
+        - products/web_analytics/backend/models/health_rollups.py
+        - products/web_analytics/backend/rollups/host_proxy.py
+        - 'products/web_analytics/backend/path_cleaning_suggestions/**'
+        - products/event_definitions/backend/models/event_definition.py
+        - products/event_definitions/backend/models/property_definition.py
+        - posthog/sync.py
+        - posthog/metrics.py
+        - posthog/schema.py
+        - posthog/event_usage.py
+        - posthog/token_bucket.py
+        - posthog/psycopg_helpers.py
+        - posthog/helpers/encrypted_fields.py
+        - posthog/helpers/tiktoken_encoding.py
+        - posthog/llm/gateway_client.py
+        - posthog/llm/gateway_usage.py
+        - posthog/llm/managed_decision_model.py
+        - 'posthog/hogql/**'
+        - 'posthog/clickhouse/**'
+        - 'posthog/integrations/**'
+        - 'posthog/credentials_service/**'
+        - 'posthog/egress/github/**'
+        - 'posthog/egress/limiter/**'
+        - 'posthog/egress/transport/**'
+        - 'posthog/egress/observability/**'
 
 images:
     posthog-cloud:
@@ -942,3 +1036,15 @@ images:
                 repository: posthog-temporal-workers/alerts-platform-delivery
                 filter: alertsPlatformDelivery
                 bootstrapPolicyDigest: 6ce2fa35731a158c6d014e28363230a4accc537fa478681d29fd3ca1bec38d57
+            web-analytics:
+                repository: posthog-temporal-workers/web-analytics
+                filter: webAnalyticsWorker
+                bootstrapPolicyDigest: 6d45fefd607ebf3184e4614ffd592ce235178c5daad88f877a6f121f3c35a9bc
+            signup-enrichment:
+                repository: posthog-temporal-workers/signup-enrichment
+                filter: signupEnrichmentWorker
+                bootstrapPolicyDigest: 41da284ddd3e6f4c9dfdd8fd41f575cdf973697f41cc00eedca227237f9e6fa7
+            health-check:
+                repository: posthog-temporal-workers/health-check
+                filter: healthCheckWorker
+                bootstrapPolicyDigest: 2bf9ffaf6f6cfe8a718928320e7b05afb1d6bdef485ba0a9de68400c9b808006
