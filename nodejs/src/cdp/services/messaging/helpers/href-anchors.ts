@@ -87,6 +87,7 @@ type ParentNode = DefaultTreeAdapterMap['parentNode']
 const nestingLimitedAdapter = (limit: number): TreeAdapter<DefaultTreeAdapterMap> => {
     const depths = new WeakMap<Node, number>()
     const templates = new WeakMap<Node, Node>()
+    const attributeNames = new WeakMap<Element, Set<string>>()
     const place = (parent: ParentNode, node: Node): void => {
         const owner = templates.get(parent)
         const depth = (depths.get(parent) ?? (owner ? depths.get(owner) : undefined) ?? 0) + 1
@@ -108,6 +109,21 @@ const nestingLimitedAdapter = (limit: number): TreeAdapter<DefaultTreeAdapterMap
         setTemplateContent(template, content) {
             templates.set(content, template)
             defaultTreeAdapter.setTemplateContent(template, content)
+        },
+        // Each repeated `<html>` or `<body>` tag adds its new attributes to the first one. The default adapter
+        // collects the names already there on every merge, which grows with the square of the input.
+        adoptAttributes(recipient, attrs) {
+            let names = attributeNames.get(recipient)
+            if (!names) {
+                names = new Set(recipient.attrs.map((attribute) => attribute.name))
+                attributeNames.set(recipient, names)
+            }
+            for (const attribute of attrs) {
+                if (!names.has(attribute.name)) {
+                    names.add(attribute.name)
+                    recipient.attrs.push(attribute)
+                }
+            }
         },
     }
 }

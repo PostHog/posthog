@@ -18,6 +18,7 @@ describe('email link tracking benchmark', () => {
     const longTag = `<a href="https://example.com/x" ${Array.from({ length: 2_000 }, (_, i) => `a${i}`).join(' ')}>`
     const rebuiltLinks = '<p>x</p>'.repeat(20_000)
     const blockChildren = '<br>'.repeat(400_000)
+    const repeatedBodyTags = Array.from({ length: 40_000 }, (_, i) => `<body a${i}>`).join('')
 
     it.each<{ shape: string; mode: EmailTrackingMode; body: string; tagged: string; pixel?: boolean }>([
         {
@@ -81,6 +82,12 @@ describe('email link tracking benchmark', () => {
             mode: 'ses',
             body: `<a href="https://example.com/x"><div>${blockChildren}</a>`,
             tagged: `<a href="https://example.com/x" ses:tags="phl:0"><div>${blockChildren}</a>`,
+        },
+        {
+            shape: 'body start tags with new attributes',
+            mode: 'ses',
+            body: `${repeatedBodyTags}<a href="https://example.com/x">x</a>`,
+            tagged: `${repeatedBodyTags}<a href="https://example.com/x" ses:tags="phl:0">x</a>`,
         },
         {
             shape: 'spaces inside an anchor tag',
