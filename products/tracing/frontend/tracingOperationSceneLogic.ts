@@ -21,7 +21,7 @@ import {
     type TracingLatencyHeatmapData,
 } from './durationBuckets'
 import type { HeatmapBrushSelection } from './heatmapBrush'
-import { type DurationRange, operationFilterGroup } from './operationFilters'
+import { type DurationRange, type OperationRoute, operationFilterGroup } from './operationFilters'
 import { traceLookupDateRange } from './traceLinks'
 import { DEFAULT_DATE_RANGE } from './tracingFiltersLogic'
 import type { Span } from './types'
@@ -29,6 +29,8 @@ import type { Span } from './types'
 export interface TracingOperationSceneLogicProps {
     serviceName: string
     spanName: string
+    /** Narrows a bare-method span name to one route, for links from application observability endpoints. */
+    route?: OperationRoute | null
 }
 
 // Which chart shows the operation's latency: the static distribution or the over-time heatmap.
@@ -51,6 +53,7 @@ export interface tracingOperationSceneLogicValues {
     rawHistogramLoading: boolean
     rawLatencyHeatmap: LatencyHeatmapRow[]
     rawLatencyHeatmapLoading: boolean
+    route: OperationRoute | null
     sampleIndex: number
     sampleTraceSpans: Span[]
     sampleTraceSpansLoading: boolean
@@ -193,6 +196,7 @@ export interface tracingOperationSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         serviceName: (arg: any) => string
         spanName: (arg: any) => string
+        route: (arg: any) => OperationRoute | null
         histogramData: (rawHistogram: DurationHistogramRow[]) => TracingDurationHistogramData
         latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
         currentSample: (samples: Span[], sampleIndex: number) => Span | null
@@ -249,7 +253,9 @@ function parseDateRangeParam(raw: unknown): DateRange | null {
 
 export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
     props({} as TracingOperationSceneLogicProps),
-    key(({ serviceName, spanName }) => `${serviceName}//${spanName}`),
+    key(({ serviceName, spanName, route }) =>
+        route ? `${serviceName}//${spanName}//${route.attribute}=${route.value}` : `${serviceName}//${spanName}`
+    ),
     path((key) => ['products', 'tracing', 'frontend', 'tracingOperationSceneLogic', key]),
 
     actions({
@@ -274,7 +280,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
                         {
                             dateRange: values.dateRange,
                             serviceNames: [props.serviceName],
-                            filterGroup: operationFilterGroup(props.spanName, null),
+                            filterGroup: operationFilterGroup(props.spanName, null, props.route ?? null),
                             // Span-level: operations are often child spans, and the samples query
                             // below is span-level too — both must count the same population.
                             rootSpans: false,
@@ -294,7 +300,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
                     const response = await api.tracing.latencyHeatmap({
                         dateRange: values.dateRange,
                         serviceNames: [props.serviceName],
-                        filterGroup: operationFilterGroup(props.spanName, null),
+                        filterGroup: operationFilterGroup(props.spanName, null, props.route ?? null),
                         // Span-level, like the histogram — operations are often child spans.
                         rootSpans: false,
                     })
@@ -314,7 +320,11 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
                             orderBy: 'timestamp',
                             orderDirection: 'DESC',
                             serviceNames: [props.serviceName],
-                            filterGroup: operationFilterGroup(props.spanName, values.durationSelection),
+                            filterGroup: operationFilterGroup(
+                                props.spanName,
+                                values.durationSelection,
+                                props.route ?? null
+                            ),
                             flatSpans: true,
                             limit: SAMPLE_LIMIT,
                             // Samples only feed the pager header (5 scalar fields); the waterfall
@@ -338,7 +348,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
                         {
                             dateRange: values.dateRange,
                             serviceNames: [props.serviceName],
-                            filterGroup: operationFilterGroup(props.spanName, null),
+                            filterGroup: operationFilterGroup(props.spanName, null, props.route ?? null),
                         },
                         trackedSignal(cache, 'fetchStats')
                     )
@@ -396,6 +406,10 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
     selectors({
         serviceName: [() => [(_, props) => props.serviceName], (serviceName: string): string => serviceName],
         spanName: [() => [(_, props) => props.spanName], (spanName: string): string => spanName],
+        route: [
+            () => [(_, props) => props.route ?? null],
+            (route: OperationRoute | null): OperationRoute | null => route,
+        ],
         histogramData: [
             (s) => [s.rawHistogram],
             (rows: DurationHistogramRow[]): TracingDurationHistogramData => pivotDurationHistogram(rows, dataColorVars),
