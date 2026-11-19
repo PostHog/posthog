@@ -148,55 +148,70 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-    def test_runtime_error_names_the_runtime_only_for_organization_admins(self) -> None:
+    def _enable_object_access_controls(self) -> None:
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+    def test_unreadable_dependency_looks_like_a_missing_flag(self) -> None:
         from posthog.models.organization import OrganizationMembership
 
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        dependency = self._flag("dependency", "client")
-        dependent = self._flag("dependent", "server")
-        admin_response = self._patch(dependent, {"filters": _depends_on(dependency.id)})
-        assert "client-side only" in admin_response.json()["detail"]
+        from products.access_control.backend.models.access_control import AccessControl
 
-        member = self._create_user("member3@posthog.com", level=OrganizationMembership.Level.MEMBER)
-        self.client.force_login(member)
-        member_response = self._patch(dependent, {"filters": _depends_on(dependency.id, rollout_percentage=50)})
-        assert member_response.status_code == status.HTTP_400_BAD_REQUEST, member_response.json()
-        assert "client-side only" not in member_response.json()["detail"]
-        assert "server-side only" not in member_response.json()["detail"]
-        assert f"Cannot depend on flag (ID: {dependency.id})" in member_response.json()["detail"]
-
-    def test_organization_admin_status_is_judged_in_the_write_teams_organization(self) -> None:
-        from django.test import RequestFactory
-
-        from posthog.models.organization import Organization, OrganizationMembership
-        from posthog.models.team import Team
-
-        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
-
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        other_org = Organization.objects.create(name="other org")
-        OrganizationMembership.objects.create(
-            user=self.user, organization=other_org, level=OrganizationMembership.Level.MEMBER
+        self._enable_object_access_controls()
+        secret = self._flag("secret_dependency", "client")
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=secret.id, team=self.team, access_level="none"
         )
-        other_team = Team.objects.create(organization=other_org)
-        request = RequestFactory().get("/")
-        request.user = self.user
+        missing_id = secret.id + 1000
+        self.client.force_login(self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER))
+        dependent = self._flag("dependent", "server")
 
-        def serializer_for(team: Team) -> FeatureFlagSerializer:
-            return FeatureFlagSerializer(
-                context={
-                    "request": request,
-                    "team_id": team.id,
-                    "project_id": team.project_id,
-                    "get_team": lambda: team,
-                    "get_organization": lambda: team.organization,
-                }
-            )
+        hidden = self._patch(dependent, {"filters": _depends_on(secret.id)})
+        absent = self._patch(dependent, {"filters": _depends_on(missing_id)})
 
-        assert serializer_for(self.team)._caller_is_organization_admin() is True
-        assert serializer_for(other_team)._caller_is_organization_admin() is False
+        assert hidden.status_code == absent.status_code == status.HTTP_400_BAD_REQUEST, (hidden.json(), absent.json())
+        assert hidden.json()["detail"] == f"Flag dependency references non-existent flag with ID {secret.id}"
+        assert absent.json()["detail"] == f"Flag dependency references non-existent flag with ID {missing_id}"
+        assert "secret_dependency" not in str(hidden.json())
+        for key in ("type", "code", "attr"):
+            assert hidden.json()[key] == absent.json()[key]
+
+    def test_unreadable_disabled_dependency_is_reported_as_missing(self) -> None:
+        from posthog.models.organization import OrganizationMembership
+
+        from products.access_control.backend.models.access_control import AccessControl
+
+        self._enable_object_access_controls()
+        disabled = self._flag("hidden_disabled", "all", active=False)
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=disabled.id, team=self.team, access_level="none"
+        )
+        self.client.force_login(self._create_user("member2@posthog.com", level=OrganizationMembership.Level.MEMBER))
+        dependent = self._flag("dependent_on_disabled", "all")
+
+        response = self._patch(dependent, {"filters": _depends_on(disabled.id)})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == f"Flag dependency references non-existent flag with ID {disabled.id}"
+        assert "hidden_disabled" not in str(response.json())
+
+    def test_readable_dependency_shows_its_runtime_to_a_member(self) -> None:
+        from posthog.models.organization import OrganizationMembership
+
+        self._enable_object_access_controls()
+        dependency = self._flag("dependency", "client")
+        self.client.force_login(self._create_user("member3@posthog.com", level=OrganizationMembership.Level.MEMBER))
+        dependent = self._flag("dependent", "server")
+
+        response = self._patch(dependent, {"filters": _depends_on(dependency.id)})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "client-side only" in response.json()["detail"]
 
     def test_adding_a_mismatched_dependency_next_to_an_existing_one_is_rejected(self) -> None:
         old_dependency = self._flag("old_dependency", "client")

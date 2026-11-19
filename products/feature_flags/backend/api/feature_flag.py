@@ -214,6 +214,8 @@ from products.surveys.backend.models import Survey
 if TYPE_CHECKING:
     from pydantic import JsonValue
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 logger = logging.getLogger(__name__)
 # Dedicated logger name (not `__name__`) so the underlying stdlib logger is created
 # *after* Django applies `disable_existing_loggers: True`. Using `__name__` here
@@ -1961,42 +1963,66 @@ class FeatureFlagSerializer(
             return
 
         dependencies = (
-            FeatureFlag.objects.filter(id__in=checked_ids, team__project_id=self.context["project_id"])
+            self._readable_flags(
+                FeatureFlag.objects.filter(id__in=checked_ids, team__project_id=self.context["project_id"])
+            )
             .only("id", "key", "evaluation_runtime")
             .order_by("key")
         )
+        readable_ids = {dependency.id for dependency in dependencies}
+        for missing_id in sorted(checked_ids - readable_ids):
+            raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {missing_id}")
         for dependency in dependencies:
             if _runtime_supports_dependency(runtime, dependency.evaluation_runtime):
                 continue
             # A dependency the flag already stores fails only because this write changes the runtime.
             attr = "evaluation_runtime" if dependency.id in stored_dependency_ids else "filters"
-            # Organization admins read every flag in the project, so they see the target's runtime. Other
-            # callers may not be able to read it, so the message omits the runtime for them.
-            if self._caller_is_organization_admin():
-                message = (
-                    f"Cannot depend on flag (ID: {dependency.id}) because it evaluates "
-                    f"{_describe_runtime(dependency.evaluation_runtime)} and this flag evaluates "
-                    f"{_describe_runtime(runtime)}. Where flag {dependency.id} doesn't evaluate, this flag reads it "
-                    f"as false. Set flag {dependency.id} to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this flag "
-                    f"to evaluate {_describe_runtime(dependency.evaluation_runtime)}."
-                )
-            else:
-                message = (
-                    f"Cannot depend on flag (ID: {dependency.id}) because it does not evaluate in every runtime "
-                    f"this flag evaluates in. Set flag {dependency.id} to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set "
-                    f"this flag to evaluate in the same runtime as flag {dependency.id}."
-                )
+            message = (
+                f"Cannot depend on flag (ID: {dependency.id}) because it evaluates "
+                f"{_describe_runtime(dependency.evaluation_runtime)} and this flag evaluates "
+                f"{_describe_runtime(runtime)}. Where flag {dependency.id} doesn't evaluate, this flag reads it "
+                f"as false. Set flag {dependency.id} to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this flag "
+                f"to evaluate {_describe_runtime(dependency.evaluation_runtime)}."
+            )
             raise serializers.ValidationError({attr: ErrorDetail(message, code=DEPENDENCY_RUNTIME_MISMATCH)})
 
-    def _caller_is_organization_admin(self) -> bool:
-        # Judged in the write team's organization, not the caller's current one: a copy into another
-        # organization has no access-control object of its own, so the caller's current organization would apply.
+    @functools.cached_property
+    def _read_access_control(self) -> Optional[UserAccessControl]:
+        """The caller's access control in the write team's organization, built once per serializer.
+
+        None for a system write, which has no caller to narrow for.
+        """
         from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+        view_access_control = self.context.get("user_access_control") or getattr(
+            self.context.get("view"), "user_access_control", None
+        )
+        if view_access_control is not None:
+            return view_access_control
         user = getattr(self.context.get("request"), "user", None)
         if user is None or user.is_anonymous:
-            return False
-        return UserAccessControl(user, self._write_team).is_organization_admin
+            return None
+        team: Optional[Team]
+        if "get_team" in self.context or "team_id" in self.context or self.instance is not None:
+            team = self._write_team
+        else:
+            team = Team.objects.filter(project_id=self.context["project_id"]).order_by("id").first()
+        return UserAccessControl(user, team)
+
+    def _readable_flags(self, queryset: QuerySet[FeatureFlag]) -> QuerySet[FeatureFlag]:
+        """Narrow a flag queryset to the flags the caller can read, as the retrieve and keys endpoints do."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None:
+            return queryset
+        if user.is_anonymous:
+            return queryset.none()
+        access_control = self._read_access_control
+        if access_control is None:
+            return queryset
+        return access_control.filter_queryset_by_access_level(
+            queryset, include_all_if_admin=True, resource="feature_flag"
+        )
 
     def _validate_evaluation_contexts_requirement(
         self, attrs: dict, request: Any, team: Team, creation_context: str | None
@@ -2813,7 +2839,9 @@ class FeatureFlagSerializer(
             )
 
         try:
-            flag = FeatureFlag.objects.get(id=flag_id, team__project_id=self.context["project_id"])
+            flag = self._readable_flags(
+                FeatureFlag.objects.filter(id=flag_id, team__project_id=self.context["project_id"])
+            ).get()
 
             # Check if the referenced flag is active
             if not flag.active:
