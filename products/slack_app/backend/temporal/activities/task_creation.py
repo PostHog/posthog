@@ -40,10 +40,10 @@ from products.slack_app.backend.temporal.attachments import (
 )
 from products.slack_app.backend.temporal.helpers import (
     block_if_ai_processing_not_approved,
-    block_if_personal_github_cannot_open_repository,
     block_if_team_over_quota,
     safe_react,
     safe_unreact,
+    warn_if_personal_github_cannot_open_repository,
 )
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
@@ -686,16 +686,6 @@ def create_posthog_code_task_for_repo_activity(
     ):
         return False
 
-    if repository and block_if_personal_github_cannot_open_repository(
-        slack=slack,
-        channel=channel,
-        thread_ts=thread_ts,
-        team_id=integration.team_id,
-        user_id=user_id,
-        repository=repository,
-    ):
-        return False
-
     user_message_ts = event.get("ts")
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
@@ -988,6 +978,18 @@ def create_posthog_code_task_for_repo_activity(
             create_pr=allow_pr_creation,
             slack_thread_context=slack_thread_context,
             posthog_mcp_scopes="full",
+        )
+    # The warning comes after the mapping write, so an activity retry returns at the mapping
+    # guard and does not post it twice. A person who did not tag the app asked for no task,
+    # so they get no warning about one.
+    if task_run and repository and not inputs.untagged_question:
+        warn_if_personal_github_cannot_open_repository(
+            slack=slack,
+            channel=channel,
+            thread_ts=thread_ts,
+            team_id=integration.team_id,
+            user_id=user_id,
+            repository=repository,
         )
     return task_run is not None
 

@@ -337,11 +337,15 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == task.id
         assert mapping.task_run_id == latest_run.id
 
+    @parameterized.expand([("tagged", False, True), ("untagged_question", True, False)])
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_repo_task_is_not_created_when_personal_github_cannot_open_the_repository(
-        self, mock_slack_cls, mock_execute_workflow
+    def test_repo_task_starts_and_warns_when_personal_github_cannot_open_the_repository(
+        self, _name, untagged_question, expect_warning, mock_slack_cls, mock_execute_workflow
     ):
+        Integration.objects.create(
+            team=self.team, kind="github", integration_id="999", config={"account": {"name": "example"}}
+        )
         UserIntegration.objects.create(
             user=self.user,
             kind="github",
@@ -350,10 +354,19 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             sensitive_config={"user_access_token": "fake-user-token", "user_refresh_token": "fake-refresh-token"},
         )
         mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id, self.user.id)
-        with patch("posthog.models.user_integration.UserGitHubIntegration.resolve_user_repository", return_value=None):
+        inputs = replace(_make_inputs(self.integration.id, self.user.id), untagged_question=untagged_question)
+        with (
+            patch(
+                "posthog.models.user_integration.UserGitHubIntegration.list_all_cached_repositories", return_value=[]
+            ),
+            patch("posthog.models.user_integration.UserGitHubIntegration.resolve_user_repository", return_value=None),
+        ):
             created = create_posthog_code_task_for_repo_activity(
                 inputs,
                 "C123",
@@ -365,10 +378,11 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 "example/project",
             )
 
-        assert created is False
-        assert not self.Task.objects.filter(team=self.team).exists()
-        mock_execute_workflow.assert_not_called()
-        assert "can't access `example/project`" in mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
+        assert created is True
+        assert self.Task.objects.filter(team=self.team, repository="example/project").exists()
+        mock_execute_workflow.assert_called_once()
+        posted = [c.kwargs.get("text", "") for c in mock_slack_instance.client.chat_postMessage.call_args_list]
+        assert any("can't access `example/project`" in text for text in posted) is expect_warning
 
     @parameterized.expand(
         [

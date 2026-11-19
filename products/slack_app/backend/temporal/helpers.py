@@ -97,12 +97,14 @@ def post_personal_github_prompt(
     user_id: int,
     access: "PersonalGitHubRepoAccess",
     repository: str | None = None,
+    task_started: bool = False,
 ) -> None:
-    """Tell the user why their personal GitHub connection holds the task, with buttons to fix it.
+    """Tell the user what is wrong with their personal GitHub connection, with buttons to fix it.
 
-    Every reason links to the personal integrations settings page. Missing repo access also
-    links to the GitHub App install page, where GitHub lets the user add repositories to an
-    installation that already exists.
+    ``task_started`` picks the wording: True warns about a task that runs anyway, False
+    explains a task that was held. Every reason links to the personal integrations settings
+    page. Missing repo access also links to the GitHub App install page, where GitHub lets
+    the user add repositories to an installation that already exists.
     """
     import structlog
     from rest_framework.exceptions import ValidationError as ApiValidationError
@@ -116,15 +118,21 @@ def post_personal_github_prompt(
     buttons: list[dict[str, Any]] = []
     if access == PersonalGitHubRepoAccess.NO_REPO_ACCESS:
         text = (
-            f"I can't start this task. Your personal GitHub connection can't access `{repository}`, "
-            "so I can't work on it as you. Give the PostHog GitHub app access to this repository, "
-            "then mention me again."
+            f"Your personal GitHub connection can't access `{repository}`, so I might not be able to "
+            "clone it or open a pull request as you. To fix this, give the PostHog GitHub app access "
+            "to this repository."
         )
         try:
             buttons.append(_link_button("Manage repository access", github_app_install_url_shareable(), primary=True))
         except ApiValidationError:
             pass
         buttons.append(_link_button("Check connection", settings_url, primary=not buttons))
+    elif access == PersonalGitHubRepoAccess.NEEDS_RECONNECT and task_started:
+        text = (
+            "Your personal GitHub connection has expired, so I might not be able to clone the "
+            "repository or open a pull request as you. To fix this, reconnect it."
+        )
+        buttons.append(_link_button("Reconnect GitHub", settings_url, primary=True))
     elif access == PersonalGitHubRepoAccess.NEEDS_RECONNECT:
         text = (
             "I can't start this task. Your personal GitHub connection has expired, so I can't open "
@@ -149,13 +157,14 @@ def post_personal_github_prompt(
         ],
     )
     structlog.get_logger(__name__).info(
-        "slack_app_task_blocked_personal_github",
+        "slack_app_personal_github_prompt_posted",
         user_id=user_id,
         team_id=team_id,
         channel=channel,
         thread_ts=thread_ts,
         reason=str(access),
         repository=repository,
+        task_started=task_started,
     )
 
 
@@ -170,7 +179,7 @@ def _link_button(label: str, url: str, *, primary: bool) -> dict[str, Any]:
     return button
 
 
-def block_if_personal_github_cannot_open_repository(
+def warn_if_personal_github_cannot_open_repository(
     *,
     slack: Any,
     channel: str,
@@ -178,14 +187,13 @@ def block_if_personal_github_cannot_open_repository(
     team_id: int,
     user_id: int,
     repository: str,
-) -> bool:
-    """Refuse a repo-bound task when the user's personal GitHub connection exists but can't open the repo.
+) -> None:
+    """Warn in the thread when the user's personal GitHub connection exists but can't open the repo.
 
-    Slack tasks author pull requests as the user and have no team-app fallback, so a revoked
-    token or a repository outside the user's installation fails the run later with an unclear
-    error. A user with no connection at all is not refused here, because this path did not
-    refuse that case before. Any error in the check lets the task continue. Returns True
-    when the task was blocked.
+    Slack tasks author pull requests as the user, so a revoked token or a repository outside
+    the user's installation makes the run fail later with an unclear error. The task still
+    runs, because it can do useful work without the repository. A user with no connection
+    gets no warning. Errors in the check or the post are logged and never fail the caller.
     """
     import structlog
 
@@ -194,28 +202,25 @@ def block_if_personal_github_cannot_open_repository(
 
     try:
         access = tasks_facade.check_personal_github_repo_access(user_id, repository)
+        if access not in (PersonalGitHubRepoAccess.NEEDS_RECONNECT, PersonalGitHubRepoAccess.NO_REPO_ACCESS):
+            return
+        post_personal_github_prompt(
+            slack=slack,
+            channel=channel,
+            thread_ts=thread_ts,
+            team_id=team_id,
+            user_id=user_id,
+            access=access,
+            repository=repository,
+            task_started=True,
+        )
     except Exception:
         structlog.get_logger(__name__).exception(
-            "slack_app_personal_github_repo_access_check_failed",
+            "slack_app_personal_github_repo_access_warning_failed",
             user_id=user_id,
             team_id=team_id,
             repository=repository,
         )
-        return False
-
-    if access not in (PersonalGitHubRepoAccess.NEEDS_RECONNECT, PersonalGitHubRepoAccess.NO_REPO_ACCESS):
-        return False
-
-    post_personal_github_prompt(
-        slack=slack,
-        channel=channel,
-        thread_ts=thread_ts,
-        team_id=team_id,
-        user_id=user_id,
-        access=access,
-        repository=repository,
-    )
-    return True
 
 
 # Reaction errors that should never abort a follow-up activity — the 👀/🔍 reaction is purely
