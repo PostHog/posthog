@@ -82,12 +82,17 @@ const SANDBOX_EMAIL = {
         },
     },
 } as HogFlow['actions'][number]
+// A step id ending in ":own" stays on the team's own sender; the sender control keeps the id when it switches.
 const withSandboxEmail = (
     actions: HogFlow['actions'],
     stepIds: string[] = [SANDBOX_EMAIL.id]
 ): Pick<HogFlow, 'actions' | 'edges'> => {
     const [trigger, exit] = actions
-    const chain = [trigger, ...stepIds.map((id) => ({ ...SANDBOX_EMAIL, id })), exit]
+    const steps = stepIds.map((stepId) => {
+        const [id, sender] = stepId.split(':')
+        return { ...SANDBOX_EMAIL, id, type: sender === 'own' ? 'function_email' : 'email_sandbox' }
+    }) as HogFlow['actions']
+    const chain = [trigger, ...steps, exit]
     return {
         actions: chain,
         edges: chain.slice(1).map((step, index) => ({ from: chain[index].id, to: step.id, type: 'continue' })),
@@ -1230,6 +1235,12 @@ describe('workflowLogic auto-save', () => {
                     'moves a second step onto the test sender',
                     ['sandbox_email'],
                     ['sandbox_email', 'second_email'],
+                    true,
+                ],
+                [
+                    'switches an existing step to the test sender',
+                    ['sandbox_email', 'own_email:own'],
+                    ['sandbox_email', 'own_email'],
                     true,
                 ],
             ])(
