@@ -34,6 +34,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.fields import OmittableBooleanField
 from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -131,6 +132,8 @@ from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CO
 from products.workflows.backend.facade.workflows import get_workflow_ref
 
 if TYPE_CHECKING:
+    from rest_framework.views import APIView
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
@@ -1125,7 +1128,13 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         # topic preferences.
         if is_authenticated_via_project_secret_api_key(self.request):
             return
+        self._require_workflow_property_access()
         require_workflow_editor(self.team_id, hog_flow_id, self.user_access_control)
+
+    def _require_workflow_property_access(self) -> None:
+        permission = CDPPropertyAccessPermission()
+        if not permission.has_permission(self.request, cast("APIView", self)):
+            raise exceptions.PermissionDenied(permission.message)
 
     def _writes_template_files(self, fields: dict[str, Any], template_id: UUID | None = None) -> bool:
         """Whether this request's save may write the template's file in the project tree.
@@ -1153,6 +1162,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     def _require_workflow_create(self) -> None:
         if is_authenticated_via_project_secret_api_key(self.request):
             return
+        self._require_workflow_property_access()
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
 
@@ -1528,7 +1538,13 @@ class MessageTemplatesViewSet(
         ),
         parameters=[TEMPLATE_ID_PARAMETER],
     )
-    @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
+    @action(
+        detail=True,
+        methods=["POST"],
+        pagination_class=None,
+        required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE],
+        permission_classes=[IsAuthenticated, CDPPropertyAccessPermission],
+    )
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._require_transactional_email_flag()
         template = self.get_object()

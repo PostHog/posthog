@@ -26,7 +26,11 @@ from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
-from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.testing import (
+    PropertyAccess,
+    create_access_control,
+    set_member_property_access,
+)
 from products.messaging.backend.facade.transactional_email import report_first_code_send
 from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
@@ -2661,6 +2665,63 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert HogFlow.objects.filter(team=self.team).count() == workflows_before
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (operation, access)
+            for operation in ("update", "make_transactional", "code_send")
+            for access in ("restricted", "granted", "admin")
+        ]
+    )
+    def test_workflow_changes_follow_property_access(
+        self, mock_post, _flag, operation: str, access: PropertyAccess
+    ) -> None:
+        self.client.force_login(self.user)
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+        plain_template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Receipt",
+            content={"email": {"subject": "Receipt", "html": "<p>Receipt</p>"}},
+            type="email",
+            created_by=self.user,
+        )
+        workflows_before = HogFlow.objects.filter(team=self.team).count()
+
+        if operation == "update":
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+                {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}},
+                format="json",
+            )
+        elif operation == "make_transactional":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/messaging_templates/{plain_template.id}/make_transactional/",
+                {},
+                format="json",
+            )
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/messaging/send/email/",
+                {"to": "user@example.com", "template_key": "welcome", "subject": "Welcome", "html": "<p>Hi</p>"},
+                format="json",
+            )
+
+        self.template.refresh_from_db()
+        plain_template.refresh_from_db()
+        changed = {
+            "update": self.template.content["email"]["subject"] == "New",
+            "make_transactional": plain_template.transactional_hog_flow_id is not None,
+            "code_send": HogFlow.objects.filter(team=self.team).count() == workflows_before + 1,
+        }[operation]
+        if access == "restricted":
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+            assert "property access" in response.json()["detail"].lower()
+            assert not changed
+            mock_post.assert_not_called()
+        else:
+            assert response.status_code < 300, response.json()
+            assert changed
 
     @parameterized.expand(
         [

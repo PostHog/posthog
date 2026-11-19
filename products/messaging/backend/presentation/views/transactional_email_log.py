@@ -11,6 +11,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
@@ -331,6 +332,7 @@ class _PageSchema(AutoSchema):
 
 class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
+    permission_classes = [CDPLogPropertyAccessPermission]
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "activity", "stats", "stats_over_time", "results", "impact"]
 

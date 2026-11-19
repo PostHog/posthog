@@ -11,6 +11,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
@@ -103,6 +104,42 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
 
     def _create_payload(self, name="new_workflow") -> dict:
         return {"name": name, "actions": [TRIGGER_ACTION]}
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", "restricted", 403),
+            ("update", "patch", "detail", "restricted", 403),
+            ("test", "post", "invocations", "restricted", 403),
+            ("rerun", "post", "rerun", "restricted", 403),
+            ("logs", "get", "logs", "restricted", 403),
+            ("results", "get", "invocation_results", "restricted", 403),
+            ("count", "get", "invocation_results_count", "restricted", 403),
+            ("result", "get", "invocation_results/example", "restricted", 403),
+            ("assets", "get", "assets", "restricted", 403),
+            ("read", "get", "detail", "restricted", 200),
+            ("admin", "post", "", "admin", 201),
+            ("member_override", "post", "", "granted", 201),
+        ]
+    )
+    def test_property_permissions_apply_to_workflows(
+        self, _name: str, method: str, action: str, access: PropertyAccess, expected_status: int
+    ) -> None:
+        user = self.user if access == "admin" else self.editor_user
+        set_member_property_access(
+            team=self.team,
+            membership=OrganizationMembership.objects.get(organization=self.organization, user=user),
+            access=access,
+        )
+        self._create_access_control(user, access_level="editor")
+        self.client.force_login(user)
+        url = self._list_url() if not action else self._detail_url()
+        if action not in {"", "detail"}:
+            url += f"/{action}"
+        response = getattr(self.client, method)(url, data=self._create_payload(), format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 403:
+            assert "property access" in response.json()["detail"].lower()
 
     @parameterized.expand(
         [
