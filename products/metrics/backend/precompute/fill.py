@@ -17,6 +17,7 @@ from django.core.cache import cache
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricGroupBy, MetricQueryTooManyRowsError
@@ -105,6 +106,15 @@ def _query_hours(
     return entries
 
 
+@frozen
+class QueriedHours:
+    """The hourly buckets a fill query read, and the `[start, end)` range they cover."""
+
+    entries: dict[EntryKey, Entry]
+    start: dt.datetime
+    end: dt.datetime
+
+
 def query_hours(
     team: Team,
     precomputed_metric: MetricPrecomputedMetric,
@@ -113,7 +123,7 @@ def query_hours(
     *,
     newest_first: bool = False,
     deadline: float = math.inf,
-) -> tuple[dict[EntryKey, Entry], dt.datetime, dt.datetime]:
+) -> QueriedHours:
     """The hourly buckets of `[start, end)` and the range they cover, splitting the range while the runner
     reports too many rows.
 
@@ -123,22 +133,18 @@ def query_hours(
     caller can save it and extend its coverage.
     """
     try:
-        return _query_hours(team, precomputed_metric, start, end), start, end
+        return QueriedHours(entries=_query_hours(team, precomputed_metric, start, end), start=start, end=end)
     except MetricQueryTooManyRowsError:
         if end - start <= HOUR:
             raise TooManySeriesError("one hour has too many label sets; keep fewer labels")
     middle = start + (end - start) // 2 // HOUR * HOUR
     first, second = ((middle, end), (start, middle)) if newest_first else ((start, middle), (middle, end))
-    entries, covered_start, covered_end = query_hours(
-        team, precomputed_metric, *first, newest_first=newest_first, deadline=deadline
-    )
-    if (covered_start, covered_end) != first or time.monotonic() >= deadline:
-        return entries, covered_start, covered_end
-    more, more_start, more_end = query_hours(
-        team, precomputed_metric, *second, newest_first=newest_first, deadline=deadline
-    )
-    merge_entries(entries, more)
-    return entries, min(covered_start, more_start), max(covered_end, more_end)
+    queried = query_hours(team, precomputed_metric, *first, newest_first=newest_first, deadline=deadline)
+    if (queried.start, queried.end) != first or time.monotonic() >= deadline:
+        return queried
+    more = query_hours(team, precomputed_metric, *second, newest_first=newest_first, deadline=deadline)
+    merge_entries(queried.entries, more.entries)
+    return QueriedHours(entries=queried.entries, start=min(queried.start, more.start), end=max(queried.end, more.end))
 
 
 def _values(entries: dict[EntryKey, Entry], start: dt.datetime, end: dt.datetime) -> dict[tuple, Any]:
@@ -180,7 +186,8 @@ def fill_step(
         start = max(covered_to - REREAD, covered_from)
         # The runner coarsens an hourly interval past 500 buckets, which would store multi-hour sums as hours.
         end = min(target, covered_to + MAX_FORWARD_STEP)
-        entries, _, reached = query_hours(team, precomputed_metric, start, end, deadline=deadline)
+        queried = query_hours(team, precomputed_metric, start, end, deadline=deadline)
+        entries, reached = queried.entries, queried.end
         reread_end = min(covered_to, reached)
         stored = _values(read_entries(precomputed_metric, start, reread_end), start, reread_end)
         if _any_changed(stored, _values(entries, start, reread_end)):
@@ -191,9 +198,8 @@ def fill_step(
         return True
     if covered_from > retention_start:
         start = max(covered_from - BACKFILL_STEP, retention_start)
-        entries, reached, _ = query_hours(
-            team, precomputed_metric, start, covered_from, newest_first=True, deadline=deadline
-        )
+        queried = query_hours(team, precomputed_metric, start, covered_from, newest_first=True, deadline=deadline)
+        entries, reached = queried.entries, queried.start
         write_entries(precomputed_metric, reached, covered_from, entries)
         precomputed_metric.covered_from = reached
         precomputed_metric.save(update_fields=["covered_from", "updated_at"])
