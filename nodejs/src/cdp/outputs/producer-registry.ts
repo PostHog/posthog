@@ -24,8 +24,8 @@ import {
  *   job queue's own producer.
  * - `WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER` — the same cluster, for the intake topics.
  * - `WAREHOUSE_PRODUCER` — dedicated cluster for warehouse source webhooks.
- * - `MSK_CDP_INTAKE_PRODUCER` — the intake topics on the CDP intake MSK cluster. It connects on first use, so a pod
- *   boots while that cluster is down, and without its brokers it opens the WarpStream intake producer's config.
+ * - `MSK_CDP_INTAKE_PRODUCER` — the intake topics on the CDP intake MSK cluster. It connects in the background, so a
+ *   pod boots while that cluster is down, and without its brokers it opens the WarpStream intake producer's config.
  */
 export function createCdpProducerRegistry(kafkaClientRack: string | undefined, mskIntakeBrokers: string) {
     return new KafkaProducerRegistryBuilder(kafkaClientRack)

@@ -7,6 +7,8 @@ import { logger } from '~/common/utils/logger'
 import { AllowedConfigKey, parseProducerConfig } from './kafka-producer-config'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
 
+const LAZY_CONNECT_WAIT_MS = 5_000
+
 /**
  * Builder for `KafkaProducerRegistry` that validates config keys at compile time.
  *
@@ -47,7 +49,7 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
         return next
     }
 
-    /** Like `register()`, but the producer connects on first use, so `build()` neither waits for nor fails on it. */
+    /** Like `register()`, but the producer connects in the background: `build()` waits for it briefly and never fails on it. */
     registerLazy<Name extends string, ConfigKeys extends string>(
         name: Name,
         configMap: Partial<Record<AllowedConfigKey, ConfigKeys>>
@@ -93,7 +95,14 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
                 const resolvedConfig = parseProducerConfig(values)
                 logger.info('📝', `Creating producer "${name}"`, { config: redactKafkaConfig(resolvedConfig) })
                 const connect = () => KafkaProducerWrapper.createWithConfig(this.kafkaClientRack, resolvedConfig, name)
-                producers[name] = this.lazy.has(name) ? new LazyKafkaProducer(connect) : await connect()
+                if (this.lazy.has(name)) {
+                    const lazy = new LazyKafkaProducer(connect)
+                    // A healthy cluster is connected before the pod takes traffic; a down one delays boot by this much.
+                    await lazy.waitConnected(LAZY_CONNECT_WAIT_MS)
+                    producers[name] = lazy
+                } else {
+                    producers[name] = await connect()
+                }
             })
         )
 

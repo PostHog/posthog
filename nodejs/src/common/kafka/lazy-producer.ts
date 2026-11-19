@@ -2,21 +2,37 @@ import { KafkaProducer, ProducerMessage, TopicMessage } from './producer'
 
 const RETRY_AFTER_FAILURE_MS = 5_000
 
-// Connects in the background and fails produces until connected, so a cluster that is down fails the produces that
-// pick it rather than the boot of every pod that registers it. A produce never waits on a connect: a message held
-// past its caller's deadline could land after the caller already answered that it failed.
+// Connects in the background, retrying every few seconds, and fails produces until connected, so a cluster that is
+// down fails the produces that pick it rather than the boot of every pod that registers it. A produce never waits on
+// a connect: a message held past its caller's deadline could land after the caller already answered that it failed.
 export class LazyKafkaProducer implements KafkaProducer {
     private connected?: KafkaProducer
     private connecting?: Promise<KafkaProducer>
-    private failedAt = 0
+    private retry?: NodeJS.Timeout
     private closed = false
 
     constructor(private connect: () => Promise<KafkaProducer>) {
         void this.startConnect()
     }
 
+    /** Resolves once connected, after a failed attempt, or after `timeoutMs`, whichever comes first. Never rejects. */
+    async waitConnected(timeoutMs: number): Promise<void> {
+        let timer: NodeJS.Timeout | undefined
+        const timeout = new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, timeoutMs)
+        })
+        await Promise.race([
+            this.connecting?.then(
+                () => undefined,
+                () => undefined
+            ),
+            timeout,
+        ])
+        clearTimeout(timer)
+    }
+
     private startConnect(): Promise<KafkaProducer> | undefined {
-        if (this.closed || this.connecting || Date.now() - this.failedAt < RETRY_AFTER_FAILURE_MS) {
+        if (this.closed || this.connected || this.connecting || this.retry) {
             return this.connecting
         }
         const connecting = this.connect().then(
@@ -29,8 +45,14 @@ export class LazyKafkaProducer implements KafkaProducer {
                 return producer
             },
             (error) => {
-                this.failedAt = Date.now()
                 this.connecting = undefined
+                if (!this.closed) {
+                    this.retry = setTimeout(() => {
+                        this.retry = undefined
+                        void this.startConnect()
+                    }, RETRY_AFTER_FAILURE_MS)
+                    this.retry.unref()
+                }
                 throw error
             }
         )
@@ -65,6 +87,8 @@ export class LazyKafkaProducer implements KafkaProducer {
 
     async disconnect(): Promise<void> {
         this.closed = true
+        clearTimeout(this.retry)
+        this.retry = undefined
         const connected = this.connected
         this.connected = undefined
         this.connecting = undefined

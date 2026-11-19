@@ -124,27 +124,55 @@ describe('KafkaProducerRegistryBuilder', () => {
         ).rejects.toThrow('connection refused')
     })
 
-    it('registerLazy builds while its broker is down, fails produces until connected, then produces', async () => {
+    it('registerLazy lets build return only once a slow but healthy broker connects', async () => {
+        jest.useFakeTimers()
+        try {
+            const produce = jest.fn().mockResolvedValue(undefined)
+            jest.mocked(KafkaProducerWrapper.createWithConfig).mockImplementation(
+                () =>
+                    new Promise((resolve) =>
+                        setTimeout(() => resolve({ produce } as unknown as KafkaProducerWrapper), 100)
+                    )
+            )
+            const message = { topic: 't', value: Buffer.from('v'), key: null }
+            let built = false
+
+            const building = new KafkaProducerRegistryBuilder(undefined)
+                .registerLazy('MSK', configMap)
+                .build({ BROKER_LIST: 'msk:9094', LINGER_MS: '5' })
+                .then((registry) => {
+                    built = true
+                    return registry
+                })
+            await jest.advanceTimersByTimeAsync(50)
+            expect(built).toBe(false)
+            await jest.advanceTimersByTimeAsync(50)
+
+            await (await building).getProducer('MSK').produce(message)
+            expect(produce).toHaveBeenCalledWith(message)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('registerLazy builds while its broker is down, fails produces fast, and reconnects in the background', async () => {
         jest.useFakeTimers()
         try {
             const produce = jest.fn().mockResolvedValue(undefined)
             jest.mocked(KafkaProducerWrapper.createWithConfig)
                 .mockRejectedValueOnce(new Error('broker transport failure'))
+                .mockRejectedValueOnce(new Error('broker transport failure'))
                 .mockResolvedValue({ produce } as unknown as KafkaProducerWrapper)
-            const config = { BROKER_LIST: 'msk:9094', LINGER_MS: '5' }
             const message = { topic: 't', value: Buffer.from('v'), key: null }
 
             const registry = await new KafkaProducerRegistryBuilder(undefined)
                 .registerLazy('MSK', configMap)
-                .build(config)
+                .build({ BROKER_LIST: 'msk:9094', LINGER_MS: '5' })
             const msk = registry.getProducer('MSK')
 
             await expect(msk.produce(message)).rejects.toThrow('not connected yet')
-            await jest.advanceTimersByTimeAsync(5_000)
-            await expect(msk.produce(message)).rejects.toThrow('not connected yet')
-            await jest.advanceTimersByTimeAsync(0)
+            await jest.advanceTimersByTimeAsync(10_000)
             await msk.produce(message)
-            expect(produce).toHaveBeenCalledTimes(1)
             expect(produce).toHaveBeenCalledWith(message)
         } finally {
             jest.useRealTimers()
