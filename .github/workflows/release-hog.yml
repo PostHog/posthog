@@ -987,7 +987,10 @@ jobs:
                           --entitlements hog/release/entitlements.plist \
                           --identifier com.posthog.hog --sign "$identity" "$binary"
                       codesign --verify --strict --verbose=2 "$binary"
-                      codesign -dv "$binary" 2>&1 | grep -q 'Authority=Developer ID Application' \
+                      # The Authority lines need --verbose=2, and the output goes through a variable because
+                      # grep -q closing a pipe early fails the pipeline under pipefail.
+                      signature=$(codesign -d --verbose=2 "$binary" 2>&1)
+                      grep -q 'Authority=Developer ID Application' <<<"$signature" \
                           || { echo "::error::$target is not signed with a Developer ID"; exit 1; }
 
                       # A bare executable can't be stapled, so Gatekeeper checks the ticket online.
