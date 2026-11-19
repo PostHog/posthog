@@ -2,8 +2,10 @@
 
 Each pass over a team runs one query at a time through the ordinary metrics query runner, at an hourly
 interval grouped by the kept labels. Forward fills store the hours that have settled since the last pass and
-re-read the newest stored hours, so late samples replace what was stored and widen the settle delay. When
-nothing is due forward, the pass backfills one day, newest first, until the retention window is covered.
+re-read the newest stored hours, so late samples replace what was stored and widen the settle delay. Once a
+day, a re-fill re-reads the past day up to the forward re-read and rewrites the hours that late samples changed.
+Capture drops samples more than 24 hours late, so a bucket written after that is marked final and never read
+again. When nothing else is due, the pass backfills one day, newest first, until the retention window is covered.
 A fill that returns too many rows is split in half, down to one hour, and saves the halves it finished
 before the pass deadline.
 """
@@ -26,13 +28,18 @@ from products.metrics.backend.metric_query_runner import _finite_or_none
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.models import MetricPrecomputedChunk, MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import labels_of
+from products.metrics.backend.precompute.gate import precompute_enabled
 from products.metrics.backend.precompute.store import (
     HOUR,
     Entry,
     EntryKey,
     TooManySeriesError,
+    bucket_width,
+    first_open_bucket,
+    floor_to_bucket,
     merge_entries,
     read_entries,
+    value_changed,
     write_entries,
 )
 
@@ -43,16 +50,18 @@ RETENTION = dt.timedelta(days=32)
 BACKFILL_STEP = dt.timedelta(days=1)
 MAX_FORWARD_STEP = dt.timedelta(days=1)
 REREAD = dt.timedelta(hours=2)
+# Capture rejects samples older than this, so a bucket that ended this long ago can no longer change.
+LATENESS_CAP = dt.timedelta(hours=24)
+REFILL_EVERY = dt.timedelta(hours=24)
+REFILL_WINDOW = dt.timedelta(hours=26)
+# The re-fill reaches back to the oldest bucket that is not final yet, so every bucket gets one re-read past the
+# lateness cap. This bounds that reach when a re-fill was missed.
+MAX_REFILL_WINDOW = dt.timedelta(hours=50)
 MAX_SETTLE_SECONDS = 2 * 60 * 60
 UNUSED_AFTER = dt.timedelta(days=14)
 PAUSE_AFTER_FAILURES = 10
 PASS_BUDGET = dt.timedelta(minutes=4)
 _LOCK_TIMEOUT_SECONDS = 10 * 60
-_RELATIVE_TOLERANCE = 1e-9
-
-
-def _floor_hour(value: dt.datetime) -> dt.datetime:
-    return value.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
 
 
 def _hour_of(value: Any) -> dt.datetime:
@@ -139,9 +148,10 @@ def query_hours(
     try:
         return QueriedHours(entries=_query_hours(team, precomputed_metric, start, end), start=start, end=end)
     except MetricQueryTooManyRowsError:
-        if end - start <= HOUR:
+        if end - start <= bucket_width(precomputed_metric):
             raise TooManySeriesError("one hour has too many label sets; keep fewer labels")
-    middle = start + (end - start) // 2 // HOUR * HOUR
+    width = bucket_width(precomputed_metric)
+    middle = start + (end - start) // 2 // width * width
     first, second = ((middle, end), (start, middle)) if newest_first else ((start, middle), (middle, end))
     queried = query_hours(team, precomputed_metric, *first, newest_first=newest_first, deadline=deadline)
     if (queried.start, queried.end) != first or time.monotonic() >= deadline:
@@ -160,19 +170,8 @@ def _values(entries: dict[EntryKey, Entry], start: dt.datetime, end: dt.datetime
     }
 
 
-def _changed(before: Any, after: Any) -> bool:
-    if isinstance(before, list) or isinstance(after, list):
-        return (
-            not isinstance(before, list)
-            or not isinstance(after, list)
-            or len(before) != len(after)
-            or any(_changed(a, b) for a, b in zip(before, after))
-        )
-    return abs(before - after) > _RELATIVE_TOLERANCE * max(abs(before), abs(after), 1.0)
-
-
 def _any_changed(before: dict[tuple, Any], after: dict[tuple, Any]) -> bool:
-    return before.keys() != after.keys() or any(_changed(before[key], after[key]) for key in before)
+    return before.keys() != after.keys() or any(value_changed(before[key], after[key]) for key in before)
 
 
 def _query_forward(
@@ -207,16 +206,18 @@ def _query_forward(
 def fill_step(
     team: Team, precomputed_metric: MetricPrecomputedMetric, now: dt.datetime, *, deadline: float = math.inf
 ) -> bool:
-    """Run the one fill that is due, forward before back. Returns False when nothing was due."""
-    target = _floor_hour(now - dt.timedelta(seconds=precomputed_metric.settle_seconds))
-    retention_start = _floor_hour(now - RETENTION)
+    """Run the one fill that is due: forward, then the daily re-fill, then back. Returns False when nothing was due."""
+    width = bucket_width(precomputed_metric)
+    target = floor_to_bucket(now - dt.timedelta(seconds=precomputed_metric.settle_seconds), width)
+    retention_start = floor_to_bucket(now - RETENTION, width)
+    final_before = now - LATENESS_CAP
     covered_from, covered_to = precomputed_metric.covered_from, precomputed_metric.covered_to
     if covered_from is None or covered_to is None:
         precomputed_metric.covered_from = precomputed_metric.covered_to = target
         precomputed_metric.save(update_fields=["covered_from", "covered_to", "updated_at"])
         return True
     if target > covered_to:
-        start = max(covered_to - REREAD, covered_from)
+        start = max(covered_to - max(REREAD, width), covered_from)
         # The runner coarsens an hourly interval past 500 buckets, which would store multi-hour sums as hours.
         end = min(target, covered_to + MAX_FORWARD_STEP)
         queried = _query_forward(team, precomputed_metric, start, covered_to, end, deadline)
@@ -224,29 +225,61 @@ def fill_step(
         stored = _values(read_entries(precomputed_metric, queried.start, reread_end), queried.start, reread_end)
         if _any_changed(stored, _values(queried.entries, queried.start, reread_end)):
             precomputed_metric.settle_seconds = min(int(precomputed_metric.settle_seconds * 1.5), MAX_SETTLE_SECONDS)
-        write_entries(precomputed_metric, queried.start, queried.end, queried.entries)
+        write_entries(precomputed_metric, queried.start, queried.end, queried.entries, final_before=final_before)
         precomputed_metric.covered_to = max(covered_to, queried.end)
         precomputed_metric.save(update_fields=["covered_to", "settle_seconds", "updated_at"])
+        return True
+    refilled_at = precomputed_metric.refilled_at
+    if refilled_at is None or refilled_at <= now - REFILL_EVERY:
+        _refill(team, precomputed_metric, now, deadline)
         return True
     if covered_from > retention_start:
         start = max(covered_from - BACKFILL_STEP, retention_start)
         queried = query_hours(team, precomputed_metric, start, covered_from, newest_first=True, deadline=deadline)
         entries, reached = queried.entries, queried.start
-        write_entries(precomputed_metric, reached, covered_from, entries)
+        write_entries(precomputed_metric, reached, covered_from, entries, final_before=final_before)
         precomputed_metric.covered_from = reached
         precomputed_metric.save(update_fields=["covered_from", "updated_at"])
         return True
     return False
 
 
+def _refill(team: Team, precomputed_metric: MetricPrecomputedMetric, now: dt.datetime, deadline: float) -> None:
+    """Re-read the past day before the forward re-read, rewrite the buckets that changed, and mark the ones past the
+    lateness cap final. It starts earlier when an older bucket is not final yet."""
+    width = bucket_width(precomputed_metric)
+    covered_from, covered_to = precomputed_metric.covered_from, precomputed_metric.covered_to
+    assert covered_from is not None and covered_to is not None
+    start = floor_to_bucket(now - REFILL_WINDOW, width)
+    oldest_open = first_open_bucket(precomputed_metric, floor_to_bucket(now - MAX_REFILL_WINDOW, width))
+    if oldest_open is not None:
+        start = min(start, oldest_open)
+    start = max(start, covered_from)
+    end = min(floor_to_bucket(now - REREAD, width), covered_to)
+    complete = True
+    if start < end:
+        queried = query_hours(team, precomputed_metric, start, end, deadline=deadline)
+        changed = write_entries(
+            precomputed_metric, queried.start, queried.end, queried.entries, final_before=now - LATENESS_CAP
+        )
+        complete = queried.end >= end
+        logger.info(
+            "metrics_precompute_refilled",
+            precomputed_metric_id=str(precomputed_metric.pk),
+            buckets_written=changed,
+            complete=complete,
+        )
+    if complete:
+        precomputed_metric.refilled_at = now
+        precomputed_metric.save(update_fields=["refilled_at", "updated_at"])
+
+
 def _sweep(team_id: int, now: dt.datetime) -> None:
     metrics = MetricPrecomputedMetric.objects.for_team(team_id)
     metrics.filter(last_used_at__lt=now - UNUSED_AFTER).delete()
-    first_kept_day = (now - RETENTION).astimezone(dt.UTC).date()
-    MetricPrecomputedChunk.objects.for_team(team_id).filter(day__lt=first_kept_day).delete()
-    metrics.filter(covered_from__lt=dt.datetime.combine(first_kept_day, dt.time(), tzinfo=dt.UTC)).update(
-        covered_from=dt.datetime.combine(first_kept_day, dt.time(), tzinfo=dt.UTC)
-    )
+    first_kept = dt.datetime.combine((now - RETENTION).astimezone(dt.UTC).date(), dt.time(), tzinfo=dt.UTC)
+    MetricPrecomputedChunk.objects.for_team(team_id).filter(start__lt=first_kept).delete()
+    metrics.filter(covered_from__lt=first_kept).update(covered_from=first_kept)
 
 
 def _record_failure(precomputed_metric: MetricPrecomputedMetric, error: Exception, *, pause: bool) -> None:
@@ -268,6 +301,8 @@ def fill_precomputed_metrics(
         team = Team.objects.get(pk=team_id)
         now = now or dt.datetime.now(dt.UTC)
         _sweep(team_id, now)
+        if not precompute_enabled(team):
+            return
         deadline = time.monotonic() + budget.total_seconds()
         pending = list(
             MetricPrecomputedMetric.objects.for_team(team_id)

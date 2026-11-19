@@ -12,7 +12,7 @@ from products.metrics.backend.facade.enums import AttributeScope, PrecomputedMet
 from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fills
 from products.metrics.backend.models import MetricPrecomputedChunk, MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import LabelRef, Leaf, get_or_create_precomputed_metric
-from products.metrics.backend.precompute.fill import RETENTION, fill_precomputed_metrics, fill_step
+from products.metrics.backend.precompute.fill import LATENESS_CAP, RETENTION, fill_precomputed_metrics, fill_step
 from products.metrics.backend.precompute.store import Entry, read_entries, write_entries
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
@@ -31,6 +31,9 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         truncate_metrics_tables()
+        gate = patch("products.metrics.backend.precompute.fill.precompute_enabled", return_value=True)
+        self.precompute_enabled = gate.start()
+        self.addCleanup(gate.stop)
 
     def _seed_delta_counter(self, service: str, per_sample: float, start: dt.datetime, hours: int) -> None:
         # Six samples an hour, so an hour's increase is six times the sample.
@@ -113,13 +116,17 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         self._seed_delta_counter("checkout", 1.0, SETTLED - dt.timedelta(hours=5), 5)
         self._create(PrecomputedMetricKind.INCREASE, "requests_total")
         precomputed = self._fill()
-        before = list(MetricPrecomputedChunk.objects.for_team(self.team.pk).order_by("day").values("day", "series"))
+        before = list(
+            MetricPrecomputedChunk.objects.for_team(self.team.pk).order_by("start").values("start", "series", "final")
+        )
 
         precomputed.covered_from = precomputed.covered_to = None
         precomputed.save()
         self._fill()
 
-        after = list(MetricPrecomputedChunk.objects.for_team(self.team.pk).order_by("day").values("day", "series"))
+        after = list(
+            MetricPrecomputedChunk.objects.for_team(self.team.pk).order_by("start").values("start", "series", "final")
+        )
         assert after == before
 
     def test_late_data_in_the_reread_window_is_rewritten_and_widens_settle(self):
@@ -221,7 +228,7 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("one_hour", "products.metrics.backend.metric_query_runner._ROW_LIMIT", 2),
-            ("one_day_chunk", "products.metrics.backend.precompute.store.MAX_ENTRIES_PER_CHUNK", 1),
+            ("one_bucket", "products.metrics.backend.precompute.store.MAX_ENTRIES_PER_CHUNK", 1),
         ]
     )
     def test_pauses_when_too_many_series(self, _name: str, limit_path: str, limit: int):
@@ -247,18 +254,18 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
 
     def test_drops_chunks_past_retention(self):
         precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
-        old_day = (NOW - RETENTION - dt.timedelta(days=2)).date()
+        old_hour = (NOW - RETENTION - dt.timedelta(days=2)).replace(minute=0)
         MetricPrecomputedChunk.objects.for_team(self.team.pk).create(
-            team_id=self.team.pk, precomputed_metric=precomputed, day=old_day, series=[]
+            team_id=self.team.pk, precomputed_metric=precomputed, start=old_hour, series=[]
         )
-        precomputed.covered_from = dt.datetime.combine(old_day, dt.time(), tzinfo=dt.UTC)
+        precomputed.covered_from = old_hour
         precomputed.covered_to = SETTLED
         precomputed.last_used_at = timezone.now()
         precomputed.save()
 
         precomputed = self._fill()
 
-        assert not MetricPrecomputedChunk.objects.for_team(self.team.pk).filter(day=old_day).exists()
+        assert not MetricPrecomputedChunk.objects.for_team(self.team.pk).filter(start=old_hour).exists()
         assert precomputed.covered_from is not None
         assert precomputed.covered_from >= NOW - RETENTION - dt.timedelta(days=1)
 
@@ -279,3 +286,92 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         schedule_metrics_precompute_fills()
 
         assert not MetricPrecomputedMetric.objects.for_team(self.team.pk).exists()
+
+    def _chunks(self) -> dict[dt.datetime, tuple[object, bool]]:
+        return {
+            chunk.start: (chunk.series, chunk.final)
+            for chunk in MetricPrecomputedChunk.objects.for_team(self.team.pk).order_by("start")
+        }
+
+    def test_writes_only_the_buckets_whose_values_changed(self):
+        precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        hours = _hours(SETTLED - dt.timedelta(hours=3), 3)
+        entry = Entry(labels=("checkout",), points=dict.fromkeys(hours, 6.0))
+        assert write_entries(precomputed, hours[0], SETTLED, {entry.key: entry}) == 3
+        written_at = {chunk.start: chunk.computed_at for chunk in MetricPrecomputedChunk.objects.for_team(self.team.pk)}
+
+        entry.points[hours[1]] = 7.0
+        assert write_entries(precomputed, hours[0], SETTLED, {entry.key: entry}) == 1
+
+        chunks = MetricPrecomputedChunk.objects.for_team(self.team.pk)
+        assert sorted(chunk.start for chunk in chunks if chunk.computed_at != written_at[chunk.start]) == [hours[1]]
+        assert self._stored(self._fill_coverage(precomputed, hours[0]))[("checkout",)] == {
+            hours[0]: 6.0,
+            hours[1]: 7.0,
+            hours[2]: 6.0,
+        }
+
+    def _fill_coverage(self, precomputed: MetricPrecomputedMetric, start: dt.datetime) -> MetricPrecomputedMetric:
+        precomputed.covered_from, precomputed.covered_to = start, SETTLED
+        return precomputed
+
+    def test_the_daily_refill_rewrites_late_data_past_the_reread_and_marks_old_buckets_final(self):
+        start = SETTLED - dt.timedelta(hours=30)
+        self._seed_delta_counter("checkout", 1.0, start, 30)
+        self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        self._fill()
+        late_hour = SETTLED - dt.timedelta(hours=10)
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="requests_total",
+            metric_type="sum",
+            aggregation_temporality="delta",
+            is_monotonic=True,
+            service_name="checkout",
+            points=[(late_hour + dt.timedelta(minutes=59), 4.0)],
+        )
+
+        # The forward re-read covers only the newest hours, so the late hour waits for the daily re-fill.
+        precomputed = self._fill(now=NOW + dt.timedelta(hours=1))
+        assert self._stored(precomputed)[("checkout",)][late_hour] == 6.0
+
+        later = NOW + dt.timedelta(hours=25)
+        precomputed = self._fill(now=later)
+
+        assert self._stored(precomputed)[("checkout",)][late_hour] == 10.0
+        assert precomputed.refilled_at == later
+        for bucket_start, (_, final) in self._chunks().items():
+            assert final is (bucket_start + dt.timedelta(hours=1) <= later - LATENESS_CAP), bucket_start
+
+    def test_a_final_bucket_is_never_rewritten(self):
+        precomputed = self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        hour = SETTLED - dt.timedelta(days=3)
+        entry = Entry(labels=("checkout",), points={hour: 6.0})
+        write_entries(precomputed, hour, hour + dt.timedelta(hours=1), {entry.key: entry}, final_before=NOW)
+
+        entry.points[hour] = 9.0
+        assert write_entries(precomputed, hour, hour + dt.timedelta(hours=1), {entry.key: entry}) == 0
+
+        assert self._chunks()[hour] == ([{"labels": ["checkout"], "fingerprints": [], "value": 6.0}], True)
+
+    def test_backfilled_buckets_past_the_lateness_cap_are_final(self):
+        start = SETTLED - dt.timedelta(hours=30)
+        self._seed_delta_counter("checkout", 1.0, start, 30)
+        self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+
+        self._fill()
+
+        chunks = self._chunks()
+        assert len(chunks) == 30
+        for bucket_start, (_, final) in chunks.items():
+            assert final is (bucket_start + dt.timedelta(hours=1) <= NOW - LATENESS_CAP), bucket_start
+
+    def test_does_not_fill_a_team_without_precomputing(self):
+        self._seed_delta_counter("checkout", 1.0, SETTLED - dt.timedelta(hours=2), 2)
+        self._create(PrecomputedMetricKind.INCREASE, "requests_total")
+        self.precompute_enabled.return_value = False
+
+        precomputed = self._fill()
+
+        assert precomputed.covered_to is None
+        assert not MetricPrecomputedChunk.objects.for_team(self.team.pk).exists()

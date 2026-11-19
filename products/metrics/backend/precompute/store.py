@@ -1,14 +1,16 @@
-"""Read and write a precomputed metric's hourly buckets, kept in one Postgres row per UTC day.
+"""Read and write a precomputed metric's buckets, kept in one Postgres row per bucket.
 
-A chunk holds one entry per kept label set (and, for a histogram, per bucket layout). An entry lists its hours
-as `[hour of the day, value]`, where the value is a summed increase or a list of summed bucket counts. A write
-replaces the hours it covers and leaves the others, so a repeated fill rewrites the same values.
+A chunk holds one entry per kept label set (and, for a histogram, per bucket layout), with the bucket's value:
+a summed increase or sum, or a list of summed bucket counts. A write compares each bucket with what is stored
+and rewrites only the buckets whose values changed, so a repeated fill writes nothing. A final bucket is past
+capture's lateness cap and is never rewritten.
 """
 
 import math
 import datetime as dt
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from typing import Any
 
 from django.db import transaction
 
@@ -19,20 +21,25 @@ HOUR = dt.timedelta(hours=1)
 EntryKey = tuple[tuple[str, ...], str, tuple[float, ...]]
 HourValue = float | list[float]
 
-# One chunk is one JSONB value that every pass decodes whole, so a day keeps at most this many label sets.
+# One chunk is one JSONB value that a read decodes whole, so a bucket keeps at most this many label sets.
 MAX_ENTRIES_PER_CHUNK = 10_000
 # Fingerprints only resolve a series' unit, so a sample of them is enough. Without a cap, an entry with no
-# kept labels collects every physical series of the day.
+# kept labels collects every physical series of the bucket.
 MAX_FINGERPRINTS_PER_ENTRY = 100
+_RELATIVE_TOLERANCE = 1e-9
 
 
 class TooManySeriesError(Exception):
     pass
 
 
+class TooManyStoredPointsError(Exception):
+    """The stored range holds more label-set buckets than one read may load."""
+
+
 @dataclass(frozen=False)
 class Entry:
-    """One kept label set's hours. `metric_type` and `bounds` tell histogram layouts apart and are empty otherwise."""
+    """One kept label set's buckets. `metric_type` and `bounds` tell histogram layouts apart and are empty otherwise."""
 
     labels: tuple[str, ...]
     metric_type: str = ""
@@ -54,18 +61,36 @@ def merge_entries(target: dict[EntryKey, Entry], source: dict[EntryKey, Entry]) 
         existing.points.update(entry.points)
 
 
-def _days(start: dt.datetime, end: dt.datetime) -> Iterator[dt.date]:
-    day = start.astimezone(dt.UTC).date()
-    while dt.datetime.combine(day, dt.time(), tzinfo=dt.UTC) < end:
-        yield day
-        day += dt.timedelta(days=1)
+def bucket_width(precomputed_metric: MetricPrecomputedMetric) -> dt.timedelta:
+    return dt.timedelta(seconds=precomputed_metric.bucket_seconds)
 
 
-def _day_start(day: dt.date) -> dt.datetime:
-    return dt.datetime.combine(day, dt.time(), tzinfo=dt.UTC)
+def floor_to_bucket(value: dt.datetime, width: dt.timedelta) -> dt.datetime:
+    """The start of the UTC bucket that holds `value`. Buckets start on multiples of `width` since the epoch."""
+    seconds = int(width.total_seconds())
+    timestamp = int(value.timestamp())
+    return dt.datetime.fromtimestamp(timestamp - timestamp % seconds, tz=dt.UTC)
 
 
-def _decode(day: dt.date, series: list[dict]) -> dict[EntryKey, Entry]:
+def _bucket_starts(start: dt.datetime, end: dt.datetime, width: dt.timedelta) -> Iterator[dt.datetime]:
+    bucket = floor_to_bucket(start, width)
+    while bucket < end:
+        yield bucket
+        bucket += width
+
+
+def value_changed(before: Any, after: Any) -> bool:
+    if isinstance(before, list) or isinstance(after, list):
+        return (
+            not isinstance(before, list)
+            or not isinstance(after, list)
+            or len(before) != len(after)
+            or any(value_changed(a, b) for a, b in zip(before, after))
+        )
+    return abs(before - after) > _RELATIVE_TOLERANCE * max(abs(before), abs(after), 1.0)
+
+
+def _decode(start: dt.datetime, series: list[dict]) -> dict[EntryKey, Entry]:
     entries: dict[EntryKey, Entry] = {}
     for item in series:
         entry = Entry(
@@ -73,22 +98,22 @@ def _decode(day: dt.date, series: list[dict]) -> dict[EntryKey, Entry]:
             metric_type=item.get("metric_type", ""),
             bounds=tuple(float(bound) for bound in item.get("bounds", ())),
             fingerprints=set(item.get("fingerprints", ())),
-            points={_day_start(day) + hour * HOUR: value for hour, value in item["points"]},
+            points={start: item["value"]},
         )
         entries[entry.key] = entry
     return entries
 
 
-def _encode(day: dt.date, entries: dict[EntryKey, Entry]) -> list[dict]:
+def _encode(start: dt.datetime, entries: dict[EntryKey, Entry]) -> list[dict]:
     series = []
     for key in sorted(entries):
         entry = entries[key]
-        if not entry.points:
+        if start not in entry.points:
             continue
         item: dict = {
             "labels": list(entry.labels),
             "fingerprints": sorted(entry.fingerprints)[:MAX_FINGERPRINTS_PER_ENTRY],
-            "points": [[(time - _day_start(day)) // HOUR, entry.points[time]] for time in sorted(entry.points)],
+            "value": entry.points[start],
         }
         if entry.metric_type or entry.bounds:
             item["metric_type"] = entry.metric_type
@@ -98,20 +123,56 @@ def _encode(day: dt.date, entries: dict[EntryKey, Entry]) -> list[dict]:
     return series
 
 
-def read_entries(
-    precomputed_metric: MetricPrecomputedMetric, start: dt.datetime, end: dt.datetime
-) -> dict[EntryKey, Entry]:
-    """The stored hours in `[start, end)`, merged across days."""
-    entries: dict[EntryKey, Entry] = {}
-    chunks = MetricPrecomputedChunk.objects.for_team(precomputed_metric.team_id).filter(
-        precomputed_metric=precomputed_metric, day__in=list(_days(start, end))
+def _series_changed(before: list[dict], after: list[dict]) -> bool:
+    """Whether a bucket's stored series differ from new ones, by more than float noise in a value."""
+
+    def keyed(series: list[dict]) -> dict[tuple, Any]:
+        return {
+            (tuple(item["labels"]), item.get("metric_type", ""), tuple(map(str, item.get("bounds", ())))): item
+            for item in series
+        }
+
+    old, new = keyed(before), keyed(after)
+    return old.keys() != new.keys() or any(
+        value_changed(old[key]["value"], new[key]["value"]) or old[key]["fingerprints"] != new[key]["fingerprints"]
+        for key in old
     )
-    for chunk in chunks:
-        day_entries = _decode(chunk.day, chunk.series)
-        for entry in day_entries.values():
-            entry.points = {time: value for time, value in entry.points.items() if start <= time < end}
-        merge_entries(entries, {key: entry for key, entry in day_entries.items() if entry.points})
+
+
+def read_entries(
+    precomputed_metric: MetricPrecomputedMetric,
+    start: dt.datetime,
+    end: dt.datetime,
+    max_points: int | None = None,
+) -> dict[EntryKey, Entry]:
+    """The stored buckets that start in `[start, end)`, merged. Raises `TooManyStoredPointsError` as soon as more
+    than `max_points` label-set buckets are read, so the buckets after that are never decoded."""
+    entries: dict[EntryKey, Entry] = {}
+    points = 0
+    chunks = (
+        MetricPrecomputedChunk.objects.for_team(precomputed_metric.team_id)
+        .filter(precomputed_metric=precomputed_metric, start__gte=start, start__lt=end)
+        .order_by("start")
+        .only("start", "series")
+    )
+    for chunk in chunks.iterator(chunk_size=500):
+        bucket_entries = _decode(chunk.start, chunk.series)
+        points += len(bucket_entries)
+        if max_points is not None and points > max_points:
+            raise TooManyStoredPointsError
+        merge_entries(entries, bucket_entries)
     return entries
+
+
+def first_open_bucket(precomputed_metric: MetricPrecomputedMetric, since: dt.datetime) -> dt.datetime | None:
+    """The oldest stored bucket from `since` on that is not final yet."""
+    return (
+        MetricPrecomputedChunk.objects.for_team(precomputed_metric.team_id)
+        .filter(precomputed_metric=precomputed_metric, final=False, start__gte=since)
+        .order_by("start")
+        .values_list("start", flat=True)
+        .first()
+    )
 
 
 def write_entries(
@@ -119,42 +180,55 @@ def write_entries(
     start: dt.datetime,
     end: dt.datetime,
     entries: dict[EntryKey, Entry],
-) -> None:
-    """Replace the stored hours in `[start, end)` with `entries`, one day at a time."""
+    *,
+    final_before: dt.datetime | None = None,
+) -> int:
+    """Make the stored buckets in `[start, end)` hold `entries`, and return how many buckets were written.
+
+    A bucket is written only when its values changed, or when it ends by `final_before` and turns final. A final
+    bucket is never rewritten, and a bucket with no entries keeps no row.
+    """
     team_id = precomputed_metric.team_id
-    for day in _days(start, end):
-        day_from, day_to = max(start, _day_start(day)), min(end, _day_start(day + dt.timedelta(days=1)))
-        with transaction.atomic():
-            chunk = (
-                MetricPrecomputedChunk.objects.for_team(team_id)
-                .select_for_update()
-                .filter(precomputed_metric=precomputed_metric, day=day)
-                .first()
-            )
-            stored = _decode(day, chunk.series) if chunk is not None else {}
-            for entry in stored.values():
-                entry.points = {time: value for time, value in entry.points.items() if not day_from <= time < day_to}
-            merge_entries(
-                stored,
-                {
-                    key: Entry(
-                        labels=entry.labels,
-                        metric_type=entry.metric_type,
-                        bounds=entry.bounds,
-                        fingerprints=set(entry.fingerprints),
-                        points={time: value for time, value in entry.points.items() if day_from <= time < day_to},
-                    )
-                    for key, entry in entries.items()
-                },
-            )
-            series = _encode(day, stored)
+    width = bucket_width(precomputed_metric)
+    starts = list(_bucket_starts(start, end, width))
+    created: list[MetricPrecomputedChunk] = []
+    updated: list[MetricPrecomputedChunk] = []
+    emptied: list[Any] = []
+    with transaction.atomic():
+        stored = {
+            chunk.start: chunk
+            for chunk in MetricPrecomputedChunk.objects.for_team(team_id)
+            .select_for_update()
+            .filter(precomputed_metric=precomputed_metric, start__gte=start, start__lt=end)
+        }
+        for bucket in starts:
+            chunk = stored.get(bucket)
+            if chunk is not None and chunk.final:
+                continue
+            series = _encode(bucket, entries)
             if len(series) > MAX_ENTRIES_PER_CHUNK:
-                raise TooManySeriesError("one day has too many label sets; keep fewer labels")
+                raise TooManySeriesError("one bucket has too many label sets; keep fewer labels")
+            final = final_before is not None and bucket + width <= final_before
+            if not series:
+                if chunk is not None:
+                    emptied.append(chunk.pk)
+                continue
             if chunk is None:
-                if series:
-                    MetricPrecomputedChunk.objects.for_team(team_id).create(
-                        team_id=team_id, precomputed_metric=precomputed_metric, day=day, series=series
+                created.append(
+                    MetricPrecomputedChunk(
+                        team_id=team_id, precomputed_metric=precomputed_metric, start=bucket, series=series, final=final
                     )
-            else:
-                chunk.series = series
-                chunk.save(update_fields=["series", "computed_at"])
+                )
+            elif _series_changed(chunk.series, series) or final != chunk.final:
+                chunk.series, chunk.final = series, final
+                updated.append(chunk)
+        if emptied:
+            MetricPrecomputedChunk.objects.for_team(team_id).filter(pk__in=emptied).delete()
+        if created:
+            MetricPrecomputedChunk.objects.for_team(team_id).bulk_create(created)
+        if updated:
+            # `bulk_update` skips `auto_now`, so the write time is set here.
+            for chunk in updated:
+                chunk.computed_at = dt.datetime.now(dt.UTC)
+            MetricPrecomputedChunk.objects.for_team(team_id).bulk_update(updated, ["series", "final", "computed_at"])
+    return len(created) + len(updated) + len(emptied)
