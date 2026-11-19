@@ -228,6 +228,19 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def live_insight_ids_by_team(*, team_ids: Collection[int], insight_ids: Collection[int]) -> dict[int, set[int]]:
+    """Which of the given insights in these teams are not deleted, by team, in one query."""
+    live: dict[int, set[int]] = {}
+    if not team_ids or not insight_ids:
+        return live
+    # Every row stays inside `team_ids`, which the caller resolved; the ids only narrow that set.
+    # nosemgrep: idor-lookup-without-team
+    rows = Insight.objects.filter(team_id__in=list(team_ids), id__in=list(insight_ids))
+    for team_id, insight_id in rows.values_list("team_id", "id"):
+        live.setdefault(team_id, set()).add(insight_id)
+    return live
+
+
 def _visible_insight_rows(
     insight_ids: Collection[int],
     *,
@@ -314,6 +327,14 @@ def insight_ids_viewed_since(*, team_ids: Collection[int], since: datetime) -> s
 def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
     """Saved insights of these teams created or edited since the given time, in one query."""
     return logic.insight_ids_modified_since(team_ids=team_ids, since=since)
+
+
+def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
+    """Live insights of this team whose name contains ``search``, ignoring case, in one query.
+
+    The generated name counts only for an insight without a saved name, so a match is the name the insight shows.
+    """
+    return logic.insight_ids_named_like(team_id=team_id, search=search)
 
 
 def recent_viewers_by_insight(
@@ -404,6 +425,26 @@ def user_can_view_insight(*, team: Team, user: User, insight_id: int) -> bool:
         return False
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
     return access_control.check_access_level_for_object(insight, "viewer")
+
+
+def insight_ids_created_by(*, team_id: int, user_id: int, insight_ids: Collection[int] | None = None) -> set[int]:
+    """The ids of this team's insights the user created, deleted ones included, among ``insight_ids`` when given.
+    Access control exempts a creator from object rules on their own insights."""
+    insights = Insight.objects.filter(team_id=team_id, created_by_id=user_id)
+    if insight_ids is not None:
+        insights = insights.filter(id__in=insight_ids)
+    return set(insights.values_list("id", flat=True))
+
+
+def viewable_insight_ids(*, access_control: UserAccessControl, team_id: int, insight_ids: Collection[int]) -> set[int]:
+    """The ids among ``insight_ids`` of this team's insights the user may view, deleted ones included, as the
+    alert API's read gate narrows them."""
+    if not insight_ids:
+        return set()
+    insights = access_control.filter_queryset_by_access_level(
+        Insight.objects.filter(team_id=team_id, id__in=insight_ids), resource="insight"
+    )
+    return set(insights.values_list("id", flat=True))
 
 
 def viewable_insights(*, team: Team, user: User, insight_ids: Collection[int]) -> list[ViewableInsight]:
@@ -524,7 +565,7 @@ def get_insight_series(
         team,
         user,
         short_id=insight.short_id,
-        name=insight.name,
+        name=insight.name or insight.derived_name,
         query=insight.query or {},
         dashboard=dashboard,
         blocking=blocking,

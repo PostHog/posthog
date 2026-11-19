@@ -46,3 +46,10 @@ def specs(alert_kind: PlatformAlertKind = PlatformAlertKind.THRESHOLD) -> dict[S
     """Every registered source's schema for one alert kind, in a stable order so the published schema does not reorder."""
     sources = sorted((source for source, kind in _loaders if kind == alert_kind), key=lambda s: s.value)
     return {source: _loaded((source, alert_kind), _loaders[(source, alert_kind)]) for source in sources}
+
+
+def keeps_platform_destinations(source: SourceKind) -> bool:
+    """Whether every destination of the kind's alerts is an `AlertDestination` row. Its source keeps
+    no HogFunction destinations, so delivery sends to the rows alone."""
+    registered = spec(source)
+    return registered is not None and registered.native is not None and registered.native.platform_destinations

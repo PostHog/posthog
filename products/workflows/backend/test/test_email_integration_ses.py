@@ -12,9 +12,19 @@ from posthog.models.team.team import Team
 
 from products.workflows.backend.providers import SESProvider
 from products.workflows.backend.providers.ses import AWS_ACCOUNT_ID_CACHE_KEY
+from products.workflows.backend.services.email_domain_dns import PublishedRecords
 
 
 class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(
+            patch(
+                "products.workflows.backend.providers.ses.find_published_records",
+                return_value=PublishedRecords(records=frozenset()),
+            )
+        )
+
     def _build_ses_provider(self, tenants_for_domain: dict[str, list[str]] | None = None) -> SESProvider:
         patcher = patch("products.workflows.backend.providers.ses.boto3.client")
         patcher.start()

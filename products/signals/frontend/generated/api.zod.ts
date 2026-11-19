@@ -96,6 +96,24 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.'
         ),
+    scout_custom_image_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'ID of a project-shared custom sandbox image that scout runs without their own image start from. Null uses the standard image. Only a project admin with editor access to skills can set it. An image that is missing or not ready at run time falls back to the standard image.'
+        ),
+    research_custom_image_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'ID of a project-shared custom sandbox image that report research and monitoring assessment runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.'
+        ),
+    implementation_custom_image_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'ID of a project-shared custom sandbox image that report implementation runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.'
+        ),
     issue_tracking_integration: zod
         .number()
         .nullish()
@@ -245,6 +263,9 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
                         'hubspot',
                         'engineering_analytics',
                         'google_search_console',
+                        'bing_webmaster_tools',
+                        'ahrefs',
+                        'semrush',
                         'pagerduty',
                         'opsgenie',
                         'incident_io',
@@ -285,6 +306,14 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
                         'statuspage',
                         'cronitor',
                         'instatus',
+                        'rootly',
+                        'zenduty',
+                        'splunk_observability_cloud',
+                        'uptimerobot',
+                        'rootly_alerts',
+                        'incident_io_alerts',
+                        'firehydrant_alerts',
+                        'grafana_irm_alert_groups',
                         'asana',
                         'monday',
                         'plane',
@@ -338,12 +367,14 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
                         'sentinelone',
                         'jfrog_xray',
                         'dynatrace_security',
+                        'app_store_connect',
+                        'sentry_feedback',
                     ])
                     .describe(
-                        '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security'
+                        '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `bing_webmaster_tools` - Bing Webmaster Tools\n\* `ahrefs` - Ahrefs\n\* `semrush` - Semrush\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `rootly` - Rootly\n\* `zenduty` - Zenduty\n\* `splunk_observability_cloud` - Splunk Observability Cloud\n\* `uptimerobot` - UptimeRobot\n\* `rootly_alerts` - Rootly alerts\n\* `incident_io_alerts` - incident.io alerts\n\* `firehydrant_alerts` - FireHydrant alerts\n\* `grafana_irm_alert_groups` - Grafana IRM alert groups\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security\n\* `app_store_connect` - App Store Connect\n\* `sentry_feedback` - Sentry user feedback'
                     )
                     .describe(
-                        'Source product selected during setup.\n\n\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security'
+                        'Source product selected during setup.\n\n\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `bing_webmaster_tools` - Bing Webmaster Tools\n\* `ahrefs` - Ahrefs\n\* `semrush` - Semrush\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `rootly` - Rootly\n\* `zenduty` - Zenduty\n\* `splunk_observability_cloud` - Splunk Observability Cloud\n\* `uptimerobot` - UptimeRobot\n\* `rootly_alerts` - Rootly alerts\n\* `incident_io_alerts` - incident.io alerts\n\* `firehydrant_alerts` - FireHydrant alerts\n\* `grafana_irm_alert_groups` - Grafana IRM alert groups\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security\n\* `app_store_connect` - App Store Connect\n\* `sentry_feedback` - Sentry user feedback'
                     ),
                 source_type: zod
                     .enum([
@@ -536,6 +567,9 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
                         'hubspot',
                         'engineering_analytics',
                         'google_search_console',
+                        'bing_webmaster_tools',
+                        'ahrefs',
+                        'semrush',
                         'pagerduty',
                         'opsgenie',
                         'incident_io',
@@ -576,6 +610,14 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
                         'statuspage',
                         'cronitor',
                         'instatus',
+                        'rootly',
+                        'zenduty',
+                        'splunk_observability_cloud',
+                        'uptimerobot',
+                        'rootly_alerts',
+                        'incident_io_alerts',
+                        'firehydrant_alerts',
+                        'grafana_irm_alert_groups',
                         'asana',
                         'monday',
                         'plane',
@@ -629,12 +671,14 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
                         'sentinelone',
                         'jfrog_xray',
                         'dynatrace_security',
+                        'app_store_connect',
+                        'sentry_feedback',
                     ])
                     .describe(
-                        '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security'
+                        '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `bing_webmaster_tools` - Bing Webmaster Tools\n\* `ahrefs` - Ahrefs\n\* `semrush` - Semrush\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `rootly` - Rootly\n\* `zenduty` - Zenduty\n\* `splunk_observability_cloud` - Splunk Observability Cloud\n\* `uptimerobot` - UptimeRobot\n\* `rootly_alerts` - Rootly alerts\n\* `incident_io_alerts` - incident.io alerts\n\* `firehydrant_alerts` - FireHydrant alerts\n\* `grafana_irm_alert_groups` - Grafana IRM alert groups\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security\n\* `app_store_connect` - App Store Connect\n\* `sentry_feedback` - Sentry user feedback'
                     )
                     .describe(
-                        'Source product selected during setup.\n\n\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security'
+                        'Source product selected during setup.\n\n\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `bing_webmaster_tools` - Bing Webmaster Tools\n\* `ahrefs` - Ahrefs\n\* `semrush` - Semrush\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `rootly` - Rootly\n\* `zenduty` - Zenduty\n\* `splunk_observability_cloud` - Splunk Observability Cloud\n\* `uptimerobot` - UptimeRobot\n\* `rootly_alerts` - Rootly alerts\n\* `incident_io_alerts` - incident.io alerts\n\* `firehydrant_alerts` - FireHydrant alerts\n\* `grafana_irm_alert_groups` - Grafana IRM alert groups\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security\n\* `app_store_connect` - App Store Connect\n\* `sentry_feedback` - Sentry user feedback'
                     ),
                 source_type: zod
                     .enum([
@@ -1166,21 +1210,42 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Set whether the report can be acted on now, and whether its issue is already addressed. Appends an attributed actionability_judgment artefact, so the work log keeps the previous judgment, and later agent runs keep the person's values. A new actionability moves a Ready or Needs input report: `requires_human_input` to Needs input, `immediately_actionable` or `not_actionable` to Ready. A report in any other status keeps it. The change does not start an implementation. Setting the current values again changes nothing.
+ * @summary Change a report's actionability or already addressed
+ */
+export const SignalsReportsActionabilityUpdateBody = /* @__PURE__ */ zod.object({
+    actionability: zod
+        .string()
+        .optional()
+        .describe(
+            '`immediately_actionable`, `requires_human_input`, or `not_actionable`. Omit to keep the current value. Required when the report has no actionability yet.'
+        ),
+    already_addressed: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the issue is already fixed, or has a fix in flight that someone else is working on. Omit to keep the current value.'
+        ),
+})
+
+/**
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. A task sandbox cannot start an action, except a scout run that a person granted the action in the scout's settings.
  * @summary Start a report action as a background agent run
  */
 export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
 
 export const signalsReportsActionsRunCreateBodyMessageMax = 2000
 
+export const signalsReportsActionsRunCreateBodyRepositoryMax = 140
+
 export const SignalsReportsActionsRunCreateBody = /* @__PURE__ */ zod.object({
     action: zod
-        .enum(['get_it_merged', 'make_it_green', 'suggested_prompt', 'ask'])
+        .enum(['get_it_merged', 'make_it_green', 'resolve_conflicts', 'implement', 'suggested_prompt', 'ask'])
         .describe(
-            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
+            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `implement` - Implement\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         )
         .describe(
-            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
+            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `resolve_conflicts` - Resolve conflicts\n\* `implement` - Implement\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         ),
     suggested_prompt_index: zod
         .number()
@@ -1192,7 +1257,15 @@ export const SignalsReportsActionsRunCreateBody = /* @__PURE__ */ zod.object({
         .max(signalsReportsActionsRunCreateBodyMessageMax)
         .optional()
         .describe(
-            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`."
+            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Optional for `implement`, where it is added to the prompt as extra instructions. Not accepted for `suggested_prompt`."
+        ),
+    repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsActionsRunCreateBodyRepositoryMax)
+        .optional()
+        .describe(
+            "Only for `implement`: the repository to implement in, in 'owner\/repo' format (case-insensitive). It must be connected to the project, and it becomes the report's repo selection. Omit it to use the report's own repository. A report whose repository cannot be resolved returns `report_implementation_repository_unresolved`."
         ),
 })
 
@@ -1388,6 +1461,22 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters."
+        ),
+})
+
+/**
+ * Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the report's work log keeps the previous selection and records who changed it. Later implementation runs use the new repository. A run that already started keeps its repository. Setting the current repository again changes nothing.
+ * @summary Change a report's repository
+ */
+export const signalsReportsRepositoryUpdateBodyRepositoryMax = 140
+
+export const SignalsReportsRepositoryUpdateBody = /* @__PURE__ */ zod.object({
+    repository: zod
+        .string()
+        .min(1)
+        .max(signalsReportsRepositoryUpdateBodyRepositoryMax)
+        .describe(
+            "Repository the report's work targets, in 'owner\/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it."
         ),
 })
 
@@ -2100,6 +2189,11 @@ export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
 export const signalsScoutCreateBodyConfigOneWriteScopesMax = 16
 
+export const signalsScoutCreateBodyConfigOneReportActionsMax = 1
+
+export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMin = 0
+export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMax = 20
+
 export const signalsScoutCreateBodyConfigOnePrecheckQueryMax = 10000
 
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMin = 30
@@ -2172,6 +2266,12 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
                     ),
+                custom_image_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe(
+                        "ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image."
+                    ),
                 tags: zod
                     .array(zod.string())
                     .max(signalsScoutCreateBodyConfigOneTagsMax)
@@ -2205,6 +2305,21 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                    ),
+                report_actions: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneReportActionsMax)
+                    .optional()
+                    .describe(
+                        "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                    ),
+                max_report_actions_per_day: zod
+                    .number()
+                    .min(signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMin)
+                    .max(signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMax)
+                    .optional()
+                    .describe(
+                        "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -2407,6 +2522,11 @@ export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigCreateBodyWriteScopesMax = 16
 
+export const signalsScoutConfigCreateBodyReportActionsMax = 1
+
+export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMin = 0
+export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMax = 20
+
 export const signalsScoutConfigCreateBodyPrecheckQueryMax = 10000
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
@@ -2436,6 +2556,12 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+            ),
+        custom_image_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image."
             ),
         tags: zod
             .array(zod.string())
@@ -2470,6 +2596,21 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+            ),
+        report_actions: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyReportActionsMax)
+            .optional()
+            .describe(
+                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+            ),
+        max_report_actions_per_day: zod
+            .number()
+            .min(signalsScoutConfigCreateBodyMaxReportActionsPerDayMin)
+            .max(signalsScoutConfigCreateBodyMaxReportActionsPerDayMax)
+            .optional()
+            .describe(
+                "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
             ),
         lifecycle_locked: zod
             .boolean()
@@ -2648,6 +2789,11 @@ export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigUpdateBodyWriteScopesMax = 16
 
+export const signalsScoutConfigUpdateBodyReportActionsMax = 1
+
+export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMin = 0
+export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMax = 20
+
 export const signalsScoutConfigUpdateBodyPrecheckQueryMax = 10000
 
 export const signalsScoutConfigUpdateBodySuggestionIdMax = 64
@@ -2776,6 +2922,12 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
             ),
+        custom_image_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image."
+            ),
         auto_pause_exempt: zod
             .boolean()
             .optional()
@@ -2809,6 +2961,21 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Write access granted to this one scout, as scope strings. The grantable set is `account_note:write`, `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. `account_note:write` lets the scout write and retag notes on Customer analytics accounts. Its notes are always tagged `scout` and with its skill name, and the account notes API refuses its deletes. Account notes are also notebooks, so `notebook:write` can still edit or trash one. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+            ),
+        report_actions: zod
+            .array(zod.string())
+            .max(signalsScoutConfigUpdateBodyReportActionsMax)
+            .optional()
+            .describe(
+                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+            ),
+        max_report_actions_per_day: zod
+            .number()
+            .min(signalsScoutConfigUpdateBodyMaxReportActionsPerDayMin)
+            .max(signalsScoutConfigUpdateBodyMaxReportActionsPerDayMax)
+            .optional()
+            .describe(
+                "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
             ),
         precheck_query: zod
             .string()
@@ -4545,6 +4712,18 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
     .describe('Request body for `remember`.')
 
 /**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const signalsScoutScratchpadDiscardBodyKeyMax = 300
+
+export const SignalsScoutScratchpadDiscardBody = /* @__PURE__ */ zod
+    .object({
+        key: zod.string().max(signalsScoutScratchpadDiscardBodyKeyMax).describe('Memory key to delete.'),
+    })
+    .describe('Request body for `forget`.')
+
+/**
  * Delete an entry by key. Returns `deleted=false` if no row matched.
  * @summary Forget a scratchpad entry by key
  */
@@ -4611,6 +4790,9 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'hubspot',
             'engineering_analytics',
             'google_search_console',
+            'bing_webmaster_tools',
+            'ahrefs',
+            'semrush',
             'pagerduty',
             'opsgenie',
             'incident_io',
@@ -4651,6 +4833,14 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'statuspage',
             'cronitor',
             'instatus',
+            'rootly',
+            'zenduty',
+            'splunk_observability_cloud',
+            'uptimerobot',
+            'rootly_alerts',
+            'incident_io_alerts',
+            'firehydrant_alerts',
+            'grafana_irm_alert_groups',
             'asana',
             'monday',
             'plane',
@@ -4704,9 +4894,11 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'sentinelone',
             'jfrog_xray',
             'dynatrace_security',
+            'app_store_connect',
+            'sentry_feedback',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `bing_webmaster_tools` - Bing Webmaster Tools\n\* `ahrefs` - Ahrefs\n\* `semrush` - Semrush\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `rootly` - Rootly\n\* `zenduty` - Zenduty\n\* `splunk_observability_cloud` - Splunk Observability Cloud\n\* `uptimerobot` - UptimeRobot\n\* `rootly_alerts` - Rootly alerts\n\* `incident_io_alerts` - incident.io alerts\n\* `firehydrant_alerts` - FireHydrant alerts\n\* `grafana_irm_alert_groups` - Grafana IRM alert groups\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security\n\* `app_store_connect` - App Store Connect\n\* `sentry_feedback` - Sentry user feedback'
         ),
     source_type: zod
         .enum([
@@ -4811,6 +5003,9 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'hubspot',
             'engineering_analytics',
             'google_search_console',
+            'bing_webmaster_tools',
+            'ahrefs',
+            'semrush',
             'pagerduty',
             'opsgenie',
             'incident_io',
@@ -4851,6 +5046,14 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'statuspage',
             'cronitor',
             'instatus',
+            'rootly',
+            'zenduty',
+            'splunk_observability_cloud',
+            'uptimerobot',
+            'rootly_alerts',
+            'incident_io_alerts',
+            'firehydrant_alerts',
+            'grafana_irm_alert_groups',
             'asana',
             'monday',
             'plane',
@@ -4904,9 +5107,11 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'sentinelone',
             'jfrog_xray',
             'dynatrace_security',
+            'app_store_connect',
+            'sentry_feedback',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `bing_webmaster_tools` - Bing Webmaster Tools\n\* `ahrefs` - Ahrefs\n\* `semrush` - Semrush\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `rootly` - Rootly\n\* `zenduty` - Zenduty\n\* `splunk_observability_cloud` - Splunk Observability Cloud\n\* `uptimerobot` - UptimeRobot\n\* `rootly_alerts` - Rootly alerts\n\* `incident_io_alerts` - incident.io alerts\n\* `firehydrant_alerts` - FireHydrant alerts\n\* `grafana_irm_alert_groups` - Grafana IRM alert groups\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security\n\* `app_store_connect` - App Store Connect\n\* `sentry_feedback` - Sentry user feedback'
         ),
     source_type: zod
         .enum([
@@ -5011,6 +5216,9 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'hubspot',
             'engineering_analytics',
             'google_search_console',
+            'bing_webmaster_tools',
+            'ahrefs',
+            'semrush',
             'pagerduty',
             'opsgenie',
             'incident_io',
@@ -5051,6 +5259,14 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'statuspage',
             'cronitor',
             'instatus',
+            'rootly',
+            'zenduty',
+            'splunk_observability_cloud',
+            'uptimerobot',
+            'rootly_alerts',
+            'incident_io_alerts',
+            'firehydrant_alerts',
+            'grafana_irm_alert_groups',
             'asana',
             'monday',
             'plane',
@@ -5104,10 +5320,12 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'sentinelone',
             'jfrog_xray',
             'dynatrace_security',
+            'app_store_connect',
+            'sentry_feedback',
         ])
         .optional()
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `signals_check` - Report check\n\* `user_authored` - Team member\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `datadog` - Datadog\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console\n\* `bing_webmaster_tools` - Bing Webmaster Tools\n\* `ahrefs` - Ahrefs\n\* `semrush` - Semrush\n\* `pagerduty` - PagerDuty\n\* `opsgenie` - Opsgenie\n\* `incident_io` - incident.io\n\* `firehydrant` - FireHydrant\n\* `squadcast` - Squadcast\n\* `servicenow` - ServiceNow\n\* `solarwinds_service_desk` - SolarWinds Service Desk\n\* `grafana_irm` - Grafana IRM\n\* `xmatters` - xMatters\n\* `betterstack` - Better Stack\n\* `newrelic` - New Relic\n\* `trigger_dev` - Trigger.dev\n\* `checkly` - Checkly\n\* `roark` - Roark\n\* `monte_carlo` - Monte Carlo\n\* `bigeye` - Bigeye\n\* `aws_security_hub` - AWS Security Hub\n\* `aws_guardduty` - AWS GuardDuty\n\* `aws_inspector` - AWS Inspector\n\* `microsoft_defender_cloud_apps` - Microsoft Defender for Cloud Apps\n\* `clickup` - ClickUp\n\* `wrike` - Wrike\n\* `trello` - Trello\n\* `bugherd` - BugHerd\n\* `dynamics365` - Dynamics 365\n\* `zoho_crm` - Zoho CRM\n\* `planhat` - Planhat\n\* `trustpilot` - Trustpilot\n\* `okendo` - Okendo\n\* `sleekplan` - Sleekplan\n\* `bettermode` - Bettermode\n\* `discourse` - Discourse\n\* `mintlify` - Mintlify\n\* `langsmith` - LangSmith\n\* `sprig` - Sprig\n\* `gainsight_px` - Gainsight PX\n\* `dynatrace` - Dynatrace\n\* `statuspage` - Statuspage\n\* `cronitor` - Cronitor\n\* `instatus` - Instatus\n\* `rootly` - Rootly\n\* `zenduty` - Zenduty\n\* `splunk_observability_cloud` - Splunk Observability Cloud\n\* `uptimerobot` - UptimeRobot\n\* `rootly_alerts` - Rootly alerts\n\* `incident_io_alerts` - incident.io alerts\n\* `firehydrant_alerts` - FireHydrant alerts\n\* `grafana_irm_alert_groups` - Grafana IRM alert groups\n\* `asana` - Asana\n\* `monday` - monday.com\n\* `plane` - Plane\n\* `azure_devops` - Azure DevOps\n\* `helpscout` - Help Scout\n\* `decagon` - Decagon\n\* `vitally` - Vitally\n\* `intercom_tickets` - Intercom tickets\n\* `pylon` - Pylon\n\* `usersnap` - Usersnap\n\* `typeform` - Typeform\n\* `qualtrics` - Qualtrics\n\* `surveymonkey` - SurveyMonkey\n\* `formbricks` - Formbricks\n\* `survicate` - Survicate\n\* `surveysparrow` - SurveySparrow\n\* `lacework` - Lacework\n\* `orca_security` - Orca Security\n\* `tenable_vulnerability_management` - Tenable Vulnerability Management\n\* `google_play_console` - Google Play Console\n\* `azure_application_insights` - Azure Application Insights\n\* `appsignal` - AppSignal\n\* `cursor` - Cursor\n\* `github_dependabot` - GitHub Dependabot\n\* `github_code_scanning` - GitHub code scanning\n\* `github_secret_scanning` - GitHub secret scanning\n\* `beamer` - Beamer\n\* `beamer_nps` - Beamer NPS\n\* `chameleon` - Chameleon\n\* `etsy` - Etsy\n\* `featurebase_surveys` - Featurebase surveys\n\* `g2` - G2\n\* `gumroad` - Gumroad\n\* `trustpilot_product_reviews` - Trustpilot product reviews\n\* `uservoice_nps` - UserVoice NPS\n\* `vitally_nps` - Vitally NPS\n\* `woocommerce` - WooCommerce\n\* `yotpo` - Yotpo\n\* `airbrake` - Airbrake\n\* `amazon_cloudwatch` - Amazon CloudWatch\n\* `logicmonitor` - LogicMonitor\n\* `mux` - Mux\n\* `sonarcloud` - SonarCloud\n\* `checkmarx` - Checkmarx\n\* `veracode` - Veracode\n\* `veracode_sca` - Veracode SCA\n\* `semgrep_sca` - Semgrep Supply Chain\n\* `gitguardian` - GitGuardian\n\* `infisical` - Infisical\n\* `aws_macie` - AWS Macie\n\* `sentinelone` - SentinelOne\n\* `jfrog_xray` - JFrog Xray\n\* `dynatrace_security` - Dynatrace Application Security\n\* `app_store_connect` - App Store Connect\n\* `sentry_feedback` - Sentry user feedback'
         ),
     source_type: zod
         .enum([
@@ -5181,6 +5399,33 @@ export const SignalsSourceConfigsAlertPatternPreviewCreateBody = /* @__PURE__ */
         .max(signalsSourceConfigsAlertPatternPreviewCreateBodyAlertBlockPatternsMax)
         .optional()
         .describe('Block patterns to try, as they would be saved in `config.alert_block_patterns`.'),
+})
+
+/**
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * @summary Preview a source filter
+ */
+export const signalsSourceConfigsFilterPreviewCreateBodySourceProductMax = 100
+
+export const signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax = 100
+
+export const signalsSourceConfigsFilterPreviewCreateBodyExpressionMax = 16384
+
+export const SignalsSourceConfigsFilterPreviewCreateBody = /* @__PURE__ */ zod.object({
+    source_product: zod
+        .string()
+        .max(signalsSourceConfigsFilterPreviewCreateBodySourceProductMax)
+        .describe('Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+    source_type: zod
+        .string()
+        .max(signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax)
+        .describe('Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+    expression: zod
+        .string()
+        .max(signalsSourceConfigsFilterPreviewCreateBodyExpressionMax)
+        .describe(
+            "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through."
+        ),
 })
 
 /**

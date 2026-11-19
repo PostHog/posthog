@@ -1621,6 +1621,58 @@ class TestSnowflakeIntegration:
         assert expected_error_message in response.json()["detail"]
 
 
+class TestMotherDuckIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create(self, client: HttpClient, config: dict) -> Any:
+        client.force_login(self.user)
+        return client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "motherduck", "config": config},
+            content_type="application/json",
+        )
+
+    def test_create_keeps_the_token_out_of_the_response(self, client: HttpClient):
+        response = self._create(client, {"name": " warehouse ", "access_token": " md-secret-token "})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "warehouse"
+        assert integration.config == {"name": "warehouse"}
+        assert integration.sensitive_config == {"access_token": "md-secret-token"}
+        assert "md-secret-token" not in json.dumps(response.json())
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"name": "warehouse"},
+            {"access_token": "md-secret-token"},
+            {"name": "  ", "access_token": "md-secret-token"},
+            {"name": "warehouse", "access_token": ["md-secret-token"]},
+        ],
+        ids=["no_token", "no_name", "blank_name", "token_not_a_string"],
+    )
+    def test_create_rejects_incomplete_config(self, client: HttpClient, config: dict):
+        response = self._create(client, config)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Integration.objects.filter(team=self.team, kind="motherduck").exists()
+
+    def test_a_name_cannot_be_reused(self, client: HttpClient):
+        assert self._create(client, {"name": "warehouse", "access_token": "first"}).status_code == 201
+
+        response = self._create(client, {"name": "warehouse", "access_token": "second"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Integration.objects.get(team=self.team, kind="motherduck").sensitive_config == {"access_token": "first"}
+
+
 class TestAzureBlobIntegration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):

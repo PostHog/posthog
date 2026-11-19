@@ -52,6 +52,17 @@ message DeleteCohortMembersBulkResponse {
   int64 deleted_count = 1;
 }
 
+// DeleteCohortMembersByPersonIds removes the given persons from one cohort.
+// Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+message DeleteCohortMembersByPersonIdsRequest {
+  int64 cohort_id = 1;
+  repeated int64 person_ids = 2;
+}
+
+message DeleteCohortMembersByPersonIdsResponse {
+  int64 deleted_count = 1;
+}
+
 // InsertCohortMembers adds persons to a static cohort.
 // Caller is responsible for team-level isolation (cohortpeople has no team_id column).
 message InsertCohortMembersRequest {

@@ -291,6 +291,14 @@ class _TracingQueryBodySerializer(serializers.Serializer):
         default=False,
         help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
+    includeEvents = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, "
+            "so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false."
+        ),
+    )
 
 
 class _TracingBodyPagingSerializer(serializers.Serializer):
@@ -868,6 +876,17 @@ class _TracingTreeRequestSerializer(serializers.Serializer):
     query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
 
 
+class _SpanEventSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Event name, for example `exception`.")
+    timestamp = serializers.DateTimeField(
+        allow_null=True, help_text="When the event occurred. Null when the SDK did not set a time."
+    )
+    attributes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Event attributes. Keys are whatever the instrumentation set.",
+    )
+
+
 class _SpanSerializer(serializers.Serializer):
     """One span row as the query and trace actions return it.
 
@@ -906,29 +925,21 @@ class _SpanSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Resource attributes of the emitting service. Keys are whatever the instrumentation set.",
     )
-
-
-class _SpanEventSerializer(serializers.Serializer):
-    name = serializers.CharField(help_text="Event name, for example `exception`.")
-    timestamp = serializers.DateTimeField(
-        allow_null=True, help_text="When the event occurred. Null when the SDK did not set a time."
-    )
-    attributes = serializers.DictField(
-        child=serializers.CharField(),
-        help_text="Event attributes. Keys are whatever the instrumentation set.",
+    events = _SpanEventSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "OpenTelemetry span events, earliest first. The trace action returns them, and list queries only "
+            "with `includeEvents`. Omitted when `excludeAttributes` is true."
+        ),
     )
 
 
 class _TraceSpanSerializer(_SpanSerializer):
-    """A span in a single trace. The trace action adds self time and span events, which the list does not return."""
+    """A span in a single trace. The trace action adds self time, which the list does not return."""
 
     self_time_nano = serializers.FloatField(
         help_text="Span duration minus the time spent in its children, in nanoseconds."
-    )
-    events = _SpanEventSerializer(
-        many=True,
-        required=False,
-        help_text="OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true.",
     )
 
 
@@ -1533,6 +1544,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             flatSpans=flat_spans,
             prefetchSpans=prefetch_spans,
             excludeAttributes=query_data.get("excludeAttributes", False),
+            includeEvents=self._parse_bool(query_data.get("includeEvents")),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)

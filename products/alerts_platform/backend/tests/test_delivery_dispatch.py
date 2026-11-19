@@ -436,15 +436,16 @@ class TestDeliveryDispatch(SimpleTestCase):
         outcomes = [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"]
         assert sorted(outcomes) == ["ambiguous", "sent", "sent"]
 
-    def test_pagerduty_read_timeout_still_releases(self) -> None:
+    @parameterized.expand([("pagerduty",), ("incident_io",)])
+    def test_an_incident_manager_read_timeout_still_releases(self, provider: str) -> None:
         store = RecordingThreadStore()
         transport = FakeTransport(error=DeliveryAmbiguous("Read timed out"))
-        transport.provider = "pagerduty"
+        transport.provider = provider
 
         with recorded_metrics() as metrics, pytest.raises(DeliveryAmbiguous):
             self._deliver(transport, store)
 
-        # The dedup_key makes PagerDuty's retry idempotent, so the claim is freed for it.
+        # The deduplication key makes the retry idempotent, so the claim is freed for it.
         assert store.released == ["eval-1"]
         assert store.delivered_keys == {}
         assert [m.attributes["outcome"] for m in metrics if m.name == "alerts_platform_deliveries_total"] == ["failed"]

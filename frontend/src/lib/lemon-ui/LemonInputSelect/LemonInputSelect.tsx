@@ -414,7 +414,7 @@ export function LemonInputSelect<T = string>({
 
     // A virtualized list renders only the rows in view, so arrow keys must scroll the highlight into it.
     useEffect(() => {
-        if (virtualized && showPopover && selectedIndex < displayOptions.length) {
+        if (virtualized && showPopover && selectedIndex >= 0 && selectedIndex < displayOptions.length) {
             listRef.current?.scrollToRow({ index: selectedIndex, align: 'smart' })
         }
     }, [virtualized, showPopover, selectedIndex, displayOptions.length, listRef])
@@ -634,7 +634,7 @@ export function LemonInputSelect<T = string>({
             _onBackspace(e)
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setSelectedIndex(Math.min(selectedIndex + 1, displayOptions.length - 1))
+            setSelectedIndex(Math.max(Math.min(selectedIndex + 1, displayOptions.length - 1), 0))
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setSelectedIndex(Math.max(selectedIndex - 1, 0))

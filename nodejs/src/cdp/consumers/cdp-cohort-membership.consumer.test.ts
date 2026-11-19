@@ -51,17 +51,33 @@ describe('CdpCohortMembershipConsumer', () => {
         await closeHub(hub)
     })
 
-    it('should refuse to construct a sweeping consumer whose own write path skips versions', () => {
+    it.each([
         // The flag ordering (version writes on first and off last, sweep on last and off first)
         // is enforced nowhere else: a pod that swept while writing without versions would delete
         // rows its own upserts left carrying a stale stamp.
+        [
+            'its own write path skips versions',
+            { COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: false },
+            'COHORT_MEMBERSHIP_SWEEP_ENABLED requires COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED',
+        ],
+        [
+            'its floors would go to another cluster',
+            { KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST: 'another-cluster:9092' },
+            'COHORT_MEMBERSHIP_SWEEP_ENABLED requires KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST',
+        ],
+    ])('should refuse to construct a sweeping consumer when %s', (_label, overrides, error) => {
         expect(
             () =>
                 new CdpCohortMembershipConsumer(
-                    { ...hub, COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: false, COHORT_MEMBERSHIP_SWEEP_ENABLED: true },
+                    {
+                        ...hub,
+                        COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED: true,
+                        COHORT_MEMBERSHIP_SWEEP_ENABLED: true,
+                        ...overrides,
+                    },
                     createCdpConsumerDeps(hub)
                 )
-        ).toThrow('COHORT_MEMBERSHIP_SWEEP_ENABLED requires COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED')
+        ).toThrow(error)
     })
 
     describe('end-to-end cohort membership processing', () => {

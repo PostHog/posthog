@@ -140,6 +140,12 @@ _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
 
 _ALLOWED_RANGE_FUNCTIONS: frozenset[str] = frozenset({"rate", "increase"})
 
+# Range functions over the observation count of a histogram or summary, not its running sum.
+_COUNT_RANGE_FUNCTIONS: dict[str, str] = {"count_rate": "rate", "count_increase": "increase"}
+_COUNTED_METRIC_TYPES: frozenset[str] = frozenset(
+    {MetricType.HISTOGRAM.value, MetricType.EXPONENTIAL_HISTOGRAM.value, MetricType.SUMMARY.value}
+)
+
 # Derive this from the contract enum to match ingestion values.
 _ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
 
@@ -691,8 +697,17 @@ class MetricQueryRunner:
         """`aggregation=None` returns one row per series and bucket, for at most `MAX_RAW_SERIES` series.
 
         The legacy `rate` and `increase` aggregations mean a range function with a sum across series.
+        `count_rate` and `count_increase` are the same over the `count` column of histogram and summary rows.
         """
-        if aggregation in _ALLOWED_RANGE_FUNCTIONS:
+        self.counter_column = "value"
+        if aggregation in _COUNT_RANGE_FUNCTIONS:
+            if range_function is not None:
+                raise ValueError(f"range_function cannot combine with the {aggregation} aggregation")
+            if metric_type is not None and metric_type not in _COUNTED_METRIC_TYPES:
+                raise ValueError(f"{aggregation} needs a histogram or summary metric, not {metric_type!r}")
+            aggregation, range_function = "sum", _COUNT_RANGE_FUNCTIONS[aggregation]
+            self.counter_column = "count"
+        elif aggregation in _ALLOWED_RANGE_FUNCTIONS:
             if range_function is not None:
                 raise ValueError("range_function cannot combine with the rate or increase aggregation")
             aggregation, range_function = "sum", aggregation
@@ -878,6 +893,12 @@ class MetricQueryRunner:
             query.group_by.append(ast.Field(chain=[alias]))
 
     def _type_filter_expr(self) -> ast.Expr:
+        if self.counter_column == "count" and self.metric_type is None:
+            # Every other type stores count = 1 per point, which would count samples, not observations.
+            return parse_expr(
+                "metric_type IN {types}",
+                placeholders={"types": ast.Tuple(exprs=[ast.Constant(value=t) for t in sorted(_COUNTED_METRIC_TYPES)])},
+            )
         return type_filter_expr(self.metric_type)
 
     def _series_scope_expr(self) -> ast.Expr:
@@ -1022,14 +1043,14 @@ class MetricQueryRunner:
                         SELECT
                             timestamp,
                             series_fingerprint,
-                            value,
+                            {counter_value} AS value,
                             aggregation_temporality,
-                            lagInFrame(toNullable(value)) OVER (
+                            lagInFrame(toNullable({counter_value})) OVER (
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_value,
-                            leadInFrame(toNullable(value)) OVER (
+                            leadInFrame(toNullable({counter_value})) OVER (
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
@@ -1045,7 +1066,14 @@ class MetricQueryRunner:
                 "interval": _interval_expr(self.interval),
                 "divisor": ast.Constant(value=divisor),
                 "series_key": _series_key_expr(),
-                "points": self._points_query(("timestamp", "series_fingerprint", "value", "aggregation_temporality")),
+                "counter_value": (
+                    ast.Call(name="toFloat", args=[ast.Field(chain=["count"])])
+                    if self.counter_column == "count"
+                    else ast.Field(chain=["value"])
+                ),
+                "points": self._points_query(
+                    ("timestamp", "series_fingerprint", self.counter_column, "aggregation_temporality")
+                ),
                 "date_from": ast.Constant(value=self.date_from),
             },
         )

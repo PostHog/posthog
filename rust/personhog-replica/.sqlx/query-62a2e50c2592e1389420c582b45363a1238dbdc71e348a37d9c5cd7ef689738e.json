@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='get_person_tombstones' */\n            SELECT id::bigint as \"id!\", uuid as \"uuid!\",\n                   COALESCE(version, 0)::bigint as \"version!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "version!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "62a2e50c2592e1389420c582b45363a1238dbdc71e348a37d9c5cd7ef689738e"
+}

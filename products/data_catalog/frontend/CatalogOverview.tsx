@@ -7,8 +7,8 @@ export function CatalogOverview(): JSX.Element {
     return (
         <WarehouseAccessGate>
             <div data-quill className="flex flex-col gap-6">
-                <ModelsOverviewStatus />
                 <CatalogToReview />
+                <ModelsOverviewStatus />
             </div>
         </WarehouseAccessGate>
     )

@@ -3,7 +3,9 @@ from typing import cast
 import pytest
 
 import requests
+import botocore.exceptions
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import RetryableHTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAuth2AuthRequestError,
 )
@@ -56,11 +58,19 @@ def _suppressed(context: BaseException) -> ValueError:
         (requests.Timeout("timed out"), True),
         (requests.exceptions.ChunkedEncodingError("cut"), True),
         (RESTClientRetryableError("HTTP 503"), True),
+        (RetryableHTTPError("Example API error (retryable): status=503, url=https://api.example.com"), True),
         (_http_error(500), True),
         (_http_error(429), True),
         (OAuth2AuthRequestError("HTTP 502 from the token endpoint"), True),
         (_wrapped(requests.ConnectionError("refused")), True),
         (_implicitly_wrapped(requests.ConnectionError("refused")), True),
+        (
+            botocore.exceptions.SSLError(endpoint_url="https://example.com", error=Exception("handshake failure")),
+            True,
+        ),
+        (botocore.exceptions.EndpointConnectionError(endpoint_url="https://example.com"), True),
+        (botocore.exceptions.ReadTimeoutError(endpoint_url="https://example.com"), True),
+        (botocore.exceptions.ConnectionClosedError(endpoint_url="https://example.com"), True),
         (_http_error(401), False),
         (_http_error(403), False),
         (_http_error(404), False),
@@ -70,6 +80,7 @@ def _suppressed(context: BaseException) -> ValueError:
         (_implicitly_wrapped(_http_error(400)), False),
         (_suppressed(requests.ConnectionError("refused")), False),
         (ValueError("bad config"), False),
+        (botocore.exceptions.ClientError({"Error": {"Code": "AccessDenied"}}, "ListObjectsV2"), False),
     ],
 )
 def test_is_unreachable_vendor_error(error: BaseException, expected: bool) -> None:

@@ -177,7 +177,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
-                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: {
                     getBlastRadiusPersons: jest.fn().mockResolvedValue({
                         users_affected: ['person-1', 'person-2'],
@@ -235,6 +235,83 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(triggeredMetrics()).toHaveLength(3)
         })
 
+        describe('a run the audience limit cuts short', () => {
+            const truncatedRuns = (): any[] =>
+                queueAppMetrics.mock.calls
+                    .flatMap(([metrics]) => metrics)
+                    .filter((m) => m.metric_name === 'audience_truncated')
+
+            const runJob = async (jobState: BatchResolverState, job: Record<string, jest.Mock> = {}): Promise<void> => {
+                Object.assign((consumer as any).hogFunctionMonitoringService, {
+                    flush: jest.fn().mockResolvedValue(undefined),
+                })
+                await (consumer as any).processResolverJob({
+                    id: 'job-truncated',
+                    teamId: team.id,
+                    functionId: hogFlow.id,
+                    parentRunId: BATCH_JOB_ID,
+                    cancelRequestedAt: null,
+                    state: serializeResolverState(jobState),
+                    heartbeat: jest.fn().mockResolvedValue(undefined),
+                    bulkCreateAndCheckIn,
+                    reschedule: jest.fn().mockResolvedValue(undefined),
+                    ...job,
+                })
+            }
+
+            const oneTruncatedRun = [
+                {
+                    team_id: team.id,
+                    app_source_id: BATCH_JOB_ID,
+                    metric_kind: 'other',
+                    metric_name: 'audience_truncated',
+                    count: 1,
+                },
+            ]
+
+            beforeEach(() => {
+                ;(consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons.mockResolvedValue({
+                    users_affected: ['person-1', 'person-2', 'person-3'],
+                    cursor: 'person-3',
+                    has_more: true,
+                })
+            })
+
+            it('counts one truncated run when a page crosses the limit', async () => {
+                await runJob({ ...state, maxAudienceSize: 2 })
+
+                expect(truncatedRuns()).toEqual(oneTruncatedRun)
+                expect(triggeredMetrics()).toHaveLength(2)
+            })
+
+            it('counts nothing when the crossing page does not commit', async () => {
+                bulkCreateAndCheckIn.mockRejectedValue(new Error('lock lost'))
+
+                await expect(runJob({ ...state, maxAudienceSize: 2 })).rejects.toThrow('lock lost')
+
+                expect(truncatedRuns()).toEqual([])
+            })
+
+            it('counts one truncated run when the run reaches the limit on a page boundary', async () => {
+                await runJob({ ...state, cursor: 'person-2', totalEnqueued: 2, pagesProcessed: 1, maxAudienceSize: 2 })
+
+                expect(truncatedRuns()).toEqual(oneTruncatedRun)
+            })
+
+            it('counts nothing when ending the run at the limit does not commit', async () => {
+                const reschedule = jest.fn().mockRejectedValue(new Error('lock lost'))
+
+                await expect(
+                    runJob(
+                        { ...state, cursor: 'person-2', totalEnqueued: 2, pagesProcessed: 1, maxAudienceSize: 2 },
+                        { reschedule }
+                    )
+                ).rejects.toThrow('lock lost')
+
+                expect(truncatedRuns()).toEqual([])
+            })
+        })
+
         it('counts each enrolled person as a triggered run against the batch job', async () => {
             await processPage()
 
@@ -288,7 +365,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                     } as any,
                 ],
             }
-            ;(consumer as any).hogFlowManager.getHogFlow.mockResolvedValue(flow)
+            ;(consumer as any).hogFlowManager.getHogFlowCheckingPrimaryOnMiss.mockResolvedValue(flow)
             await processPage()
 
             const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
@@ -425,7 +502,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
-                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
                 hogMasker: {
                     filterByMasking: jest.fn((invocations) => ({
@@ -478,7 +555,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
-                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: { requestAudienceSnapshot, getBlastRadiusPersons: jest.fn() },
                 hogFunctionMonitoringService: {
                     queueAppMetrics: jest.fn(),
@@ -602,7 +679,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
-                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
                 hogFunctionMonitoringService: {
                     queueAppMetrics: jest.fn(),
@@ -713,6 +790,46 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 ],
                 'hog_flow'
             )
+        })
+
+        it('refuses a run over the workflows billing limit with a reason the customer can act on', async () => {
+            const getBlastRadiusPersons = jest.fn()
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(getBlastRadiusPersons, queueLogs)
+            Object.assign(consumer, {
+                deps: {
+                    teamManager: { getTeam: jest.fn().mockResolvedValue(team) },
+                    quotaLimiting: { isTeamQuotaLimited: jest.fn().mockResolvedValue(true) },
+                },
+                hogFlowManager: {
+                    getHogFlowCheckingPrimaryOnMiss: jest
+                        .fn()
+                        .mockResolvedValue({ ...hogFlow, billable_action_types: ['function_email'] }),
+                },
+                hogFunctionMonitoringService: {
+                    queueAppMetric: jest.fn(),
+                    queueAppMetrics: jest.fn(),
+                    queueLogs,
+                    flush: jest.fn().mockResolvedValue(undefined),
+                },
+                workflowsActivationReporter: { report: jest.fn() },
+            })
+            const job = buildJob({ ...lastAttemptState(), attempts: 0 })
+
+            await consumer.processResolverJob(job)
+
+            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(queueLogs).toHaveBeenCalledWith(
+                [
+                    expect.objectContaining({
+                        message:
+                            'Batch resolver failed: this project is over its workflows billing limit, so nobody was enrolled in this run. Raise the limit in billing, then start the run again.',
+                    }),
+                ],
+                'hog_flow'
+            )
+            const { state } = job.reschedule.mock.calls[0][0]
+            expect(deserializeResolverState(state).terminalReason).toEqual('quota_limited')
         })
 
         it('keeps the generic reason for a failure that is not a timeout', async () => {

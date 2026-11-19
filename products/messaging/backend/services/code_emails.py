@@ -65,6 +65,12 @@ def list_code_emails(team_id: int, *, viewable_workflows: ViewableWorkflows) -> 
     return _code_emails(team_id, _viewable(list(_keys(team_id).order_by("-created_at")), viewable_workflows))
 
 
+def code_emails_by_workflow(team_id: int, workflow_ids: Collection[UUID]) -> dict[str, CodeManagedEmail]:
+    """The code email of each given workflow that still sends as code, keyed by the workflow id."""
+    keys = list(_keys(team_id).filter(hog_flow_id__in=list(workflow_ids)))
+    return {str(email.hog_flow_id): email for email in _code_emails(team_id, keys)}
+
+
 def get_code_email(team_id: int, code_email_id: UUID, *, viewable_workflows: ViewableWorkflows) -> CodeManagedEmail:
     emails = _code_emails(team_id, _viewable(list(_keys(team_id).filter(id=code_email_id)[:1]), viewable_workflows))
     if not emails:

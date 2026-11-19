@@ -23,7 +23,7 @@ use crate::fencing::{
 };
 use crate::inflight::InflightTracker;
 use crate::pg::PgFallback;
-use crate::warming::{warm_from_sources, WarmClientPools, WarmingConfig};
+use crate::warming::{run_fill, warm_from_sources, FillConfig, WarmClientPools, WarmingConfig};
 
 /// The config a partition was acquired under.
 pub struct Capture {
@@ -115,6 +115,11 @@ pub struct LeaderHandoffHandler {
     freshly_fenced: Arc<dashmap::DashSet<u32>>,
     captures: ChangelogCaptures,
     changelog: LiveChangelog,
+    fill: Option<FillConfig>,
+    /// Each partition's fill, stopped when the partition is released.
+    fills: Arc<DashMap<u32, tokio::task::AbortHandle>>,
+    /// One fill at a time, so fills never crowd out serving.
+    fill_slot: Arc<tokio::sync::Semaphore>,
 }
 
 impl LeaderHandoffHandler {
@@ -147,7 +152,37 @@ impl LeaderHandoffHandler {
             freshly_fenced: Arc::new(dashmap::DashSet::new()),
             captures,
             changelog,
+            fill: None,
+            fills: Arc::new(DashMap::new()),
+            fill_slot: Arc::new(tokio::sync::Semaphore::new(1)),
         }
+    }
+
+    pub fn with_fill(mut self, fill: Option<FillConfig>) -> Self {
+        self.fill = fill;
+        self
+    }
+
+    /// Refill the partition's cache in the background; nothing waits on it.
+    fn start_fill(
+        &self,
+        partition: u32,
+        source: personhog_coordination::changelog::WarmSource,
+        upper: i64,
+    ) {
+        let (Some(fill), Some(cache)) = (self.fill, self.cache.serving_cache(partition)) else {
+            return;
+        };
+        let pools = Arc::clone(&self.pools);
+        let warming = self.warming.clone();
+        let slot = Arc::clone(&self.fill_slot);
+        let task = tokio::spawn(async move {
+            let Ok(_permit) = slot.acquire().await else {
+                return;
+            };
+            run_fill(&warming, &fill, &pools, &cache, &source, upper).await;
+        });
+        self.fills.insert(partition, task.abort_handle());
     }
 
     /// The capture, else the live config: a preconnect runs before the capture.
@@ -351,14 +386,15 @@ impl HandoffHandler for LeaderHandoffHandler {
         // The guard gives the epoch back if the warm fails or never
         // returns, rather than holding a partition this pod lost.
         let fence_guard = FenceGuard::new(Arc::clone(&self.fenced), partition, "warm");
-        let sources = warm_sources(&config, partition);
-        warm_from_sources(
+        let mut sources = warm_sources(&config, partition);
+        let live_start = warm_from_sources(
             &self.warming,
             &self.pools,
             &self.cache,
             &self.dirty_index,
             partition,
             &sources,
+            self.fill.is_some(),
         )
         .await?;
         // This pod may still carry a fence from a previous ownership of
@@ -369,6 +405,9 @@ impl HandoffHandler for LeaderHandoffHandler {
         capture_guard.armed = false;
         self.freshly_fenced.insert(partition);
         info!(partition, "partition warmed");
+        if let Some(live) = sources.pop() {
+            self.start_fill(partition, live, live_start);
+        }
         Ok(())
     }
 
@@ -413,6 +452,9 @@ impl HandoffHandler for LeaderHandoffHandler {
     // growing SHUTDOWN_FENCE_BOUND.
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
+        if let Some((_, fill)) = self.fills.remove(&partition) {
+            fill.abort();
+        }
         self.fenced.release(partition);
         self.inflight.unfence(partition);
         self.cache.drop_partition(partition);

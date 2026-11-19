@@ -12,7 +12,9 @@ describe('BusinessKnowledgeTabs', () => {
     it('links Settings to the in-product settings scene', () => {
         render(<BusinessKnowledgeTabs activeTab="sources" />)
 
-        expect(screen.getByText('Libraries').closest('a')).toHaveAttribute('href', '/business-knowledge')
+        expect(screen.getByText('Sources').closest('a')).toHaveAttribute('href', '/business-knowledge')
+        expect(screen.getByText('Libraries').closest('a')).toHaveAttribute('href', '/business-knowledge/libraries')
+        expect(screen.getByText('Usage').closest('a')).toHaveAttribute('href', '/business-knowledge/usage')
         expect(screen.getByText('Playground').closest('a')).toHaveAttribute('href', '/business-knowledge/playground')
         expect(screen.getByText('Settings').closest('a')).toHaveAttribute('href', '/business-knowledge/settings')
     })

@@ -3,8 +3,6 @@ import { useState } from 'react'
 
 import { LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
 
@@ -18,8 +16,7 @@ export function ReportCheckMetricSuggestionModal({
     reportUrl: string
     isOpen: boolean
     onClose: () => void
-}): JSX.Element | null {
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
+}): JSX.Element {
     const [description, setDescription] = useState('')
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
     const { aiConsentDisabledReason, metricCheckReplacementDisabledReason, isDiscussing, isCreatingPr } =
@@ -39,10 +36,6 @@ export function ReportCheckMetricSuggestionModal({
         openReportDiscussion(report, reportUrl)
         discussReport(report, reportUrl, request, undefined, 'check_metrics')
         onClose()
-    }
-
-    if (!hasPostHogAiAccess) {
-        return null
     }
 
     return (

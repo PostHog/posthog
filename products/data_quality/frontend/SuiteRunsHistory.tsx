@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
@@ -13,12 +14,25 @@ import type { DataQualitySuiteRunApi } from './generated/api.schemas'
 
 export function SuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.Element {
     const logic = dataQualityChecksLogic(props)
-    const { suiteRuns, suiteRunsLoading, suiteRunsError, suiteRunCheckRunsBySuiteRunId, pendingCheckActions } =
-        useValues(logic)
-    const { loadSuiteRuns, loadSuiteRunCheckRuns } = useActions(logic)
+    const {
+        suiteRuns,
+        suiteRunsLoading,
+        suiteRunsError,
+        suiteRunCheckRunsBySuiteRunId,
+        pendingCheckActions,
+        expandedSuiteRunId,
+    } = useValues(logic)
+    const { loadSuiteRuns, loadSuiteRunCheckRuns, setExpandedSuiteRunId } = useActions(logic)
+    const sectionRef = useRef<HTMLElement>(null)
+
+    useEffect(() => {
+        if (expandedSuiteRunId) {
+            sectionRef.current?.scrollIntoView({ block: 'start' })
+        }
+    }, [expandedSuiteRunId])
 
     return (
-        <section className="border-t pt-6 mt-4 flex flex-col gap-3" aria-label="Check run history">
+        <section ref={sectionRef} className="border-t pt-6 mt-4 flex flex-col gap-3" aria-label="Check run history">
             <div className="flex items-center justify-between gap-2">
                 <div>
                     <h3 className="mb-1">Check run history</h3>
@@ -48,6 +62,12 @@ export function SuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.Elemen
                 }
                 expandable={{
                     onRowExpand: (suiteRun) => loadSuiteRunCheckRuns(suiteRun.id),
+                    isRowExpanded: (suiteRun) => (suiteRun.id === expandedSuiteRunId ? true : -1),
+                    onRowCollapse: (suiteRun) => {
+                        if (suiteRun.id === expandedSuiteRunId) {
+                            setExpandedSuiteRunId(null)
+                        }
+                    },
                     expandedRowRender: (suiteRun) => (
                         <CheckRunsTable
                             runs={suiteRunCheckRunsBySuiteRunId[suiteRun.id] ?? []}
