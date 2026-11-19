@@ -10,7 +10,7 @@ const STEPS: Step[] = [
     { scale: 10, fromMs: MINUTE, toMs: 2 * MINUTE },
 ]
 const BARS: Named[] = [
-    { name: 'writer_cpu_under', params: { percent: 70 } },
+    { name: 'writer_cpu_under', params: { percent: 75 } },
     { name: 'pickup_p99_under', params: { seconds: 5, queues: ['hogflow', 'email'] } },
 ]
 const LE = ['1', '5', '10', '+Inf']
@@ -93,7 +93,7 @@ const evidence = (changes: Partial<BarEvidence>): BarEvidence => ({
 })
 
 const HELD: BarResult[] = [
-    { name: 'writer_cpu_under', unit: '%', limit: 70, passed: true },
+    { name: 'writer_cpu_under', unit: '%', limit: 75, passed: true },
     { name: 'pickup_p99_under', unit: 's', limit: 5, passed: true },
 ]
 
