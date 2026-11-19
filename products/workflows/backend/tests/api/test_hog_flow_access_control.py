@@ -17,6 +17,7 @@ from products.actions.backend.facade.testing import create_action
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.presentation.views.hog_flow import HogFlowMinimalSerializer
 
 TRIGGER_ACTION = {
     "id": "trigger_node",
@@ -32,6 +33,11 @@ TRIGGER_ACTION = {
 MISSING_SCHEDULE_ID = "00000000-0000-0000-0000-000000000000"
 
 CANCEL_PROXY = "products.workflows.backend.presentation.views.hog_flow.cancel_hog_flow_invocations"
+
+
+class TestHogFlowAccessLevelSerialization(SimpleTestCase):
+    def test_no_user_context_has_no_access_level(self) -> None:
+        assert HogFlowMinimalSerializer().get_user_access_level(HogFlow()) is None
 
 
 class TestHogFlowResourceRegistration(SimpleTestCase):

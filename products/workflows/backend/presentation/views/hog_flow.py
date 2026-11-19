@@ -3562,7 +3562,12 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
         if isinstance(obj, Workflow):
             # The service resolved the level when it built the contract.
             return obj.user_access_level
-        return authorization.legacy_access_levels([resource_for_object(obj, team=self.context["get_team"]())])[0]
+        access = self.user_access_control
+        if not access:
+            return None
+        return authorization.legacy_access_levels(
+            [resource_for_object(obj, team=access.team)], subject=Subject(user_id=access.user.pk)
+        )[0]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

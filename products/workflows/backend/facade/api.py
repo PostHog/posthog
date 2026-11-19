@@ -1,10 +1,9 @@
 from collections.abc import Collection, Iterable, Iterator, Mapping
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
-from django.db.models import F, Q, QuerySet
+from django.db.models import Q, QuerySet
 
-from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import OrganizationMembership, Team, User
 
@@ -12,7 +11,6 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
-from products.authorization.backend.presentation.querysets import filter_queryset
 from products.workflows.backend.facade.contracts import (
     CohortDependentWorkflow,
     EmailDomainCheck,
@@ -44,7 +42,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     static_cohort_ids,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
-from products.workflows.backend.services import email_utm_defaults
+from products.workflows.backend.services import email_utm_defaults, hog_flow_reads
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.default_email_sender import (
     clear_default_email_sender,
@@ -114,69 +112,16 @@ def search_workflows(
     ``with_access_levels`` adds ``user_access_level``, the user's resolved level for each workflow.
     ``include_count=False`` skips the count query and reports a total of 0.
     """
-    statuses = [HogFlow.State.DRAFT, HogFlow.State.ACTIVE]
-    if include_archived:
-        statuses.append(HogFlow.State.ARCHIVED)
-    queryset = filter_queryset(
-        # nosemgrep: environment-model-scoped-by-project -- keeps the project-wide scope core /api/search used for workflows before the facade move; owners decide whether search narrows to one environment
-        HogFlow.objects.filter(team__project_id=project_id, status__in=statuses),
-        resource=Resource(type=ResourceType.HOG_FLOW, project_id=cast(Team, access_control.team).id),
-        subject=Subject(user_id=access_control.user.pk),
+    return hog_flow_reads.search_workflows(
+        project_id=project_id,
+        query=query,
+        access_control=access_control,
+        limit=limit,
+        offset=offset,
+        include_archived=include_archived,
+        with_access_levels=with_access_levels,
+        include_count=include_count,
     )
-
-    if query:
-        queryset = queryset.annotate(rank=build_rank({"name": "A", "description": "C"}, query, config="simple"))
-        queryset = queryset.filter(rank__gt=0.05).order_by("-rank")
-    else:
-        queryset = queryset.order_by(F("name").asc(nulls_first=True))
-
-    total_count = queryset.count() if include_count else 0
-    fields = ["id", "name", "description", "status", "created_by_id"]
-    if query:
-        fields.append("rank")
-
-    rows = list(queryset[offset : offset + limit].values(*fields))
-    access_levels = (
-        dict(
-            zip(
-                (str(row["id"]) for row in rows),
-                authorization.legacy_access_levels(
-                    [
-                        Resource(
-                            type=ResourceType.HOG_FLOW,
-                            id=str(row["id"]),
-                            project_id=cast(Team, access_control.team).id,
-                            created_by_id=row["created_by_id"],
-                        )
-                        for row in rows
-                    ],
-                    subject=Subject(user_id=access_control.user.pk),
-                ),
-                strict=True,
-            )
-        )
-        if with_access_levels
-        else {}
-    )
-
-    results: list[dict[str, Any]] = []
-    for workflow in rows:
-        result: dict[str, Any] = {
-            "type": "hog_flow",
-            "result_id": str(workflow["id"]),
-            "extra_fields": {
-                "name": workflow["name"],
-                "description": workflow["description"],
-                "status": workflow["status"],
-            },
-        }
-        if query:
-            result["rank"] = workflow["rank"]
-        if with_access_levels:
-            result["user_access_level"] = access_levels.get(str(workflow["id"]))
-        results.append(result)
-
-    return results, total_count
 
 
 def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
@@ -289,17 +234,9 @@ def get_viewable_workflow_ids(
     tag_name: str | None = None,
 ) -> set[str]:
     """The ids, as strings, of the team's workflows the reader may view."""
-    workflows = _team_workflows(team_id, workflow_ids)
-    if tag_name is not None:
-        workflows = workflows.filter(tagged_items__tag__name=tag_name)
-    return {
-        str(pk)
-        for pk in filter_queryset(
-            workflows,
-            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
-            subject=Subject(user_id=user_access_control.user.pk),
-        ).values_list("id", flat=True)
-    }
+    return hog_flow_reads.get_viewable_workflow_ids(
+        team_id=team_id, user_access_control=user_access_control, workflow_ids=workflow_ids, tag_name=tag_name
+    )
 
 
 def get_workflow_access_levels(
