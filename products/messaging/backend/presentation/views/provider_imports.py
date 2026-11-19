@@ -186,6 +186,15 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     serializer_class = _FallbackSerializer
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # A run's counts say whether an address was already suppressed or opted out, which the suppression list
+        # guards with person:read, so starting a run and reading one need it too.
+        if self.action in ("list", "retrieve"):
+            return ["hog_flow:read", "person:read"]
+        if self.action == "create":
+            return ["hog_flow:write", "person:read"]
+        return None
+
     @extend_schema(
         responses={200: ProviderImportRunSerializer(many=True)}, summary="List the most recent provider imports"
     )

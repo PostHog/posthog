@@ -13182,7 +13182,7 @@
         "feature": "messaging",
         "summary": "Start an import from another email tool",
         "title": "Start an import from another email tool",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["hog_flow:write", "person:read"],
         "api_operations": ["POST /api/projects/{project_id}/messaging_provider_imports/"],
         "annotations": {
             "destructiveHint": false,
@@ -13197,7 +13197,7 @@
         "feature": "messaging",
         "summary": "Get an import's progress and results",
         "title": "Get an import's progress and results",
-        "required_scopes": ["hog_flow:read"],
+        "required_scopes": ["hog_flow:read", "person:read"],
         "api_operations": ["GET /api/projects/{project_id}/messaging_provider_imports/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -13212,7 +13212,7 @@
         "feature": "messaging",
         "summary": "List recent imports",
         "title": "List recent imports",
-        "required_scopes": ["hog_flow:read"],
+        "required_scopes": ["hog_flow:read", "person:read"],
         "api_operations": ["GET /api/projects/{project_id}/messaging_provider_imports/"],
         "annotations": {
             "destructiveHint": false,

@@ -118,6 +118,7 @@ tools:
         enabled: true
         scopes:
             - hog_flow:write
+            - person:read
         annotations:
             readOnly: false
             destructive: false
@@ -139,6 +140,7 @@ tools:
         enabled: true
         scopes:
             - hog_flow:read
+            - person:read
         annotations:
             readOnly: true
             destructive: false
@@ -153,6 +155,7 @@ tools:
         enabled: true
         scopes:
             - hog_flow:read
+            - person:read
         annotations:
             readOnly: true
             destructive: false

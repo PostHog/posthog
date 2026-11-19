@@ -48,11 +48,11 @@ class TestProviderImportsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_cohort_write", ["hog_flow:write"], ["automations"], 403),
-            ("with_cohort_write", ["hog_flow:write", "cohort:write"], ["automations"], 400),
+            ("without_cohort_write", ["hog_flow:write", "person:read"], ["automations"], 403),
+            ("with_cohort_write", ["hog_flow:write", "person:read", "cohort:write"], ["automations"], 400),
             ("full_access_key", ["*"], ["automations"], 400),
-            ("other_steps_need_no_cohort_write", ["hog_flow:write"], ["templates"], 400),
-            ("contacts_without_person_write", ["hog_flow:write", "cohort:write"], ["contacts"], 403),
+            ("other_steps_need_no_cohort_write", ["hog_flow:write", "person:read"], ["templates"], 400),
+            ("contacts_without_person_write", ["hog_flow:write", "person:read", "cohort:write"], ["contacts"], 403),
             ("new_people_without_cohort_write", ["hog_flow:write", "person:write"], ["new_people"], 403),
             ("contacts_with_both", ["hog_flow:write", "cohort:write", "person:write"], ["contacts"], 400),
         ]
@@ -145,16 +145,43 @@ class TestProviderImportsAPI(APIBaseTest):
         start_workflow.assert_not_called()
         assert not Integration.objects.filter(team_id=self.team.id, kind="customerio-app").exists()
 
-    @parameterized.expand([("providers", "providers/"), ("list", "")])
+    @parameterized.expand(
+        [
+            ("providers", "providers/", ["hog_flow:read"], status.HTTP_200_OK),
+            ("runs_need_person_read", "", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+            ("runs", "", ["hog_flow:read", "person:read"], status.HTTP_200_OK),
+        ]
+    )
     def test_reads_with_a_personal_api_key(
-        self, _mock_client_class: MagicMock, _start_workflow: MagicMock, _name: str, path: str
+        self,
+        _mock_client_class: MagicMock,
+        _start_workflow: MagicMock,
+        _name: str,
+        path: str,
+        scopes: list[str],
+        expected: int,
     ) -> None:
-        key = self.create_personal_api_key_with_scopes(["hog_flow:read"])
+        key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
         response = self.client.get(f"{self._url()}{path}", HTTP_AUTHORIZATION=f"Bearer {key}")
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.status_code == expected, response.json()
+
+    def test_starting_an_import_with_a_key_needs_person_read(
+        self, _mock_client_class: MagicMock, start_workflow: MagicMock
+    ) -> None:
+        key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
+        self.client.logout()
+
+        response = self.client.post(
+            self._url(),
+            {"provider": "customerio", "steps": ["suppressions"], "api_key": "app-key"},
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        start_workflow.assert_not_called()
 
 
 @patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=False)
