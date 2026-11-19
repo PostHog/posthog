@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.integrations import IntegrationManager
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
@@ -1814,12 +1815,22 @@ class RepositoryConfigAnalyticsTestCase(TestCase):
         self.assertTrue(rows[0]["diverged_from_space"])
         self.assertEqual(rows[0]["space_repository_count"], 1)
 
-    def test_deleting_the_github_integration_emits_one_aggregate_row(self):
-        self._channel_with_repos(["posthog/posthog"], name="growth")
-        self._channel_with_repos(["posthog/posthog.com", "posthog/marketing"], name="editorial")
+    @parameterized.expand(
+        [
+            ("model_delete", lambda team_id, row_id: Integration.objects.filter(id=row_id).delete()),
+            ("sdk_delete", lambda team_id, row_id: IntegrationManager.github.oauth.delete(team_id, row_id)),
+            (
+                "sdk_delete_by_external_id",
+                lambda team_id, row_id: IntegrationManager.github.oauth.delete_by_external_id("1"),
+            ),
+        ]
+    )
+    def test_deleting_the_github_integration_emits_one_aggregate_row(self, _name, delete):
+        growth = self._channel_with_repos(["posthog/posthog"], name="growth")
+        editorial = self._channel_with_repos(["posthog/posthog.com", "posthog/marketing"], name="editorial")
 
         with patch(self.CAPTURE) as capture:
-            Integration.objects.filter(id=self.integration.id).delete()
+            delete(self.team.id, self.integration.id)
 
         rows = self._rows(capture, "repository_config_changed")
         self.assertEqual(len(rows), 1)
@@ -1827,6 +1838,9 @@ class RepositoryConfigAnalyticsTestCase(TestCase):
         self.assertEqual(rows[0]["affected_space_count"], 2)
         self.assertEqual(rows[0]["previous_repository_count"], 3)
         self.assertTrue(rows[0]["is_cleared"])
+        for channel in (growth, editorial):
+            channel.refresh_from_db()
+            self.assertEqual((channel.github_integration_id, channel.repositories), (None, []))
 
     def test_context_publish_records_whether_a_person_or_a_loop_wrote_it(self):
         channel = self._channel_with_repos([])

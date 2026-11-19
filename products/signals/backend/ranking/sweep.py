@@ -1,16 +1,21 @@
 """The scoring sweep: a scheduled Temporal workflow that scores the inbox reports that are due.
 
-A report is due when its score is missing, older than its vector, or from another served model. The
-served model reads only the report's vector, so the vector log is the change signal, not
-`SignalReport.updated_at`: a scout edit saves `update_fields=["title", "summary"]` and leaves
-`updated_at` alone, and the grouping pipeline moves `updated_at` with no text change. A new vector
-lands only when a rendering's text changes.
+A report is due when its score is missing or older than its vector. The served model reads only
+the report's vector, so the vector log is the change signal, not `SignalReport.updated_at`: a scout
+edit saves `update_fields=["title", "summary"]` and leaves `updated_at` alone, and the grouping
+pipeline moves `updated_at` with no text change. A new vector lands only when a rendering's text
+changes.
 
 A new manifest alone does not make a report due. Training publishes one every night because the
 challenger models change, and a rescore of the whole window for each one makes new reports wait.
 A challenger scores only the reports that become due after a manifest names it.
 
-Nothing reads the `ranking_score` artefacts to order the inbox yet.
+A change of the served model does not make a report due either. The daily publish promotes within
+the served recipe every few days, and a `served` override changes the served model too, so a rescore
+of the whole window for each one would make new reports wait in the same way. The new served model
+scores only the reports that become due after it is served. Until the window turns over, the window
+holds scores from more than one served model. Every reader takes the served result through the
+artefact's own `served_key`, so that mix needs no reader change.
 """
 
 import sys
@@ -126,7 +131,6 @@ class _ScoreStamp(pydantic.BaseModel):
 
     scored_at: datetime.datetime
     embedding_inserted_at: datetime.datetime | None = None
-    served_key: str
 
 
 def _batches(items: Sequence[str], size: int = _POSTGRES_BATCH_SIZE) -> Iterator[Sequence[str]]:
@@ -215,20 +219,12 @@ def _latest_scores(report_ids_by_team: Mapping[int, Sequence[str]]) -> dict[str,
     return scores
 
 
-def _is_due(score: _ScoreStamp | None, vector_inserted_at: datetime.datetime, served_key: str) -> bool:
-    # A promotion or a `served` override changes the served key, so each one rescores every report.
-    return (
-        score is None
-        or score.embedding_inserted_at is None
-        or vector_inserted_at > score.embedding_inserted_at
-        or score.served_key != served_key
-    )
+def _is_due(score: _ScoreStamp | None, vector_inserted_at: datetime.datetime) -> bool:
+    return score is None or score.embedding_inserted_at is None or vector_inserted_at > score.embedding_inserted_at
 
 
-def reports_due_for_scoring(
-    now: datetime.datetime, *, served_key: str, rendering: str, limit: int
-) -> list[ScoringCandidate]:
-    """In-window scorable reports whose score is missing, older than their vector, or from another served model.
+def reports_due_for_scoring(now: datetime.datetime, *, rendering: str, limit: int) -> list[ScoringCandidate]:
+    """In-window scorable reports whose score is missing or older than their vector.
 
     Unscored reports come first, then the oldest scores, so no report starves under the cap. A
     report with no live vector is never a candidate, so a safety-suppressed or retracted report is
@@ -247,7 +243,7 @@ def reports_due_for_scoring(
     for report_id in kept:
         team_id, vector_inserted_at = vectors[report_id]
         score = latest.get(report_id)
-        if not _is_due(score, vector_inserted_at, served_key):
+        if not _is_due(score, vector_inserted_at):
             continue
         candidate = ScoringCandidate(team_id=team_id, report_id=report_id, vector_inserted_at=vector_inserted_at)
         due.append((score.scored_at if score else None, candidate))
@@ -288,7 +284,6 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     override = serving.served_override
     candidates = reports_due_for_scoring(
         now,
-        served_key=serving.manifest.served.key,
         rendering=scorer.served_rendering(serving),
         limit=limit or settings.INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK,
     )

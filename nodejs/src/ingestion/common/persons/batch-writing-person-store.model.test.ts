@@ -94,8 +94,6 @@ class FakePersonRepository {
             uuid,
             team_id: teamId,
             properties: { ...properties },
-            properties_last_updated_at: {},
-            properties_last_operation: {},
             created_at: DateTime.fromISO('2026-01-01T00:00:00Z', { zone: 'utc' }),
             version: 1,
             is_identified: false,

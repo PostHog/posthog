@@ -36,7 +36,7 @@ class RemoteConfigCacheTool(ConsoleTool):
     key = "remote-config-cache"
     title = "Remote config cache"
     owner = DEV_EXPERIENCE
-    group = "Data"
+    group = "Infrastructure"
     description = "The config JSON that SDKs read for one team, as the cache holds it."
 
     def page(self, request: HttpRequest) -> Page:
@@ -53,3 +53,10 @@ class RemoteConfigCacheTool(ConsoleTool):
                 )
             )
         return _cached_config(team)
+
+
+console.register_moved_page(
+    old_path="admin/posthog/team/<int:pk>/view-cache/",
+    title="The cached config view",
+    url="/admin/console/tools/remote-config-cache/?team={pk}",
+)

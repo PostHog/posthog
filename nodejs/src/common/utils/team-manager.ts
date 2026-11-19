@@ -143,6 +143,7 @@ export class TeamManager {
                         team,
                         'first team event ingested',
                         {
+                            $update_person_last_seen_at: false,
                             sdk: properties.$lib,
                             realm: properties.realm,
                             host: properties.$host,

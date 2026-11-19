@@ -1,23 +1,11 @@
 import type { ChartTheme } from '@posthog/quill-charts'
 
+import { AI_LAB_SHADES, type AiLab, MAIN_LAB_SHADE } from 'lib/components/BrandMark/aiLabShades'
 import { RGBToHex, hexToRGB, lightenDarkenColor, toOpaqueHex } from 'lib/utils/colors'
 import { hashCodeForString } from 'lib/utils/strings'
 
-import { type AiLab, otherModelsLabel, seriesLab } from './aiLabs'
+import { otherModelsLabel, seriesLab } from './aiLabs'
 
-// Five shades per lab, dark to light. Each ramp keeps one hue and steps lightness evenly in OKLCH
-// (L 0.46 to 0.82, chroma 0.13), so every lab's shades look equally far apart and stay readable on
-// light and dark backgrounds. The posthog.com MCP leaderboard uses the same hues.
-export const AI_LAB_SHADES: Record<AiLab, readonly string[]> = {
-    Anthropic: ['#913814', '#af5331', '#cd6e4c', '#ec8a67', '#ffad90'],
-    OpenAI: ['#0c665a', '#008474', '#08a28f', '#14c2ab', '#49dfc7'],
-    Google: ['#025c93', '#1777b8', '#3b93d5', '#59aff4', '#8fcbfe'],
-    xAI: ['#695700', '#86700a', '#a58a07', '#c1a637', '#dec358'],
-    Cursor: ['#59479a', '#7262b7', '#8c7dd5', '#a799f3', '#c3bafe'],
-    'Open weights': ['#85356e', '#a25089', '#bf6aa5', '#dd86c1', '#fca2df'],
-}
-
-const MAIN_SHADE = 2
 // Neighboring shades are at most 0.12 apart in lightness (4/3 of a ramp step), so a lab with few models
 // stays close to its main shade instead of stretching to the darkest and lightest ends.
 const MAX_SHADE_STEP = 4 / 3
@@ -25,7 +13,7 @@ const MAX_SHADE_STEP = 4 / 3
 const NEUTRAL_LABELS = new Set(['Unknown', 'Other', otherModelsLabel('Other')])
 
 export function labColor(theme: ChartTheme, lab: string): string | undefined {
-    return AI_LAB_SHADES[lab as AiLab]?.[MAIN_SHADE] ?? theme.axisColor
+    return AI_LAB_SHADES[lab as AiLab]?.[MAIN_LAB_SHADE] ?? theme.axisColor
 }
 
 /**
@@ -51,7 +39,7 @@ export function modelColors(theme: ChartTheme, models: string[]): Map<string, st
         const shades = AI_LAB_SHADES[lab]
         const gaps = labModels.length - 1
         const step = gaps > 0 ? Math.min((shades.length - 1) / gaps, MAX_SHADE_STEP) : 0
-        const first = MAIN_SHADE - (step * gaps) / 2
+        const first = MAIN_LAB_SHADE - (step * gaps) / 2
         labModels.forEach((model, rank) => colors.set(model, shadeAt(shades, first + step * rank)))
     }
     return colors

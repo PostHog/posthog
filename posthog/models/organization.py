@@ -27,6 +27,9 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
 
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
@@ -260,6 +263,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
     is_member_join_email_enabled = models.BooleanField(
         default=True
     )  # DEPRECATED in favor of User.partial_notification_settings
+    # Also checked by agents before they query production data, see
+    # .agents/skills/querying-production-databases/SKILL.md. Update the skill when this field changes.
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
     is_ai_training_opted_in = models.BooleanField(
         default=True,
@@ -868,26 +873,37 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         membership_being_updated: "OrganizationMembership",
         new_level: Level | None = None,
     ) -> None:
-        if new_level is not None:
-            if membership_being_updated.id == self.id:
+        if membership_being_updated.id == self.id:
+            if new_level is not None:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
+            return
+        # The facade imports `posthog.models`, which imports this module.
+        from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
+
+        organization, subject = Resource.organization(self.organization_id), Subject(user_id=self.user_id)
+        can_edit, can_manage_owners = authorization.check(
+            [
+                CheckRequest(resource=organization, action=action, subject=subject)
+                for action in (Action.EDIT, Action.MANAGE_OWNERS)
+            ]
+        )
+        if new_level is not None:
             if new_level == OrganizationMembership.Level.OWNER:
-                if self.level != OrganizationMembership.Level.OWNER:
+                if not can_manage_owners:
                     raise exceptions.PermissionDenied(
                         "You can only make another member owner if you're this organization's owner."
                     )
                 self.save()
-            elif new_level > self.level:
+            elif new_level == OrganizationMembership.Level.ADMIN and not can_edit:
                 raise exceptions.PermissionDenied(
                     "You can only change access level of others to lower or equal to your current one."
                 )
-        if membership_being_updated.id != self.id:
-            if membership_being_updated.organization_id != self.organization_id:
-                raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-            if self.level < OrganizationMembership.Level.ADMIN:
-                raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
-            if membership_being_updated.level > self.level:
-                raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
+        if membership_being_updated.organization_id != self.organization_id:
+            raise exceptions.PermissionDenied("You both need to belong to the same organization.")
+        if not can_edit:
+            raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
+        if membership_being_updated.level == OrganizationMembership.Level.OWNER and not can_manage_owners:
+            raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
     def get_scoped_api_keys(self):
         """
@@ -967,12 +983,9 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from products.alerts.backend.models.alert import AlertSubscription
+    from products.alerts.backend.facade.api import remove_member_subscriptions
 
-    deleted_count, _ = AlertSubscription.objects.filter(
-        user=instance.user,
-        alert_configuration__team__organization_id=instance.organization_id,
-    ).delete()
+    deleted_count = remove_member_subscriptions(user_id=instance.user_id, organization_id=instance.organization_id)
 
     if deleted_count > 0:
         logger.info(

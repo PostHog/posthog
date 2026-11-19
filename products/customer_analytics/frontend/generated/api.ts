@@ -12,6 +12,8 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPersonMembershipsApi,
+    AccountPersonMembershipsRequestApi,
     AccountPersonsPageApi,
     AccountPersonsQueryRequestApi,
     AccountPresenceApi,
@@ -30,7 +32,9 @@ import type {
     AccountViewCreateApi,
     AccountViewUpdateApi,
     AccountViewsDestroyParams,
+    AccountsAutomationsListParams,
     AccountsByExternalIdRetrieveParams,
+    AccountsCustomPropertyValuesHistoryRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
     AccountsListParams,
@@ -60,6 +64,7 @@ import type {
     CustomPropertySourcesRunsListParams,
     CustomPropertySyncTriggerResponseApi,
     CustomPropertyValueApi,
+    CustomPropertyValueHistoryEntryApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
     CustomerAnalyticsExternalAccountRetrieveParams,
@@ -99,6 +104,7 @@ import type {
     FeatureRequestsListParams,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
+    PaginatedAccountAutomationListApi,
     PaginatedAccountChannelSummaryListApi,
     PaginatedAccountEmailThreadListApi,
     PaginatedAccountEmailThreadMessageListApi,
@@ -655,6 +661,41 @@ export const accountsCustomPropertyValuesCreate = async (
     })
 }
 
+export const getAccountsCustomPropertyValuesHistoryRetrieveUrl = (
+    projectId: string,
+    accountId: string,
+    params: AccountsCustomPropertyValuesHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/history/`
+}
+
+export const accountsCustomPropertyValuesHistoryRetrieve = async (
+    projectId: string,
+    accountId: string,
+    params: AccountsCustomPropertyValuesHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<CustomPropertyValueHistoryEntryApi[]> => {
+    return apiMutator<CustomPropertyValueHistoryEntryApi[]>(
+        getAccountsCustomPropertyValuesHistoryRetrieveUrl(projectId, accountId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getAccountsNotebooksListUrl = (
     projectId: string,
     accountId: string,
@@ -894,6 +935,24 @@ export const accountsPersonsQueryCreate = async (
     })
 }
 
+export const getAccountsPersonsMembershipsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/persons/memberships/`
+}
+
+export const accountsPersonsMembershipsCreate = async (
+    projectId: string,
+    id: string,
+    accountPersonMembershipsRequestApi: AccountPersonMembershipsRequestApi,
+    options?: RequestInit
+): Promise<AccountPersonMembershipsApi[]> => {
+    return apiMutator<AccountPersonMembershipsApi[]>(getAccountsPersonsMembershipsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountPersonMembershipsRequestApi),
+    })
+}
+
 export const getAccountsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/accounts/${id}/`
 }
@@ -949,6 +1008,38 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsAutomationsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AccountsAutomationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/automations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/automations/`
+}
+
+export const accountsAutomationsList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsAutomationsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountAutomationListApi> => {
+    return apiMutator<PaginatedAccountAutomationListApi>(getAccountsAutomationsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

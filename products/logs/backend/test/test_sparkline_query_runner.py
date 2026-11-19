@@ -121,9 +121,9 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(self.HEAVY_SERVICE, by_bytes)
 
         expected_bytes = self.BUCKET_COUNT * (self.HEAVY_BYTES_PER_LOG + (self.SERVICE_COUNT - 1) * self.BYTES_PER_LOG)
-        for rank_by in ("count", "bytes"):
-            response = self._service_sparkline(rank_by=rank_by)
-            self.assertEqual(sum(r["bytes_uncompressed"] for r in response), expected_bytes, rank_by)
+        response = self._service_sparkline(rank_by="bytes")
+        self.assertEqual(sum(r["bytes_uncompressed"] for r in response), expected_bytes)
+        self.assertNotIn("bytes_uncompressed", self._service_sparkline(rank_by="count")[0])
 
     @classmethod
     def _insert_logs_across_services(cls, start: str, bucket_count: int, services: dict[str, int]) -> None:

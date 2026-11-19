@@ -416,7 +416,9 @@ export class SourcePair {
     }
 }
 
-export type Skip = { path: string; reason: string }
+// `intended` marks a file hog left out on purpose, such as one an ignore pattern matches, so the upload
+// still counts as complete.
+export type Skip = { path: string; reason: string; intended?: true }
 
 export function readPair(path: string, publicPathPrefix: string | undefined, skipped: Skip[]): SourcePair | undefined {
     let source: string

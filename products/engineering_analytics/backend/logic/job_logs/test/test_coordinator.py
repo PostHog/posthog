@@ -70,9 +70,6 @@ class TestGithubSourceParams:
 class TestDiscoverJobsWithDiagnostics:
     @override_settings(OTLP_LOGS_INGEST_ENDPOINT="")
     def test_discovers_nothing_when_logs_endpoint_unset(self):
-        # The coordinator schedule is registered but must stay inert until the Logs endpoint is
-        # deployed: discovery returns [] (without querying the warehouse) so no child workflows fan
-        # out. Drops the guard and this fails by hitting the DB and returning rows.
         assert _discover_jobs_with_diagnostics("2026-06-29T00:00:00+00:00") == []
         assert _discover_failed_depot_attempts(
             DepotDiscoveryInputs(cutoff_iso="2026-06-29T00:00:00+00:00", cursors={})
@@ -82,9 +79,7 @@ class TestDiscoverJobsWithDiagnostics:
 class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
     @override_settings(OTLP_LOGS_INGEST_ENDPOINT="http://localhost:8010/i/v1/logs")
     def test_discovers_recent_failed_attempts_with_decoded_ids(self) -> None:
-        # Only recent failed attempts are fetched, keyed by the integer ids the curated views and CI
-        # traces carry. A push run's id has no integer form, so its logs could never join and it is
-        # skipped rather than emitted under a wrong run_id.
+        # A push run's id has no integer form, so its logs could never join and it is skipped.
         enroll_team(self.team)
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -96,7 +91,7 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
             job_inputs={"api_token": "depot-tok", "repository": "PostHog/posthog"},
         )
 
-        # Depot reports only a ref. A pull request ref takes its head branch from the PR snapshot.
+        # A pull request ref takes its head branch from the PR snapshot.
         github = create_github_source(self.team, prefix="gh", repository="PostHog/posthog")
         pull_requests = create_github_warehouse_table(
             self,
@@ -196,8 +191,6 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
             attempts=[two_workflow_run, one_workflow_run], cursors={}
         )
 
-        # A backlog over the cap pages forward across ticks. Without the cursor every tick reads the
-        # same first page, and the attempts after it leave the lookback window without a fetch.
         with patch("products.engineering_analytics.backend.logic.job_logs.coordinator.MAX_DISCOVERED_JOBS", 2):
             first_tick = _discover_failed_depot_attempts(window_start)
             second_tick = _discover_failed_depot_attempts(
@@ -211,9 +204,6 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
 class TestQueryJobsWithDiagnostics:
     @patch("products.engineering_analytics.backend.logic.job_logs.coordinator.execute_hogql_query")
     def test_bypasses_warehouse_access_control(self, mock_execute):
-        # The sweep runs with no request user, so without bypass HogQL marks the team's own
-        # workflow_jobs warehouse table denied and the query raises "You don't have access to table" —
-        # the worker then silently emits nothing. Locks in the bypass that makes the trusted query work.
         mock_execute.return_value = SimpleNamespace(columns=["job_id"], results=[])
         _query_jobs_with_diagnostics(Team(pk=1), "devex_", "2026-06-30T00:00:00+00:00", "PostHog/posthog")
         mock_execute.assert_called_once()

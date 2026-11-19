@@ -184,6 +184,8 @@ export interface HogInvocationsProps extends HogInvocationsLogicProps {
      * this undefined.
      */
     hogFunctionType?: HogFunctionTypeType
+    /** Disables every re-run control with this reason, for a caller whose runs can't be sent again. */
+    rerunDisabledReason?: string
 }
 
 /**
@@ -198,6 +200,7 @@ export function HogInvocations({
     parentRunId,
     defaultDateFrom,
     hogFunctionType,
+    rerunDisabledReason,
 }: HogInvocationsProps): JSX.Element | null {
     const logic = hogInvocationsLogic({ id, functionKind, parentRunId, defaultDateFrom })
     const {
@@ -237,9 +240,10 @@ export function HogInvocations({
     // rejects it with a 400, so disable the controls here rather than letting a click fail.
     // Hog flows always execute on cyclotron, so they leave `hogFunctionType` undefined.
     const rerunUnsupportedReason: string | undefined =
-        functionKind === 'hog_function' && !isRerunnableHogFunctionType(hogFunctionType)
+        rerunDisabledReason ??
+        (functionKind === 'hog_function' && !isRerunnableHogFunctionType(hogFunctionType)
             ? "Re-run isn't available for this function type"
-            : undefined
+            : undefined)
 
     useEffect(() => {
         refresh()

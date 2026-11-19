@@ -416,6 +416,15 @@ def list_user_accessible_repositories(installation_id: str, user_access_token: s
 
 
 @frozen
+class GitObjectId:
+    """One object on the default branch, as GraphQL's `object(expression:)` reports it."""
+
+    # GraphQL's type name: "Blob" for a file, "Tree" for a directory, "Commit" for a submodule.
+    kind: str
+    oid: str
+
+
+@frozen
 class RepoPathEntry:
     """One path at a ref, as the contents API reports it."""
 
@@ -1097,21 +1106,31 @@ class StamphogGitHubClient:
             "refusing to review a truncated thread"
         )
 
-    def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
+    def get_check_runs(
+        self,
+        repo: str,
+        head_sha: str,
+        *,
+        check_name: str | None = None,
+        app_id: int | None = None,
+        priority: Priority = Priority.CRITICAL,
+    ) -> list[dict]:
         """Fetch the check runs for a commit, paginating through GitHub's endpoint.
 
         Returns the raw GitHub check-run objects (``name``, ``conclusion``, ``status``, ...). The engine's
         migration gate uses them: a passing ``Migration risk`` check lets a migration-only PR bypass the
         deny-list. Without them the hosted path can't see that success and over-refuses safe migration PRs.
-        Bounded by ``_MAX_PAGES``.
+        ``check_name`` and ``app_id`` make GitHub return only that check's runs. Bounded by ``_MAX_PAGES``.
         """
+        only = {key: value for key, value in (("check_name", check_name), ("app_id", app_id)) if value is not None}
         check_runs: list[dict] = []
         for page in range(1, _MAX_PAGES + 1):
             response = self._request(
                 "GET",
                 f"/repos/{repo}/commits/{head_sha}/check-runs",
                 endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
-                params={"per_page": _PER_PAGE, "page": page},
+                params={"per_page": _PER_PAGE, "page": page, **only},
+                priority=priority,
             )
             if response.status_code != 200:
                 raise StamphogGitHubError(
@@ -1201,6 +1220,17 @@ class StamphogGitHubClient:
         Raises on any HTTP, GraphQL, or shape failure. These queries feed an advisory signal, so
         they run on the sheddable BATCH lane.
         """
+        commit = self._repository_graphql(repo, query, variables, timeout=timeout, priority=Priority.BATCH).get(
+            "object"
+        )
+        if not isinstance(commit, dict):
+            raise StamphogGitHubError(f"Commit not found in {repo}")
+        return commit
+
+    def _repository_graphql(
+        self, repo: str, query: str, variables: dict[str, Any], *, timeout: int, priority: Priority
+    ) -> dict:
+        """Run a query against ``repo`` and return the repository's fields, raising on any failure."""
         owner, name = repo.split("/", 1)
         response = self._request(
             "POST",
@@ -1208,7 +1238,7 @@ class StamphogGitHubClient:
             endpoint="/graphql",
             json_body={"query": query, "variables": {"owner": owner, "name": name, **variables}},
             timeout=timeout,
-            priority=Priority.BATCH,
+            priority=priority,
         )
         if response.status_code != 200:
             raise StamphogGitHubError(f"GraphQL request failed on {repo}", status_code=response.status_code)
@@ -1220,10 +1250,10 @@ class StamphogGitHubClient:
             raise GitHubRateLimitError(f"GitHub GraphQL rate limit exceeded on {repo}")
         if not isinstance(data, dict) or errors:
             raise StamphogGitHubError(f"GraphQL errors on {repo}")
-        commit = ((data.get("data") or {}).get("repository") or {}).get("object")
-        if not isinstance(commit, dict):
-            raise StamphogGitHubError(f"Commit not found in {repo}")
-        return commit
+        repository = (data.get("data") or {}).get("repository")
+        if not isinstance(repository, dict):
+            raise StamphogGitHubError(f"Repository not found: {repo}")
+        return repository
 
     def get_blame_ranges(self, repo: str, oid: str, path: str, *, timeout: int) -> list[dict]:
         """The blame ranges of ``path`` at commit ``oid``, as GraphQL returns them."""
@@ -1330,6 +1360,53 @@ class StamphogGitHubClient:
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
 
+    def get_default_branch_objects(self, repo: str, paths: list[str]) -> dict[str, GitObjectId | None]:
+        """The object at each of ``paths`` on the default branch now, None for a path it lacks.
+
+        A path that ends in `/` names a directory, and is looked up without the slash. The answer
+        carries the object's type, so the caller can tell a tree from a blob. The paths come from a
+        check run, so they travel as GraphQL variables and never as query text.
+        `object(expression:)` answers null for a missing path. `Commit.file` answers it with a
+        NOT_FOUND error, which would fail the whole request.
+        """
+        declarations = " ".join(f"$p{index}: String!" for index in range(len(paths)))
+        aliases = " ".join(
+            f"p{index}: object(expression: $p{index}) {{ __typename oid }}" for index in range(len(paths))
+        )
+        query = (
+            f"query($owner: String!, $name: String!, {declarations}) "
+            f"{{ repository(owner: $owner, name: $name) {{ {aliases} }} }}"
+        )
+        variables = {f"p{index}": f"HEAD:{path.removesuffix('/')}" for index, path in enumerate(paths)}
+        repository = self._repository_graphql(repo, query, variables, timeout=15, priority=Priority.CRITICAL)
+        objects: dict[str, GitObjectId | None] = {}
+        for index, path in enumerate(paths):
+            found = repository.get(f"p{index}") or {}
+            kind, oid = found.get("__typename"), found.get("oid")
+            objects[path] = GitObjectId(kind=kind, oid=oid) if isinstance(kind, str) and isinstance(oid, str) else None
+        return objects
+
+    def get_default_branch_blob_text(self, repo: str, path: str) -> str | None:
+        """The text of the git blob at ``path`` on the default branch, or None when it holds none.
+
+        It reads the blob itself, so a symlink reads as its link text. The contents API follows an
+        in-repo symlink to its target, and an edit to that target changes no object at ``path``.
+        A directory, a binary blob and a blob GitHub cuts short read as None as well.
+        """
+        query = (
+            "query($owner: String!, $name: String!, $expression: String!) "
+            "{ repository(owner: $owner, name: $name) { object(expression: $expression) "
+            "{ ... on Blob { text isBinary isTruncated } } } }"
+        )
+        repository = self._repository_graphql(
+            repo, query, {"expression": f"HEAD:{path}"}, timeout=15, priority=Priority.CRITICAL
+        )
+        blob = repository.get("object") or {}
+        text = blob.get("text")
+        if blob.get("isBinary") or blob.get("isTruncated") or not isinstance(text, str):
+            return None
+        return text
+
     def get_default_branch_file(self, repo: str, path: str, *, priority: Priority = Priority.CRITICAL) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
 
@@ -1337,9 +1414,11 @@ class StamphogGitHubClient:
         policy that gates it. Omitting ``ref`` makes GitHub serve the default branch. The ``raw`` media
         type returns the file body directly (no base64 wrapper); a 404 means the file is absent.
         """
+        # Quoted so a `%2e%2e` segment stays a literal name. The HTTP layer would otherwise decode it
+        # into `..` and read another repository's file.
         response = self._request(
             "GET",
-            f"/repos/{repo}/contents/{path}",
+            f"/repos/{repo}/contents/{quote(path, safe='/')}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             headers={"Accept": "application/vnd.github.raw+json"},
             priority=priority,

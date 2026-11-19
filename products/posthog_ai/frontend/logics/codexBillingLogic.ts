@@ -122,7 +122,7 @@ export const codexBillingLogic = kea<codexBillingLogicType>([
 ])
 
 function codexBillingEnabled(): boolean {
-    return !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD]
+    return !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]
 }
 
 /** Whether a run on this harness bills to the ChatGPT plan, as far as the mounted picker knows now. */

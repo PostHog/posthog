@@ -63,6 +63,21 @@ export const StackedArea: Story = {
     },
 }
 
+/** A non-finite value is a gap in its own series, and the series above it keep their place. */
+export const StackedAreaWithGap: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series = STACK.map((s, seriesIndex) =>
+            seriesIndex === 1 ? { ...s, data: s.data.map((value, i) => (i === 3 ? NaN : value)) } : s
+        )
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 /** `stroke.width` sets each line's width; `0` drops the stroke so only the fill or points draw. */
 export const StrokeWidth: Story = {
     render: () => {

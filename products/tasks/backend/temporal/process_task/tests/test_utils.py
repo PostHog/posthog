@@ -1,4 +1,5 @@
 from dataclasses import replace
+from typing import Any
 
 import pytest
 import time_machine
@@ -16,7 +17,12 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
+from products.mcp_store.backend.facade.contracts import (
+    ActiveInstallation,
+    SandboxInstallations,
+    UnmountedInstallation,
+    UnmountedInstallationReason,
+)
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import CredentialUnavailableError, ProcessTaskFatalError
 from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile
@@ -31,7 +37,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
     RunState,
     build_imported_mcp_server_configs,
-    build_sandbox_environment_variables,
     get_git_identity_env_vars,
     get_github_credential_source,
     get_github_token,
@@ -56,6 +61,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     parse_run_state,
     resolve_user_github_integration_for_task,
     sanitize_mcp_exclude_tools,
+    unmounted_mcp_installations_notice,
     upgrade_run_to_user_authorship,
 )
 
@@ -183,6 +189,25 @@ class TestRunStateSnapshotPaths(SimpleTestCase):
                 },
             ),
             (
+                "agent_memory_locked",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                    "agent_memory_locked": True,
+                },
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                    "agent_memory_locked": True,
+                },
+            ),
+            (
+                "agent_memory_locked_without_snapshot",
+                {"agent_memory_locked": True},
+                {},
+            ),
+            (
                 "legacy_no_mount_path",
                 {"snapshot_external_id": "im-old"},
                 {},
@@ -199,7 +224,7 @@ class TestRunStateSnapshotPaths(SimpleTestCase):
             ("no_snapshot", {}, {}),
         ]
     )
-    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, str], expected: dict[str, str]) -> None:
+    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, Any], expected: dict[str, Any]) -> None:
         assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 
@@ -510,6 +535,33 @@ class TestMcpServerConfigToDict(SimpleTestCase):
             "url": "https://mcp.example.com/mcp",
             "headers": [{"name": "Authorization", "value": "Bearer token"}],
         }
+
+
+class TestUnmountedMcpInstallationsNotice(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "needs_reconnect",
+                "1 MCP Store connection was not added to this run: Linear (reconnect it in the MCP Store).",
+            ),
+            (
+                "teammate_needs_reconnect",
+                "1 MCP Store connection was not added to this run: Linear (the teammate who shared it needs to reconnect it).",
+            ),
+            (
+                "not_shared",
+                "1 MCP Store connection was not added to this run: Linear (share it with this agent in the MCP Store).",
+            ),
+            ("not_selected", None),
+            ("replaced_by_personal", None),
+        ]
+    )
+    def test_names_the_fix_for_each_reported_reason(
+        self, reason: UnmountedInstallationReason, expected: str | None
+    ) -> None:
+        unmounted = [UnmountedInstallation(id="srv-1", name="Linear", scope="team", reason=reason)]
+
+        assert unmounted_mcp_installations_notice(unmounted) == expected
 
 
 class TestFetchUserMcpServerConfigs(SimpleTestCase):
@@ -918,7 +970,7 @@ class TestGetGithubToken(TestCase):
         )
 
         with self.assertRaises(CredentialUnavailableError):
-            get_github_token(integration.id)
+            get_github_token(integration.team_id, integration.id)
 
     @override_settings(
         TASKS_REDIS_URL="",
@@ -944,11 +996,11 @@ class TestGetGithubToken(TestCase):
         )
 
         with patch.object(GitHubIntegration, "mint_scoped_installation_token", side_effect=["ghs_1", "ghs_2"]) as mint:
-            first = [get_github_token(integration.id, repositories=["acme/api"]) for _ in range(2)]
+            first = [get_github_token(integration.team_id, integration.id, repositories=["acme/api"]) for _ in range(2)]
             forget_cached_github_tokens(
                 GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL), ["Acme/API"]
             )
-            second = get_github_token(integration.id, repositories=["acme/api"])
+            second = get_github_token(integration.team_id, integration.id, repositories=["acme/api"])
 
         assert first == ["ghs_1", "ghs_1"]
         assert second == "ghs_2"
@@ -999,7 +1051,9 @@ class TestGetGithubToken(TestCase):
                 ),
             ) as lookup,
         ):
-            tokens = [get_github_token(integration.id, repositories=repositories) for _ in range(2)]
+            tokens = [
+                get_github_token(integration.team_id, integration.id, repositories=repositories) for _ in range(2)
+            ]
 
         if account_name in ("OldAcme", "INSTALL", None) or (
             account_name == "Acme" and any(r.startswith("evilorg/") for r in repositories)
@@ -1072,21 +1126,21 @@ class TestGetGithubToken(TestCase):
             if expected_names is None:
                 expected_error = GitHubIntegrationError if probe_status >= 500 else CredentialUnavailableError
                 with self.assertRaises(expected_error) as raised:
-                    get_github_token(integration.id, repositories)
+                    get_github_token(integration.team_id, integration.id, repositories)
                 if isinstance(raised.exception, GitHubIntegrationError):
                     assert raised.exception.status_code == probe_status
                 else:
                     assert "acme/api" in str(raised.exception)
                     assert "installation settings" in str(raised.exception)
             else:
-                token = get_github_token(integration.id, repositories)
+                token = get_github_token(integration.team_id, integration.id, repositories)
                 assert token == ("ghs_scoped" if expected_names else None)
-                assert get_github_token(integration.id, repositories) == token
+                assert get_github_token(integration.team_id, integration.id, repositories) == token
                 if not expected_names:
                     clock.shift(299)
-                    assert get_github_token(integration.id, repositories) is None
+                    assert get_github_token(integration.team_id, integration.id, repositories) is None
                     clock.shift(2)
-                    assert get_github_token(integration.id, repositories) == "ghs_scoped"
+                    assert get_github_token(integration.team_id, integration.id, repositories) == "ghs_scoped"
 
         expected_calls = [call(None, repositories=sorted(names))]
         if expected_names:
@@ -1115,7 +1169,7 @@ class TestGetGithubToken(TestCase):
             patch.object(GitHubIntegration, "api_request") as request,
             self.assertRaises(GitHubIntegrationError) as raised,
         ):
-            get_github_token(integration.id, ["acme/api"])
+            get_github_token(integration.team_id, integration.id, ["acme/api"])
         assert raised.exception is error
         request.assert_not_called()
 
@@ -1263,10 +1317,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
 
         mock_get_github_token.return_value = expected_token
         result = get_sandbox_github_token(
-            123,
-            run_id="run-1",
-            state={"pr_authorship_mode": "user"},
-            created_by=creator,
+            123, run_id="run-1", state={"pr_authorship_mode": "user"}, created_by=creator, team_id=1
         )
         assert result == expected_token
 
@@ -1284,7 +1335,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             if has_identity:
                 mock_resolve.assert_called_once_with(identity)
         if error_case in ("missing", "reauthorization", "empty_token"):
-            mock_get_github_token.assert_called_once_with(123, repositories=[])
+            mock_get_github_token.assert_called_once_with(1, 123, repositories=[])
         else:
             mock_get_github_token.assert_not_called()
 
@@ -1346,6 +1397,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
                 run_id="run-1",
                 state={"pr_authorship_mode": "user"},
                 created_by=MagicMock(name="creator"),
+                team_id=1,
             )
 
     @parameterized.expand(
@@ -1375,11 +1427,11 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
         mock_get_github_token.return_value = "ghs_bot"
 
         result = get_sandbox_github_token(
-            123, run_id="run-1", state={"pr_authorship_mode": "bot", **extra_state}, repository=repository
+            123, run_id="run-1", state={"pr_authorship_mode": "bot", **extra_state}, repository=repository, team_id=1
         )
 
         assert result == "ghs_bot"
-        mock_get_github_token.assert_called_once_with(123, repositories=expected_repositories)
+        mock_get_github_token.assert_called_once_with(1, 123, repositories=expected_repositories)
 
     @parameterized.expand(
         [
@@ -1402,6 +1454,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             run_id="run-1",
             state={"pr_authorship_mode": authorship, "github_token_scope": scope, "repositories": ["acme/api"]},
             github_user_integration_id="user-install",
+            team_id=1,
         )
 
         if integration_id is None:
@@ -1409,7 +1462,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             mock_scoped.assert_not_called()
         else:
             assert result == "ghs_scoped"
-            mock_scoped.assert_called_once_with(integration_id, ["acme/api"], permissions)
+            mock_scoped.assert_called_once_with(1, integration_id, ["acme/api"], permissions)
         mock_full.assert_not_called()
         mock_user_install.assert_not_called()
 
@@ -1417,19 +1470,19 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
     def test_no_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:
         mock_get_github_token.return_value = "ghs_default"
 
-        result = get_sandbox_github_token(123, run_id="run-1", state=None)
+        result = get_sandbox_github_token(123, run_id="run-1", state=None, team_id=1)
 
         assert result == "ghs_default"
-        mock_get_github_token.assert_called_once_with(123, repositories=[])
+        mock_get_github_token.assert_called_once_with(1, 123, repositories=[])
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_empty_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:
         mock_get_github_token.return_value = "ghs_default"
 
-        result = get_sandbox_github_token(123, run_id="run-1", state={})
+        result = get_sandbox_github_token(123, run_id="run-1", state={}, team_id=1)
 
         assert result == "ghs_default"
-        mock_get_github_token.assert_called_once_with(123, repositories=[])
+        mock_get_github_token.assert_called_once_with(1, 123, repositories=[])
 
     def test_no_integration_id_returns_none(self) -> None:
         result = get_sandbox_github_token(None, run_id="run-1", state={"pr_authorship_mode": "bot"})
@@ -1449,6 +1502,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             run_id="run-1",
             state={"pr_authorship_mode": "user", "github_credential_source": "caller_token"},
             created_by=MagicMock(name="creator"),
+            team_id=1,
         )
 
         assert result is None
@@ -1478,6 +1532,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             state={"pr_authorship_mode": "user", "interaction_origin": "slack"},
             actor_user=actor,
             repository="posthog/posthog",
+            team_id=1,
         )
 
         assert result == "ghu_actor"
@@ -1510,6 +1565,7 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
                 run_id="run-1",
                 state={"pr_authorship_mode": "user", "interaction_origin": "slack"},
                 actor_user=MagicMock(name="actor"),
+                team_id=1,
             )
 
         mock_get_github_token.assert_not_called()
@@ -1597,6 +1653,7 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             run_id="run-1",
             state={"pr_authorship_mode": "bot"},
             github_user_integration_id=str(user_integration.id),
+            team_id=1,
             repository=repository,
         )
 
@@ -1634,6 +1691,7 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             run_id="run-1",
             state={"pr_authorship_mode": "bot"},
             github_user_integration_id=str(user_integration.id),
+            team_id=team.id,
         )
 
         assert result == "ghs_team"
@@ -1776,139 +1834,6 @@ class TestGetRelayedMcpServerNames(SimpleTestCase):
         assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]
 
 
-def _gateway_ctx_task() -> tuple[MagicMock, MagicMock]:
-    """Duck ctx/task for build_sandbox_environment_variables' run-context shape."""
-    ctx = MagicMock()
-    ctx.team_id = 1
-    ctx.origin_product = "signals_scout"
-    ctx.state = {}
-    ctx.distinct_id = "distinct-1"
-    ctx.sandbox_environment_id = None
-    task = MagicMock()
-    task.internal = False
-    return ctx, task
-
-
-_CTX, _TASK = _gateway_ctx_task()
-
-
-@patch(
-    "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
-    return_value="test-jwt-key",
-)
-@patch(
-    "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
-    return_value="https://us.posthog.com",
-)
-class TestBuildSandboxEnvironmentVariablesGateway(SimpleTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
-
-    def _build(self):
-        ctx, task = _gateway_ctx_task()
-        return build_sandbox_environment_variables(github_token=None, access_token="tok", ctx=ctx, task=task)
-
-    @override_settings(
-        SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com",
-        SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout,signals_research",
-    )
-    def test_both_settings_inject_both_vars(self, _api, _jwt):
-        env = self._build()
-        self.assertEqual(env["AI_GATEWAY_URL"], "https://ai-gateway.us.posthog.com")
-        self.assertEqual(env["AI_GATEWAY_PRODUCTS"], "signals_scout,signals_research")
-
-    @override_settings(SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com", SANDBOX_AI_GATEWAY_PRODUCTS=None)
-    def test_url_without_products_injects_neither(self, _api, _jwt):
-        # A URL with no product allowlist would route every sandbox caller, so a
-        # half-config must inject nothing.
-        env = self._build()
-        self.assertNotIn("AI_GATEWAY_URL", env)
-        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
-
-    @override_settings(SANDBOX_AI_GATEWAY_URL=None, SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout")
-    def test_products_without_url_injects_neither(self, _api, _jwt):
-        env = self._build()
-        self.assertNotIn("AI_GATEWAY_URL", env)
-        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
-
-
-class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
-
-    @parameterized.expand([False, True])
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
-        return_value="pub",
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
-        return_value="https://api.example",
-    )
-    def test_snapshot_resume_env_includes_otel_config_when_configured(self, is_trial: bool, _api, _jwt) -> None:
-        ctx, task = _gateway_ctx_task()
-        task.is_scout_experiment = is_trial
-        with (
-            override_settings(
-                SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
-                AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
-                SANDBOX_AI_GATEWAY_URL="https://ai-gateway.example.com",
-                SANDBOX_AI_GATEWAY_MINT_KEY="phs_test_mint",
-                SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
-                SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
-                SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
-            ),
-            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
-        ):
-            post.return_value.status_code = 201
-            post.return_value.json.return_value = {"token": "phe_private", "capture_mode": "none"}
-            env = build_sandbox_environment_variables(None, "access-token", ctx, task, otel_telemetry_enabled=True)
-
-        assert env.get("POSTHOG_AGENT_OTEL_LOGS_URL") == (None if is_trial else "https://us.i.posthog.com/i/v1/logs")
-        assert env.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "phc_telemetry")
-        assert env.get("POSTHOG_AGENT_OTEL_TRACES_URL") == (
-            None if is_trial else "https://us.i.posthog.com/i/v1/traces"
-        )
-
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
-        return_value="pub",
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
-        return_value="https://api.example",
-    )
-    def test_snapshot_resume_env_omits_otel_config_without_logs_pair(self, _api, _jwt) -> None:
-        with override_settings(
-            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
-            SANDBOX_AGENT_OTEL_LOGS_TOKEN=None,
-            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
-        ):
-            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK, otel_telemetry_enabled=True)
-
-        assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
-
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
-        return_value="pub",
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
-        return_value="https://api.example",
-    )
-    def test_snapshot_resume_env_omits_otel_config_when_flag_disabled(self, _api, _jwt) -> None:
-        with override_settings(
-            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
-            SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
-            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
-        ):
-            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK)
-
-        assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
-
-
 class _AuthorshipFixture(TestCase):
     def setUp(self) -> None:
         from posthog.models import Organization, Team
@@ -1999,6 +1924,11 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
         self.task.profile = "business_knowledge"
         self.task.save(update_fields=["profile"])
 
+    def _gitlab_task(self) -> None:
+        self.connect_personal_github()
+        self.task.repository_integration_id = 5
+        self.task.save(update_fields=["repository_integration_id"])
+
     def _set_state(self, state: dict) -> None:
         self.task_run.state = state
         self.task_run.save(update_fields=["state"])
@@ -2013,6 +1943,7 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
             ("signal_report_origin",),
             ("profile_without_user_authorable_prs",),
             ("a_different_actor_than_the_creator",),
+            ("gitlab_task",),
         ]
     )
     def test_nothing_is_promoted(self, case: str) -> None:

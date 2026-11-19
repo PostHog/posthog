@@ -79,6 +79,7 @@ class AIGatewayPanel(Panel):
     key = "ai-gateway"
     title = "AI gateway"
     owner = AI_GATEWAY
+    operation_keys = frozenset({"add-credit", "enable", "revoke", "clear-revoke"})
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
@@ -200,3 +201,18 @@ class AIGatewayWalletTool(ConsoleTool):
                 )
             )
         return Page(blocks=tuple(blocks))
+
+
+# Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
+for old, target in {
+    "add-ai-gateway-credit": "ai-gateway/add-credit/",
+    "enable-ai-gateway": "#panel-ai-gateway",
+    "revoke-ai-gateway": "#panel-ai-gateway",
+    "clear-ai-gateway-revoke": "#panel-ai-gateway",
+}.items():
+    console.register_moved_action(old_path=f"admin/posthog/team/<int:pk>/{old}/", record="team", target=target)
+console.register_moved_page(
+    old_path="admin/posthog/team/<int:pk>/ai-gateway-wallet/",
+    title="The AI gateway wallet",
+    url="/admin/console/tools/ai-gateway-wallet/?team={pk}",
+)

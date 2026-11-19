@@ -1,0 +1,177 @@
+import { createHash } from 'crypto'
+import { readFileSync } from 'fs'
+import path from 'path'
+import { parse } from 'yaml'
+import { z } from 'zod'
+
+import { Duration } from '../duration'
+import { RunCard } from './card'
+
+export const CAP_USD = 200
+export const TTL_HOURS = 6
+export const REGION = 'us-east-1'
+export const PRODUCTION_READER_MONITORING_INTERVAL_SECONDS = 60
+
+const Usd = z.number().nonnegative()
+const Name = z.string().min(1)
+
+const HOST_OWNED_POOLER_SETTINGS = [
+    'listen_addr',
+    'listen_port',
+    'auth_type',
+    'auth_file',
+    'unix_socket_dir',
+    'pidfile',
+    'logfile',
+    'server_tls_sslmode',
+]
+
+export const Pooler = z
+    .object({
+        image: z.string().regex(/^[^\s@]+@sha256:[0-9a-f]{64}$/, 'an image pinned by digest'),
+        replicas: z.number().int().positive(),
+        settings: z
+            .record(
+                z.string().regex(/^[a-z][a-z0-9_]*$/, 'a pgbouncer setting name'),
+                z.union([z.string().regex(/^[^\r\n]*$/, 'a single line'), z.number()])
+            )
+            .refine((settings) => !HOST_OWNED_POOLER_SETTINGS.some((key) => key in settings), {
+                message: `the host sets ${HOST_OWNED_POOLER_SETTINGS.join(', ')}`,
+            }),
+    })
+    .strict()
+
+export type Pooler = z.infer<typeof Pooler>
+
+export const CloudProfile = z
+    .object({
+        name: Name,
+        account: z.string().regex(/^\d{12}$/, 'a 12-digit AWS account id'),
+        region: z.literal(REGION),
+        availabilityZone: Name,
+        baseline: z
+            .object({
+                schedulerRole: Name,
+                stackServiceRole: Name,
+                monitoringRole: Name,
+                evidenceBucket: Name,
+                dbSubnetGroup: Name,
+                databaseSecurityGroup: Name,
+                clusterParameterGroup: Name,
+                instanceParameterGroup: Name,
+                hostSubnet: Name,
+                hostSecurityGroup: Name,
+                hostInstanceProfile: Name,
+                hostLaunchTemplateId: Name,
+                hostLaunchTemplateVersion: z.string().regex(/^[1-9]\d*$/, 'a launch template version number'),
+                hostRootVolumeGb: z.number().int().positive(),
+            })
+            .strict(),
+        engineVersion: Name,
+        writerClass: Name,
+        readerAcu: z.object({ min: z.literal(1), max: z.number().int().positive() }).strict(),
+        readerMonitoringIntervalSeconds: z
+            .literal([1, 5, 10, 15, 30, 60])
+            .default(PRODUCTION_READER_MONITORING_INTERVAL_SECONDS),
+        host: z
+            .object({
+                class: Name,
+                imageParameter: Name,
+                bootstrapDeadline: Duration,
+            })
+            .strict(),
+        pooler: Pooler,
+        runnerProfile: z.string().regex(/^(?!\.\.?$)[\w.-]+$/, 'a file name in the profile directory'),
+        admission: z
+            .object({
+                capUsd: z.literal(CAP_USD).optional(),
+                ttlHours: z.literal(TTL_HOURS).optional(),
+                teardownAllowance: Duration,
+                priceList: z
+                    .object({
+                        version: Name,
+                        feeds: z
+                            .array(
+                                z.object({ url: z.string().url(), sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict()
+                            )
+                            .min(1),
+                    })
+                    .strict(),
+                rates: z
+                    .object({
+                        writerPerHour: Usd,
+                        acuPerHour: Usd,
+                        hostPerHour: Usd,
+                        storagePerGbMonth: Usd,
+                        ebsPerGbMonth: Usd,
+                        logsIngestPerGb: Usd,
+                        transferPerGb: Usd,
+                        s3PerThousandRequests: Usd,
+                    })
+                    .strict(),
+                allowances: z
+                    .object({
+                        storageGb: z.number().positive(),
+                        transferGb: z.number().nonnegative(),
+                        s3Requests: z.number().int().nonnegative(),
+                        enhancedMonitoringEventBytes: z.number().int().positive(),
+                    })
+                    .strict(),
+                reserve: z.object({ marginUsd: Usd }).strict(),
+            })
+            .strict(),
+    })
+    .strict()
+
+export type CloudProfile = z.infer<typeof CloudProfile>
+
+export type InputFile = { file: string; bytes: Buffer; sha256: string }
+
+export type ProfileInputs = { profile: CloudProfile; runner: InputFile; inputs: InputFile[] }
+
+export type RunInputs = ProfileInputs & { card: RunCard }
+
+export class CloudProfileError extends Error {
+    constructor(file: string, problems: string[]) {
+        super(`${file} is not a valid cloud profile:\n${problems.map((problem) => `- ${problem}`).join('\n')}`)
+        this.name = 'CloudProfileError'
+    }
+}
+
+function readInput(file: string, filePath: string): InputFile {
+    let bytes: Buffer
+    try {
+        bytes = readFileSync(filePath)
+    } catch (error) {
+        throw new CloudProfileError(filePath, [(error as Error).message])
+    }
+    return { file, bytes, sha256: createHash('sha256').update(bytes).digest('hex') }
+}
+
+function parseCloudProfile(filePath: string, { bytes }: InputFile): CloudProfile {
+    let raw: unknown
+    try {
+        raw = parse(bytes.toString('utf8'), { maxAliasCount: 0 })
+    } catch (error) {
+        throw new CloudProfileError(filePath, [(error as Error).message])
+    }
+    const parsed = CloudProfile.safeParse(raw)
+    if (!parsed.success) {
+        throw new CloudProfileError(
+            filePath,
+            parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+        )
+    }
+    return parsed.data
+}
+
+export function loadCloudProfile(filePath: string): CloudProfile {
+    return parseCloudProfile(filePath, readInput('cloud-profile.yaml', filePath))
+}
+
+export function loadRunInputs(filePath: string): ProfileInputs {
+    const cloud = readInput('cloud-profile.yaml', filePath)
+    const profile = parseCloudProfile(filePath, cloud)
+    const runner = readInput('runner-profile.yaml', path.resolve(path.dirname(filePath), profile.runnerProfile))
+    return { profile, runner, inputs: [cloud, runner] }
+}

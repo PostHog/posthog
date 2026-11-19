@@ -152,7 +152,7 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
      * `--lemon-table-sticky-header-top` CSS variable on an ancestor to pin it below other sticky content.
      * The header only pins while the table fits its container: a table that must scroll horizontally
      * keeps its scroll container, which stops the header from pinning to the page.
-     * Has no effect together with `allowContentScroll`.
+     * With `allowContentScroll`, the header pins inside the table's own scroll container instead.
      */
     stickyHeader?: boolean
     /** Row actions to display at the end of each row. Return null to hide actions for specific rows. */
@@ -231,6 +231,12 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
 
     // used when not using URL to store sorting
     const [internalSorting, setInternalSorting] = useState<Sorting | null>(sorting || null)
+    // Follow the controlled value, so a sort reset from outside the header doesn't leave a stale one
+    useEffect(() => {
+        if (sorting !== undefined) {
+            setInternalSorting(sorting)
+        }
+    }, [sorting?.columnKey, sorting?.order]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     /** update sorting and conditionally replace the current browsing history item */
     const setLocalSorting = useCallback(
@@ -625,6 +631,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     !uppercaseHeader && 'LemonTable--lowercase-header',
                     allowContentScroll && 'h-full min-h-0 overflow-hidden',
                     canStickHeader && tableFitsContainer && 'LemonTable--sticky-header',
+                    stickyHeader && allowContentScroll && 'LemonTable--sticky-header-contained',
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props

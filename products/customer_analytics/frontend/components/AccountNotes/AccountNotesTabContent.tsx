@@ -13,8 +13,6 @@ import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
-
 import type { AccountNoteApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountsEvents } from '../Accounts/constants'
@@ -49,8 +47,6 @@ export function AccountNotesTabContent(): JSX.Element {
         updateNoteTags,
     } = useActions(accountNotesLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
-    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     const hasFilters =
         !!search ||
@@ -118,9 +114,7 @@ export function AccountNotesTabContent(): JSX.Element {
                         <ObjectTags
                             tags={tags}
                             onChange={(newTags) => updateNoteTags(note, newTags)}
-                            onEdit={loadTagsIfNeeded}
-                            saving={!!pendingNoteTags[note.short_id] || tagsLoading}
-                            tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
+                            saving={!!pendingNoteTags[note.short_id]}
                             data-attr="account-note-tags"
                         />
                     </div>

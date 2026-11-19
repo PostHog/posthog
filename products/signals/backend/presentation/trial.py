@@ -64,10 +64,8 @@ class SelfDrivingTrialStatusSerializer(serializers.Serializer):
     )
     new_work_paused = serializers.BooleanField(help_text="Whether the shared trial and billing limits block new work.")
     enabled_scouts = serializers.IntegerField(help_text="Enabled scouts across this project's environments.")
-    scout_limit = serializers.IntegerField(help_text="Maximum enabled scouts during the trial.")
-    scouts_to_pause = serializers.IntegerField(
-        help_text="On activation, all but the three oldest enabled scouts pause."
-    )
+    scout_limit = serializers.IntegerField(help_text="Maximum enabled scouts allowed for the project.")
+    scouts_to_pause = serializers.IntegerField(help_text="Number of scouts paused when the trial starts.")
     paid_continuation = serializers.ChoiceField(
         choices=TrialContinuation.choices, help_text="What happens to new work after the trial."
     )

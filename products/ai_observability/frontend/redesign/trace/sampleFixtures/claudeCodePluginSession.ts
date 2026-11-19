@@ -1,7 +1,7 @@
 import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
-import { MessagePart, NodeProperties, ThreadMessage } from '../types'
+import { MessagePart, ThreadMessage } from '../types'
 import { jsonContent, messagesContent, messagesSides } from './sampleContent'
-import { SampleNodeDetail, SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
+import { SampleNodeDetail, SampleTraceFixture, sampleDetail, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '88cfdcc8-1757-7012-663c-599c6649c0e6'
 const SESSION_ID = 'd716a155-3363-7994-8a77-47313258e4d4'
@@ -134,16 +134,6 @@ function timestampAt(offsetMs: number): string {
     return new Date(Date.parse(TRACE_TIMESTAMP) + offsetMs).toISOString()
 }
 
-const baseProperties: NodeProperties = {
-    timestamp: TRACE_TIMESTAMP,
-    provider: null,
-    temperature: null,
-    sessionId: SESSION_ID,
-    promptName: null,
-    promptVersion: null,
-    person: 'user-1',
-}
-
 function stepInput(step: AgentStep): ThreadMessage[] {
     return [
         {
@@ -180,6 +170,7 @@ function bashNode(bash: BashCall): TraceNodeApi {
         id: bash.spanId,
         kind: 'span',
         name: 'Bash',
+        label: 'Bash',
         model: null,
         stats: sampleStats({}),
         hasError: false,
@@ -192,6 +183,7 @@ function stepNode(step: AgentStep): TraceNodeApi {
         id: step.generationId,
         kind: 'generation',
         name: GENERATION_NAME,
+        label: GENERATION_NAME,
         model: MODEL,
         stats: sampleStats({
             costUsd: step.costUsd,
@@ -224,11 +216,9 @@ function stepDetails(step: AgentStep): [string, SampleNodeDetail][] {
     const timestamp = timestampAt(step.offsetMs)
     const generation: [string, SampleNodeDetail] = [
         step.generationId,
-        {
+        sampleDetail({
             content: messagesContent(stepInput(step), stepOutput(step)),
-            error: null,
-            properties: { ...baseProperties, timestamp, provider: 'anthropic' },
-            evals: { status: 'ready', results: [] },
+            metadata: { sessionId: SESSION_ID, provider: 'anthropic' },
             raw: sampleRaw('generation', step.generationId, {
                 name: '$ai_generation',
                 timestamp: timestamp,
@@ -245,7 +235,7 @@ function stepDetails(step: AgentStep): [string, SampleNodeDetail][] {
                     $ai_user_prompt: 'seo fixes',
                 },
             }),
-        },
+        }),
     ]
     if (!step.bash) {
         return [generation]
@@ -256,11 +246,9 @@ function stepDetails(step: AgentStep): [string, SampleNodeDetail][] {
         generation,
         [
             spanId,
-            {
+            sampleDetail({
                 content: jsonContent(inputState, output),
-                error: null,
-                properties: { ...baseProperties, timestamp },
-                evals: { status: 'ready', results: [] },
+                metadata: { sessionId: SESSION_ID },
                 raw: sampleRaw('span', spanId, {
                     name: '$ai_span',
                     timestamp: timestamp,
@@ -273,7 +261,7 @@ function stepDetails(step: AgentStep): [string, SampleNodeDetail][] {
                         $ai_output_state: output,
                     },
                 }),
-            },
+            }),
         ],
     ]
 }
@@ -311,6 +299,7 @@ const traceNode: TraceNodeApi = {
     id: TRACE_ID,
     kind: 'trace',
     name: 'seo fixes',
+    label: 'seo fixes',
     model: null,
     stats: sampleStats({ costUsd: 1.6763, inputTokens: 12, outputTokens: 2700, latencyMs: 223935 }),
     hasError: false,
@@ -323,25 +312,17 @@ export const claudeCodePluginSession: SampleTraceFixture = {
         hasError: false,
         backLink: { label: 'Back to traces', href: '/traces' },
     },
-    summary: {
-        traceId: TRACE_ID,
-        timestamp: TRACE_TIMESTAMP,
-        person: { label: 'user-1', href: '/person/user-1' },
+    trace: {
+        id: TRACE_ID,
+        createdAt: TRACE_TIMESTAMP,
+        sessionId: SESSION_ID,
+        person: { distinctId: 'user-1', label: 'user-1' },
         totals: traceNode.stats,
     },
     tree: [traceNode],
     initialNodeId: lastStep.generationId,
     details: Object.fromEntries([
-        [
-            TRACE_ID,
-            {
-                content: jsonContent(null, null),
-                error: null,
-                properties: baseProperties,
-                evals: { status: 'ready', results: [] },
-                raw: sampleRaw('trace', TRACE_ID, null),
-            },
-        ],
+        [TRACE_ID, sampleDetail({ content: jsonContent(null, null), raw: sampleRaw('trace', TRACE_ID, null) })],
         ...STEPS.flatMap(stepDetails),
     ]),
     thread: {
@@ -357,4 +338,5 @@ export const claudeCodePluginSession: SampleTraceFixture = {
         activeTurnId: TRACE_ID,
     },
     timeline: { rows: STEPS.flatMap(stepTimelineRows), totalMs: 223935 },
+    evaluationResults: [],
 }

@@ -210,8 +210,13 @@ def test_try_parse_structured_content(_name: str, value: Value, expected: Value)
     assert TryParseStructuredContentExpr(source=lit(value)).eval(SCOPE) == expected
 
 
-def test_try_parse_structured_content_keeps_blocks_longer_than_the_parse_cap_as_text() -> None:
-    blocks = json.dumps([{"type": "text", "text": "x" * MAX_PARSE_CHARS}])
+@parameterized.expand(
+    [
+        ("blocks_longer_than_the_cap", json.dumps([{"type": "text", "text": "x" * MAX_PARSE_CHARS}])),
+        ("padding_past_the_cap", json.dumps([{"type": "text", "text": "hi"}]) + " " * MAX_PARSE_CHARS),
+    ]
+)
+def test_try_parse_structured_content_keeps_text_longer_than_the_parse_cap_as_text(_name: str, blocks: str) -> None:
     # Checked through a flag, because pytest would otherwise diff two values the size of the parse cap on failure.
     kept_as_text = TryParseStructuredContentExpr(source=lit(blocks)).eval(SCOPE) == blocks
     assert kept_as_text

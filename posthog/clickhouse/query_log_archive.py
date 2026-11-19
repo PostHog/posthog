@@ -4,6 +4,24 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Buffer, Distr
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 
+# Write path of earlier generations. A stack that ran part of the old migration chain can still have
+# these objects. None of them stores data, so they are dropped. The data tables of those generations
+# (sharded_query_log_archive, query_log_archive_v2) stay, and the operator decides when to drop them.
+# The cloud clusters do not run this cleanup: posthog-cloud-infra owns their archive objects, and the
+# v3 objects take over some of these names there.
+LEGACY_QUERY_LOG_ARCHIVE_VIEWS = (
+    "query_log_archive_mv",
+    "sharded_query_log_archive_mv",
+    "dist_query_log_archive_mv",
+    "ops_query_log_archive_mv",
+    "daily_aggregated_query_log_archive",
+)
+LEGACY_QUERY_LOG_ARCHIVE_WRITE_TABLES = (
+    "writable_query_log_archive",
+    "writable_sharded_query_log_archive",
+    "query_log_archive_buffer",
+)
+
 
 # ============================================================================
 # v3 generation: one row per query chain
@@ -168,6 +186,7 @@ _V3_PHYSICAL_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("lc_plan_fingerprint", _v3_max("String"), ""),
     ("lc_estimated_rows", _v3_max("Int64"), ""),
     ("lc_estimated_bytes", _v3_max("Int64"), ""),
+    ("lc_warehouse_table_ids", _v3_max("Array(String)"), ""),
 )
 
 # Read-time aliases that keep the column names of the earlier generations, so existing readers of
@@ -238,13 +257,13 @@ def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
     )
 
 
-def QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL():
+def QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(num_layers: int = 16):
     """Buffer on OPS in front of the v3 data table."""
     return _v3_plain_table_sql(
         QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE,
         Buffer(
             destination_table=SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE,
-            num_layers=16,
+            num_layers=num_layers,
             min_time=10,
             max_time=60,
             min_rows=10_000,
@@ -282,6 +301,7 @@ _V3_LOG_COMMENT_TUPLE = (
     "experiment_scan_date_from String, experiment_scan_date_to String, "
     "precompute_window_start String, precompute_window_end String, "
     "plan_fingerprint String, estimated_rows Int64, estimated_bytes Int64, "
+    "warehouse_table_ids Array(String), "
     "temporal Tuple(workflow_namespace String, workflow_type String, workflow_id String, "
     "workflow_run_id String, activity_type String, activity_id String, attempt Int64), "
     "dagster Tuple(job_name String, run_id String, tags Tuple(owner String)), "
@@ -344,6 +364,7 @@ _V3_LOG_COMMENT_TRAILING_FIELDS = (
     "plan_fingerprint",
     "estimated_rows",
     "estimated_bytes",
+    "warehouse_table_ids",
 )
 
 

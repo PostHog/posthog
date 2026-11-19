@@ -10,10 +10,27 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, HogQLQueryModifiers, WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery
+from posthog.schema import (
+    ActionConversionGoal,
+    CustomEventConversionGoal,
+    DateRange,
+    EventPropertyFilter,
+    HogQLQueryModifiers,
+    PersonPropertyFilter,
+    PropertyOperator,
+    SessionPropertyFilter,
+    WebOverviewQuery,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+)
+
+from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.models.scoping import team_scope
 
+from products.actions.backend.facade.testing import create_action
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
@@ -159,6 +176,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert user_run.get_cache_key() != bypass_run.get_cache_key()
         assert user_run.single_flight_variant() != bypass_run.single_flight_variant()
 
+    @parameterized.expand([("toggle_on", True, True), ("toggle_off", False, False)])
+    def test_precompute_toggle_shares_cache_only_when_on(self, _name: str, toggle: bool, shares_key: bool) -> None:
+        date_range = DateRange(date_from="2023-12-08", date_to="2023-12-15")
+        untouched = WebOverviewQuery(dateRange=date_range, properties=[])
+        toggled = WebOverviewQuery(dateRange=date_range, properties=[], useWebAnalyticsPrecompute=toggle)
+
+        untouched_key = WebOverviewQueryRunner(team=self.team, query=untouched).get_cache_key()
+        toggled_key = WebOverviewQueryRunner(team=self.team, query=toggled).get_cache_key()
+
+        assert (untouched_key == toggled_key) is shares_key
+
 
 class TestWebAnalyticsBreakdownTagging(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
@@ -207,3 +235,102 @@ class TestWebAnalyticsBreakdownTagging(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_calls = [c for c in spy.call_args_list if "breakdown_by" in c.kwargs]
         self.assertEqual(breakdown_calls, [], f"did not expect any breakdown_by tag, got: {spy.call_args_list}")
+
+
+class TestWebAnalyticsDatabaseBuild(ClickhouseTestMixin, APIBaseTest):
+    PERSON_FILTER = {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+    HOGQL_FILTER = {"key": "1 = 1", "type": "hogql"}
+
+    @parameterized.expand(
+        [
+            ("stats_table_without_filters", "stats_table", [], [], None, False),
+            ("overview_without_filters", "overview", [], [], None, False),
+            (
+                "stats_table_with_event_filter",
+                "stats_table",
+                [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)],
+                [],
+                None,
+                False,
+            ),
+            (
+                "stats_table_with_person_filter",
+                "stats_table",
+                [PersonPropertyFilter(key="email", value="test@posthog.com", operator=PropertyOperator.EXACT)],
+                [],
+                None,
+                False,
+            ),
+            ("overview_with_person_test_account_filter", "overview", [], [PERSON_FILTER], None, False),
+            ("overview_with_hogql_test_account_filter", "overview", [], [HOGQL_FILTER], None, True),
+            ("overview_with_custom_event_goal", "overview", [], [], "custom_event", False),
+            ("stats_table_with_person_action_goal", "stats_table", [], [], PERSON_FILTER, False),
+            ("stats_table_with_hogql_action_goal", "stats_table", [], [], HOGQL_FILTER, True),
+            (
+                "stats_table_with_built_in_session_filter",
+                "stats_table",
+                [SessionPropertyFilter(key="$entry_pathname", value="/", operator=PropertyOperator.EXACT)],
+                [],
+                None,
+                False,
+            ),
+            (
+                "stats_table_with_saved_session_expression_filter",
+                "stats_table",
+                [SessionPropertyFilter(key="is_long_session", value="1", operator=PropertyOperator.EXACT)],
+                [],
+                None,
+                True,
+            ),
+        ]
+    )
+    def test_full_database_is_built_only_when_a_filter_can_read_the_warehouse(
+        self, _name, kind, properties, test_account_filters, goal, builds_full_database
+    ):
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="sessions",
+                field_name="is_long_session",
+                expression="$session_duration > 60",
+            )
+        self.team.test_account_filters = test_account_filters
+        self.team.save()
+        conversion_goal: ActionConversionGoal | CustomEventConversionGoal | None = None
+        if goal == "custom_event":
+            conversion_goal = CustomEventConversionGoal(customEventName="signed_up")
+        elif goal is not None:
+            action = create_action(
+                team=self.team, name="Signed up", steps_json=[{"event": "signed_up", "properties": [goal]}]
+            )
+            conversion_goal = ActionConversionGoal(actionId=action.id)
+
+        date_range = DateRange(date_from="2024-01-01", date_to="2024-01-02")
+        filter_test_accounts = bool(test_account_filters)
+        runner: WebStatsTableQueryRunner | WebOverviewQueryRunner
+        if kind == "stats_table":
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=date_range,
+                    properties=properties,
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    filterTestAccounts=filter_test_accounts,
+                    conversionGoal=conversion_goal,
+                ),
+            )
+        else:
+            runner = WebOverviewQueryRunner(
+                team=self.team,
+                query=WebOverviewQuery(
+                    dateRange=date_range,
+                    properties=properties,
+                    filterTestAccounts=filter_test_accounts,
+                    conversionGoal=conversion_goal,
+                ),
+            )
+
+        with mock.patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            runner.calculate()
+
+        assert create_for.called == builds_full_database

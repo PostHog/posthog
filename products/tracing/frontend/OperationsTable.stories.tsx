@@ -90,6 +90,18 @@ export const WithImpactColumns: Story = {
     },
 }
 
+export const AlertPresetsMenu: Story = {
+    args: { rows: ROWS, loading: false, windowMs: 3_600_000, onCreateAlert: () => {} },
+    parameters: {
+        // The menu opens in a portal outside the story root, so snapshot the whole viewport.
+        layout: 'fullscreen',
+        testOptions: { waitForSelector: '[data-attr="tracing-operation-alert-p95_latency"]' },
+    },
+    play: async ({ canvas, userEvent }) => {
+        await userEvent.click((await canvas.findAllByLabelText(/^More options for/))[0])
+    },
+}
+
 export const Empty: Story = {
     args: { rows: [], loading: false, windowMs: 3_600_000 },
 }

@@ -1,1 +1,1 @@
-0374_trace_spans_kafka_metrics_aggregating
+0388_query_log_archive_warehouse_table_ids

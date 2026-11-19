@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -82,7 +82,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
-from products.signals.backend.signal_metadata import SignalSourceReference
+from products.signals.backend.signal_metadata import ReportSignalMeta, SignalSourceReference
 from products.signals.backend.task_profiles import IMPLEMENTATION
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
@@ -604,6 +604,49 @@ def test_create_implementation_task_rejects_a_changed_reviewer_list(organization
         create_task.assert_not_called()
 
 
+@pytest.mark.django_db
+def test_autostart_blocks_a_repository_the_installation_no_longer_reaches(team: Team) -> None:
+    # A saved repository from a removed installation, or one a scout named, fails at clone. The
+    # dispatch paths that read the saved artefact without new research must not start on it.
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="current",
+        config={"installation_id": "current"},
+        repository_cache=[{"id": 1, "name": "new-app", "full_name": "example/new-app", "private": True}],
+        repository_cache_updated_at=timezone.now(),
+    )
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+
+    with (
+        patch(
+            "products.signals.backend.auto_start.database_sync_to_async",
+            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+        ),
+        patch("products.signals.backend.auto_start.assignment_side_effects_allowed", return_value=True),
+        patch.object(tasks_facade, "create_and_run_task") as create_task,
+    ):
+        outcome = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="example/old-app",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="A clear fix",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            priority=PriorityAssessment(explanation="Affects sessions", priority=Priority.P2),
+            reviewers_content=[_reviewer("example-reviewer")],
+        )
+
+    assert outcome == AutostartOutcome(
+        status="blocked", reason="Connect or repair GitHub access to the selected repository"
+    )
+    create_task.assert_not_called()
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("has_automatic_reviewer,enrolled", [(False, True), (True, True), (False, False)])
 def test_human_pin_does_not_authorize_automatic_execution(
@@ -686,8 +729,13 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
+    image_id = uuid4()
     SignalTeamConfig.objects.update_or_create(
-        team=team, defaults={"implementation_repositories": ["owner/assets", "other/assets", "owner/repo"]}
+        team=team,
+        defaults={
+            "implementation_repositories": ["owner/assets", "other/assets", "owner/repo"],
+            "implementation_custom_image_id": image_id,
+        },
     )
 
     created_tasks = []
@@ -753,6 +801,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     assert call_kwargs["github_access_repositories"] == ["owner/assets"]
     assert "`owner/assets`" in call_kwargs["description"]
     assert call_kwargs["repository"] == "owner/repo"
+    assert call_kwargs["extra_run_state"] == {"custom_image_id": str(image_id)}
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.
@@ -1433,7 +1482,13 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
 
     team, report = await sync_to_async(_setup)()
 
-    with patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock:
+    with (
+        patch("products.signals.backend.auto_start.posthoganalytics.capture") as capture_mock,
+        patch(
+            "products.signals.backend.auto_start.fetch_source_products_for_reports",
+            return_value={str(report.id): ReportSignalMeta(source_products=["github"], scout_name=None)},
+        ),
+    ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
             report_id=str(report.id),
@@ -1449,12 +1504,13 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    reasons = [
-        call.kwargs["properties"]["skip_reason"]
+    skipped = [
+        (call.kwargs["properties"]["skip_reason"], call.kwargs["properties"]["source_products"])
         for call in capture_mock.call_args_list
         if call.kwargs.get("event") == "signals_autostart_skipped"
     ]
-    assert reasons == [expect_skip_reason]
+    # The source lets a breakdown read whether reports from GitHub issues stop being held back.
+    assert skipped == [(expect_skip_reason, ["github"])]
     logged = await sync_to_async(
         SignalReportArtefact.objects.filter(team_id=team.id, report_id=report.id, type="autostart_skip").count
     )()
@@ -1769,19 +1825,25 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("repository_autostart_eligible", "user_triggered", "expect_task"),
+    ("repository_autostart_eligible", "user_triggered", "with_reviewer", "expect_task"),
     [
-        (True, False, True),
-        (False, False, False),
-        (False, True, True),
+        (True, False, False, True),
+        (False, False, False, False),
+        (False, False, True, False),
+        (False, True, False, True),
     ],
 )
 @pytest.mark.parametrize("monitoring,private_destination", [(False, False), (True, False), (True, True)])
-async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
-    repository_autostart_eligible, user_triggered, expect_task, monitoring: bool, private_destination: bool
+async def test_inferred_repository_starts_only_for_a_triggering_user(
+    repository_autostart_eligible,
+    user_triggered,
+    with_reviewer,
+    expect_task,
+    monitoring: bool,
+    private_destination: bool,
 ):
-    # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
-    # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.
+    # A repo read out of the report's own text is a target for whoever clicks Create PR, so no automatic
+    # path may start on it: a suggested reviewer authorizes the runner, not the destination.
     # It must still yield to a person: a later reviewer edit re-runs autostart as the editing user, and
     # the documented contract is that the report can open a draft PR then.
     Task = apps.get_model("tasks", "Task")
@@ -1790,8 +1852,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
     def _setup() -> tuple[Team, SignalReport, User]:
         organization = Organization.objects.create(name="inferred-org")
         team = Team.objects.create(organization=organization, name="inferred-team")
-        enabler = User.objects.create(email="inferred-enabler@example.com")
-        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        enabler = _create_org_member_with_github("inferred-enabler@example.com", organization, "InferredCat")
         SignalSourceConfig.objects.create(
             team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
         )
@@ -1859,7 +1920,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
                 actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
                 already_addressed=False,
             ),
-            reviewers_content=[],
+            reviewers_content=[_reviewer("inferredcat")] if with_reviewer else [],
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
             triggering_user_id=enabler.id if user_triggered else None,
             repository_autostart_eligible=repository_autostart_eligible,

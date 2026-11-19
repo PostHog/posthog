@@ -11,15 +11,18 @@ export function viewWebUrl(scope: ProjectScope | null, href: string | null): str
     return `${scope.host}/project/${scope.projectId}${href.startsWith('/') ? href : `/${href}`}`
 }
 
-const NAV_LIST_PATHS: Record<NavPin, string> = {
+/** A list with its own navigation tab: Home (Live) or a pinnable list. */
+export type NavList = NavPin | 'live'
+
+const NAV_LIST_PATHS: Record<NavList, string> = {
     errors: '/error_tracking',
     replay: '/replay/home',
     web_analytics: '/web',
     live: '/web/live',
 }
 
-/** The web page of a list that can sit in the navigation. */
-export function navListWebUrl(scope: ProjectScope | null, list: NavPin): string | undefined {
+/** The web page of a list that has a navigation tab, for its tabs menu. */
+export function navListWebUrl(scope: ProjectScope | null, list: NavList): string | undefined {
     return viewWebUrl(scope, NAV_LIST_PATHS[list])
 }
 

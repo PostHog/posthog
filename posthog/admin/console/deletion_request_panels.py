@@ -34,10 +34,11 @@ from posthog.models.data_deletion_request import (
     count_adhoc_event_deletion_backlog,
     count_remaining_for_request,
     fetch_deletion_stats,
-    refresh_deletion_stats,
+    unfinished_property_removals,
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.tasks.data_deletion_stats import DeletionStatsRefresh
 
 CLICKHOUSE = Owner(name="ClickHouse", crest="clickhouse", staff_group="ClickHouse Team")
 
@@ -115,6 +116,7 @@ class DeletionRequestOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = CLICKHOUSE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -143,7 +145,7 @@ class DeletionRequestOverviewPanel(Panel):
             Fact(label="Attempts", value=str(obj.attempt_count)),
         ]
         if obj.last_dagster_run_id:
-            # Facts link within PostHog only. The Django admin page links to the run in Dagster.
+            # Facts link within PostHog only, so the link to the run in Dagster is in the page header.
             facts.append(Fact(label="Last Dagster run", value=obj.last_dagster_run_id, mono=True))
         return facts
 
@@ -158,12 +160,15 @@ def fetch_stats(request: HttpRequest, obj: Model, form: forms.Form | None) -> Ht
         messages.success(request, f"Selector count: {obj.count} person targets.")
         return None
     try:
-        stats = refresh_deletion_stats(obj, user_id=request.user.pk)
+        started = DeletionStatsRefresh(obj.pk).start(user_id=request.user.pk)
     except Exception as error:
-        messages.error(request, f"Could not fetch stats: {error}")
+        messages.error(request, f"Could not start the stats fetch: {error}")
         return HttpResponse(status=502)
-    _log_change(request, obj, "Fetched ClickHouse stats.")
-    messages.success(request, f"Stats fetched: {stats['count']:,} matching events.")
+    if not started:
+        messages.info(request, "A stats fetch is already running for this request.")
+        return None
+    _log_change(request, obj, "Started a ClickHouse stats fetch.")
+    messages.success(request, "Counting the matching events in ClickHouse. Reload this page in a few minutes.")
     return None
 
 
@@ -192,12 +197,26 @@ class DeletionRequestStatsPanel(Panel):
     key = "stats"
     title = "ClickHouse stats"
     owner = CLICKHOUSE
+    order = 20
+
+    def _fetch_fact(self, obj: DataDeletionRequest) -> Fact | None:
+        refresh = DeletionStatsRefresh(obj.pk)
+        running_since = refresh.running_since()
+        if running_since is not None:
+            return Fact(label="Fetch", value=f"Counting since {_when(running_since)}", tone=Tone.INFO)
+        failure = refresh.last_failure()
+        if failure is not None:
+            return Fact(label="Fetch", value=f"Last fetch failed: {failure}", tone=Tone.WARNING)
+        return None
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
+        fetch_fact = self._fetch_fact(obj)
+        facts = [fetch_fact] if fetch_fact is not None else []
         if obj.stats_calculated_at is None:
-            return [Fact(label="Stats", value="Not fetched yet")]
+            return [*facts, Fact(label="Stats", value="Not fetched yet")]
         return [
+            *facts,
             Fact(label="Matching events", value=_number(obj.count)),
             Fact(label="Parts", value=_number(obj.part_count)),
             Fact(label="Parts size", value=filesizeformat(obj.parts_size or 0)),
@@ -208,21 +227,30 @@ class DeletionRequestStatsPanel(Panel):
         ]
 
     def operations(self, obj: Model) -> list[Operation]:
-        return [
-            Operation(
-                key="fetch",
-                label="Fetch stats",
-                handler=fetch_stats,
-                description="Counts the matching events in ClickHouse and saves the numbers on the request.",
-            ),
+        assert isinstance(obj, DataDeletionRequest)
+        operations = []
+        if DeletionStatsRefresh(obj.pk).running_since() is None:
+            operations.append(
+                Operation(
+                    key="fetch",
+                    label="Fetch stats",
+                    handler=fetch_stats,
+                    description=(
+                        "Counts the matching events in ClickHouse in the background and saves the numbers on the "
+                        "request."
+                    ),
+                )
+            )
+        operations.append(
             Operation(
                 key="preview",
                 label="Preview stats",
                 handler=preview_stats,
                 description="Counts the matching events without saving, for example while you change the criteria.",
                 gate=Gate.owner(),
-            ),
-        ]
+            )
+        )
+        return operations
 
 
 class AutoApprovableSubmitForm(ReasonForm):
@@ -441,11 +469,43 @@ def retry(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResp
     return None
 
 
+def _property_removal_run_unfinished(obj: DataDeletionRequest) -> bool:
+    return unfinished_property_removals().filter(pk=obj.pk).exists()
+
+
+def _refuse_while_a_property_removal_is_unfinished(
+    request: HttpRequest, obj: DataDeletionRequest
+) -> HttpResponse | None:
+    # The count reads only the table. An unfinished run may hold the team's rows only in its staged files.
+    unfinished = [
+        str(pk)
+        for pk in unfinished_property_removals()
+        .filter(team_id=obj.team_id)
+        .order_by("created_at")
+        .values_list("pk", flat=True)
+    ]
+    if not unfinished:
+        return None
+    if str(obj.pk) in unfinished:
+        messages.error(
+            request, "This property removal's run started and did not complete. Retry it until it completes."
+        )
+    else:
+        messages.error(
+            request,
+            f"Property removal {', '.join(unfinished)} on this team started and did not complete. Its run may hold "
+            "this request's rows in its staged files. Verify again after it completes.",
+        )
+    return HttpResponse(status=409)
+
+
 def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     assert isinstance(obj, DataDeletionRequest)
     # Read before counting, so a criteria edit during the count cannot mark the new criteria completed.
     revision = obj.criteria_updated_at
     prior_status = obj.status
+    if refused := _refuse_while_a_property_removal_is_unfinished(request, obj):
+        return refused
     try:
         remaining = count_remaining_for_request(obj)
     except Exception as error:
@@ -458,9 +518,15 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
             f"{obj.get_status_display().lower()}. Verify again after the next scheduled deletion.",
         )
         return None
+    # A run that started during the count may have moved rows into its staged files before the count read them.
+    if refused := _refuse_while_a_property_removal_is_unfinished(request, obj):
+        return refused
+    # A property removal's run can start during the count. The update checks for one again on the row itself,
+    # because Postgres rechecks only the updated row's own columns after it waits for the run's row lock.
     promoted = (
         DataDeletionRequest.objects.filter(pk=obj.pk, **_criteria_lookup(revision))
         .exclude(status=RequestStatus.COMPLETED)
+        .exclude(request_type=RequestType.PROPERTY_REMOVAL, property_removal_marker__isnull=False)
         .update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
     )
     if promoted:
@@ -472,6 +538,9 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
     if obj.status == RequestStatus.COMPLETED:
         messages.info(request, "Verified: no matching rows remain. It was already completed.")
         return None
+    if _property_removal_run_unfinished(obj):
+        messages.error(request, "This property removal's run started while it was verified, so it was not completed.")
+        return HttpResponse(status=409)
     messages.error(request, "The criteria changed while verifying, so the request was not completed. Verify again.")
     return HttpResponse(status=409)
 
@@ -485,6 +554,8 @@ class DeletionRequestWorkflowPanel(Panel):
     key = "workflow"
     title = "Workflow"
     owner = CLICKHOUSE
+    operation_keys = frozenset({"submit", "approve", "revert-to-draft", "retry", "verify"})
+    order = 30
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -659,7 +730,11 @@ def edit_criteria(request: HttpRequest, obj: Model, form: forms.Form | None) -> 
         if current[0] not in EDITABLE_STATUSES:
             messages.error(request, "The request was approved or started since you opened this form. Reload it.")
             return HttpResponse(status=409)
-        notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=False)
+        try:
+            notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=False)
+        except forms.ValidationError as error:
+            messages.error(request, " ".join(error.messages))
+            return HttpResponse(status=409)
         obj.save()
     _log_change(request, obj, change_message)
     _show_notices(request, notices)
@@ -684,6 +759,7 @@ class DeletionRequestCriteriaPanel(Panel):
     key = "criteria"
     title = "Criteria"
     owner = CLICKHOUSE
+    order = 40
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -732,7 +808,7 @@ class NewDeletionRequestTool(ConsoleTool):
     key = "new-deletion-request"
     title = "New deletion request"
     owner = CLICKHOUSE
-    group = "Data"
+    group = "Data deletion"
     description = "Creates a draft request to delete events, or properties from events, of one team."
 
     def page(self, request: HttpRequest) -> Page:
@@ -740,8 +816,8 @@ class NewDeletionRequestTool(ConsoleTool):
             blocks=(
                 Notice(
                     text="A new request starts as a draft. Nothing is deleted until it is submitted and approved.",
-                    link_text="All requests in Django admin",
-                    href="/admin/posthog/datadeletionrequest/",
+                    link_text="All requests",
+                    href="/admin/console/tools/deletion-requests/",
                 ),
             )
         )
@@ -758,3 +834,22 @@ class NewDeletionRequestTool(ConsoleTool):
                 description="Creates a draft and opens it. Nothing is deleted yet.",
             )
         ]
+
+
+for old, target in {
+    "submit": "workflow/submit/",
+    "approve": "workflow/approve/",
+    "retry": "workflow/retry/",
+    "revert-to-draft": "#panel-workflow",
+    "verify": "#panel-workflow",
+    "fetch-stats": "#panel-stats",
+    "preview-stats": "#panel-stats",
+}.items():
+    console.register_moved_action(
+        old_path=f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/", record="deletion-request", target=target
+    )
+console.register_moved_page(
+    old_path="admin/posthog/datadeletionrequest/add/",
+    title="Creating a deletion request",
+    url="/admin/console/tools/new-deletion-request/create/",
+)

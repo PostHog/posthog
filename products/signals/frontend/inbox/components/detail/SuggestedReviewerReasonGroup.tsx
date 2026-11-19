@@ -52,7 +52,7 @@ export function SuggestedReviewerReasonGroup({
                     {reason}
                 </p>
             </div>
-            <div className="mt-1 flex flex-col pl-3">
+            <div className="mt-1 flex flex-col">
                 {reviewers.map((reviewer) => {
                     const displayName = getReviewerDisplayName(reviewer)
 

@@ -103,11 +103,14 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   insets, so `useScreenInsets` uses the prototype's values there.
   A minimum 12pt top inset keeps floating controls away from the edge when the native status area moves to a side.
 - **Page titles.** Pushed pages share a 46pt navigation row and a 20pt gap before their title block.
-  Their blur fade ends 10pt before the content. `screenLayout` supplies these offsets to every page.
+  Their header backdrop ends 8pt after the navigation row. `screenLayout` supplies these offsets to every page.
   As the title scrolls under navigation, `ScreenChrome` fades in a smaller copy centered between the controls.
   The title truncates before either control and stays out of the accessibility tree; the content title remains the heading.
   This pattern covers Settings, browse lists, dashboards, insights, web analytics, scrollable full-screen charts,
   Errors, issues, Sessions, recordings, reports and full reports. Tab titles stay in their shared navigation row.
+- **Header backdrop.** Tab, pushed-page and chat headers use `HeaderBackdrop` with blur intensity 26.6 and the theme's existing tint. Blur and tint remain visible from the lower edge, gain strength through the upper half, and reach full strength at the top. Tab backdrops end just below the logo and title; status lines and controls do not extend them.
+  `ScreenBlur` keeps each screen's content inside an Android `BlurTargetView` and its header outside that target.
+  Reports and chat bodies can pass their existing target explicitly. Loading, empty and error states retain the same backdrop.
 - **Text wrapping.** The prototype sets `text-wrap: pretty`. iOS gets the same behavior from
   `lineBreakStrategyIOS="standard"`, and web from the CSS property (`prettyWrap`).
   Android wraps greedily.
@@ -128,6 +131,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
 - iOS follows the system's vertical-bar signal. When the rail is active, native tabs and stack toolbar buttons occupy it.
   Subscribe to Expo's initial edge event; its synchronous edge getter can deadlock React's event beat during startup.
   They use raster copies of the existing app glyphs, icon-only tab labels, and a distinct Chat action.
+  Tapping the selected tab in the floating bar or custom rail scrolls its list to the top. Switching tabs preserves the list position.
   Without a vertical rail, the native tab bar is hidden and the existing floating pill and Chat button remain.
   Native header options reset when the vertical system rail disappears.
   Navigation pin toasts and Undo live above the native tab host so tab visibility changes preserve them.
@@ -192,13 +196,15 @@ Optional recovery actions sit below the message and wrap on narrow screens.
 | `TextLinkRow`                         | `features/report/TextLinkRow.tsx`                          | Quiet 15pt ink link with a 14pt secondary chevron, or the external-link mark when it opens the browser. 32pt tall, so the hit slop reaches 44pt. No button chrome                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `ReportMarkdown`                      | `features/report/details/ReportMarkdown.tsx`               | The full report's markdown, on the shared parser in `lib/markdownIt.ts`. `summary` is 16pt ink with 17pt headings (`type.sectionHeader`); `signal` is 15pt. Fenced blocks are `MonoBlock`s, images are dropped, and `[label](chart:id)` reads as its label (`chartRefs.ts`)                                                                                                                                                                                                                                                                                                                                                         |
 | `MonoBlock`, `SignalCard`             | `features/report/details/`                                 | A fenced block on the trace's dark card (`type.mono`); a white bordered card per signal: source glyph, label, time and ticket number, then the content and Watch session                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `Sparkline`                           | `ui/Sparkline.tsx`                                         | 14 bars; height `max(2, round(v × 32 / max))`, capped at 32 (`sparklineMath.ts`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `Sparkline`                           | `ui/chart/Sparkline.tsx`                                   | SVG trend line for Number and Chart pins. The scale is not zero-based                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `SparkBars`                           | `ui/chart/SparkBars.tsx`                                   | Zero-based SVG bars for the Errors cards and the issue chart. Each chart scales to its own peak                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `OptionCard`                          | `ui/OptionCard.tsx`                                        | A sheet's single-choice rows with an icon and a check. The Inbox sort and the Errors sort use it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `TimelineItem`, `RichText`            | `ui/`                                                      | Activity entry with node, connector, `**bold**` text, via chip and time                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `FadeEdge`                            | `ui/FadeEdge.tsx`                                          | SVG gradient behind floating chrome (no gradient dependency)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `BlurEdge`                            | `ui/BlurEdge.tsx`                                          | Masked blur of the content under floating top chrome                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `BackChip`                            | `ui/BackChip.tsx`                                          | Report and Settings back button                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `EnvironmentRibbon`                   | `ui/EnvironmentRibbon.tsx`                                 | 28pt band above the sign-in logo and under the Settings title: amber for dev builds, purple for preview builds, red for a store build on a host that is not PostHog Cloud. Hidden in a store build on Cloud. Colors in `environmentRibbonColors`, text from `environmentBadge()`                                                                                                                                                                                                                                                                                                                                                    |
-| `StateView`, `LoadingView`            | `ui/StateView.tsx`                                         | Empty and error screens with a next action; loading spinner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `StateView`, `LoadingView`            | `ui/StateView.tsx`                                         | Empty and error screens with a next action, or a disabled action with its reason; loading spinner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `PostHogLogomark`, `PostHogLogo`      | `ui/icons/PostHogLogomark.tsx`, `ui/icons/PostHogLogo.tsx` | Brand logomark and landscape lockup as SVG, sized by `height`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Icons                                 | `ui/icons/*.tsx`                                           | One component per glyph, ported from the prototype's SVG paths                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -208,21 +214,23 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   It uses a gentle 720ms hop every 1.4 seconds, with 45ms between parts and a smooth start and landing.
   All four parts share one animation clock, and the logo stays still with reduced motion enabled.
   The native launch screen fades into this animation once the animated splash lays out.
-  The splash stays above the app until the session and first screen are ready, with the existing eight-second inbox timeout.
-- **Tabs header** (`features/tabs/TabsHeader.tsx`): Inbox, Chats and Views share one header that the
-  tabs layout draws once, like the bottom bar. The logomark and the tab's title sit at the same spot on
-  every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
-  publishes one (the Inbox); Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
+  The splash stays above the app until the session is ready and, when the app opens on the inbox, until the inbox loads, with an eight-second timeout.
+- **Tabs header** (`features/tabs/TabsHeader.tsx`): Home, Inbox, Chats and Views share one header that the
+  tabs layout draws once, like the bottom bar. Home is titled "Live", after the screen it shows.
+  Home's metrics card and the Chats and Views search fields start at the same position, 4pt below the shared content offset.
+  The logomark and the tab's title sit at the same spot on every tab, 7.5pt inside the content gutter.
+  This puts the logomark halfway between the Home metrics card's outer edge and its text.
+  The pill on the right holds More on every tab, and a filter button left of it on a tab that
+  publishes one (the Inbox), or a Pause or Resume button on Home; Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
   refresh, so the header has no refresh button. A tab may add a status line under the title (Views does); it
   and the refresh hint are absolutely positioned, so they never move the title row. Each screen publishes its
-  refresh hint, status line, filter button and menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
+  refresh hint, status line, filter button, Pause button and menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
   The logomark plays the splash's hop while the focused Inbox, Chats or Views page refreshes, including pull-to-refresh and automatic refreshes.
   It finishes its current hop when refreshing ends and stays still with reduced motion enabled.
 - **Inbox**: rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),
-  pull to refresh, floating nav pill (Home selected,
-  Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
-  opens a new chat sheet. Products opens the project's product library in the web app, and is
-  dimmed in demo mode or when the session has no project. A long press on a row (or the screen
+  pull to refresh, floating nav pill (Home, Inbox selected, Chats, Views) and the Chat button.
+  The Inbox slot has an 8pt blue dot while the loaded list has an unread report. Chats in the pill opens the Chats
+  screen; the Chat button opens a new chat sheet. A long press on a row (or the screen
   reader's "Show report actions") opens a menu with Hand off to the saved agent (PostHog,
   Claude Code or Codex), Reassign, Resolve, Dismiss, Chat and Mark as read (for an unread report) or Mark as unread.
   A full swipe on a row changes its read state: swipe right past 30% of the row marks the report read (blue),
@@ -246,8 +254,8 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   and an origin label, a status dot and the time under the title. A row opens the chat sheet on that
   task: the agent's thread, its PR card, and a pending decision above the composer. The nav pill
   shows Chats selected. Loading, error, empty and "No matches" are separate screens.
-- **Nav menu** (More in the tabs header): project name (opens the Project card), then on Views a section with
-  Edit pins, then Settings and Sign out.
+- **Nav menu** (More in the tabs header): project name (opens the Project card), then on Home a section with
+  Open on web and on Views a section with Edit pins, then Settings and Sign out.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   "Read the full report" (only when there is a summary or a signal), evidence (trace, quotes, replay), facts,
   the observation card, impact tiles, charts, activity, and the action bar.
@@ -292,19 +300,21 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   within each organization. It initially shows five projects in total. See more expands the full list,
   and See less collapses it again. Organization labels stay visible for accounts with multiple organizations.
   Appearance is Match system, Light or Dark, saved on the device; screens wait for it to load so they never paint in the wrong scheme.
-  Start page picks the tab the app opens on (Inbox, Chats, Views, Web analytics or Live) and is saved on the device (`defaultPageStore`).
-  Web analytics and Live open as their tabs; an unpinned one keeps its bar slot until the person leaves it.
+  Start page picks the tab the app opens on (Home, Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.
-  Until the person picks one, the app saves a start page once, on the first launch that knows whether the selected project's organization approved AI data processing: Views if it did not, Inbox if it did.
-  While that status is unknown, the app opens the inbox and saves nothing.
+  Until the person picks one, the app opens Home.
+  A start page that an earlier version saved as Inbox or Web analytics goes back to no choice once, and sends `mobile_default_page_migrated` (`from`, `to`),
+  because that version saved Inbox on its own for every organization that approved AI.
+  A saved Views stays: that version also saved Views on its own for organizations without AI approval, but most saved Views values were chosen in Settings.
 - **Errors list** (`features/errors/ErrorsListScreen.tsx`): one body in two chromes. Pushed from the Views Browse
   row, it draws the Back chip and More over a 28pt "Errors" title and the "Most users first · updated 5m ago" line; as
   a pinned tab, the tabs header draws the title and that line. Under them sit the 24h and 7d `SegmentedPill` and the New,
-  Spiking and Mine chips (ink fill when on; tapping the chip that is on clears it). Rows follow the inbox geometry:
-  the exception type on one line with a New (orange outline) or Spiking (orange fill, up arrow) badge, the exception
-  value in secondary text, then the owner's avatar, users and first seen in tertiary text. The list loads 15 issues
-  per page with a Load more footer; charts stay on the issue detail. Pull to refresh reloads the first page.
-  Loading (row-shaped blocks), "Couldn't load your
+  Spiking and Mine chips (ink fill when on; tapping the chip that is on clears it). On the pushed screen the caption
+  opens the sort sheet (Most users, Most sessions, Most occurrences). Each issue is a card: the exception type with a
+  New (orange outline) or Spiking (orange fill, up arrow) badge and the owner's avatar, the exception value in
+  secondary text, occurrences as `SparkBars` (orange from the spike or the first occurrence), then Users, Sessions and
+  Occurrences in compact counts. Zero sessions show "–". The list loads 15 issues per page with a Load more footer.
+  Pull to refresh reloads the first page. Loading (card-shaped blocks), "Couldn't load your
   errors" with Try again, the empty state per filter with its next step ("Show the last 7 days", "Show all active
   issues"), the Views sign-in state for missing scopes, and a demo state are separate screens. New and Spiking show
   "No matches in loaded issues" while more pages remain. Pending spike reads show "Checking for spikes…"; failed
@@ -314,8 +324,9 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   the status chip (the web's labels and colors: amber Active, green Resolved, red Suppressed) and the New or Spiking
   badge; the 22pt headline with the exception type in orange; a clock byline with first and last seen; the owner chip
   (dashed orange "Assign" when nobody owns it). Impact: the 24h and 7d segment, three tiles (users, sessions,
-  occurrences with a mono "last 24h"), and a card with the window's volume line and the trend caption ("Up 45%",
-  orange while rising). Release: version, short commit, branch and library, with "First seen in this release" when the
+  occurrences in compact counts with a mono "last 24h"; "–" for zero sessions or a failed read), and a card with the
+  window's `SparkBars` and the trend in a neutral pill ("↑ 45%"). Release: version, short commit, branch and library,
+  with "First seen in this release" when the
   first and latest releases match. Where it breaks: the dark trace card from the report (exception, innermost in-app
   frame, "In-app frame 1 of 4" and Show all, up to three frames), then path, browser, OS and app version shares as text
   and a stacked bar. Sessions: up to three rows ("Chrome on macOS", "Error 12m ago") that open the session screen.
@@ -332,6 +343,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   10 recordings per page with a Load more footer. Up to 5 optional recommendations load afterward under Worth watching,
   below the recordings; recommendations matching loaded recordings enrich those rows without moving them.
   Pull to refresh reloads the first page and the recommendations.
+  With **Exclude internal users** on, recommendations appear only with recordings that pass the filter.
   Loading (row-shaped blocks), "Couldn't load your sessions" with Try again, "No recordings yet", the sign-in state and
   the demo state are separate screens. More (pushed only) holds Pin to navigation or Unpin from navigation, with the
   Views toast and Undo, and Open on web.

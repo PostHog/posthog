@@ -14,12 +14,14 @@ from django.test import TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 
 import pyarrow as pa
+import structlog
 import pyarrow.parquet as pq
 from confluent_kafka import KafkaError
 from parameterized import parameterized
 
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Organization, Team
+from posthog.temporal.common.logger import LogMessagesRenderer
 
 from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -31,7 +33,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core imp
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_phase_timer import (
     PhaseTimer,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log import (
+    RUN_LOG_SOURCE,
+    PersonPropertyRunLog,
+)
 
+_RUN_LOG_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log"
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync"
 
 _SCHEMA = schema_binding("schema-1")
@@ -429,6 +436,7 @@ class TestRunOrchestration:
                 team_uuid="team-uuid",
                 run_token="job-1",
                 timer=PhaseTimer("incremental"),
+                run_log=PersonPropertyRunLog(1, _SCHEMA),
             )
             result = await pps._process_source_bundles(run, source, [("a", {"plan_tier": "pro"})], 1)
 
@@ -517,6 +525,70 @@ class TestBackfillOrchestration:
             prefix = pps._snapshot_prefix(1, _SCHEMA, source_id)
             assert [pps._s3_key(key) for key in files] == [f"{prefix}/{pps.BACKFILL_RUN_TOKEN}.parquet"]
             assert hashes == {"a": pps.bundle_hash({prop: "enterprise"}), "b": pps.bundle_hash({prop: "team"})}
+
+    @pytest.mark.asyncio
+    async def test_only_the_run_log_reaches_the_user_facing_log_source(self):
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})
+        batches: list[list[dict[str, str | None]]] = [
+            [{"distinct_id": "a", "plan": "pro"}, {"distinct_id": "ghost", "plan": "x"}],
+            [{"distinct_id": "b", "plan": "free"}],
+        ]
+        produced: list[dict] = []
+
+        def _capture(_logger, _method, rendered):
+            if rendered["produce_message"]:
+                produced.append(json.loads(rendered["produce_message"]))
+            raise structlog.DropEvent()
+
+        def _activity_context(_logger, _method, event):
+            return {
+                **event,
+                "workflow_type": "backfill-warehouse-person-properties",
+                "workflow_id": "backfill-warehouse-person-properties-1-schema-1",
+                "workflow_run_id": "run-1",
+                "timestamp": "2026-01-01 00:00:00.000000",
+            }
+
+        chain_logger = structlog.wrap_logger(
+            None,
+            processors=[
+                structlog.stdlib.add_log_level,
+                structlog.contextvars.merge_contextvars,
+                _activity_context,
+                structlog.processors.EventRenamer("msg"),
+                LogMessagesRenderer(event_key="msg"),
+                _capture,
+            ],
+        )
+
+        with (
+            _fake_s3_patch(_FakeS3()),
+            _delta_table_patch(batches),
+            patch(f"{_MODULE}.logger", chain_logger),
+            patch(f"{_RUN_LOG_MODULE}.get_produce_only_logger", return_value=chain_logger),
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}._delta_uri_for_binding", return_value="s3://bucket/table"),
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._filter_existing_ids", side_effect=lambda _t, _s, ids: set(ids) - {"ghost"}),
+            patch(f"{_MODULE}._produce_intents", side_effect=lambda _t, _k, _s, items, **_kw: {k for k, _ in items}),
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+        ):
+            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7)
+            await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="manual")
+
+        run_lines = [m for m in produced if m["log_source"] == RUN_LOG_SOURCE]
+        assert [(m["level"], m["message"]) for m in run_lines] == [
+            ("info", "Finding the latest row for each person"),
+            ("info", "Read 2 rows"),
+            ("info", "Checked 2 changed rows. 1 matches a person."),
+            ("info", "Sent 1 update"),
+            ("info", "Saving progress"),
+            ("info", "Finished. Updated 2 people."),
+        ]
+        assert {(m["team_id"], m["log_source_id"], m["instance_id"]) for m in run_lines} == {(1, "schema-1", "run-1")}
+        internal = [m for m in produced if m["log_source"] != RUN_LOG_SOURCE]
+        assert any(m["message"] == "person-property backfill: read full Delta table" for m in internal)
 
     @pytest.mark.asyncio
     async def test_compaction_keeps_this_runs_delivery_over_an_older_file_with_the_same_timestamp(self):

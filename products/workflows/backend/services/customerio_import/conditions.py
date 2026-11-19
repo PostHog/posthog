@@ -7,6 +7,7 @@ Entry filters and exit conditions use a nested `and`/`or` tree instead. Both rea
 import json
 import base64
 import binascii
+from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import unquote
@@ -71,7 +72,10 @@ def decode(encoded: str | None) -> list[dict[str, Any]] | None:
     return None
 
 
-def translate_condition(conditions: list[dict[str, Any]], segment_cohorts: dict[str, int]) -> Condition:
+def translate_condition(
+    conditions: list[dict[str, Any]], segment_cohorts: dict[str, int], pending_segments: Collection[str] = ()
+) -> Condition:
+    """`pending_segments` are segments a real import turns into cohorts. A preview leaves them out without a note."""
     properties: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     skipped: list[str] = []
@@ -85,6 +89,9 @@ def translate_condition(conditions: list[dict[str, Any]], segment_cohorts: dict[
                 properties.extend(filters)
         elif kind in ("segments_negatable", "segments"):
             cohort_filters = _cohort_filters(condition, segment_cohorts)
+            segments = [str(segment) for segment in condition.get("segments") or []]
+            if cohort_filters is None and len(segments) == 1 and segments[0] in pending_segments:
+                continue
             if cohort_filters is None:
                 skipped.append(describe(condition))
             else:

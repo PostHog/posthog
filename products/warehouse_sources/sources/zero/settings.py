@@ -108,6 +108,32 @@ ENDPOINT_CONFIGS: dict[str, ZeroEndpointConfig] = {
         scoped_by_workspace=False,
         incremental_fields=_datetime_incremental_fields(),
     ),
+    "Lists": ZeroEndpointConfig(
+        name="Lists",
+        path="/api/lists",
+        table_name="lists",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "Quotes": ZeroEndpointConfig(
+        name="Quotes",
+        path="/api/quotes",
+        table_name="quotes",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    # Zero documents these as "sequence enrollments"; the list endpoint is named after the
+    # SequenceContactStatus object (one row per contact per sequence).
+    "SequenceEnrollments": ZeroEndpointConfig(
+        name="SequenceEnrollments",
+        path="/api/sequenceContactStatuses",
+        table_name="sequence_enrollments",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
+    "SequenceSteps": ZeroEndpointConfig(
+        name="SequenceSteps",
+        path="/api/sequenceSteps",
+        table_name="sequence_steps",
+        incremental_fields=_datetime_incremental_fields(),
+    ),
 }
 
 ENDPOINTS: tuple[str, ...] = tuple(ENDPOINT_CONFIGS.keys())

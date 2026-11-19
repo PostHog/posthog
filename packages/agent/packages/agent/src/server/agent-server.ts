@@ -42,6 +42,14 @@ import {
   type StartupFailure,
 } from "@posthog/agent-contracts/startup-failure";
 import { execGh } from "@posthog/git/gh";
+import {
+  getGitlabCurrentUsername,
+  getGitlabMergeRequest,
+  isGitlabRun,
+  parseGitlabMergeRequestUrl,
+  parseGitlabRemoteProject,
+  resolveGitlabClient,
+} from "@posthog/git/gitlab";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
@@ -253,6 +261,14 @@ const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
 const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
+const KNOWLEDGE_WRITER_ORIGIN_PRODUCT = "knowledge_writer";
+
+export function codexProcessCwd(
+  config: Pick<AgentServerConfig, "repositoryPath" | "repoReadyFile">,
+): string {
+  if (config.repoReadyFile) return "/tmp/workspace";
+  return config.repositoryPath ?? "/tmp/workspace";
+}
 
 export function systemPromptAppendText(
   prompt: ClaudeCodeConfig["systemPrompt"],
@@ -380,6 +396,7 @@ export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
 export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
   "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.";
 export const MESSAGE_DRIVEN_RESUME_CAPABILITY = "prewarmedResumeMessageDriven";
+export const LAUNCH_BEFORE_REPO_READY_CAPABILITY = "launchBeforeRepoReady";
 
 export interface PreparedInitialTaskMessage {
   taskRun: TaskRun;
@@ -481,12 +498,15 @@ interface PrAttribution {
 
 const GITHUB_REMOTE_REGEX = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i;
 
-export function parseGithubRemoteRepository(
+// `owner/name` for a GitHub remote, or the full project path for a gitlab.com
+// remote, lowercased to match `parsePrRepository`.
+export function parseRemoteRepository(
   remoteUrl: string | null | undefined,
 ): string | null {
   if (!remoteUrl) return null;
   const match = GITHUB_REMOTE_REGEX.exec(remoteUrl.trim());
-  return match ? match[1].toLowerCase() : null;
+  if (match) return match[1].toLowerCase();
+  return parseGitlabRemoteProject(remoteUrl)?.toLowerCase() ?? null;
 }
 
 // Branches the run has pushed, as recorded on its task run by signed commits
@@ -529,6 +549,7 @@ export class AgentServer {
   private httpReadyBootMs?: number;
   private commandDispatchedRunId?: string;
   private barrierReleasedAtMs?: number;
+  private repoReadyTimeoutMs = 40 * 60_000;
   private bootTracker: AgentBootTracker;
   private logger: Logger;
   private server: ServerType | null = null;
@@ -551,6 +572,7 @@ export class AgentServer {
   private productSession: SessionBehavior = {};
   private productLaunch: ProductLaunchConfiguration;
   private taskRepositories: string[] = [];
+  private taskOriginProduct: string | null = null;
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
   private readonly evaluatedPrUrls = new Set<string>();
@@ -679,6 +701,15 @@ export class AgentServer {
     });
   };
 
+  private createLogger(prefix: string): Logger {
+    return new Logger({
+      debug: true,
+      level: this.config.logLevel ?? "debug",
+      format: this.config.logFormat,
+      prefix,
+    });
+  }
+
   constructor(config: AgentServerConfig) {
     this.config = config;
     this.productLaunch = {
@@ -697,7 +728,7 @@ export class AgentServer {
     this.posthogExecPermissionRegex = compilePostHogExecPermissionRegex(
       this.posthogExecPermissionRegexSource,
     );
-    this.logger = new Logger({ debug: true, prefix: "[AgentServer]" });
+    this.logger = this.createLogger("[AgentServer]");
     this.posthogAPI = new PostHogAPIClient({
       apiUrl: config.apiUrl,
       projectId: config.projectId,
@@ -768,7 +799,11 @@ export class AgentServer {
           mode: this.getEffectiveMode(payload),
           agentVersion: this.config.version ?? packageJson.version,
         },
-        new Logger({ debug: false, prefix: "[OtelRunTelemetry]" }),
+        new Logger({
+          debug: false,
+          format: this.config.logFormat,
+          prefix: "[OtelRunTelemetry]",
+        }),
       );
     } catch (error) {
       this.logger.warn("Failed to initialize OTel run telemetry", error);
@@ -826,6 +861,7 @@ export class AgentServer {
         capabilities: [
           PREWARMED_RESUME_IDLE_CAPABILITY,
           MESSAGE_DRIVEN_RESUME_CAPABILITY,
+          LAUNCH_BEFORE_REPO_READY_CAPABILITY,
         ],
       });
     });
@@ -1101,11 +1137,12 @@ export class AgentServer {
         runId: resumeRunId,
         repositoryPath: this.config.repositoryPath,
         apiClient: this.posthogAPI,
-        logger: new Logger({ debug: true, prefix: "[Resume]" }),
+        logger: this.createLogger("[Resume]"),
       });
       if (this.session?.payload.run_id === currentRunId) {
         this.session.contextSelection.resetHistory(
           formatConversationForResume(this.resumeState.conversation),
+          this.resumeState.injectedReferences,
         );
       }
       this.logger.debug("Resume state loaded", {
@@ -1975,6 +2012,7 @@ export class AgentServer {
   private createContextSelection(
     runId: string,
     history: string,
+    injected: string[] = [],
   ): ContextSelection {
     return new ContextSelection(
       this.contextSelectionAPI,
@@ -1988,6 +2026,7 @@ export class AgentServer {
         ),
       this.config.version ?? packageJson.version,
       history,
+      injected,
     );
   }
 
@@ -2203,6 +2242,7 @@ export class AgentServer {
     };
     const launch = readRunLaunch(launchSources);
     this.taskRepositories = launch.repositories;
+    this.taskOriginProduct = launch.originProduct;
 
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
@@ -2303,7 +2343,7 @@ export class AgentServer {
 
     const logWriter = new SessionLogWriter({
       posthogAPI,
-      logger: new Logger({ debug: true, prefix: "[SessionLogWriter]" }),
+      logger: this.createLogger("[SessionLogWriter]"),
       sinks: telemetry ? [telemetry] : undefined,
     });
 
@@ -2358,6 +2398,7 @@ export class AgentServer {
         this.handleAcpTransportMessage(message, eventId),
       stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
+      claudeAgentLogger: this.createLogger("[ClaudeAcpAgent]"),
       processCallbacks: isTaskRunSandbox(process.env)
         ? {
             onProcessSpawned: ({ pid }) => {
@@ -2383,7 +2424,7 @@ export class AgentServer {
       codexOptions:
         runtimeAdapter === "codex"
           ? {
-              cwd: this.config.repositoryPath ?? "/tmp/workspace",
+              cwd: codexProcessCwd(this.config),
               // Routing a plan run through the gateway would bill us as well.
               ...(codexSubscriptionTokens
                 ? {}
@@ -2626,6 +2667,7 @@ export class AgentServer {
         resumeState
           ? formatConversationForResume(resumeState.conversation)
           : "",
+        resumeState?.injectedReferences ?? [],
       ),
       cancellationVersion: 0,
       payload,
@@ -2841,6 +2883,7 @@ export class AgentServer {
     ) {
       return { stopReason: "cancelled" };
     }
+    session.contextSelection.recordInjected(context);
     const result = await session.clientConnection.prompt({
       ...request,
       prompt: context
@@ -4473,9 +4516,8 @@ export class AgentServer {
       return;
     }
 
-    const REPO_READY_TIMEOUT_MS = 5 * 60_000;
     const result = await waitForFile(readyFile, {
-      timeoutMs: REPO_READY_TIMEOUT_MS,
+      timeoutMs: this.repoReadyTimeoutMs,
       onError: (error) => {
         this.logger.debug("Repo-ready barrier check failed", {
           readyFile,
@@ -4486,11 +4528,9 @@ export class AgentServer {
     });
     this.barrierReleasedAtMs = Date.now();
     if (result.timedOut) {
-      this.logger.warn("Repo-ready barrier timed out; proceeding", {
-        readyFile,
-        waitedMs: result.waitedMs,
-      });
-      return;
+      throw new Error(
+        `Repository was not ready after ${result.waitedMs}ms: ${readyFile}`,
+      );
     }
     this.logger.debug("Repo-ready barrier released", {
       readyFile,
@@ -4617,7 +4657,7 @@ export class AgentServer {
    * Products such as the Slack app and the Self-driving inbox auto-publish by
    * default, and manual runs auto-publish when the user opted in (Settings → Advanced, sent as
    * autoPublish). Every other run is review-first unless the user explicitly
-   * asks, and createPr=false always disables publishing.
+   * asks, and createPr=false disables publishing except a knowledge_writer run pushing its task branch.
    */
   private shouldAutoPublishCloudChanges(): boolean {
     return (
@@ -4818,10 +4858,13 @@ export class AgentServer {
     return new CloudTaskPrompt({
       apiUrl: this.config.apiUrl,
       baseBranch: this.config.baseBranch,
+      branchPushOnly:
+        this.taskOriginProduct === KNOWLEDGE_WRITER_ORIGIN_PRODUCT,
       createPr: this.config.createPr,
       hasGithubToken: Boolean(resolveGithubToken()),
       identityInstructions: this.productSession.identityInstructions,
       deliveryInstructions: this.productSession.deliveryInstructions,
+      gitProvider: isGitlabRun() ? "gitlab" : "github",
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),
       shouldAutoPublish: this.shouldAutoPublishCloudChanges(),
@@ -4858,14 +4901,12 @@ export class AgentServer {
     }
   }
 
-  // The checked-out branch and the GitHub repository its `origin` points at, or
-  // null without a checkout (no-repository mode) or on a detached HEAD.
   private async getCurrentCheckout(): Promise<OwnedBranch | null> {
     const branch = await this.getCurrentGitBranch();
     if (!branch || !this.config.repositoryPath) return null;
     let repository: string | null = null;
     try {
-      repository = parseGithubRemoteRepository(
+      repository = parseRemoteRepository(
         await getRemoteUrl(this.config.repositoryPath),
       );
     } catch (error) {
@@ -5424,9 +5465,12 @@ export class AgentServer {
     let checkout: OwnedBranch | null;
     let freshOutput: Record<string, unknown> | null;
     try {
+      const gitlabMr = parseGitlabMergeRequestUrl(prUrl);
       [attribution, ghLogin, checkout, freshOutput] = await Promise.all([
-        this.fetchPrAttribution(prUrl),
-        this.fetchGhLogin(),
+        gitlabMr
+          ? this.fetchGitlabMrAttribution(gitlabMr.projectPath, gitlabMr.iid)
+          : this.fetchPrAttribution(prUrl),
+        gitlabMr ? this.fetchGitlabLogin() : this.fetchGhLogin(),
         this.getCurrentCheckout(),
         this.posthogAPI
           .getTaskRun(payload.task_id, payload.run_id)
@@ -5551,6 +5595,52 @@ export class AgentServer {
     } catch {
       return unknown;
     }
+  }
+
+  private async fetchGitlabMrAttribution(
+    projectPath: string,
+    iid: number,
+  ): Promise<PrAttribution> {
+    const unknown: PrAttribution = {
+      createdAt: null,
+      author: null,
+      headRefName: null,
+      isCrossRepository: null,
+    };
+    const client = resolveGitlabClient();
+    if (!client) return unknown;
+    try {
+      const mr = await getGitlabMergeRequest(client, projectPath, iid);
+      return {
+        createdAt: mr.created_at,
+        author: mr.author_username,
+        headRefName: mr.source_branch,
+        isCrossRepository:
+          mr.source_project_id !== null && mr.target_project_id !== null
+            ? mr.source_project_id !== mr.target_project_id
+            : null,
+      };
+    } catch {
+      return unknown;
+    }
+  }
+
+  private gitlabLoginPromise: Promise<string | null> | null = null;
+
+  private fetchGitlabLogin(): Promise<string | null> {
+    if (this.gitlabLoginPromise !== null) return this.gitlabLoginPromise;
+    const client = resolveGitlabClient();
+    if (!client) return Promise.resolve(null);
+    this.gitlabLoginPromise = getGitlabCurrentUsername(client)
+      .then((login) => {
+        if (!login) this.gitlabLoginPromise = null;
+        return login;
+      })
+      .catch(() => {
+        this.gitlabLoginPromise = null;
+        return null;
+      });
+    return this.gitlabLoginPromise;
   }
 
   private ghLoginPromise: Promise<string | null> | null = null;
@@ -5746,6 +5836,15 @@ export class AgentServer {
       message.method === POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED
     ) {
       this.session.contextSelection.resetHistory();
+    }
+    if (
+      this.session &&
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      message.method === POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY
+    ) {
+      this.session.contextSelection.forgetInjected();
     }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {
