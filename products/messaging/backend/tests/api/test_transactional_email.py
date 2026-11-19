@@ -1206,12 +1206,15 @@ class TestTransactionalEmail(APIBaseTest):
         + [
             ("template_id_on_the_key_scoped_path_a_time", "send_email_key_scoped", "2026-11-20T09:00:00Z"),
             ("template_key_on_the_key_scoped_path_a_time", "code_key_scoped", "2026-11-20T09:00:00Z"),
+            ("template_id_of_a_deleted_template_a_time", "send_email", "2026-11-20T09:00:00Z"),
         ]
     )
     def test_a_send_refuses_a_scheduled_at_while_scheduled_sends_are_off(
-        self, mock_post, flag, _capture, _name, route, scheduled_at
+        self, mock_post, flag, _capture, name, route, scheduled_at
     ):
         flag.side_effect = lambda key, *_args, **_kwargs: key != EMAIL_SCHEDULED_SENDS_FLAG
+        if "deleted_template" in name:
+            MessageTemplate.objects.filter(id=self.template.id).update(deleted=True)
         psak = self._psak_client(["hog_flow:write"])
 
         with FakeCdpApi().serving(mock_post) as cdp:

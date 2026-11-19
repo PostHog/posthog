@@ -1202,7 +1202,6 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         idempotency_key = request.headers.get("Idempotency-Key")
         attachments = request.validated_data.get("attachments") or []
         scheduled_at = request.validated_data.get("scheduled_at")
-        _check_scheduled_at(self.team, scheduled_at)
         outcome: dict[str, Any] = {"outcome": "error"}
         scheduled_by_cdp = False
         try:
@@ -1737,6 +1736,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             return self._send_code_email(request)
         with transactional_email_stage("feature_flag"):
             self._require_transactional_email_flag()
+            _check_scheduled_at(self.team, request.validated_data.get("scheduled_at"))
         with transactional_email_stage("template_lookup"):
             template = self.get_object()
         return self._queue_transactional_email(request, template)
@@ -1744,6 +1744,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     def _send_code_email(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):
             require_email_from_code(self.team)
+            _check_scheduled_at(self.team, request.validated_data.get("scheduled_at"))
         data = request.validated_data
         key = data["template_key"]
         with transactional_email_stage("workflow_access"):
