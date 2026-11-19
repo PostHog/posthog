@@ -6084,6 +6084,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['hogflowQueue'] = createMockJobQueue()
             jest.spyOn(api['hogflowQueue'], 'queueInvocations').mockImplementation(mockQueueInvocations)
         })
 
