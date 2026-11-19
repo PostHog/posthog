@@ -1,6 +1,6 @@
 import {
     countUnresolved,
-    personPropertiesUsed,
+    propertiesUsed,
     renderEmailPreview,
     renderEmailPreviewMarked,
     renderEmailPreviewText,
@@ -80,10 +80,10 @@ describe('renderEmailPreview', () => {
         expect(renderEmailPreview(template, person)).toBe(template)
     })
 
-    it('finds person properties the editor wrote in bracket notation', () => {
-        expect(personPropertiesUsed(['{{ person.properties.plan }} {{ person.properties["renews on"] }}'])).toEqual([
-            'plan',
-            'renews on',
+    it('finds properties the editor wrote in bracket notation', () => {
+        expect(propertiesUsed(['{{ person.properties.plan }} {{ event.properties["renews on"] }}'])).toEqual([
+            'person.properties.plan',
+            'event.properties.renews on',
         ])
     })
 

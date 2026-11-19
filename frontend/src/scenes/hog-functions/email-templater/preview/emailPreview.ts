@@ -4,6 +4,8 @@ import { LiquidRenderer } from 'lib/utils/liquid'
 export interface EmailPreviewPerson {
     id: string
     properties: Record<string, any>
+    /** The event that would have triggered the send, for templates that read `event`. */
+    event?: { properties: Record<string, any> }
 }
 
 /**
@@ -46,6 +48,7 @@ export function renderEmailPreview(
             id: person.id,
             properties: withoutFences(person.properties),
         },
+        event: person.event,
         // Injected by the email service per recipient. Stand it in so a preview doesn't report the
         // unsubscribe link every marketing email carries as a missing variable.
         unsubscribe_url: '#unsubscribe',
@@ -133,16 +136,16 @@ export function withUnresolvedChips(html: string): string {
     return doctype + doc.documentElement.outerHTML
 }
 
-/** The person properties the templates read, for the custom person form. */
-export function personPropertiesUsed(templates: string[]): string[] {
-    const keys = templates.flatMap((template) =>
+/** The person and event properties the templates read, as paths like `event.properties.plan`, for the custom person form. */
+export function propertiesUsed(templates: string[]): string[] {
+    const paths = templates.flatMap((template) =>
         // The editor writes `person.properties["renews on"]` for a key that isn't a plain name.
         Array.from(
-            template.matchAll(/\bperson\.properties(?:\.([A-Za-z0-9_$]+)|\[\s*["']([^"']+)["']\s*\])/g),
-            (match) => match[1] ?? match[2]
+            template.matchAll(/\b(person|event)\.properties(?:\.([A-Za-z0-9_$]+)|\[\s*["']([^"']+)["']\s*\])/g),
+            (match) => `${match[1]}.properties.${match[2] ?? match[3]}`
         )
     )
-    return Array.from(new Set(keys))
+    return Array.from(new Set(paths))
 }
 
 /** Renders as plain text, with each missing value read out as its label, for one-line summaries. */
