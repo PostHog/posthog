@@ -792,13 +792,18 @@ def _template_key(target: _Target, name: str, version_tag: str | None) -> str:
     """Stable across imports, so a rerun finds what it made. Mailgun names repeat across domains and regions and can
     hold characters a key can't, so a name or domain that lost characters also carries a hash of the original."""
     scope = [part for part in ("eu" if target.region == MailgunRegion.EU else "", target.owner, target.name) if part]
-    return "-".join(
+    key = "-".join(
         [
             *(_hashed_key_part(part) for part in scope),
             _hashed_key_part(name),
             *(["version", _hashed_key_part(version_tag)] if version_tag else []),
         ]
-    )[:TEMPLATE_KEY_MAX_LENGTH]
+    )
+    if len(key) <= TEMPLATE_KEY_MAX_LENGTH:
+        return key
+    # Cutting alone would give two keys that differ only at the end the same key, so the cut one ends in a hash.
+    digest = hashlib.sha256(key.encode()).hexdigest()[:10]
+    return f"{key[: TEMPLATE_KEY_MAX_LENGTH - len(digest) - 1]}-{digest}"
 
 
 def _key_part(value: str) -> str:

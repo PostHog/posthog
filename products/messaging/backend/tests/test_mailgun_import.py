@@ -24,7 +24,14 @@ from products.messaging.backend.models.provider_import_run import ProviderImport
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
-from products.messaging.backend.provider_imports.mailgun import COMPLAINT_REASON_PREFIX, MailgunImportProvider
+from products.messaging.backend.provider_imports.mailgun import (
+    COMPLAINT_REASON_PREFIX,
+    TEMPLATE_KEY_MAX_LENGTH,
+    MailgunImportProvider,
+    _Target,
+    _template_key,
+)
+from products.messaging.backend.services.mailgun_client import MailgunRegion
 from products.messaging.backend.services.suppression import ComplaintConfirmationRequired, remove_suppressions
 from products.messaging.backend.tests.fake_mailgun import (
     ANALYST_KEY,
@@ -518,6 +525,17 @@ class TestMailgunImport(BaseTest):
         name = quote("a/b?c#d", safe="")
         assert any(call["path"] == f"/v4/templates/{name}" for call in self.mailgun.calls)
         assert MessageTemplate.objects.filter(team_id=self.team.id, name="a/b?c#d").exists()
+
+
+class TestMailgunTemplateKeys(SimpleTestCase):
+    def test_long_keys_that_differ_only_at_the_end_stay_apart(self) -> None:
+        target = _Target(region=MailgunRegion.US, owner="", name="d" * 200, path="/v3/x/templates")
+        tags = ["v" * 100 + "a", "v" * 100 + "b"]
+
+        keys = [_template_key(target, "n" * 150, tag) for tag in tags]
+
+        assert keys[0] != keys[1]
+        assert all(len(key) <= TEMPLATE_KEY_MAX_LENGTH for key in keys)
 
 
 class TestMailgunSettings(SimpleTestCase):
