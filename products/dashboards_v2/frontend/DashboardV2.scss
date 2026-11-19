@@ -156,6 +156,29 @@
             }
         }
 
+        &.react-resizable-handle-w {
+            inset: 0 auto 12px -6px;
+            width: 12px;
+            cursor: ew-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
+        &.react-resizable-handle-sw {
+            inset: auto auto -6px -6px;
+            width: 18px;
+            height: 18px;
+            cursor: nesw-resize;
+            transform: none;
+
+            &::after {
+                display: none;
+            }
+        }
+
         &.react-resizable-handle-s {
             inset: auto 12px -6px 0;
             height: 12px;

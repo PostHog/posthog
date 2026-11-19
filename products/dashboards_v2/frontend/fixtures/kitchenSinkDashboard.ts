@@ -45,7 +45,7 @@ export const kitchenSinkDashboard: Dashboard = {
             tiles: [
                 ...statRow('ks-stat', 0, 24, ['Visitors', 'Sessions', 'Signups', 'Revenue']),
                 tile('ks-trend', 0, 3, 16, 8, line('Signups over time')),
-                tile('ks-notes', 16, 3, 8, 8, text('## Notes\n\nDrag a tile by its title. Resize it from its right or bottom edge.')),
+                tile('ks-notes', 16, 3, 8, 8, text('## Notes\n\nDrag a tile by its title. Resize it from its left, right or bottom edge.')),
                 section('ks-section', 0, 11, 24, 'Section with tiles', [
                     tile('ks-s-bar', 0, 0, 12, 7, bar('Signups by country')),
                     tile('ks-s-line', 12, 0, 12, 7, line('Activation')),

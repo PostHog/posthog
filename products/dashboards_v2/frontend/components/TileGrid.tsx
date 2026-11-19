@@ -38,7 +38,7 @@ function toLayout(tiles: Tile[]): Layout {
             ...item,
             minH: isSection(tile) ? item.h : widgetSize(tile.widget).minH,
             maxH: isSection(tile) ? item.h : undefined,
-            resizeHandles: isSection(tile) ? ['e'] : ['e', 's', 'se'],
+            resizeHandles: isSection(tile) ? ['w', 'e'] : ['w', 'e', 's', 'sw', 'se'],
         }
     })
 }
