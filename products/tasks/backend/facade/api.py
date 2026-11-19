@@ -68,10 +68,14 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
-from posthog.models.github_integration_base import GitHubIntegrationError, ReauthorizationRequired
+from posthog.models.github_integration_base import (
+    GitHubIntegrationBase,
+    GitHubIntegrationError,
+    ReauthorizationRequired,
+)
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
-from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import NoAccessibleRepositories, UserGitHubIntegration, UserIntegration
 from posthog.scopes.checks import scopes_not_covered
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, resolve_scopes
 from posthog.user_permissions import UserPermissions
@@ -6723,6 +6727,9 @@ def check_personal_github_repo_access(user_id: int, repository: str) -> contract
     selected repositories can be healthy but not include this repository. A transient GitHub
     failure returns OK, so that a GitHub outage does not block a task here.
     """
+    from products.tasks.backend.temporal.process_task.sandbox_credentials import (  # noqa: PLC0415 — keep temporalio off the api import path
+        resolve_coordinated_user_token,
+    )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         user_github_integration_is_usable,
     )
@@ -6741,15 +6748,25 @@ def check_personal_github_repo_access(user_id: int, repository: str) -> contract
         if github.needs_reauthorization or not user_github_integration_is_usable(github):
             continue
         try:
-            # Ask for user access first. `installation_can_access_repository` converts
-            # ReauthorizationRequired to False, so without this call a revoked token would
-            # look like missing repo access. The user check result is cached for the second call.
-            if github.user_can_open_repository(repository) and github.installation_can_access_repository(
-                repository, raise_on_transient=True
+            # GitHub rotates the refresh token on every refresh, so a refresh that races the
+            # task's own provisioning makes one side fail and strips the user's tokens. Refresh
+            # under the same per-integration lock that provisioning uses. If the lock wait runs
+            # out, the token is still expired, and the probes below would refresh it without
+            # the lock, so skip the check.
+            resolve_coordinated_user_token(github)
+            if github.user_access_token_expired():
+                return contracts.PersonalGitHubRepoAccess.OK
+            # Call the base installation probe directly. The `UserGitHubIntegration` override
+            # converts ReauthorizationRequired to False, which would show a revoked token as
+            # missing repo access.
+            if github.user_can_open_repository(repository) and GitHubIntegrationBase.installation_can_access_repository(
+                github, repository, raise_on_transient=True
             ):
                 return contracts.PersonalGitHubRepoAccess.OK
         except ReauthorizationRequired:
             continue
+        except NoAccessibleRepositories:
+            pass
         except GitHubIntegrationError:
             return contracts.PersonalGitHubRepoAccess.OK
         any_usable = True

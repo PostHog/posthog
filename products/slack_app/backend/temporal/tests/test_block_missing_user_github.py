@@ -1,3 +1,6 @@
+import time
+import contextlib
+
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -9,13 +12,15 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import NoAccessibleRepositories, UserIntegration
 
 from products.slack_app.backend.temporal import (
     PostHogCodeSlackMentionWorkflowInputs,
     block_posthog_code_task_if_no_personal_github_activity,
 )
 from products.slack_app.backend.temporal.helpers import warn_if_personal_github_cannot_open_repository
+from products.tasks.backend.facade.api import check_personal_github_repo_access
+from products.tasks.backend.facade.contracts import PersonalGitHubRepoAccess
 
 _GITHUB_APP_INSTALL_URL = "https://github.com/apps/posthog-test/installations/new"
 
@@ -187,6 +192,22 @@ class TestWarnIfPersonalGitHubCannotOpenRepository(TestCase):
                 "can't access `example/project`",
                 ["Manage repository access", "Check connection"],
             ),
+            (
+                "token_revoked_after_cached_user_check",
+                {},
+                "example/project",
+                ReauthorizationRequired("rejected"),
+                "expired",
+                ["Reconnect GitHub"],
+            ),
+            (
+                "installation_has_no_repos_for_user",
+                {},
+                "example/project",
+                NoAccessibleRepositories("none"),
+                "can't access `example/project`",
+                ["Manage repository access", "Check connection"],
+            ),
         ]
     )
     def test_warns_only_when_an_existing_connection_cannot_open_the_repository(
@@ -239,3 +260,30 @@ class TestWarnIfPersonalGitHubCannotOpenRepository(TestCase):
         assert buttons[-1]["url"].endswith(f"/project/{self.team.id}/settings/user-personal-integrations")
         if "Manage repository access" in expected_buttons:
             assert buttons[0]["url"] == _GITHUB_APP_INSTALL_URL
+
+    def test_skips_the_check_when_another_caller_holds_the_token_rotation_lock(self):
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="gh-1",
+            config={"user_access_token_expires_at": int(time.time()) - 60},
+            sensitive_config={"user_access_token": "at", "user_refresh_token": "rt"},
+        )
+
+        @contextlib.contextmanager
+        def lock_held_elsewhere(*_args, **_kwargs):
+            yield False
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials._redis_lock",
+                side_effect=lock_held_elsewhere,
+            ),
+            patch(
+                "posthog.models.user_integration.UserGitHubIntegration.refresh_user_access_token",
+                side_effect=AssertionError("refreshed the rotating token outside the lock"),
+            ),
+        ):
+            access = check_personal_github_repo_access(self.user.id, "example/project")
+
+        assert access == PersonalGitHubRepoAccess.OK
