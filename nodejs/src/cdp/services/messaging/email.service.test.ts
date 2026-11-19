@@ -1317,7 +1317,7 @@ describe('EmailService', () => {
                     const holdThenSend = async (
                         minutesHeld: number,
                         sesFault: FakeSesFault | null = null
-                    ): Promise<CyclotronJobInvocationResult> => {
+                    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> => {
                         const heldAt = Date.now()
                         jest.spyOn(Date, 'now').mockReturnValue(heldAt)
                         await drainTeamCap(team.id, 10)
