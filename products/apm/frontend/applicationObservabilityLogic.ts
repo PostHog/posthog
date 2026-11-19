@@ -265,7 +265,7 @@ export interface applicationObservabilityLogicMeta {
             serviceUsageLoading: boolean
         ) => boolean
         usageRows: (serviceUsage: ServiceUsageResponseApi | null) => ServiceUsageApi[]
-        timeRange: (pickedTimeRange: any, tab: ApplicationObservabilityTab) => TimeRange
+        timeRange: (pickedTimeRange: TimeRange | null, tab: ApplicationObservabilityTab) => TimeRange
         attentionCount: (services: ServiceHealthApi[]) => number
     }
 }
