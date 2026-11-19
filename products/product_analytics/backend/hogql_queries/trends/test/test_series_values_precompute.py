@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import Any
 
 import time_machine
@@ -29,7 +30,12 @@ from posthog.schema import (
 from posthog.clickhouse.client import sync_execute
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
-from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import execute_precomputed_trends
+from products.product_analytics.backend.facade.contracts import ClosedSeriesValues
+from products.product_analytics.backend.hogql_queries.trends.series_values_precompute import (
+    SOURCE_COUNT_SERIES_KEY,
+    closed_series_values,
+    execute_precomputed_trends,
+)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 _NOW = "2024-01-15T12:00:00Z"
@@ -144,17 +150,27 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             SELECT toString(time_window_start), series_key, value
             FROM series_values_preaggregated
             WHERE team_id = %(team_id)s
-            ORDER BY time_window_start
+            ORDER BY time_window_start, series_key
             """,
             {"team_id": self.team.pk},
         )
         assert rows == [
             ("2024-01-09 05:00:00.000000", "", 1.0),
+            ("2024-01-09 05:00:00.000000", SOURCE_COUNT_SERIES_KEY, 1.0),
             ("2024-01-10 15:00:00.000000", "", 2.0),
+            ("2024-01-10 15:00:00.000000", SOURCE_COUNT_SERIES_KEY, 2.0),
+            ("2024-01-12 23:00:00.000000", "", 0.0),
+            ("2024-01-12 23:00:00.000000", SOURCE_COUNT_SERIES_KEY, 1.0),
             ("2024-01-13 23:00:00.000000", "", 1.0),
+            ("2024-01-13 23:00:00.000000", SOURCE_COUNT_SERIES_KEY, 1.0),
             ("2024-01-14 03:00:00.000000", "", 1.0),
+            ("2024-01-14 03:00:00.000000", SOURCE_COUNT_SERIES_KEY, 1.0),
             ("2024-01-14 07:00:00.000000", "", 1.0),
+            ("2024-01-14 07:00:00.000000", SOURCE_COUNT_SERIES_KEY, 1.0),
             ("2024-01-14 08:00:00.000000", "", 1.0),
+            ("2024-01-14 08:00:00.000000", SOURCE_COUNT_SERIES_KEY, 1.0),
+            ("2024-01-14 23:00:00.000000", "", 0.0),
+            ("2024-01-14 23:00:00.000000", SOURCE_COUNT_SERIES_KEY, 1.0),
         ]
 
     def test_day_built_before_late_events_settle_is_rebuilt(self) -> None:
@@ -170,6 +186,77 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             precomputed = execute_precomputed_trends(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
 
         assert json.dumps(precomputed) == json.dumps(live)
+
+    def _ready_jobs(self) -> dict[str, str]:
+        return {
+            f"{job.time_range_start:%m-%d}..{job.time_range_end:%m-%d}": str(job.id)
+            for job in PreaggregationJob.objects.filter(team_id=self.team.pk, status=PreaggregationJob.Status.READY)
+        }
+
+    def _closed(self, *, verify: bool) -> ClosedSeriesValues:
+        closed = closed_series_values(
+            TrendsQueryRunner(team=self.team, query=_query(properties=[_PRO])), run_inserts=True, verify=verify
+        )
+        assert isinstance(closed, ClosedSeriesValues)
+        return closed
+
+    @parameterized.expand(
+        [
+            ("late_event_rebuilds_its_window", "UTC", "pro", ["01-08..01-11"], 1, 2),
+            ("late_unmatched_event_rebuilds_its_window", "UTC", "free", ["01-08..01-11"], 1, 1),
+            ("no_late_event_rebuilds_nothing", "UTC", None, [], 0, 1),
+            ("no_late_event_off_utc_rebuilds_nothing", "America/Los_Angeles", None, [], 0, 0),
+        ]
+    )
+    @time_machine.travel(_NOW, tick=False)
+    def test_verified_read_rebuilds_only_changed_days(
+        self,
+        _name: str,
+        timezone: str,
+        late_plan: str | None,
+        rebuilt_windows: list[str],
+        stale_days: int,
+        jan_9_value: int,
+    ) -> None:
+        self._set_timezone(timezone)
+        self._seed()
+        self._closed(verify=False)
+        jobs_before = self._ready_jobs()
+        if late_plan is not None:
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="p1",
+                timestamp="2024-01-09T10:00:00Z",
+                properties={"plan": late_plan},
+            )
+            flush_persons_and_events()
+
+        closed = self._closed(verify=True)
+
+        jobs_after = self._ready_jobs()
+        assert closed.verification is not None and closed.verification.stale_days == stale_days
+        assert closed.values[datetime(2024, 1, 9)] == jan_9_value
+        assert jobs_after.keys() == jobs_before.keys()
+        assert sorted(window for window in jobs_before if jobs_after[window] != jobs_before[window]) == rebuilt_windows
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_verification_runs_once_per_interval(self) -> None:
+        self._seed()
+        assert self._closed(verify=True).verification is not None
+        _create_event(
+            team=self.team,
+            event="signed_up",
+            distinct_id="p1",
+            timestamp="2024-01-09T10:00:00Z",
+            properties={"plan": "pro"},
+        )
+        flush_persons_and_events()
+
+        closed = self._closed(verify=True)
+
+        assert closed.verification is None
+        assert closed.values[datetime(2024, 1, 9)] == 1
 
     @time_machine.travel(_NOW, tick=False)
     def test_cold_cache_without_inserts_returns_none(self) -> None:

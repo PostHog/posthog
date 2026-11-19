@@ -1,6 +1,11 @@
+import json
 import math
-from datetime import UTC, datetime, timedelta
+import time
+import hashlib
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
+
+from django.core.cache import cache
 
 import structlog
 from prometheus_client import Counter
@@ -16,7 +21,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.property import get_property_type, property_to_expr
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.clickhouse.client import sync_execute
@@ -31,9 +38,14 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
+    expire_ready_jobs_covering,
     parse_ttl_schedule,
 )
-from products.product_analytics.backend.facade.contracts import ClosedSeriesValues, SeriesValuesUnavailable
+from products.product_analytics.backend.facade.contracts import (
+    ClosedSeriesValues,
+    SeriesValuesUnavailable,
+    SeriesValuesVerification,
+)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import (
     TrendsQueryRunner,
     resolve_series_custom_name,
@@ -56,22 +68,33 @@ SERIES_VALUES_PRECOMPUTE_SUCCESS = Counter(
     "Trends series values served from precompute",
 )
 
+VALUE_SERIES_KEY = ""
+SOURCE_COUNT_SERIES_KEY = "$source_event_count"
+
 INSERT_QUERY_TEMPLATE = """
 SELECT
     hour AS time_window_start,
-    '' AS series_key,
-    toFloat(count()) AS value
+    hour_series_key AS series_key,
+    toFloat(hour_count) AS value
 FROM (
-    SELECT toStartOfHour(timestamp) AS hour
+    SELECT toStartOfHour(timestamp) AS hour, countIf({property_filter}) AS matched, count() AS source
     FROM events
     WHERE and(
         timestamp >= {time_window_min},
         timestamp < {time_window_max},
-        {event_filter},
-        {property_filter}
+        {event_filter}
     )
+    GROUP BY hour
 )
-GROUP BY hour
+ARRAY JOIN [{value_series_key}, {source_count_series_key}] AS hour_series_key, [matched, source] AS hour_count
+"""
+
+VERIFY_QUERY_TEMPLATE = """
+SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day, count() AS source
+FROM events
+WHERE and(timestamp >= {range_start}, timestamp < {range_end}, {event_filter})
+GROUP BY day
+LIMIT {row_limit}
 """
 
 TTL_SECONDS: dict[str, int] = {
@@ -82,6 +105,8 @@ TTL_SECONDS: dict[str, int] = {
 MAX_WINDOW_DAYS = 7
 LATE_EVENTS_SETTLING_SECONDS = 60 * 60
 MAX_RANGE_DAYS = 366
+VERIFY_INTERVAL_SECONDS = 6 * 60 * 60
+ENGINE_VERSION = "series_values_v2"
 
 _BUCKET_EXPRS: dict[str, str] = {
     "hour": "toStartOfHour(toTimeZone(time_window_start, %(tz)s))",
@@ -192,6 +217,20 @@ def _live_boundary(buckets: list[datetime], today_start_utc: datetime) -> dateti
     return boundary
 
 
+def _event_filter(runner: TrendsQueryRunner) -> ast.Expr:
+    series = runner.query.series[0]
+    assert isinstance(series, EventsNode)
+    if series.event is None:
+        return ast.Constant(value=True)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value=series.event)
+    )
+
+
+def _remaining_seconds(started: float, budget_seconds: float | None) -> float | None:
+    return None if budget_seconds is None else budget_seconds - (time.monotonic() - started)
+
+
 def _ensure(
     runner: TrendsQueryRunner,
     *,
@@ -200,8 +239,6 @@ def _ensure(
     run_inserts: bool,
     wait_timeout_seconds: float | None = None,
 ) -> LazyComputationResult:
-    series = runner.query.series[0]
-    assert isinstance(series, EventsNode)
     properties = _properties(runner)
     return ensure_precomputed(
         team=runner.team,
@@ -216,22 +253,16 @@ def _ensure(
         ),
         table=LazyComputationTable.SERIES_VALUES_PREAGGREGATED,
         placeholders={
-            "event_filter": (
-                ast.Constant(value=True)
-                if series.event is None
-                else ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["event"]),
-                    right=ast.Constant(value=series.event),
-                )
-            ),
+            "event_filter": _event_filter(runner),
             "property_filter": property_to_expr(properties, runner.team) if properties else ast.Constant(value=True),
+            "value_series_key": ast.Constant(value=VALUE_SERIES_KEY),
+            "source_count_series_key": ast.Constant(value=SOURCE_COUNT_SERIES_KEY),
         },
         query_type="series_values_insert",
         run_inserts=run_inserts,
         wait_timeout_seconds=wait_timeout_seconds,
         read_after_write=run_inserts,
-        cache_key_context={"engine": "series_values_v1"},
+        cache_key_context={"engine": ENGINE_VERSION},
         insert_settings=None
         if wait_timeout_seconds is None
         else {"max_execution_time": max(1, math.ceil(wait_timeout_seconds))},
@@ -244,7 +275,7 @@ def _read_values(
     sql = f"""
 SELECT {_BUCKET_EXPRS[_interval(runner)]} AS bucket, sum(value) AS value
 FROM {DISTRIBUTED_SERIES_VALUES_PREAGGREGATED_TABLE()}
-WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
+WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s AND series_key = %(series_key)s
   AND time_window_start >= %(range_start)s AND time_window_start < %(range_end)s
 GROUP BY bucket
 """
@@ -254,6 +285,7 @@ GROUP BY bucket
             {
                 "team_id": runner.team.pk,
                 "job_ids": tuple(job_ids),
+                "series_key": VALUE_SERIES_KEY,
                 "tz": runner.team.timezone,
                 "range_start": start,
                 "range_end": end,
@@ -263,6 +295,77 @@ GROUP BY bucket
             team_id=runner.team.pk,
         )
     return {bucket.replace(tzinfo=None): int(value) for bucket, value in rows}
+
+
+def _stored_source_counts(
+    runner: TrendsQueryRunner, *, job_ids: list[str], start: datetime, end: datetime
+) -> dict[date, int]:
+    sql = f"""
+SELECT toDate(time_window_start) AS day, sum(value) AS source
+FROM {DISTRIBUTED_SERIES_VALUES_PREAGGREGATED_TABLE()}
+WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s AND series_key = %(series_key)s
+  AND time_window_start >= %(range_start)s AND time_window_start < %(range_end)s
+GROUP BY day
+"""
+    with tags_context(query_type="series_values_verify_read"):
+        rows = sync_execute(
+            sql,
+            {
+                "team_id": runner.team.pk,
+                "job_ids": tuple(job_ids),
+                "series_key": SOURCE_COUNT_SERIES_KEY,
+                "range_start": start,
+                "range_end": end,
+            },
+            settings=_READ_SETTINGS,
+            workload=runner.workload,
+            team_id=runner.team.pk,
+        )
+    return {day: int(source) for day, source in rows}
+
+
+def _current_source_counts(
+    runner: TrendsQueryRunner, *, start: datetime, end: datetime, timeout_seconds: float | None
+) -> dict[date, int]:
+    response = execute_hogql_query(
+        VERIFY_QUERY_TEMPLATE,
+        runner.team,
+        query_type="series_values_verify",
+        placeholders={
+            "range_start": ast.Constant(value=start),
+            "range_end": ast.Constant(value=end),
+            "event_filter": _event_filter(runner),
+            "row_limit": ast.Constant(value=MAX_RANGE_DAYS + 1),
+        },
+        workload=runner.workload,
+        settings=None
+        if timeout_seconds is None
+        else HogQLGlobalSettings(max_execution_time=max(1, math.ceil(timeout_seconds))),
+    )
+    return {day: int(source) for day, source in response.results or []}
+
+
+def _changed_days(
+    runner: TrendsQueryRunner, *, job_ids: list[str], start: datetime, end: datetime, timeout_seconds: float | None
+) -> list[date]:
+    stored = _stored_source_counts(runner, job_ids=job_ids, start=start, end=end)
+    current = _current_source_counts(runner, start=start, end=end, timeout_seconds=timeout_seconds)
+    return sorted(day for day in stored.keys() | current.keys() if stored.get(day, 0) != current.get(day, 0))
+
+
+def _verification_due(runner: TrendsQueryRunner) -> bool:
+    series = runner.query.series[0]
+    assert isinstance(series, EventsNode)
+    shape = json.dumps(
+        [series.event, [prop.model_dump(mode="json", exclude_none=True) for prop in _properties(runner)]],
+        sort_keys=True,
+    )
+    key = f"series_values_verify:{ENGINE_VERSION}:{runner.team.pk}:{hashlib.sha256(shape.encode()).hexdigest()}"
+    try:
+        return bool(cache.add(key, True, timeout=VERIFY_INTERVAL_SECONDS))
+    except Exception:
+        logger.warning("series_values_verify_throttle_unavailable", team_id=runner.team.pk, exc_info=True)
+        return False
 
 
 def _live_tail_values(runner: TrendsQueryRunner, *, live_from: datetime, date_to: datetime) -> dict[datetime, int]:
@@ -303,8 +406,9 @@ def _series_dict(runner: TrendsQueryRunner, values: dict[datetime, int]) -> dict
 
 
 def closed_series_values(
-    runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None
+    runner: TrendsQueryRunner, *, run_inserts: bool, wait_timeout_seconds: float | None = None, verify: bool = False
 ) -> ClosedSeriesValues | SeriesValuesUnavailable:
+    started = time.monotonic()
     reason = _shape_refusal(runner) or _team_refusal(runner)
     buckets = runner.query_date_range.all_values()
     date_to = runner.query_date_range.date_to()
@@ -341,6 +445,34 @@ def closed_series_values(
     )
     if not result.ready or not result.job_ids:
         return SeriesValuesUnavailable(reason="not_ready")
+    freshly_built = result.freshly_built
+
+    verification = None
+    remaining = _remaining_seconds(started, wait_timeout_seconds)
+    if verify and (remaining is None or remaining > 0) and _verification_due(runner):
+        verify_started = time.monotonic()
+        stale_days = _changed_days(
+            runner,
+            job_ids=[str(job_id) for job_id in result.job_ids],
+            start=range_start,
+            end=range_end,
+            timeout_seconds=remaining,
+        )
+        verification = SeriesValuesVerification(
+            stale_days=len(stale_days), duration_ms=round((time.monotonic() - verify_started) * 1000)
+        )
+        if stale_days:
+            expire_ready_jobs_covering(runner.team, result.job_ids, stale_days)
+            result = _ensure(
+                runner,
+                start=range_start,
+                end=range_end,
+                run_inserts=run_inserts,
+                wait_timeout_seconds=_remaining_seconds(started, wait_timeout_seconds),
+            )
+            if not result.ready or not result.job_ids:
+                return SeriesValuesUnavailable(reason="not_ready")
+            freshly_built = freshly_built or result.freshly_built
 
     stored = _read_values(
         runner, job_ids=[str(job_id) for job_id in result.job_ids], start=read_start_utc, end=read_end_utc
@@ -349,7 +481,8 @@ def closed_series_values(
     return ClosedSeriesValues(
         values={bucket: stored.get(bucket, 0) for bucket in closed_buckets},
         live_from=live_from,
-        freshly_built=result.freshly_built,
+        freshly_built=freshly_built,
+        verification=verification,
     )
 
 
