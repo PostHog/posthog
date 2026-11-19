@@ -76,8 +76,6 @@ export const messagingTemplatesCreateBodyContentOnePushOneChannelsMax = 20
 
 export const messagingTemplatesCreateBodyContentOnePushOneDataMaxOne = 4000
 
-export const messagingTemplatesCreateBodyTypeMax = 24
-
 export const MessagingTemplatesCreateBody = () => zod.object({
     _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
@@ -156,11 +154,6 @@ export const MessagingTemplatesCreateBody = () => zod.object({
         })
         .optional()
         .describe('Template content keyed by channel. Replaced as a whole on update, not merged.'),
-    type: zod
-        .string()
-        .max(messagingTemplatesCreateBodyTypeMax)
-        .optional()
-        .describe("Message channel of the template: 'email' (the default) or 'push'."),
     message_category: zod
         .string()
         .nullish()

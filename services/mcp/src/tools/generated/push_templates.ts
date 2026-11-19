@@ -14,9 +14,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const WorkflowsCreatePushTemplateSchema = () => {
     const MessagingTemplatesCreateBody = orvalSchemas.MessagingTemplatesCreateBody()
-    return MessagingTemplatesCreateBody.omit({ _create_in_folder: true }).extend({
-        type: MessagingTemplatesCreateBody.shape['type'].nonoptional().describe('Always push for this tool.'),
-    })
+    return MessagingTemplatesCreateBody.omit({ _create_in_folder: true })
 }
 
 const workflowsCreatePushTemplate = (): ToolBase<
@@ -40,15 +38,13 @@ const workflowsCreatePushTemplate = (): ToolBase<
         if (params.content !== undefined) {
             body['content'] = params.content
         }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
         if (params.message_category !== undefined) {
             body['message_category'] = params.message_category
         }
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
         }
+        body['type'] = 'push'
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
@@ -128,9 +124,12 @@ const workflowsMakePushTemplateTransactionalExecute = (): ToolBase<
         }
         const params = __guard.verifiedArgs
         const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        body['expected_type'] = 'push'
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/make_transactional/`,
+            body,
         })
         const filtered = omitResponseFields(result, ['content', 'draft_content', 'created_by']) as typeof result
         return await withPostHogUrl(context, filtered, `/transactional/push/${filtered.id}`)
