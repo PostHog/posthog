@@ -14,6 +14,7 @@ export type TraceDrawerListId =
     | 'cluster-traces'
     | 'clusters'
     | 'eval-suggestions'
+    | 'session-turns'
 
 export interface TraceDrawerListConfig {
     // Tested against the path without its project prefix. Other products use `trace` for their own ids, and on browser
@@ -109,6 +110,14 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backTo: 'evaluations',
         backLabel: 'Back to evaluations',
         rowClick: false,
+    },
+    // The split and the full page show the same conversation, so one list serves both.
+    'session-turns': {
+        pathMatcher: /^\/ai-observability\/sessions(\/[^/]+)?$/,
+        backTo: 'session',
+        backLabel: 'Back to session',
+        rowClick: false,
+        showNavigation: true,
     },
 }
 

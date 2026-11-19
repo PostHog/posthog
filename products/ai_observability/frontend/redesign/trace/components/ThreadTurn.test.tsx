@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 
 import { ConversationTurn } from '../types'
 import { ThreadTurn } from './ThreadTurn'
@@ -119,6 +119,54 @@ describe('ThreadTurn', () => {
             )
 
             expect(queryByText(/10:15/)).toBeNull()
+        })
+    })
+
+    describe('read apart from the turn', () => {
+        test.each([
+            [
+                'a missing user message',
+                {
+                    ...turn,
+                    input: { kind: 'messages', messages: [] },
+                    missingReasons: { input: 'too_large', output: null },
+                },
+                "The user's message is too large to show here.",
+            ],
+            [
+                'a cut answer',
+                { ...turn, missingReasons: { input: null, output: 'timed_out' } },
+                'Part of the answer took too long to load.',
+            ],
+        ] satisfies [string, ConversationTurn, string][])(
+            'says why for %s and opens the trace on request',
+            (_name, missingTurn, notice) => {
+                const onSelectMessage = jest.fn()
+                const { getByText } = render(
+                    <ThreadTurn turn={missingTurn} isActive={false} onSelectMessage={onSelectMessage} />
+                )
+
+                expect(getByText(notice)).toBeTruthy()
+                fireEvent.click(getByText('Open trace'))
+                expect(onSelectMessage).toHaveBeenCalledWith('trace-1', 'trace-1')
+            }
+        )
+
+        test('a failed read offers a retry instead of an empty turn', () => {
+            const onRetry = jest.fn()
+            const { getAllByText, queryByText } = render(
+                <ThreadTurn
+                    turn={{ ...turn, pending: 'error' }}
+                    isActive={false}
+                    onSelectMessage={() => {}}
+                    onRetry={onRetry}
+                />
+            )
+
+            expect(queryByText('Add two seats.')).toBeNull()
+            // The banner renders its action twice, one for each container width.
+            fireEvent.click(getAllByText('Try again')[0])
+            expect(onRetry).toHaveBeenCalled()
         })
     })
 

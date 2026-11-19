@@ -15,6 +15,7 @@ function renderRow(overrides: Partial<SessionListRowProps> = {}): void {
             title={ready(makeTracePreview(ITEM.firstTraceId))}
             person={ready(makeTracePersonItem(ITEM.firstTraceId).person)}
             isOpen={false}
+            href="/ai-observability/sessions?session=session-1"
             {...overrides}
         />
     )

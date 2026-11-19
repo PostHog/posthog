@@ -9,6 +9,7 @@ import type {
     TraceNodeRawApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
     TracePersonApi,
+    TracePreviewMissingReasonApi,
     TraceSummaryContentApi,
     TraceSurveyResponseApi,
 } from '../../generated/api.schemas'
@@ -57,6 +58,15 @@ export interface ConversationTurn {
     input: NodeSideContent
     output: NodeSideContent
     error: string | null
+    /** For a turn whose messages are read after the turn itself, as a session's are. Absent once they are in hand. */
+    pending?: 'loading' | 'error'
+    /** Why a side is empty or cut, when the read could not return all of it. */
+    missingReasons?: TurnMissingReasons
+}
+
+export interface TurnMissingReasons {
+    input: TracePreviewMissingReasonApi | null
+    output: TracePreviewMissingReasonApi | null
 }
 
 export type ConversationState =

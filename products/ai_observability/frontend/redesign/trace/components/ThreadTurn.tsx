@@ -1,21 +1,24 @@
 import { useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { pluralize } from 'lib/utils/strings'
 
 import { ConversationTurn, NodeSideContent } from '../types'
-import { conversationalSideMessages } from './conversationalMessages'
+import { conversationalSideMessages, sideHasContent } from './conversationalMessages'
 import { ErrorCallout } from './ErrorCallout'
 import { IOSection } from './IOSection'
 import { ThreadBubble } from './ThreadBubble'
+import { TurnSideMissingNotice } from './TurnSideMissingNotice'
 import { TurnTiming } from './TurnTiming'
 
 export interface ThreadTurnProps {
     turn: ConversationTurn
     isActive: boolean
-    onSelectMessage: (sourceNodeId: string) => void
+    onSelectMessage: (sourceNodeId: string, turnId: string) => void
+    /** Reads again the messages of a turn whose read failed. */
+    onRetry?: () => void
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
@@ -27,12 +30,46 @@ export function ThreadTurn({
     turn,
     isActive,
     onSelectMessage,
+    onRetry,
     matchingNodeIds = null,
     highlightQuery = null,
     showTiming = false,
     conversationOnly = false,
 }: ThreadTurnProps): JSX.Element {
     const [showInternal, setShowInternal] = useState(false)
+    const turnClassName = cn('flex flex-col gap-3', isActive && 'rounded-lg p-3 ring-1 ring-[var(--color-accent)]')
+    const timing = showTiming ? <TurnTiming timestamp={turn.timestamp} waitMs={turn.waitMs} /> : null
+    const errorCallout = turn.error ? <ErrorCallout message={turn.error} /> : null
+
+    if (turn.pending === 'loading') {
+        return (
+            <div className={turnClassName} aria-busy="true">
+                <div className="flex items-start justify-end gap-2">
+                    {timing}
+                    <LemonSkeleton className="h-10 w-1/2" />
+                </div>
+                <LemonSkeleton className="h-16 w-3/4" />
+            </div>
+        )
+    }
+    if (turn.pending === 'error') {
+        return (
+            <div className={turnClassName}>
+                <LemonBanner
+                    type="error"
+                    action={
+                        onRetry
+                            ? { children: 'Try again', onClick: onRetry, 'data-attr': 'trace-view-thread-retry-turn' }
+                            : undefined
+                    }
+                >
+                    Couldn't load this turn's messages.
+                </LemonBanner>
+                {errorCallout}
+            </div>
+        )
+    }
+
     const hiddenCount = [turn.input, turn.output]
         .flatMap(conversationalSideMessages)
         .filter((message) => message.isInternal).length
@@ -55,7 +92,7 @@ export function ThreadTurn({
                     <ThreadBubble
                         key={message.id}
                         message={message}
-                        onSelect={sourceNodeId ? () => onSelectMessage(sourceNodeId) : undefined}
+                        onSelect={sourceNodeId ? () => onSelectMessage(sourceNodeId, turn.id) : undefined}
                         isFaded={
                             matchingNodeIds !== null && sourceNodeId !== null && !matchingNodeIds.has(sourceNodeId)
                         }
@@ -66,7 +103,7 @@ export function ThreadTurn({
                 )
                 return isTimed ? (
                     <div key={message.id} className="flex items-start justify-end gap-2">
-                        <TurnTiming timestamp={turn.timestamp} waitMs={turn.waitMs} />
+                        {timing}
                         {bubble}
                     </div>
                 ) : (
@@ -75,8 +112,33 @@ export function ThreadTurn({
             })
     }
 
+    const renderMissing = (side: 'input' | 'output'): JSX.Element | null => {
+        const reason = turn.missingReasons?.[side]
+        if (!reason) {
+            return null
+        }
+        const notice = (
+            <TurnSideMissingNotice
+                side={side}
+                reason={reason}
+                partial={sideHasContent(turn[side])}
+                // A turn's id is its trace's, which is also the id of the trace's root step.
+                onOpenTrace={() => onSelectMessage(turn.id, turn.id)}
+            />
+        )
+        // With no user message to sit beside, the timing goes beside the notice.
+        return side === 'input' && timing && timedMessageId === null ? (
+            <div className="flex items-start justify-end gap-2">
+                {timing}
+                {notice}
+            </div>
+        ) : (
+            notice
+        )
+    }
+
     return (
-        <div className={cn('flex flex-col gap-3', isActive && 'rounded-lg p-3 ring-1 ring-[var(--color-accent)]')}>
+        <div className={turnClassName}>
             {hiddenCount > 0 && !conversationOnly ? (
                 <LemonButton
                     size="xsmall"
@@ -89,8 +151,10 @@ export function ThreadTurn({
                 </LemonButton>
             ) : null}
             {renderSide('Input', turn.input)}
+            {renderMissing('input')}
             {renderSide('Output', turn.output)}
-            {turn.error ? <ErrorCallout message={turn.error} /> : null}
+            {renderMissing('output')}
+            {errorCallout}
         </div>
     )
 }

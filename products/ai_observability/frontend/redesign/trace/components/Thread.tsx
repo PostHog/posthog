@@ -12,7 +12,9 @@ import { useSearchHighlight } from './useSearchHighlight'
 
 export interface ThreadProps {
     conversation: ConversationState
-    onSelectMessage: (sourceNodeId: string) => void
+    onSelectMessage: (sourceNodeId: string, turnId: string) => void
+    /** Reads again the messages of the turns whose read failed. */
+    onRetryTurns?: () => void
     highlightQuery?: string | null
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
@@ -23,6 +25,7 @@ export interface ThreadProps {
 export function Thread({
     conversation,
     onSelectMessage,
+    onRetryTurns,
     highlightQuery = null,
     matchingNodeIds = null,
     showTiming = false,
@@ -42,7 +45,7 @@ export function Thread({
         return <ErrorCallout message={conversation.message} />
     }
     const { turns, activeTurnId } = conversation
-    if (turns.every((turn) => !turnHasContent(turn) && !turn.error)) {
+    if (turns.every((turn) => !turnHasContent(turn) && !turn.error && !turn.pending && !turn.missingReasons)) {
         return (
             <p className="m-0 text-secondary">
                 This trace has no conversation to show. Switch to Spans to see its steps.
@@ -60,6 +63,7 @@ export function Thread({
                             turn={turn}
                             isActive={turns.length > 1 && turn.id === activeTurnId}
                             onSelectMessage={onSelectMessage}
+                            onRetry={onRetryTurns}
                             matchingNodeIds={matchingNodeIds}
                             highlightQuery={highlightQuery}
                             showTiming={showTiming}

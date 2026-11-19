@@ -1,5 +1,6 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -71,11 +72,19 @@ describe('sessionsListLogic', () => {
     })
 
     it('loads the first page on mount', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+
         await mountAt(LIST_PATH)
 
         expect(requests).toEqual([FIRST_PAGE_PARAMS])
         expect(ids()).toEqual(['session-a', 'session-b'])
         expect(logic.values).toMatchObject({ state: 'ready', canShowNext: true, canShowPrevious: false })
+        expect(capture).toHaveBeenCalledWith('llma sessions list loaded', {
+            rows_wait_ms: expect.any(Number),
+            row_count: 2,
+            date_from: '-7d',
+            searched: false,
+        })
     })
 
     it.each([
@@ -128,9 +137,12 @@ describe('sessionsListLogic', () => {
         expect(ids()).toEqual(['session-a', 'session-b'])
     })
 
-    it('openSession writes the session param and drops drawer params', async () => {
+    it('openSession and the session link write the session param and drop drawer params', async () => {
         await mountAt(`${LIST_PATH}?trace=trace-9&ts=2026-09-01T10:00:00Z&step=gen-1&date_from=-7d`)
         expect(logic.values.openSessionId).toBeNull()
+        const href = combineUrl(logic.values.sessionHref('session-b'))
+        expect(href.pathname).toContain(LIST_PATH)
+        expect(href.searchParams).toEqual({ session: 'session-b', date_from: '-7d' })
 
         logic.actions.openSession('session-b')
 
