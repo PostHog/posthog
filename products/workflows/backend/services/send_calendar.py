@@ -4,13 +4,18 @@ only the fields a calendar card shows and the runs inside the shown range."""
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final
 from uuid import UUID
 
 from django.db import models
 from django.db.models import F, Q, Value
 from django.db.models.functions import Coalesce
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.workflows.backend.facade.contracts import SendCalendarBatchJob, SendCalendarFlow, WorkflowSchedule
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -97,12 +102,22 @@ def list_send_calendar_flows(
         .order_by("-updated_at", "-id")
     )
     if user_access_control is not None:
-        queryset = user_access_control.filter_queryset_by_access_level(queryset)
+        queryset = filter_queryset(
+            queryset,
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+            subject=Subject(user_id=user_access_control.user.pk),
+        )
     flows = list(queryset[:SEND_CALENDAR_FLOW_LIMIT])
     if not flows:
         return []
-    if user_access_control is not None:
-        user_access_control.preload_object_access_controls(cast("list[models.Model]", flows))
+    access_levels = (
+        authorization.legacy_access_levels(
+            [resource_for_object(flow, team=user_access_control.team) for flow in flows],
+            subject=Subject(user_id=user_access_control.user.pk),
+        )
+        if user_access_control is not None
+        else [None] * len(flows)
+    )
 
     flow_ids = [flow.id for flow in flows]
     schedules_by_flow: defaultdict[UUID, list[WorkflowSchedule]] = defaultdict(list)
@@ -118,12 +133,15 @@ def list_send_calendar_flows(
             SendCalendarBatchJob(id=run.id, status=HogFlowBatchJobState(run.status), created_at=run.created_at)
         )
 
-    return [_to_send_calendar_flow(flow, user_access_control, schedules_by_flow, runs_by_flow) for flow in flows]
+    return [
+        _to_send_calendar_flow(flow, level, schedules_by_flow, runs_by_flow)
+        for flow, level in zip(flows, access_levels, strict=True)
+    ]
 
 
 def _to_send_calendar_flow(
     flow: HogFlow,
-    user_access_control: "UserAccessControl | None",
+    access_level: str | None,
     schedules_by_flow: Mapping[UUID, list[WorkflowSchedule]],
     runs_by_flow: Mapping[UUID, list[SendCalendarBatchJob]],
 ) -> SendCalendarFlow:
@@ -133,7 +151,7 @@ def _to_send_calendar_flow(
         name=flow.name,
         origin_product=flow.origin_product,
         created_by=flow.created_by,
-        user_access_level=user_access_control.get_user_access_level(flow) if user_access_control is not None else None,
+        user_access_level=access_level,
         trigger_type=getattr(flow, "_trigger_type", None) or "",
         audience_properties=audience_properties if isinstance(audience_properties, list) else [],
         audience_type=getattr(flow, "_audience_type", None),

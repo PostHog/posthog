@@ -4,6 +4,8 @@ from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.models import OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
@@ -82,6 +84,73 @@ def permissions(resource: Resource, subject: Subject | None, context: Context | 
     actions = list(MEMBERSHIP_LEVELS.get(resource.type, RESOURCE_LEVELS))
     results = check([CheckRequest(resource=resource, action=action, subject=subject) for action in actions], context)
     return frozenset(action for action, allowed in zip(actions, results, strict=True) if allowed)
+
+
+def restricted_properties(project_id: int, user_id: int | None) -> set[RestrictedProperty]:
+    user = _property_user(user_id)
+    return access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=project_id)
+
+
+def _property_user(user_id: int | None) -> User | None:
+    user = _principal(current() or Session(), Subject(user_id=user_id)) if user_id is not None else None
+    if user_id is not None and user is None:
+        raise ValueError("The property restriction subject no longer exists.")
+    return cast(User | None, user)
+
+
+def non_writable_property_names(project_id: int, user_id: int | None, property_type: int) -> set[str]:
+    return access_control_api.get_non_writable_property_names(
+        team_id=project_id, user=_property_user(user_id), property_type=property_type
+    )
+
+
+def person_property_names_with_access_rules(project_id: int) -> frozenset[str]:
+    return access_control_api.person_property_names_with_access_rules(team_id=project_id)
+
+
+def access_levels(resources: Sequence[Resource], subject: Subject | None) -> list[str | None]:
+    session = current() or Session()
+    _load_projects(
+        session, [CheckRequest(resource=resource, action=Action.VIEW, subject=subject) for resource in resources]
+    )
+    principal = _principal(session, subject)
+    results: list[str | None] = [None] * len(resources)
+    groups: dict[tuple[int, ResourceType], list[tuple[int, Resource]]] = {}
+    for index, resource in enumerate(resources):
+        if resource.type in MEMBERSHIP_LEVELS or resource.id is None or resource.project_id is None:
+            raise ValueError("Serialized access levels require project-scoped objects.")
+        parent_type = RESOURCE_FALLBACK_MAP.get(_scope(resource.type))
+        if parent_type or resource.parent is not None:
+            raise NotImplementedError("Serialized access levels do not support fallback parents.")
+        groups.setdefault((resource.project_id, resource.type), []).append((index, resource))
+    if principal is None:
+        return results
+    for (project_id, resource_type), indexed in groups.items():
+        access = _access(session, principal, project_id)
+        if access is None:
+            continue
+        # A repeated id with different creator facts must not borrow the other entry's creator exemption.
+        creators: dict[str, set[int | None]] = {}
+        for _, resource in indexed:
+            creators.setdefault(cast(str, resource.id), set()).add(resource.created_by_id)
+        unique = [resource for _, resource in indexed if len(creators[cast(str, resource.id)]) == 1]
+        levels = access.bulk_object_access_levels(
+            _scope(resource_type), [(cast(str, resource.id), resource.created_by_id) for resource in unique]
+        )
+        for index, resource in indexed:
+            object_id = cast(str, resource.id)
+            if len(creators[object_id]) == 1:
+                results[index] = levels[object_id]
+            else:
+                results[index] = access.access_level_for_ref(
+                    ObjectAccessRef(
+                        resource=_scope(resource_type),
+                        id=object_id,
+                        team_id=project_id,
+                        created_by_id=resource.created_by_id,
+                    )
+                )
+    return results
 
 
 def _check(session: Session, request: CheckRequest) -> bool:

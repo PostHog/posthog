@@ -17,10 +17,8 @@ from posthog.models import Team, User
 from posthog.ph_client import get_client
 from posthog.utils import get_instance_region
 
-from products.access_control.backend.facade.api import (
-    get_restricted_properties_with_group_type_index_for_team,
-    split_restricted_property_names,
-)
+from products.access_control.backend.facade.api import split_restricted_property_names
+from products.authorization.backend.facade import api as authorization
 from products.workflows.backend.facade.contracts import (
     AudienceSuggestion,
     AudienceSuggestionsResult,
@@ -61,7 +59,7 @@ _UNAVAILABLE = AudienceSuggestionsResult(status="unavailable", suggestions=())
 
 def can_read_email(user: User, team_id: int) -> bool:
     """The cards count people by their email address, so only someone who can read it may see them."""
-    restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+    restrictions = authorization.restricted_properties(user_id=user.pk, project_id=team_id)
     return EMAIL_PROPERTY not in split_restricted_property_names(restrictions).person
 
 

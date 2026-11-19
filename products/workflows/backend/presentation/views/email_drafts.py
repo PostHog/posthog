@@ -12,6 +12,9 @@ from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.scopes.catalog import APIScopeObject
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.workflows.backend.facade.email_drafts import (
     EmailDraftFallbackReason,
     EmailDraftOrigin,
@@ -82,7 +85,9 @@ class WorkflowEmailDraftViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     )
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         source = EmailDraftSource(request.validated_data["source"])
-        if not self.user_access_control.check_access_level_for_resource(_SOURCE_RESOURCE[source], "viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType(_SOURCE_RESOURCE[source]), project_id=self.team_id), action=Action.VIEW
+        ):
             raise exceptions.PermissionDenied("You don't have access to this item.")
         started = time.monotonic()
         try:

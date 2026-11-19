@@ -12,7 +12,10 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization_notification_lock import effective_notification_settings, notification_locks_for_users
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -51,8 +54,8 @@ def _candidate_user_ids(hog_flow: HogFlow, filed_by_user_id: int | None) -> list
 def _recipient(team: Team, hog_flow: HogFlow, filed_by_user_id: int | None) -> User | None:
     for user_id in _candidate_user_ids(hog_flow, filed_by_user_id):
         user = team.all_users_with_access().filter(id=user_id, is_active=True).first()
-        if user is None or not UserAccessControl(user=user, team=team).check_access_level_for_object(
-            hog_flow, "viewer"
+        if user is None or not authorization.check(
+            resource=resource_for_object(hog_flow, team=team), action=Action.VIEW, subject=Subject(user_id=user.pk)
         ):
             continue
         # The in-app notification drops anyone without resource-level access, so a person who can see only

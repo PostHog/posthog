@@ -21,8 +21,10 @@ from posthog.models.scoping import team_scope
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cohorts.backend.facade.api import (
     create_cohort_from_filters,
     find_cohort_by_description_prefix,
@@ -358,7 +360,11 @@ def _cohort_creation_blocked(context: _RequestContext) -> str:
     scopes = get_authenticator_scopes(getattr(context.request, "successful_authenticator", None))
     if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["cohort:write"]):
         return "Creating a cohort needs the cohort:write scope, which this API key or sign-in doesn't have."
-    if not context.access.check_access_level_for_resource("cohort", "editor"):
+    if not authorization.check(
+        resource=Resource(type=ResourceType.COHORT, project_id=cast(Team, context.access.team).id),
+        action=Action.EDIT,
+        subject=Subject(user_id=context.access.user.pk),
+    ):
         return "You need edit access to cohorts to create one."
     return ""
 
@@ -555,17 +561,21 @@ def _can_upload_media(request: Request, access: UserAccessControl) -> bool:
     scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["uploaded_media:write"]):
         return False
-    return access.check_access_level_for_resource("uploaded_media", "editor")
+    return authorization.check(
+        resource=Resource(type=ResourceType.UPLOADED_MEDIA, project_id=cast(Team, access.team).id),
+        action=Action.EDIT,
+        subject=Subject(user_id=access.user.pk),
+    )
 
 
 def _can_edit(access: UserAccessControl, team: Team, previous: PreviousImport) -> bool:
-    ref = ObjectAccessRef(
-        resource="hog_flow",
+    ref = Resource(
+        type=ResourceType.HOG_FLOW,
         id=str(previous.hog_flow_id),
-        team_id=team.id,
+        project_id=team.id,
         created_by_id=previous.hog_flow_created_by_id,
     )
-    return access.check_access_level_for_ref(ref, "editor")
+    return authorization.check(resource=ref, action=Action.EDIT, subject=Subject(user_id=access.user.pk))
 
 
 def _validated_draft(

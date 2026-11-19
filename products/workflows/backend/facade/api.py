@@ -1,5 +1,5 @@
 from collections.abc import Collection, Iterable, Iterator, Mapping
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import F, Q, QuerySet
@@ -9,6 +9,10 @@ from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.workflows.backend.facade.contracts import (
     CohortDependentWorkflow,
     EmailDomainCheck,
@@ -113,9 +117,11 @@ def search_workflows(
     statuses = [HogFlow.State.DRAFT, HogFlow.State.ACTIVE]
     if include_archived:
         statuses.append(HogFlow.State.ARCHIVED)
-    queryset = access_control.filter_queryset_by_access_level(
+    queryset = filter_queryset(
         # nosemgrep: environment-model-scoped-by-project -- keeps the project-wide scope core /api/search used for workflows before the facade move; owners decide whether search narrows to one environment
-        HogFlow.objects.filter(team__project_id=project_id, status__in=statuses)
+        HogFlow.objects.filter(team__project_id=project_id, status__in=statuses),
+        resource=Resource(type=ResourceType.HOG_FLOW, project_id=cast(Team, access_control.team).id),
+        subject=Subject(user_id=access_control.user.pk),
     )
 
     if query:
@@ -131,7 +137,24 @@ def search_workflows(
 
     rows = list(queryset[offset : offset + limit].values(*fields))
     access_levels = (
-        access_control.bulk_object_access_levels("hog_flow", [(str(row["id"]), row["created_by_id"]) for row in rows])
+        dict(
+            zip(
+                (str(row["id"]) for row in rows),
+                authorization.legacy_access_levels(
+                    [
+                        Resource(
+                            type=ResourceType.HOG_FLOW,
+                            id=str(row["id"]),
+                            project_id=cast(Team, access_control.team).id,
+                            created_by_id=row["created_by_id"],
+                        )
+                        for row in rows
+                    ],
+                    subject=Subject(user_id=access_control.user.pk),
+                ),
+                strict=True,
+            )
+        )
         if with_access_levels
         else {}
     )
@@ -190,7 +213,11 @@ def can_edit_workflows(*, team_id: int, user_id: int | None) -> bool:
     ):
         return False
     access = UserAccessControl(user=user, team=team)
-    return access.has_project_access and access.check_access_level_for_resource("hog_flow", "editor")
+    return access.has_project_access and authorization.check(
+        resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+        action=Action.EDIT,
+        subject=Subject(user_id=access.user.pk),
+    )
 
 
 def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
@@ -266,7 +293,12 @@ def get_viewable_workflow_ids(
     if tag_name is not None:
         workflows = workflows.filter(tagged_items__tag__name=tag_name)
     return {
-        str(pk) for pk in user_access_control.filter_queryset_by_access_level(workflows).values_list("id", flat=True)
+        str(pk)
+        for pk in filter_queryset(
+            workflows,
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+            subject=Subject(user_id=user_access_control.user.pk),
+        ).values_list("id", flat=True)
     }
 
 
@@ -275,7 +307,17 @@ def get_workflow_access_levels(
 ) -> Mapping[str, str | None]:
     """The reader's effective access level for each of the team's workflows, keyed by the workflow id as a string."""
     rows = HogFlow.objects.filter(team_id=team_id, id__in=list(workflow_ids)).values_list("id", "created_by_id")
-    return user_access_control.bulk_object_access_levels("hog_flow", [(str(pk), creator) for pk, creator in rows])
+    resources = [
+        Resource(type=ResourceType.HOG_FLOW, id=str(pk), project_id=team_id, created_by_id=creator)
+        for pk, creator in rows
+    ]
+    return dict(
+        zip(
+            (str(resource.id) for resource in resources),
+            authorization.legacy_access_levels(resources, subject=Subject(user_id=user_access_control.user.pk)),
+            strict=True,
+        )
+    )
 
 
 def get_workflow_view_access(
@@ -290,9 +332,20 @@ def get_workflow_view_access(
     return WorkflowViewAccess(
         viewable_ids=frozenset(viewable),
         blocked_ids=frozenset(
-            (existing | user_access_control.blocked_resource_ids_by_scope.get("hog_flow", frozenset())) - viewable
+            (
+                existing
+                | authorization.blocked_object_ids(
+                    resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+                    subject=Subject(user_id=user_access_control.user.pk),
+                )
+            )
+            - viewable
         ),
-        can_view_deleted=user_access_control.has_resource_access("hog_flow"),
+        can_view_deleted=authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+            action=Action.VIEW,
+            subject=Subject(user_id=user_access_control.user.pk),
+        ),
     )
 
 

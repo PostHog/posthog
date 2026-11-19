@@ -11,6 +11,10 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.exceptions import Conflict
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 if TYPE_CHECKING:
@@ -83,7 +87,11 @@ def require_linked_workflow_editor(
     if workflow is None:
         return
     access_control = _access_control_for(context.request, user, template)
-    if not access_control.check_access_level_for_object(workflow, required_level="editor"):
+    if not authorization.check(
+        resource=resource_for_object(workflow, team=access_control.team),
+        action=Action.EDIT,
+        subject=Subject(user_id=access_control.user.pk),
+    ):
         raise PermissionDenied(denied)
 
 

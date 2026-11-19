@@ -194,6 +194,10 @@ def get_restricted_group_property_names_by_type_index(
     return {index: frozenset(names) for index, names in names_by_index.items()}
 
 
+def get_non_writable_property_names(*, user: User | None, team_id: int, property_type: int) -> set[str]:
+    return _get_non_writable_property_names(user=user, team_id=team_id, property_type=property_type)
+
+
 def get_non_writable_group_property_names(*, user: User | None, team_id: int, group_type_index: int) -> frozenset[str]:
     """Return group property names of this group type that the user cannot write."""
     return frozenset(

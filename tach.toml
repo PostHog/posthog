@@ -281,6 +281,7 @@ layer = "modules"
 [[modules]]
 path = "products.batch_exports"
 depends_on = [
+    "products.authorization",
     "ee",
     "posthog",
     "products.access_control",
@@ -293,6 +294,7 @@ layer = "modules"
 [[modules]]
 path = "products.cdp"
 depends_on = [
+    "products.authorization",
     "products.cohorts",
     "ee",
     "posthog",
@@ -732,6 +734,7 @@ layer = "modules"
 [[modules]]
 path = "products.messaging"
 depends_on = [
+    "products.authorization",
     "posthog",
     # Facade-only: template writes publish the realtime edited-elsewhere event through
     # products.notifications.backend.facade.api.
@@ -1210,6 +1213,7 @@ layer = "modules"
 [[modules]]
 path = "products.workflows"
 depends_on = [
+    "products.authorization",
     "products.cohorts",
     "ee",
     "posthog",

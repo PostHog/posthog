@@ -8,6 +8,9 @@ definition via the "Update account property" action's ``properties`` input.
 
 from typing import TYPE_CHECKING
 
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.workflows.backend.facade.contracts import HogFlowReference
 from products.workflows.backend.models import HogFlow
 
@@ -56,8 +59,10 @@ def filter_hog_flow_references_by_access_level(
 
     accessible_ids = {
         str(flow_id)
-        for flow_id in user_access_control.filter_queryset_by_access_level(
-            HogFlow.objects.filter(team_id=team_id, id__in=reference_ids)
+        for flow_id in filter_queryset(
+            HogFlow.objects.filter(team_id=team_id, id__in=reference_ids),
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+            subject=Subject(user_id=user_access_control.user.pk),
         ).values_list("id", flat=True)
     }
     return {

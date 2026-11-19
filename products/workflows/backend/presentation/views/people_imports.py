@@ -8,6 +8,9 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.workflows.backend.facade.people_import import (
     MAX_PEOPLE_IMPORT_ROWS,
     PeopleImportInvalid,
@@ -54,7 +57,9 @@ class WorkflowPeopleImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
         # Session users skip API scopes, and access control checks only the cohort scope_object.
-        if not self.user_access_control.check_access_level_for_resource("person", "editor"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.PERSON, project_id=self.team_id), action=Action.EDIT
+        ):
             raise exceptions.PermissionDenied("You need edit access to persons to import people.")
         serializer = PeopleImportCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

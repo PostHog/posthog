@@ -160,6 +160,40 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
         assert results == [self._v1(action) for action in CATEGORY_ACTIONS]
 
+    @parameterized.expand([(False,), (True,)])
+    def test_serialized_levels_keep_project_and_creator_facts(self, most_specific: bool) -> None:
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save()
+        self._rule("dashboard", "none")
+        self._rule("dashboard", "viewer", str(self.dashboard.pk), member=True)
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_dashboard = Dashboard.objects.create(team=other_team, created_by=self.other_user)
+        resources = [
+            resource_for_object(other_dashboard),
+            resource_for_object(self.dashboard),
+            Resource(
+                type=ResourceType.DASHBOARD,
+                id=str(self.dashboard.pk),
+                project_id=self.team.pk,
+                created_by_id=self.user.pk,
+            ),
+            Resource(type=ResourceType.HOG_FLOW, id="deleted", project_id=self.team.pk),
+        ]
+        expected = [
+            UserAccessControl(self.user, other_team).get_user_access_level(other_dashboard),
+            UserAccessControl(self.user, self.team).get_user_access_level(self.dashboard),
+            UserAccessControl(self.user, self.team).access_level_for_ref(
+                ObjectAccessRef(
+                    resource="dashboard", id=str(self.dashboard.pk), team_id=self.team.pk, created_by_id=self.user.pk
+                )
+            ),
+            UserAccessControl(self.user, self.team).bulk_object_access_levels("hog_flow", [("deleted", None)])[
+                "deleted"
+            ],
+        ]
+
+        assert authorization.legacy_access_levels(resources, subject=Subject(user_id=self.user.pk)) == expected
+
     @parameterized.expand([("sourced_table", True, False), ("self_managed_table", False, True)])
     def test_warehouse_table_falls_back_to_its_source(self, _name: str, sourced: bool, expected: bool) -> None:
         source = ExternalDataSource.objects.create(

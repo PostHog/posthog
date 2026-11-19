@@ -3,14 +3,16 @@
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
 from posthog.models import Team, User
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cdp.backend.flag_gated_templates import hidden_gated_template_ids
 from products.cohorts.backend.facade.api import CohortRef, create_empty_static_cohort, find_cohort_ref_by_description
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail, ProviderAutomationResult
@@ -105,7 +107,11 @@ def import_resend_automation(
     if (
         not user.is_active
         or not access.has_project_access
-        or not access.check_access_level_for_resource("hog_flow", "editor")
+        or not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=cast(Team, access.team).id),
+            action=Action.EDIT,
+            subject=Subject(user_id=access.user.pk),
+        )
     ):
         return ProviderAutomationResult(
             status="failed",
@@ -152,7 +158,11 @@ def _segment_cohort(
     existing = find_cohort_ref_by_description(team_id=team_id, description=description)
     if existing is not None:
         return _reused_cohort(existing, access, name)
-    if not access.check_access_level_for_resource("cohort", "editor"):
+    if not authorization.check(
+        resource=Resource(type=ResourceType.COHORT, project_id=cast(Team, access.team).id),
+        action=Action.EDIT,
+        subject=Subject(user_id=access.user.pk),
+    ):
         return SegmentCohort(problem="Creating a cohort for this segment needs edit access to cohorts.")
     cohort_name = f"{name[:380]} (from Resend)"
     created = create_empty_static_cohort(
@@ -168,9 +178,12 @@ def _reused_cohort(existing: CohortRef, access: UserAccessControl, name: str) ->
         )
     if not existing.is_static:
         return SegmentCohort(problem=f'The cohort made for the Resend segment "{name}" isn\'t static anymore.')
-    ref = ObjectAccessRef(
-        resource="cohort", id=str(existing.id), team_id=existing.team_id, created_by_id=existing.created_by_id
+    ref = Resource(
+        type=ResourceType.COHORT,
+        id=str(existing.id),
+        project_id=existing.team_id,
+        created_by_id=existing.created_by_id,
     )
-    if not access.check_access_level_for_ref(ref, "editor"):
+    if not authorization.check(resource=ref, action=Action.EDIT, subject=Subject(user_id=access.user.pk)):
         return SegmentCohort(problem=f'Adding people to the cohort for the Resend segment "{name}" needs edit access.')
     return SegmentCohort(name=f"{name} (from Resend)", cohort_id=existing.id)

@@ -29,7 +29,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.storage import object_storage
 
-from products.access_control.backend.property_access_control import get_non_writable_property_names
+from products.authorization.backend.facade import api as authorization
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import PeopleImportInvalid, PeopleImportSummary
@@ -269,8 +269,8 @@ def _check_distinct_id(distinct_id: str, line: int) -> None:
 
 
 def _check_writable_columns(team: Team, user: User | None, columns: list[str]) -> None:
-    non_writable = get_non_writable_property_names(
-        team_id=team.id, user=user, property_type=PropertyDefinition.Type.PERSON
+    non_writable = authorization.non_writable_property_names(
+        project_id=team.id, user_id=user.pk if user is not None else None, property_type=PropertyDefinition.Type.PERSON
     )
     blocked = sorted(set(columns) & non_writable)
     if blocked:

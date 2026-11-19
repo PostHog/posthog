@@ -54,6 +54,9 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
     UnlayerNotConfiguredError,
@@ -1140,7 +1143,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         """
         if is_authenticated_via_project_secret_api_key(self.request) or not self.user_access_control:
             return True
-        if self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+        if authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.EDIT
+        ):
             return True
         if "_create_in_folder" in fields or (
             fields.get("deleted") and template_id and get_template_placement(self.team_id, template_id).path
@@ -1153,7 +1158,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     def _require_workflow_create(self) -> None:
         if is_authenticated_via_project_secret_api_key(self.request):
             return
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.EDIT
+        ):
             raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
 
     def _report_first_code_send_after_commit(self, request: Any, addressed_by: str) -> None:
@@ -1421,8 +1428,8 @@ class MessageTemplatesViewSet(
     def placement(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # The action check passes with a grant to any one workflow, and template files follow the access
         # to the whole workflow resource, so the placement asks for that before it reads the template.
-        if self.user_access_control and not self.user_access_control.check_access_level_for_resource(
-            "hog_flow", required_level="viewer"
+        if self.user_access_control and not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.VIEW
         ):
             raise NotFound()
         placement = self.get_object()
@@ -1535,7 +1542,9 @@ class MessageTemplatesViewSet(
         was_transactional = template.transactional_hog_flow_id is not None
         # Access to one workflow lets a member through the viewset's checks, but this can create a new one, also
         # when the linked workflow was deleted.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.EDIT
+        ):
             raise exceptions.PermissionDenied("You need editor access to workflows to make a template transactional.")
         try:
             make_transactional(

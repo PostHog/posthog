@@ -46,6 +46,10 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 from posthog.scopes.catalog import APIScopeObject
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
@@ -1264,13 +1268,15 @@ class HogFunctionViewSet(
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         alert_scope = self._editable_alert_scope()
-        if alert_scope and not self.user_access_control.check_access_level_for_resource(
-            cast(APIScopeObject, alert_scope), required_level="editor"
+        if alert_scope and not authorization.check(
+            resource=Resource(type=ResourceType(cast(APIScopeObject, alert_scope)), project_id=self.team_id),
+            action=Action.EDIT,
         ):
             raise PermissionDenied(f"Editing this alert destination requires {alert_scope} write access.")
         for read_scope in self._internal_event_read_scopes(request):
-            if not self.user_access_control.check_access_level_for_resource(
-                cast(APIScopeObject, read_scope), required_level="viewer"
+            if not authorization.check(
+                resource=Resource(type=ResourceType(cast(APIScopeObject, read_scope)), project_id=self.team_id),
+                action=Action.VIEW,
             ):
                 raise PermissionDenied(
                     f"This destination handles {read_scope} data, so it requires {read_scope} read access."
@@ -1462,8 +1468,8 @@ class HogFunctionViewSet(
         # permissions instead - a collection action like this one gets neither. Without this a
         # member restricted to some functions would learn which of the others hold a broken
         # credential, and under which input keys.
-        accessible = self.user_access_control.filter_queryset_by_access_level(
-            self.get_queryset(), resource="hog_function"
+        accessible = filter_queryset(
+            self.get_queryset(), resource=Resource(type=ResourceType.HOG_FUNCTION, project_id=self.team_id)
         )
         # Only the columns the scan reads: the rest include large text/JSON fields (hog, bytecode,
         # transpiled, draft, ...) that would be transferred and deserialized for every row for nothing.

@@ -176,8 +176,8 @@ def parse_events_hogql_query(
     hogql_query: str, team_id: int, user: "User | None"
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     """Parse a HogQL SelectQuery from a string query."""
-    from products.access_control.backend.facade.api import (  # noqa: PLC0415 — keeps Django access-control imports off the batch worker import path
-        get_restricted_properties_with_group_type_index_for_team,
+    from products.authorization.backend.facade.api import (  # noqa: PLC0415 — keeps Django off the batch worker import path
+        restricted_properties as get_restricted_properties,
     )
 
     try:
@@ -186,7 +186,9 @@ def parse_events_hogql_query(
         raise UnsupportedHogQLQueryError("Failed to parse query")
 
     try:
-        restricted_properties = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+        restricted_properties = get_restricted_properties(
+            user_id=user.pk if user is not None else None, project_id=team_id
+        )
         context = HogQLContext(
             team_id=team_id,
             user=user,
@@ -291,11 +293,11 @@ def serialize_events_query_schema(
     team_id: int, user: "User | None", hogql_query: ast.SelectQuery
 ) -> "BatchExportSchema":
     """Return a batch export schema from a HogQL query ast."""
-    from products.access_control.backend.facade.api import (  # noqa: PLC0415 — keeps Django access-control imports off the batch worker import path
-        get_restricted_properties_with_group_type_index_for_team,
+    from products.authorization.backend.facade.api import (  # noqa: PLC0415 — keeps Django off the batch worker import path
+        restricted_properties as get_restricted_properties,
     )
 
-    restricted_properties = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+    restricted_properties = get_restricted_properties(user_id=user.pk if user is not None else None, project_id=team_id)
     context = HogQLContext(
         team_id=team_id,
         user=user,

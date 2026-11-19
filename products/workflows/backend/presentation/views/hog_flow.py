@@ -92,12 +92,16 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, relative_date_parse_with_delta_mapping
 from posthog.uuidt import UUIDT
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_projects, filter_queryset
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.cdp.backend.presentation.hog_functions import (
     COHORT_NOT_READY_CODE,
     DATA_WAREHOUSE_SOURCES,
@@ -1138,7 +1142,11 @@ def _with_saved_template_content(action: dict, team: Team, context: dict) -> Opt
 
 
 def _can_set_up_sandbox_sender(team: Team, user: User) -> bool:
-    return UserAccessControl(user=user, team=team).check_access_level_for_resource("hog_flow", "editor")
+    return authorization.check(
+        resource=Resource(type=ResourceType.HOG_FLOW, project_id=(team).id),
+        action=Action.EDIT,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 def _has_email_body(action: dict) -> bool:
@@ -2080,10 +2088,13 @@ class HogFlowActionSerializer(serializers.Serializer):
         user = getattr(request, "user", None)
         if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
             return
-        cohort_ref = ObjectAccessRef(
-            resource="cohort", id=str(cohort.id), team_id=cohort.team_id, created_by_id=cohort.created_by_id
+        cohort_ref = Resource(
+            type=ResourceType.COHORT,
+            id=str(cohort.id),
+            project_id=cohort.team_id,
+            created_by_id=cohort.created_by_id,
         )
-        if not UserAccessControl(user=user, team=team).check_access_level_for_ref(cohort_ref, "editor"):
+        if not authorization.check(resource=cohort_ref, action=Action.EDIT, subject=Subject(user_id=user.pk)):
             raise serializers.ValidationError(
                 {"inputs": {"cohort_id": "You need edit access to this cohort to add people to it."}}
             )
@@ -2110,7 +2121,11 @@ class HogFlowActionSerializer(serializers.Serializer):
             and user is not None
             and user.is_authenticated
             and not isinstance(user, SyntheticUser)
-            and not UserAccessControl(user=user, team=team).check_access_level_for_resource("hog_flow", "editor")
+            and not authorization.check(
+                resource=Resource(type=ResourceType.HOG_FLOW, project_id=(team).id),
+                action=Action.EDIT,
+                subject=Subject(user_id=user.pk),
+            )
         ):
             raise serializers.ValidationError(
                 {"inputs": {"category_id": "You need edit access to all workflows to change the opt-out list."}}
@@ -2177,8 +2192,10 @@ class HogFlowActionSerializer(serializers.Serializer):
         if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
             return
         team = get_team()
-        if not UserAccessControl(user=user, team=team.parent_team or team).check_access_level_for_resource(
-            "llm_skill", "editor"
+        if not authorization.check(
+            resource=Resource(type=ResourceType.LLM_SKILL, project_id=(team.parent_team or team).id),
+            action=Action.EDIT,
+            subject=Subject(user_id=user.pk),
         ):
             raise serializers.ValidationError(
                 {
@@ -2303,8 +2320,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                             user is not None
                             and user.is_authenticated
                             and not isinstance(user, SyntheticUser)
-                            and not UserAccessControl(user=user, team=team).check_access_level_for_resource(
-                                "account", "viewer"
+                            and not authorization.check(
+                                resource=Resource(type=ResourceType.ACCOUNT, project_id=(team).id),
+                                action=Action.VIEW,
+                                subject=Subject(user_id=user.pk),
                             )
                         ):
                             raise serializers.ValidationError(
@@ -3051,7 +3070,11 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
     # the guard in EmailIntegration.create_native_integration matches config__domain exactly, so a
     # subdomain of a domain another organization verified is not blocked from being added.
     visible = set(
-        visible_teams_for_user(team.organization, user_access_control, user_permissions).values_list("id", flat=True)
+        filter_projects(
+            Team.objects.filter(organization=team.organization),
+            organization_id=team.organization_id,
+            subject=Subject(user_id=user_access_control.user.pk),
+        ).values_list("id", flat=True)
     )
     # Partitioned in one pass so the two lists stay complements. Set comparison is a partial order,
     # not a total one, so a domain whose sharers are neither a subset nor a superset of the visible
@@ -3539,7 +3562,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
         if isinstance(obj, Workflow):
             # The service resolved the level when it built the contract.
             return obj.user_access_level
-        return super().get_user_access_level(obj)
+        return authorization.legacy_access_levels([resource_for_object(obj, team=self.context["get_team"]())])[0]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -5995,7 +6018,9 @@ class HogFlowViewSet(
             # The row is gone, so get_object's per-object access check never ran. Require
             # project-wide workflow editor access instead - without this, a member whose editor
             # access came from per-object grants could cancel any deleted flow's runs by UUID.
-            if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            if not authorization.check(
+                resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.EDIT
+            ):
                 raise exceptions.NotFound()
             try:
                 hog_flow_id = str(uuid_mod.UUID(self.kwargs["pk"]))
@@ -7223,7 +7248,9 @@ class HogFlowViewSet(
     @action(methods=["POST"], detail=False)
     def apply_utm_defaults(self, request: Request, **kwargs):
         # Rewrites every workflow in the project, so object-level access to one workflow is not enough.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.EDIT
+        ):
             raise exceptions.PermissionDenied("You need edit access to workflows to update their emails.")
 
         params_serializer = ApplyUtmDefaultsRequestSerializer(data=request.data)
@@ -7293,7 +7320,7 @@ class HogFlowViewSet(
         if all_on is None:
             return
         # Edit access to workflows in general can be narrowed on a single workflow.
-        if not self.user_access_control.check_access_level_for_object(flow, "editor"):
+        if not authorization.check(resource=resource_for_object(flow, team=self.team), action=Action.EDIT):
             result["workflows_without_access"] += 1
             return
         result["emails_off"] += all_on.emails_turned_on
@@ -7419,7 +7446,9 @@ class HogFlowViewSet(
         # "has access to any one workflow" (has_any_specific_access_for_resource). That's too weak for a
         # project-wide person/group count: require resource-level workflow access so an object-level grant on
         # a single workflow can't be used as a project-wide audience oracle.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.VIEW
+        ):
             raise exceptions.PermissionDenied("You do not have access to workflows.")
 
         param_serializer = BlastRadiusRequestSerializer(data=request.data)
@@ -7434,7 +7463,9 @@ class HogFlowViewSet(
             # Account audiences never touch person data or flag conditions; the parse inside
             # the count rejects anything but account filters. Sizing the audience reads account
             # data, so it requires the same access the audience editor requires.
-            if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
+            if not authorization.check(
+                resource=Resource(type=ResourceType.ACCOUNT, project_id=self.team_id), action=Action.VIEW
+            ):
                 raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
             size = get_account_audience_size(
                 team_id=self.team_id,
@@ -7703,9 +7734,9 @@ class HogFlowViewSet(
         # become a bypass if they become one), and drops orphaned metrics for since-deleted workflows.
         accessible_ids = {
             str(pk)
-            for pk in self.user_access_control.filter_queryset_by_access_level(self.get_queryset()).values_list(
-                "id", flat=True
-            )
+            for pk in filter_queryset(
+                self.get_queryset(), resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id)
+            ).values_list("id", flat=True)
         }
         rows: list[dict[str, object]] = [
             {
@@ -7780,7 +7811,9 @@ class HogFlowViewSet(
         # The project-wide aggregate pools ALL workflows' email (that's its point), so it can't be
         # filtered per object grant — only members with project-wide workflow read access get it.
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
-        can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
+        can_read_all_workflows = authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.VIEW
+        )
 
         totals_by_source = fetch_email_totals_by_source(self.team_id, self.REPUTATION_WINDOW_DAYS)
 
@@ -7800,9 +7833,9 @@ class HogFlowViewSet(
         team_queryset = self.get_queryset()
         accessible_ids = {
             str(flow_id)
-            for flow_id in self.user_access_control.filter_queryset_by_access_level(team_queryset).values_list(
-                "id", flat=True
-            )
+            for flow_id in filter_queryset(
+                team_queryset, resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id)
+            ).values_list("id", flat=True)
         }
 
         # Sources matching neither a workflow nor a batch job (deleted workflows, non-UUID ids)

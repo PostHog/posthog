@@ -14,6 +14,9 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.messaging.backend.facade.suppression import (
     SUPPRESSION_SOURCE_CHOICES,
     BulkSuppressionRequest,
@@ -218,7 +221,9 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # recipient + their SMTP diagnostics) with no per-workflow object, require project-wide
         # hog_flow viewer access — otherwise a member granted access to a single workflow could
         # read the entire team's suppression list.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.VIEW
+        ):
             raise PermissionDenied("You need hog_flow viewer access to view the suppression list.")
 
         suppressions = list_active_suppressions(self.team_id, request.validated_query_data.get("search"))
@@ -311,7 +316,9 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # Team-wide mutation with no per-workflow object — require project-wide hog_flow editor
         # access. Otherwise an editor grant on one workflow could add arbitrary addresses to the
         # team's suppression list, blocking unrelated (including transactional) delivery.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.EDIT
+        ):
             raise PermissionDenied("You need hog_flow editor access to modify the suppression list.")
 
     def _remove(self, identifiers: list[str], confirm_complaints: bool) -> RemovedSuppressions:

@@ -19,6 +19,11 @@ from posthog.models import TaggedItem
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.workflows.backend.facade.contracts import (
     Workflow,
     WorkflowAccessDenied,
@@ -42,7 +47,7 @@ from products.workflows.backend.services.hog_flow_secrets import TemplateCache, 
 from products.workflows.backend.services.publish_impact import build_publish_impact
 
 if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def get_workflow(
@@ -109,8 +114,10 @@ def get_team_workflow_edit_state(
         raise WorkflowNotFound()
     if flow.status == HogFlow.State.ARCHIVED:
         raise WorkflowArchived()
-    if not user_access_control.check_access_level_for_object(
-        flow, required_level=cast("AccessControlLevel", required_level)
+    if not authorization.check(
+        resource=resource_for_object(flow, team=user_access_control.team),
+        action={"viewer": Action.VIEW, "editor": Action.EDIT}[required_level],
+        subject=Subject(user_id=user_access_control.user.pk),
     ):
         raise WorkflowAccessDenied(required_level)
     return to_edit_state(flow)
@@ -192,8 +199,10 @@ def _checked_flow(
     if (
         user_access_control is not None
         and required_level is not None
-        and not user_access_control.check_access_level_for_object(
-            flow, required_level=cast("AccessControlLevel", required_level)
+        and not authorization.check(
+            resource=resource_for_object(flow, team=user_access_control.team),
+            action={"viewer": Action.VIEW, "editor": Action.EDIT}[required_level],
+            subject=Subject(user_id=user_access_control.user.pk),
         )
     ):
         raise WorkflowAccessDenied(required_level)
@@ -226,10 +235,26 @@ def list_workflows(
     WorkflowListFiltersInvalid when a field filter does not parse."""
     queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin)
     flows = select_page(queryset, page)
-    if user_access_control is not None and flows.results:
-        user_access_control.preload_object_access_controls(cast("list[models.Model]", flows.results))
+    access_levels = (
+        dict(
+            zip(
+                (str(flow.pk) for flow in flows.results),
+                authorization.legacy_access_levels(
+                    [resource_for_object(flow, team=user_access_control.team) for flow in flows.results],
+                    subject=Subject(user_id=user_access_control.user.pk),
+                ),
+                strict=True,
+            )
+        )
+        if user_access_control is not None
+        else {}
+    )
     template_cache: TemplateCache = {}
-    return flows.map(lambda flow: _to_workflow(flow, user_access_control, template_cache, with_schedules=False))
+    return flows.map(
+        lambda flow: _to_workflow(
+            flow, user_access_control, template_cache, with_schedules=False, access_levels=access_levels
+        )
+    )
 
 
 def list_workflow_summaries(
@@ -326,8 +351,11 @@ def _list_queryset(
         )
 
     if user_access_control is not None:
-        queryset = user_access_control.filter_queryset_by_access_level(
-            queryset, include_all_if_admin=include_all_if_admin
+        queryset = filter_queryset(
+            queryset,
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
+            subject=Subject(user_id=user_access_control.user.pk),
+            include_all_if_admin=include_all_if_admin,
         )
 
     filterset = _WorkflowFilterSet(data=query.field_filters, queryset=queryset)
@@ -377,6 +405,7 @@ def _to_workflow(
     template_cache: TemplateCache,
     *,
     with_schedules: bool,
+    access_levels: Mapping[str, str | None] | None = None,
 ) -> Workflow:
     masked: dict[str, object] = {"actions": flow.actions, "trigger": flow.trigger, "draft": flow.draft}
     mask_workflow_fields(
@@ -388,7 +417,16 @@ def _to_workflow(
         template_cache=template_cache,
     )
     access_level: Optional[str] = (
-        user_access_control.get_user_access_level(flow) if user_access_control is not None else None
+        access_levels.get(str(flow.pk))
+        if access_levels is not None
+        else (
+            authorization.legacy_access_levels(
+                [resource_for_object(flow, team=user_access_control.team)],
+                subject=Subject(user_id=user_access_control.user.pk),
+            )[0]
+            if user_access_control is not None
+            else None
+        )
     )
     return Workflow(
         id=flow.id,

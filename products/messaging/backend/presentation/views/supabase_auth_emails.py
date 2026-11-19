@@ -22,6 +22,9 @@ from posthog.event_usage import report_team_action, report_user_action
 from posthog.models import Team, User
 from posthog.permissions import get_authenticator_client, posthog_feature_flag_enabled
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.messaging.backend.facade.contracts import TransactionalEmailError
 from products.messaging.backend.facade.supabase_auth_emails import (
     MAX_HOOK_BODY_BYTES,
@@ -153,7 +156,9 @@ class SupabaseAuthEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _require_editor(self) -> None:
         # Team-wide settings with no per-workflow object, so a grant on one workflow is not enough.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id), action=Action.EDIT
+        ):
             raise PermissionDenied("You need workflow editor access to change the Supabase auth emails.")
 
     def _require_workflow_editor(self, templates: dict[str, Any]) -> None:
