@@ -7,7 +7,7 @@ from rest_framework import exceptions
 from rest_framework.request import Request
 
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.session_recordings.data_retention import VALID_RETENTION_PERIODS, validate_retention_period
 
 from products.feature_flags.backend.session_recording_links import flag_exists_in_project

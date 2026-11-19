@@ -1,13 +1,21 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { EVERY_SCOUT, reportNoteTargetOptions, reportNotesLogic } from '../../logics/reportNotesLogic'
 import { scoutNoteWriteDisabledReason } from '../../logics/scoutNotesLogic'
 import { SignalReport } from '../../types'
 import { reportNoteMaxChars } from '../../utils/reportNotes'
 import { ScoutNoteComposer } from '../config/scouts/ScoutNoteComposer'
+
+// The mention editor is TipTap, a heavy chunk, so it loads only when someone opens the note box.
+const ReportNoteEditor = lazyWithRetry(() =>
+    import('./ReportNoteEditor').then((module) => ({ default: module.ReportNoteEditor }))
+)
 
 /**
  * The open composer. It mounts the notes logic, so a report that nobody writes a note on never loads
@@ -18,13 +26,23 @@ function OpenComposer({ report, onClose }: { report: SignalReport; onClose: () =
     const logic = reportNotesLogic({ reportId: report.id })
     const { scoutNamesBySkill, scoutConfigsLoading, savingNote } = useValues(logic)
     const steerDisabledReason = scoutNoteWriteDisabledReason()
+    const mentionsEnabled = useFeatureFlag('SIGNALS_REPORT_NOTE_MENTIONS')
+    const maxLength = reportNoteMaxChars(report.id)
     const [text, setText] = useState('')
+    const submitDisabledReason = !text.trim()
+        ? 'Write a note first'
+        : text.length > maxLength
+          ? 'Shorten the note first'
+          : undefined
     // A note on a scout's report is most often steering for that scout, so start with it selected
     // when the person is allowed to send one.
     const [sendToScouts, setSendToScouts] = useState(!!reportScoutName && !steerDisabledReason)
     const [skillName, setSkillName] = useState(reportScoutName ?? EVERY_SCOUT)
 
     const submit = async (): Promise<void> => {
+        if (submitDisabledReason || savingNote) {
+            return
+        }
         await logic.asyncActions.addNote(text.trim(), sendToScouts ? skillName : null, reportScoutName)
         // A failed save keeps the composer open with the text, so a long note is never lost.
         if (!logic.values.lastSaveFailed) {
@@ -34,11 +52,22 @@ function OpenComposer({ report, onClose }: { report: SignalReport; onClose: () =
 
     return (
         <div className="flex flex-col gap-2 rounded border border-primary bg-surface-primary p-2">
-            <ScoutNoteComposer
-                maxLength={reportNoteMaxChars(report.id)}
-                placeholder="e.g. this checkout flow is being replaced next month"
-                onChange={setText}
-            />
+            {mentionsEnabled ? (
+                <Suspense fallback={<LemonSkeleton className="h-16 w-full" />}>
+                    <ReportNoteEditor
+                        maxLength={maxLength}
+                        placeholder="e.g. @someone can you check this before Friday?"
+                        onChange={setText}
+                        onPressCmdEnter={() => void submit()}
+                    />
+                </Suspense>
+            ) : (
+                <ScoutNoteComposer
+                    maxLength={maxLength}
+                    placeholder="e.g. this checkout flow is being replaced next month"
+                    onChange={setText}
+                />
+            )}
             <div className="flex flex-wrap items-center gap-2">
                 <LemonCheckbox
                     size="small"
@@ -71,7 +100,7 @@ function OpenComposer({ report, onClose }: { report: SignalReport; onClose: () =
                     size="small"
                     type="primary"
                     loading={savingNote}
-                    disabledReason={text.trim() ? undefined : 'Write a note first'}
+                    disabledReason={submitDisabledReason}
                     onClick={() => void submit()}
                     data-attr="inbox-report-note-submit"
                 >

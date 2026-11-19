@@ -95,7 +95,7 @@ class TestSteeringFiltersSignal:
         assert '"fingerprint": "abc123"' in prompt
         event, _team, _organization, output, properties = capture.call_args.args
         assert event == "signal_data_source_filtered"
-        assert properties == {"steering_applied": True}
+        assert properties == {"filter_reason": "steering_rejected", "steering_applied": True}
         assert output.source_id == "issue-1"
 
     @pytest.mark.asyncio

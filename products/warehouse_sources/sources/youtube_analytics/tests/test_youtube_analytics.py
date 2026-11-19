@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.youtube_analytics.settings import (
     DEMOGRAPHICS,
     GEOGRAPHY,
     MAX_RESULTS_PER_PAGE,
+    MEMBERSHIP_CANCELLATIONS,
     PLAYLIST_DAILY,
     TOP_VIDEOS,
     TRAFFIC_SOURCE_DETAILS,
@@ -485,6 +486,7 @@ class TestYouTubeAnalyticsSourceResponse:
             (TOP_VIDEOS, ["day", "video"], "asc"),
             (DEMOGRAPHICS, ["day", "ageGroup", "gender"], "asc"),
             (TRAFFIC_SOURCE_DETAILS, ["day", "insightTrafficSourceType", "insightTrafficSourceDetail"], "asc"),
+            (MEMBERSHIP_CANCELLATIONS, ["day", "membershipsCancellationSurveyReason"], "asc"),
             # Each playlist restarts at the first day of the 90-day window, so the rows are not in day order.
             (PLAYLIST_DAILY, ["day", "playlist"], None),
             (VIDEOS, ["id"], None),

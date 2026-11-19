@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7.1@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+# The digest pins the frontend image; the tag alone is mutable. Update both together.
 # PostHog credentials-service (Hono / Node.js). Serves the platform integration
 # credentials PostHog itself owns over HTTP; see README.md.
 #
@@ -48,6 +50,15 @@ RUN pnpm build
 FROM ${NODE_IMAGE}
 WORKDIR /code
 
+# AWS RDS global CA bundle, so the Aurora TLS connection verifies. Node does not trust it by default.
+# NODE_EXTRA_CA_CERTS adds it to the default CAs, so the public CAs stay trusted.
+# To update: download the bundle, recompute the hash with sha256sum, and replace the value below.
+#   curl -fsS "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" | sha256sum
+ARG RDS_CA_BUNDLE_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
+ADD --checksum=sha256:${RDS_CA_BUNDLE_SHA256} --chmod=0644 \
+    https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /etc/ssl/certs/rds-global-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/rds-global-bundle.pem
+
 # Commit hash burned in for incident triage.
 ARG COMMIT_HASH
 RUN echo "${COMMIT_HASH:-unknown}" > /code/commit.txt
@@ -58,9 +69,6 @@ COPY --from=build --chown=node:node /code/services/credentials-service/dist/cred
 # ./migrations relative to the working directory.
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs ./credentials-service-migrate.mjs
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs.map ./credentials-service-migrate.mjs.map
-# The audit retention CronJob runs `node credentials-service-maintenance.mjs audit-retention`.
-COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-maintenance.mjs ./credentials-service-maintenance.mjs
-COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-maintenance.mjs.map ./credentials-service-maintenance.mjs.map
 COPY --from=build --chown=node:node /code/services/credentials-service/migrations ./migrations
 
 ENV NODE_ENV=production \

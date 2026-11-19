@@ -19,7 +19,11 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.zoom._config import ZoomSourceConfig
-from products.warehouse_sources.sources.zoom.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.zoom.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    RECORDINGS_INCREMENTAL_LOOKBACK_SECONDS,
+)
 from products.warehouse_sources.sources.zoom.zoom import (
     ZoomResumeConfig,
     supports_resume,
@@ -114,6 +118,9 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             "401 Client Error": "Zoom authentication failed. Please check your account ID, client ID, and client secret.",
             "Invalid access token": "Zoom authentication failed. Please reconnect the source.",
             "403 Client Error": "Your Zoom app is missing the required scopes. Grant user/meeting/webinar read scopes and reconnect.",
+            # Zoom returns this as a 400, not a 401/403, so it needs its own entry: the token itself
+            # lacks a scope the endpoint requires.
+            "api error: code=4711": "Your Zoom app is missing the required scopes. Grant user/meeting/webinar read scopes and reconnect.",
         }
 
     def get_schemas(
@@ -125,14 +132,17 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Zoom's list endpoints expose no server-side timestamp filter, so every
-        # endpoint is a full refresh (no incremental sync).
+        # Only the date-windowed report and recording endpoints have a server-side date filter;
+        # the rest are full refresh.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=endpoint in INCREMENTAL_FIELDS,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                default_incremental_lookback_seconds=(
+                    RECORDINGS_INCREMENTAL_LOOKBACK_SECONDS if endpoint == "recordings" else None
+                ),
             )
             for endpoint in ENDPOINTS
         ]
@@ -173,6 +183,8 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property
@@ -182,7 +194,7 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Zoom",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Sync your Zoom users, meetings, webinars, registrants, and attendance into the PostHog Data warehouse.
+            caption="""Sync your Zoom users, groups, meetings, webinars, registrants, attendance, usage reports, and cloud recordings into the PostHog Data warehouse.
 
 Create a **Server-to-Server OAuth** app in the [Zoom App Marketplace](https://marketplace.zoom.us/develop/create) and copy its Account ID, Client ID, and Client Secret below.
 
@@ -191,7 +203,10 @@ Grant the following read scopes:
 - `meeting:read:list_meetings:admin`
 - `webinar:read:list_webinars:admin`
 - `meeting:read:list_registrants:admin` and `webinar:read:list_registrants:admin` for registrants
-- `meeting:read:list_past_instances:admin`, `meeting:read:list_past_participants:admin`, `webinar:read:list_past_instances:admin` and `webinar:read:list_past_participants:admin` for participants
+- `meeting:read:list_past_instances:admin`, `meeting:read:list_past_participants:admin`, `webinar:read:list_past_instances:admin` and `webinar:read:list_past_participants:admin` for instances and participants
+- `group:read:list_groups:admin` and `group:read:list_members:admin` for groups
+- `report:read:list_users:admin` for the host usage report
+- `cloud_recording:read:list_user_recordings:admin` for recordings
 """,
             iconPath="/static/services/zoom.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zoom",

@@ -7,6 +7,7 @@ import {
     CLAUSE_LABEL,
     type ConversionResult,
     clauseAlias,
+    countRangeFunction,
     normalizeClause,
     normalizeLabelKey,
 } from './types'
@@ -92,6 +93,20 @@ function clauseToPromExpr(builderClause: BuilderClause, issues: string[]): Claus
                         },
                     },
                 ],
+            }
+            break
+        case 'count_rate':
+        case 'count_increase':
+            // A histogram's observation count is the `_count` series, as `_bucket` holds its buckets.
+            expr = {
+                type: 'aggregate',
+                op: 'sum',
+                expr: {
+                    type: 'call',
+                    func: countRangeFunction(clause) as string,
+                    args: [{ ...selector, name: `${clause.metricName}_count` }],
+                },
+                ...(grouping ? { grouping } : {}),
             }
             break
         default:

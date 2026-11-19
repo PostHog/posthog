@@ -80,6 +80,35 @@ def test_edges_paginate_each_parent_and_keep_distinct_keys(endpoint: str, relate
     ]
 
 
+def test_paper_authors_paginate_each_parent_and_drop_unresolved_authors() -> None:
+    result = driver().run(
+        "paper_authors",
+        [
+            page({"data": [{"paperId": "a"}, {"paperId": "b"}]}),
+            page({"next": 1, "data": [{"authorId": "shared", "name": "First Author", "hIndex": 3}]}),
+            page({"data": [{"authorId": None, "name": "Unresolved"}, {"name": "Missing id"}]}),
+            page({"data": [{"authorId": "shared", "name": "First Author", "hIndex": 3}]}),
+        ],
+    )
+    assert result.rows == [
+        {"paper_id": "a", "authorId": "shared", "name": "First Author", "hIndex": 3},
+        {"paper_id": "b", "authorId": "shared", "name": "First Author", "hIndex": 3},
+    ]
+    paths = [urlsplit(request.url).path for request in result.requests]
+    assert paths[1:] == [
+        "/graph/v1/paper/a/authors",
+        "/graph/v1/paper/a/authors",
+        "/graph/v1/paper/b/authors",
+    ]
+    params = [parse_qs(urlsplit(request.url).query) for request in result.requests]
+    assert [param.get("offset") for param in params] == [None, None, ["1"], None]
+    for param in params[1:]:
+        assert param["limit"] == ["1000"]
+        assert "hIndex" in param["fields"][0]
+        assert "query" not in param
+    assert result.saved_states[-1].paginator_state["completed"] == ["paper/a/authors", "paper/b/authors"]
+
+
 def test_bulk_limit_fails_before_yielding_partial_results() -> None:
     result = driver().run("papers", [page({"total": 10_000_001, "data": [{"paperId": "a"}]})])
     assert isinstance(result.raised, ValueError)

@@ -24,7 +24,26 @@ function widgetArgs(results: { session_id: string; scan_outcome: string }[]): an
     return Array.isArray(formatted) ? formatted[1]?.args : undefined
 }
 
+function searchIssuesLabel(ui_payload: Record<string, any> | undefined): unknown {
+    const toolCall = {
+        id: 'call-1',
+        name: 'search_error_tracking_issues',
+        args: {},
+        status: TaskExecutionStatus.Completed,
+        result: { type: 'tool' as any, content: '', tool_call_id: 'call-1', ui_payload },
+    } as unknown as EnhancedToolCall
+    return TOOL_DEFINITIONS.search_error_tracking_issues.displayFormatter?.(toolCall, { registeredToolMap: {} })
+}
+
 describe('max-constants', () => {
+    it.each([
+        [{ search_error_tracking_issues: { issues: [{ id: 'issue-1' }] } }, 'Found issues'],
+        [{ search_error_tracking_issues: { issues: [] } }, 'No issues found'],
+        [undefined, 'Searched issues'],
+    ])('labels an error tracking search by its result %#', (ui_payload, expected) => {
+        expect(searchIssuesLabel(ui_payload)).toEqual(expected)
+    })
+
     it('waits only on outcomes that produce an observation', () => {
         const args = widgetArgs([
             { session_id: 'a', scan_outcome: 'started' },

@@ -59,7 +59,9 @@ def sandbox_sender_status(team: Team, user: User | None = None) -> SandboxSender
     )
 
 
-ORGANIZATION_BLOCKED = "This organization can't use the sandbox sender. Verify a domain to send email from workflows."
+ORGANIZATION_BLOCKED = (
+    "This organization can't use the PostHog test sender. Verify a domain to send email from workflows."
+)
 
 
 def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
@@ -83,3 +85,10 @@ def verified_own_sender_ids(team_id: int) -> frozenset[int]:
     return frozenset(
         sender.id for sender in IntegrationManager.email.credentials.list(team_id) if sender.config.get("verified")
     )
+
+
+def own_sender_verification(team_id: int) -> dict[str, bool]:
+    return {
+        str(sender.id): bool(sender.config.get("verified"))
+        for sender in IntegrationManager.email.credentials.list(team_id)
+    }

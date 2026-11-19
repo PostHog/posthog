@@ -144,6 +144,7 @@ async def run_sandbox_review(
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,
         github_token_scope="read",
+        disable_repo_hooks=True,
     )
     return await _run_prompt(
         full_prompt,
@@ -196,6 +197,7 @@ async def start_sandbox_session(
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,
         github_token_scope="push" if can_push else "read",
+        disable_repo_hooks=True,
     )
     try:
         return await MultiTurnSession.start(

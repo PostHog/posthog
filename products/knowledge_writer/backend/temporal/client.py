@@ -16,6 +16,7 @@ from ...merge_check.sources import LandedChange
 from ..adapters.repo_merge import pull_request_key
 from ..facade.contracts import DocsCommandRequest
 from ..facade.enums import DocsRequestSource
+from .held_requests_workflow import StartHeldRequestsWorkflow
 from .merge_workflow import ADD_DOCS_CHECK_WAITER_SIGNAL, MergeCheckInputs, MergeCheckWorkflow
 from .publish_workflow import PublishInputs, PublishWorkflow
 
@@ -32,26 +33,53 @@ def run_with_start_timeout(start: Coroutine[Any, Any, None]) -> None:
     asyncio.run(asyncio.wait_for(start, START_TIMEOUT_SECONDS))
 
 
+class PublishStartUnconfirmed(Exception):
+    pass
+
+
 def start_publish(task_run_id: UUID, *, team_id: int) -> None:
-    run_with_start_timeout(start_publish_workflow(task_run_id, team_id=team_id))
+    asyncio.run(start_publish_workflow(task_run_id, team_id=team_id))
 
 
 async def start_publish_workflow(task_run_id: UUID, *, team_id: int) -> None:
-    client = await async_connect()
+    async with asyncio.timeout(START_TIMEOUT_SECONDS) as connect_deadline:
+        client = await async_connect()
     log_context = {"task_run_id": str(task_run_id), "team_id": team_id}
     try:
-        await client.start_workflow(
-            PublishWorkflow.run,
-            PublishInputs(task_run_id=str(task_run_id), team_id=team_id),
-            id=publish_workflow_id(task_run_id),
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-        )
+        async with asyncio.timeout_at(connect_deadline.when()):
+            await client.start_workflow(
+                PublishWorkflow.run,
+                PublishInputs(task_run_id=str(task_run_id), team_id=team_id),
+                id=publish_workflow_id(task_run_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            )
     except WorkflowAlreadyStartedError:
         logger.info("knowledge_writer_publish_already_ran", **log_context)
         return
+    except TimeoutError as error:
+        raise PublishStartUnconfirmed(str(task_run_id)) from error
     logger.info("knowledge_writer_publish_requested", **log_context)
+
+
+def held_requests_workflow_id(task_run_id: UUID) -> str:
+    return f"knowledge_writer:held-requests:{task_run_id}"
+
+
+def start_held_requests(task_run_id: UUID) -> None:
+    run_with_start_timeout(start_held_requests_workflow(task_run_id))
+
+
+async def start_held_requests_workflow(task_run_id: UUID) -> None:
+    client = await async_connect()
+    await client.start_workflow(
+        StartHeldRequestsWorkflow.run,
+        id=held_requests_workflow_id(task_run_id),
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+    )
 
 
 def merge_check_workflow_id(commit_sha: str) -> str:

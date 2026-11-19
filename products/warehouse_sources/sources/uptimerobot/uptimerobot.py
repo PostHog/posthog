@@ -1,8 +1,10 @@
+import json
 import time
+import hashlib
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -17,6 +19,7 @@ from products.warehouse_sources.sources.sdk import (
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.uptimerobot.settings import (
+    DAILY_UPTIME_INITIAL_LOOKBACK_DAYS,
     PAGE_LIMIT,
     RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS,
     RESPONSE_TIMES_WINDOW_DAYS,
@@ -48,6 +51,10 @@ _SENSITIVE_FIELDS: frozenset[str] = frozenset({"http_username", "http_password",
 # numeric `type`; unknown or missing types fail closed (redacted).
 _ALERT_CONTACT_PLAINTEXT_VALUE_TYPES: frozenset[int] = frozenset({1, 2, 3})
 
+# v3 names the channel of a sent alert as a string. Only these carry a plain destination (an email
+# address or a phone number); any other channel, known or not, has its recipient value redacted.
+_PLAINTEXT_RECIPIENT_CHANNELS: frozenset[str] = frozenset({"email", "sms", "prosms", "voice"})
+
 
 def _scrub_sensitive(row: dict[str, Any]) -> dict[str, Any]:
     if _SENSITIVE_FIELDS.isdisjoint(row):
@@ -66,6 +73,20 @@ def _scrub_alert_contact(row: dict[str, Any]) -> dict[str, Any]:
     if contact_type in _ALERT_CONTACT_PLAINTEXT_VALUE_TYPES:
         return row
     return {**row, "value": None}
+
+
+def _redact_recipient(row: dict[str, Any], value_field: str, channel_field: str) -> dict[str, Any]:
+    if row.get(value_field) is None:
+        return row
+    channel = str(row.get(channel_field) or "").strip().lower()
+    if channel in _PLAINTEXT_RECIPIENT_CHANNELS:
+        return row
+    return {**row, value_field: None}
+
+
+def _derive_row_id(parent_id: Any, row: dict[str, Any], fields: tuple[str, ...]) -> str:
+    material = json.dumps([parent_id, *(row.get(name) for name in fields)], default=str)
+    return hashlib.sha256(material.encode()).hexdigest()
 
 
 class UptimeRobotRetryableError(Exception):
@@ -90,6 +111,11 @@ class UptimeRobotResumeConfig:
     window_start: int | None = None
     # v3 endpoints only: cursor of the next page to fetch.
     cursor: str | None = None
+    # Fan-out endpoints only: the parent page being read (None for the first page), the index of the
+    # next parent on it, and where that parent's children continue (a cursor, or a day for daily windows).
+    parent_cursor: str | None = None
+    parent_index: int = 0
+    child_cursor: str | None = None
 
 
 def _to_unix_timestamp(value: Any) -> int | None:
@@ -272,6 +298,146 @@ def _get_v3_rows(
         cursor = next_cursor
 
 
+def _parent_needs_visit(config: UptimeRobotEndpointConfig, parent: dict[str, Any], last_value_ts: int | None) -> bool:
+    """An incident resolved before the watermark can get no new alerts or status updates."""
+    if config.fan_out is None or not config.fan_out.skip_resolved_parents or last_value_ts is None:
+        return True
+    resolved_ts = _to_unix_timestamp(parent.get("resolvedAt"))
+    return resolved_ts is None or resolved_ts >= last_value_ts
+
+
+def _child_list_pages(
+    session: requests.Session,
+    config: UptimeRobotEndpointConfig,
+    path: str,
+    start_cursor: str | None,
+    logger: FilteringBoundLogger,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    cursor = start_cursor
+    while True:
+        params: dict[str, Any] = {"limit": V3_PAGE_LIMIT} if config.v3_accepts_limit else {}
+        if cursor:
+            params["cursor"] = cursor
+        payload = _get_v3(session, path, params, logger)
+        next_cursor = _v3_next_cursor(payload)
+        if next_cursor == cursor:
+            next_cursor = None
+        yield payload.get(config.response_key) or [], next_cursor
+        if next_cursor is None:
+            return
+        cursor = next_cursor
+
+
+def _daily_window_pages(
+    session: requests.Session,
+    path: str,
+    first_day: date,
+    end_day: date,
+    logger: FilteringBoundLogger,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """One request per finished UTC day in [first_day, end_day), as one row each."""
+    day = first_day
+    while day < end_day:
+        next_day = day + timedelta(days=1)
+        params = {"from": f"{day.isoformat()}T00:00:00Z", "to": f"{next_day.isoformat()}T00:00:00Z"}
+        payload = _get_v3(session, path, params, logger)
+        yield [{**payload, "date": day.isoformat()}], next_day.isoformat() if next_day < end_day else None
+        day = next_day
+
+
+def _shape_child_row(config: UptimeRobotEndpointConfig, parent_id: Any, row: dict[str, Any]) -> dict[str, Any]:
+    assert config.fan_out is not None
+    shaped = {**row, config.fan_out.parent_key: parent_id}
+    if config.row_id_fields:
+        # Derived before redaction, so two webhooks with the same name still get different ids.
+        shaped["id"] = _derive_row_id(parent_id, row, config.row_id_fields)
+    if config.recipient_fields is not None:
+        shaped = _redact_recipient(shaped, *config.recipient_fields)
+    return shaped
+
+
+def _get_v3_fan_out_rows(
+    api_key: str,
+    config: UptimeRobotEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[UptimeRobotResumeConfig],
+    resume: UptimeRobotResumeConfig | None,
+    last_value_ts: int | None,
+    incremental_field: str | None,
+) -> Iterator[list[dict[str, Any]]]:
+    fan_out = config.fan_out
+    assert fan_out is not None
+    session = make_tracked_session(
+        headers={"Authorization": f"Bearer {api_key}"}, redact_values=(api_key,), retry=Retry(total=0)
+    )
+
+    today = datetime.now(UTC).date()
+    if last_value_ts is not None:
+        first_day = datetime.fromtimestamp(last_value_ts, UTC).date() + timedelta(days=1)
+    else:
+        first_day = today - timedelta(days=DAILY_UPTIME_INITIAL_LOOKBACK_DAYS)
+
+    page_cursor = resume.parent_cursor if resume is not None else None
+    skip = resume.parent_index if resume is not None else 0
+    child_cursor = resume.child_cursor if resume is not None else None
+    if resume is not None:
+        logger.debug(f"UptimeRobot: resuming {config.name} at parent {skip} of page {page_cursor}")
+
+    while True:
+        resumable_source_manager.save_state(
+            UptimeRobotResumeConfig(parent_cursor=page_cursor, parent_index=skip, child_cursor=child_cursor)
+        )
+        resumable_source_manager.safe_point()
+        params: dict[str, Any] = {"limit": V3_PAGE_LIMIT}
+        if page_cursor:
+            params["cursor"] = page_cursor
+        payload = _get_v3(session, fan_out.parent_path, params, logger)
+        parents = payload.get("data") or []
+        next_page_cursor = _v3_next_cursor(payload)
+        if next_page_cursor == page_cursor:
+            next_page_cursor = None
+
+        for index in range(skip, len(parents)):
+            parent = parents[index]
+            parent_id = parent.get("id")
+            resume_child_cursor, child_cursor = child_cursor, None
+            if parent_id is None or not _parent_needs_visit(config, parent, last_value_ts):
+                continue
+
+            path = config.method.replace("{id}", quote(str(parent_id), safe=""))
+            if fan_out.daily_windows:
+                start_day = date.fromisoformat(resume_child_cursor) if resume_child_cursor else first_day
+                pages = _daily_window_pages(session, path, start_day, today, logger)
+            else:
+                pages = _child_list_pages(session, config, path, resume_child_cursor, logger)
+
+            for rows, next_child_cursor in pages:
+                if next_child_cursor is None:
+                    state = UptimeRobotResumeConfig(parent_cursor=page_cursor, parent_index=index + 1)
+                else:
+                    state = UptimeRobotResumeConfig(
+                        parent_cursor=page_cursor, parent_index=index, child_cursor=next_child_cursor
+                    )
+                resumable_source_manager.save_state(state)
+
+                shaped = [_shape_child_row(config, parent_id, row) for row in rows]
+                if last_value_ts is not None and incremental_field and not fan_out.daily_windows:
+                    shaped = [
+                        row
+                        for row in shaped
+                        if (row_ts := _to_unix_timestamp(row.get(incremental_field))) is None or row_ts > last_value_ts
+                    ]
+                if shaped:
+                    yield shaped
+                else:
+                    resumable_source_manager.safe_point()
+
+        if next_page_cursor is None:
+            break
+        page_cursor = next_page_cursor
+        skip = 0
+
+
 def _form_data(api_key: str, config: UptimeRobotEndpointConfig, offset: int) -> dict[str, Any]:
     return {
         "api_key": api_key,
@@ -437,6 +603,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[UptimeRobotResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = UPTIMEROBOT_ENDPOINTS[endpoint]
     session = make_tracked_session()
@@ -448,7 +615,17 @@ def get_rows(
         else None
     )
 
-    if config.api_version == "v3":
+    if config.fan_out is not None:
+        yield from _get_v3_fan_out_rows(
+            api_key,
+            config,
+            logger,
+            resumable_source_manager,
+            resume,
+            last_value_ts,
+            incremental_field or (config.incremental_fields[0]["field"] if config.incremental_fields else None),
+        )
+    elif config.api_version == "v3":
         yield from _get_v3_rows(api_key, config, logger, resumable_source_manager, resume)
     elif config.monitor_list_key == "response_times":
         yield from _get_response_time_rows(
@@ -469,6 +646,7 @@ def uptimerobot_source(
     resumable_source_manager: ResumableSourceManager[UptimeRobotResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: str | None = None,
 ) -> SourceResponse:
     config = UPTIMEROBOT_ENDPOINTS[endpoint]
 
@@ -481,12 +659,14 @@ def uptimerobot_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
         # Fan-out endpoints aggregate rows across monitor pages (and, for response_times, time
         # windows), so batch order isn't globally ascending. "desc" defers the incremental
-        # watermark to successful job end, where the max over the whole run is safe.
-        sort_mode="desc" if config.monitor_list_key else "asc",
+        # watermark to successful job end, where the max over the whole run is safe. v3 fan-out
+        # endpoints read one series per parent, so their order is not known.
+        sort_mode=None if config.fan_out else "desc" if config.monitor_list_key else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

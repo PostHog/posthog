@@ -668,6 +668,29 @@ class TestSharing(APIBaseTest):
         patched_exporter_task.side_effect = add_content_location_on_task_run
 
     @parameterized.expand(["insights", "dashboards"])
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_shared_preview_ignores_exports_with_selected_filters(self, type: str, _exporter: Mock) -> None:
+        target = self.insight if type == "insights" else self.dashboard
+        ExportedAsset.objects.create(
+            team=self.team,
+            insight=self.insight if type == "insights" else None,
+            dashboard=self.dashboard if type == "dashboards" else None,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"filters_override": {"date_from": "-90d"}},
+            content_location="selected-filters.png",
+            created_by=self.user,
+        )
+        share_response = self.client.patch(
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
+        )
+
+        response = self.client.get(f"/shared/{share_response.json()['access_token']}.png")
+
+        assert response.status_code == 302
+        assert response["Location"] == "/static/blank-dashboard-hog.png"
+        assert ExportedAsset.objects.count() == 2
+
+    @parameterized.expand(["insights", "dashboards"])
     @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_shared_insight_can_regenerate_stale_existing_generated_open_graph_image(
@@ -1628,6 +1651,35 @@ class TestExportCacheKeyFlow(APIBaseTest):
     insight: Insight
     sharing_config: SharingConfiguration
     exported_asset: ExportedAsset
+
+    @parameterized.expand([("render", True), ("shared", False)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @mock_exporter_template
+    def test_dashboard_export_uses_selected_filters_without_saving_them(
+        self, _name: str, is_renderer: bool, mock_calculate: MagicMock
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Export filters", filters={"date_from": "-7d"})
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        self._calculated_result(mock_calculate)
+        selected_filters = {"date_from": "-90d", "date_to": "2026-01-01"}
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"filters_override": selected_filters},
+        )
+        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        url = f"/exporter?token={get_render_access_token(asset)}" if is_renderer else f"/shared/{share.access_token}"
+        separator = "&" if is_renderer else "?"
+        response = self.client.get(f"{url}{separator}filters_override={quote(json.dumps(selected_filters))}")
+        assert response.status_code == 200
+        assert _exported_data(response)["dashboard"]["filters"] == (
+            selected_filters if is_renderer else {"date_from": "-7d"}
+        )
+        exported_query = _exported_data(response)["dashboard"]["tiles"][0]["insight"]["query"]
+        assert exported_query["source"]["after"] == ("-90d" if is_renderer else "-7d")
+        dashboard.refresh_from_db()
+        assert dashboard.filters == {"date_from": "-7d"}
 
     @classmethod
     def setUpTestData(cls) -> None:
