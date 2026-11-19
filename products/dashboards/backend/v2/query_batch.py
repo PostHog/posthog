@@ -60,6 +60,7 @@ MAX_QUERIES_PER_BATCH = 500
 WORKERS_PER_BATCH = 4
 MAX_CONCURRENT_BATCHES = 8
 HEARTBEAT_SECONDS = 10.0
+MAX_READY_BYTES = 128 * 1024 * 1024
 CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
@@ -67,6 +68,7 @@ _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
 _FAILED = "The query failed."
 _THROTTLED = "Too many queries are running for this organization. Try again shortly."
 _BUSY = "Too many dashboards are loading at once. Try again shortly."
+_TOO_LARGE = "The cached results in this request are too large to send together. Request fewer panels at once."
 _INTERVAL_KINDS = frozenset({"TrendsQuery", "StickinessQuery", "LifecycleQuery", "FunnelsQuery"})
 _WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
 _EXPOSED_ERRORS = (ExposedHogQLError, ExposedCHQueryError, ResolutionError, UserAccessControlError)
@@ -218,7 +220,11 @@ class QueryBatch:
         self._user = user
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
-        self.ready: list[dict[str, Any]] = []
+        # Each line's JSON without its `i`, so panels that share a cache entry share one copy of its result.
+        self.ready: list[tuple[int, bytes]] = []
+        self._ready_bytes = 0
+        # Taken while the request is live: the middleware resets the query tags and team scope before streaming.
+        self._context = copy_context()
         self._jobs: list[tuple[int, str, _Job]] = []
         self._queue: Queue[dict[str, Any]] = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -239,7 +245,7 @@ class QueryBatch:
             try:
                 resolved[index] = resolve_query(item)
             except InvalidTarget as e:
-                self.ready.append({"i": index, "error": str(e)})
+                self._add_ready({"i": index, "error": str(e)})
         user_access_control = UserAccessControl(user=self._user, team=self._team)
 
         def plan(index: int) -> PlannedQuery | None:
@@ -257,6 +263,7 @@ class QueryBatch:
 
         to_run: list[int] = []
         to_refresh: list[int] = []
+        served: dict[tuple[str, bool, bool], bytes] = {}
         with planned_cache_reads(
             team=self._team, distinct_id=str(self._user.distinct_id), keys=list(resolved), plan=plan
         ) as planned_queries:
@@ -265,13 +272,17 @@ class QueryBatch:
                 planned = planned_queries.get(index)
                 if planned is None:
                     if item.cache_only:
-                        self.ready.append(_miss_line(index, None))
+                        self._add_ready(_miss_line(index, None))
                     else:
                         # Unplannable queries run unplanned below, so `/query`'s own validation reports why.
                         to_run.append(index)
                     continue
                 if not item.cache_only and planned.query_runner.requires_fresh_calculation():
                     to_run.append(index)
+                    continue
+                same_entry = (planned.cache_key, item.swr, item.cache_only)
+                if same_entry in served:
+                    self.ready.append((index, served[same_entry]))
                     continue
                 try:
                     response = run_planned_query(
@@ -284,11 +295,11 @@ class QueryBatch:
                         analytics_props=None,
                     )
                 except Exception as e:
-                    self.ready.append(_error_line(index, e, team=self._team))
+                    self._add_ready(_error_line(index, e, team=self._team))
                     continue
                 if isinstance(response, CacheMissResponse):
                     if item.cache_only:
-                        self.ready.append(_miss_line(index, planned.cache_key))
+                        self._add_ready(_miss_line(index, planned.cache_key))
                     else:
                         to_run.append(index)
                     continue
@@ -296,7 +307,10 @@ class QueryBatch:
                 if stale and not (item.swr or item.cache_only):
                     to_run.append(index)
                     continue
-                self.ready.append(_result_line(index, response, hit=True, stale=stale))
+                if self._ready_bytes >= MAX_READY_BYTES:
+                    self._add_ready({"i": index, "error": _TOO_LARGE})
+                    continue
+                served[same_entry] = self._add_ready(_result_line(index, response, hit=True, stale=stale))
                 if stale and item.swr and not item.cache_only:
                     to_refresh.append(index)
 
@@ -304,6 +318,16 @@ class QueryBatch:
         for index in to_run:
             query_id = f"{self._client_query_id}-{index}"
             self._jobs.append((index, query_id, partial(self._run, index, resolved[index], query_id)))
+
+    def _add_ready(self, line: dict[str, Any]) -> bytes:
+        body = SafeJSONRenderer().render({key: value for key, value in line.items() if key != "i"})
+        self.ready.append((line["i"], body))
+        self._ready_bytes += len(body)
+        return body
+
+    def _ready_lines(self) -> Iterator[bytes]:
+        for index, body in self.ready:
+            yield b'{"i":%d,' % index + body[1:] + b"\n"
 
     def _limit_context(self, query: dict[str, Any]) -> Optional[LimitContext]:
         # `/query` keeps API-key callers on the default limit.
@@ -314,7 +338,7 @@ class QueryBatch:
         if not self._to_refresh:
             return
         queries, self._to_refresh = self._to_refresh, []
-        context = copy_context()
+        context = self._context.copy()
 
         def refresh_all() -> None:
             try:
@@ -399,9 +423,8 @@ class QueryBatch:
         if not self._admitted:
             return False
         self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch")
-        context = copy_context()
         for _index, query_id, job in self._jobs:
-            self._futures.append(self._pool.submit(context.copy().run, self._work, job, query_id))
+            self._futures.append(self._pool.submit(self._context.copy().run, self._work, job, query_id))
         return True
 
     def _close(self, complete: bool) -> None:
@@ -460,8 +483,7 @@ class QueryBatch:
             yield self._encode({"i": index, "error": _BUSY})
 
     def stream(self) -> Iterator[bytes]:
-        for line in self.ready:
-            yield self._encode(line)
+        yield from self._ready_lines()
         self._dispatch_refreshes()
         if not self._start():
             yield from self._busy_lines()
@@ -483,8 +505,8 @@ class QueryBatch:
             self._close(complete)
 
     async def astream(self) -> AsyncIterator[bytes]:
-        for line in self.ready:
-            yield self._encode(line)
+        for chunk in self._ready_lines():
+            yield chunk
         self._dispatch_refreshes()
         self._loop = asyncio.get_running_loop()
         self._async_queue = asyncio.Queue()
