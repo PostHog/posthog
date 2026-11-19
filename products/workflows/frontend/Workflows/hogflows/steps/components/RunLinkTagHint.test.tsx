@@ -46,7 +46,17 @@ describe('<RunLinkTagHint />', () => {
         { opened: 'a Cmd-click', open: (link: HTMLElement) => fireEvent.click(link, { metaKey: true }) },
         {
             opened: 'a middle-click',
-            open: (link: HTMLElement) => fireEvent(link, new MouseEvent('auxclick', { bubbles: true, button: 1 })),
+            open: (link: HTMLElement) => {
+                fireEvent.mouseDown(link, { button: 1 })
+                fireEvent(link, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+            },
+        },
+        {
+            opened: "the browser's link menu",
+            open: (link: HTMLElement) => {
+                fireEvent.mouseDown(link, { button: 2 })
+                fireEvent.contextMenu(link)
+            },
         },
     ])('shows the new setting after returning from settings opened with $opened', async ({ open }) => {
         useMocks({

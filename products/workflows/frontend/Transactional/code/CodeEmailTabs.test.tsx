@@ -8,7 +8,6 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -34,6 +33,11 @@ const codeEmail: CodeEmailApi = {
 
 const BANNER = "This email's metrics and run logs couldn't load. Check your connection and try again."
 
+const TAGGING_OFF_TEAM = {
+    ...MOCK_DEFAULT_TEAM,
+    workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
+}
+
 describe('CodeEmailTabs', () => {
     let logic: ReturnType<typeof codeEmailLogic.build>
 
@@ -43,7 +47,7 @@ describe('CodeEmailTabs', () => {
     const mocks = (workflow: () => [number, unknown]): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/projects/:team_id/transactional_code_emails/:id/': codeEmail,
-            '/api/projects/:id/': () => [200, teamLogic.values.currentTeam],
+            '/api/projects/:id/': TAGGING_OFF_TEAM,
             '/api/environments/:team_id/hog_flows/:id/': workflow,
             '/api/projects/:team_id/transactional_email_log/impact/': {
                 sent: 10,
@@ -106,10 +110,7 @@ describe('CodeEmailTabs', () => {
                 created_at: '2026-03-14T10:00:00Z',
             },
         ]
-        initKeaTests(true, {
-            ...MOCK_DEFAULT_TEAM,
-            workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
-        })
+        initKeaTests(true, TAGGING_OFF_TEAM)
         featureFlagLogic.mount()
         const flags = {
             [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: sendLinks,

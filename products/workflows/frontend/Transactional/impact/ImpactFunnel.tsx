@@ -47,11 +47,9 @@ function StepValue({ step }: { step: ImpactStep }): JSX.Element {
     if (step.missingFixedByLinkTagging) {
         return (
             <Tooltip title={step.missingDetail}>
-                <span>
-                    <RunLinkTagSettingsLink className="text-xs" dataAttr="email-impact-link-tagging-settings-link">
-                        {step.missing}
-                    </RunLinkTagSettingsLink>
-                </span>
+                <RunLinkTagSettingsLink className="text-xs" dataAttr="email-impact-link-tagging-settings-link">
+                    {step.missing}
+                </RunLinkTagSettingsLink>
             </Tooltip>
         )
     }

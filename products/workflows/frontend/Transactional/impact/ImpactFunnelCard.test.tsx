@@ -5,8 +5,6 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
-import { teamLogic } from 'scenes/teamLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
@@ -38,11 +36,11 @@ const teamWithLinkTagging = (enabled: boolean): TeamType => ({
 
 describe('ImpactFunnelCard', () => {
     let answer: [number, unknown]
-    let linkTaggingSaved: boolean | null
+    let linkTaggingSaved: boolean
 
     beforeEach(() => {
         localStorage.clear()
-        linkTaggingSaved = null
+        linkTaggingSaved = true
         useMocks({
             get: {
                 '/api/projects/:team_id/transactional_email_log/impact/': ({ request }) => {
@@ -50,10 +48,7 @@ describe('ImpactFunnelCard', () => {
                     const named = new URL(request.url).searchParams.get('event')
                     return [status, named ? body : { ...(body as object), after_click: null, without_click: null }]
                 },
-                '/api/projects/:id/': () => [
-                    200,
-                    linkTaggingSaved === null ? teamLogic.values.currentTeam : teamWithLinkTagging(linkTaggingSaved),
-                ],
+                '/api/projects/:id/': () => [200, teamWithLinkTagging(linkTaggingSaved)],
             },
         })
         initKeaTests()
@@ -92,6 +87,7 @@ describe('ImpactFunnelCard', () => {
         "links the session step to the project's link tagging switch only when it would help, when %s",
         async (_, enabled, sensitive, label, href) => {
             initKeaTests(true, teamWithLinkTagging(enabled))
+            linkTaggingSaved = enabled
             answer = [200, IMPACT]
             renderCard(sensitive)
 

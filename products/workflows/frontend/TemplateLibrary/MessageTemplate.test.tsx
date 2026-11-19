@@ -8,7 +8,6 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -47,11 +46,16 @@ const IMPACT = {
     without_click: null,
 }
 
+const TAGGING_OFF_TEAM = {
+    ...MOCK_DEFAULT_TEAM,
+    workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
+}
+
 describe('MessageTemplate', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
 
     beforeEach(() => {
-        useMocks({ get: { '/api/projects/:id/': () => [200, teamLogic.values.currentTeam] } })
+        useMocks({ get: { '/api/projects/:id/': TAGGING_OFF_TEAM } })
     })
 
     afterEach(() => {
@@ -71,10 +75,7 @@ describe('MessageTemplate', () => {
                 [AccessControlResourceType.Workflow]: workflowAccess,
             },
         } as AppContext
-        initKeaTests(true, {
-            ...MOCK_DEFAULT_TEAM,
-            workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
-        })
+        initKeaTests(true, TAGGING_OFF_TEAM)
         featureFlagLogic.mount()
         const flags = {
             [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
