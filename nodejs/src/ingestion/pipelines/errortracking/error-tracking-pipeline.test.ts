@@ -90,8 +90,6 @@ describe('ErrorTrackingPipeline', () => {
         created_at: DateTime.utc(2024, 1, 1),
         version: 1,
         last_seen_at: null,
-        properties_last_updated_at: {},
-        properties_last_operation: null,
         ...overrides,
     })
 

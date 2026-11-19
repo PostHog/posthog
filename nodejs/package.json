@@ -55,6 +55,7 @@
         "generate:ingestion-worker-proto": "cd ../proto && buf generate --template ../nodejs/buf.gen.ingestion-worker.yaml --path ingestion/worker . && cd ../nodejs && eslint --fix src/common/generated/ingestion-worker && oxlint -c .oxlintrc.nodejs.json --fix src/common/generated/ingestion-worker && prettier --write src/common/generated/ingestion-worker",
         "generate:usage-ingestion-proto": "cd ../proto && buf generate --template ../nodejs/buf.gen.usage-ingestion.yaml --path usage_ingestion . && cd ../nodejs && eslint --fix src/common/generated/usage-ingestion && oxlint -c .oxlintrc.nodejs.json --fix src/common/generated/usage-ingestion && prettier --write src/common/generated/usage-ingestion",
         "update-ai-costs": "ts-node src/ingestion/pipelines/ai/costs/scripts/update-ai-costs.ts",
+        "check:ai-costs": "tsc --noEmit -p tsconfig.costs-check.json && jest --config jest.config.js --runInBand src/ingestion/pipelines/ai/costs",
         "gen:ingestion-warning-types": "ts-node src/ingestion/common/scripts/generate-ingestion-warning-types.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
         "start:recording-rasterizer": "node dist/session-replay/recording-rasterizer/index.js"

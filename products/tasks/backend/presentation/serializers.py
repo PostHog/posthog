@@ -5191,6 +5191,7 @@ class SandboxCustomImageWriteSerializer(serializers.Serializer):
     repository = serializers.CharField(
         required=False,
         allow_null=True,
+        allow_blank=True,
         default=None,
         max_length=255,
         help_text="Optional 'org/repo' the builder session clones so it can verify the image "
