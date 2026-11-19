@@ -8,6 +8,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
+from posthog.api.scope_resolution import CURRENT_ALIAS, scope_resolution
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.event_usage import get_request_analytics_properties, sanitize_header_value
@@ -18,7 +19,6 @@ logger = structlog.get_logger(__name__)
 
 dedupe_cache = caches["current_alias_usage"]
 
-CURRENT_ALIAS = "@current"
 CURRENT_ALIAS_REQUESTS_METRIC = "api.current_alias.requests"
 CURRENT_ALIAS_USED_EVENT = "api current alias used"
 # One event per caller and route each day identifies who to contact; the metric keeps the volume.
@@ -81,6 +81,9 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
     source = str(get_query_tag_value("source") or "")
     token_in_query = any(param in request.GET for param in TOKEN_QUERY_PARAMS)
     method = request.method or ""
+    resolution = scope_resolution(request)
+    project_from = resolution.source.value if resolution else ""
+    credential_pins_scope = resolution.credential_pins_scope if resolution else False
 
     client = posthoganalytics.default_client
     if client is not None:
@@ -94,6 +97,8 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
                 "access_method": access_method,
                 "source": source,
                 "token_in_query": token_in_query,
+                "project_from": project_from,
+                "credential_pins_scope": credential_pins_scope,
                 "status_class": status_class,
             },
         )
@@ -116,6 +121,8 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
         token_in_query,
         api_key_mask,
         oauth_application_id,
+        project_from,
+        credential_pins_scope,
     )
     dedupe_key = "current_alias_use:" + hashlib.sha256(repr(dedupe_parts).encode()).hexdigest()
     if not dedupe_cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
@@ -145,6 +152,8 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
             "status_class": status_class,
             "access_method": access_method,
             "token_in_query": token_in_query,
+            "project_from": project_from,
+            "credential_pins_scope": credential_pins_scope,
             "api_key_mask": api_key_mask,
             "api_key_label": get_query_tag_value("api_key_label"),
             "oauth_application_id": oauth_application_id,

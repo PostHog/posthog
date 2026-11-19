@@ -3777,6 +3777,90 @@ class TestCurrentAliasUsage(APIBaseTest):
             (event["properties"]["access_method"], event["properties"]["oauth_application_id"]) for event in events
         ] == [("oauth", application_id) for application_id in tokens.values()]
 
+    @parameterized.expand(
+        [
+            ("unscoped_key_on_project", "/api/projects/@current/", None, status.HTTP_200_OK, ("user", False)),
+            (
+                "project_scoped_key_on_project",
+                "/api/projects/@current/",
+                "own_team",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+            (
+                "key_listing_a_project_outside_its_organization",
+                "/api/projects/@current/",
+                "own_and_foreign_team_in_own_organization",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+            (
+                "key_scoped_to_another_project",
+                "/api/projects/@current/",
+                "other_team",
+                status.HTTP_403_FORBIDDEN,
+                ("user", True),
+            ),
+            (
+                "project_token_on_a_nested_project_route",
+                "/api/projects/@current/feature_flags/?token={project_token}",
+                None,
+                status.HTTP_200_OK,
+                ("token", False),
+            ),
+            (
+                "unscoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                None,
+                status.HTTP_200_OK,
+                ("user", False),
+            ),
+            (
+                "project_scoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                "own_team",
+                status.HTTP_403_FORBIDDEN,
+                ("user", True),
+            ),
+            (
+                "organization_scoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                "own_organization",
+                status.HTTP_200_OK,
+                ("user", True),
+            ),
+        ]
+    )
+    def test_reports_what_decided_the_scope(
+        self, _name: str, path: str, key_scope: str | None, expected_status: int, expected: tuple[str, bool]
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        foreign_team = create_team(organization=create_organization(name="Foreign"))
+        scoping_by_kind: dict[str | None, dict[str, list[int] | list[str]]] = {
+            None: {},
+            "own_team": {"scoped_teams": [self.team.id]},
+            "other_team": {"scoped_teams": [other_team.id]},
+            "own_and_foreign_team_in_own_organization": {
+                "scoped_teams": [self.team.id, foreign_team.id],
+                "scoped_organizations": [str(self.organization.id)],
+            },
+            "own_organization": {"scoped_organizations": [str(self.organization.id)]},
+        }
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, secure_value=hash_key_value(token), scopes=["*"], **scoping_by_kind[key_scope]
+        )
+        self.client.logout()
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.get(
+                path.format(project_token=self.team.api_token), HTTP_AUTHORIZATION=f"Bearer {token}"
+            )
+
+        assert response.status_code == expected_status
+        [event] = self._alias_events(capture)
+        assert (event["properties"]["project_from"], event["properties"]["credential_pins_scope"]) == expected
+
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"])
