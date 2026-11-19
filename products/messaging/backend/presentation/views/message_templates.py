@@ -481,7 +481,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         validate_file_system_placement(
             data.get("_create_in_folder"), data.get("name", self.instance.name if self.instance else None)
         )
-        template_type = data.get("type")
+        template_type = data.get("type", self.instance.type if self.instance else None)
         push = data.get("content", {}).get("push") if data.get("content") else None
         # Only published content needs a title and body. A draft may still be missing them.
         if template_type == "push" and push is not None:

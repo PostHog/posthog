@@ -101,6 +101,50 @@ class TestTransactionalPushTemplates(APIBaseTest):
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
 
+    @parameterized.expand([("template_send", "template"), ("send_email", "api")])
+    def test_an_email_send_route_refuses_a_transactional_push_template(self, _flag, _name, route):
+        template = self._template()
+        self._make_transactional(template)
+        url, body = (
+            (f"{self.templates_url}{template.id}/send/", {})
+            if route == "template"
+            else (f"/api/projects/{self.team.id}/messaging/send/email/", {"template_id": str(template.id)})
+        )
+
+        with patch("posthog.plugins.plugin_server_api.internal_requests.post") as cdp_post:
+            response = self.client.post(
+                url, {**body, "to": "user@example.com", "identifiers": {"distinct_id": "user-1"}}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "template_not_sendable"
+        cdp_post.assert_not_called()
+
+    def test_a_transactional_template_cannot_change_between_email_and_push(self, _flag):
+        template = self._template()
+        self._make_transactional(template)
+
+        response = self.client.patch(
+            f"{self.templates_url}{template.id}/",
+            {"type": "email", "content": {"email": {"subject": "Hi", "html": "<p>Hi</p>"}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        template.refresh_from_db()
+        assert template.type == "push"
+
+    def test_an_update_without_type_still_needs_a_push_title(self, _flag):
+        template = self._template()
+
+        response = self.client.patch(
+            f"{self.templates_url}{template.id}/", {"content": {"push": self._push(title=" ")}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        template.refresh_from_db()
+        assert template.content["push"]["title"] == self._push()["title"]
+
     def test_saving_a_transactional_push_template_writes_a_new_workflow_version(self, _flag):
         template = self._template()
         hog_flow_id = self._make_transactional(template).json()["transactional_hog_flow_id"]
