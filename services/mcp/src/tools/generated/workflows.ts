@@ -6,13 +6,19 @@ import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    omitResponseFields,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 import hooks_workflowsCreate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsGet from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsUpdate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggestionCreateHooks'
-import hooks_workflowsPublish from '@/tools/workflows/publishHooks'
 
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
@@ -736,32 +742,35 @@ const WorkflowsPublishSchema = () => {
     return HogFlowsPublishCreateParams.omit({ project_id: true }).extend(HogFlowsPublishCreateBody.shape)
 }
 
-const workflowsPublish = (): ToolBase<ReturnType<typeof WorkflowsPublishSchema>, Schemas.HogFlowPublishResponse> => ({
+const workflowsPublish = (): ToolBase<
+    ReturnType<typeof WorkflowsPublishSchema>,
+    WithAgentNote<Schemas.HogFlowPublishResponse>
+> => ({
     name: 'workflows-publish',
     schema: WorkflowsPublishSchema(),
-    handler: withToolHooks(
-        hooks_workflowsPublish,
-        async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPublishSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const body: Record<string, unknown> = {}
-            if (params.confirm !== undefined) {
-                body['confirm'] = params.confirm
-            }
-            if (params.confirm_token !== undefined) {
-                body['confirm_token'] = params.confirm_token
-            }
-            const result = await context.api.request<Schemas.HogFlowPublishResponse>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
-                body: await transformRequestBody(hooks_workflowsPublish, context, params, body),
-            })
-            const filtered = omitResponseFields(result, [
-                'workflow.actions.*.config.inputs',
-                'workflow.draft.actions.*.config.inputs',
-            ]) as typeof result
-            return filtered
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPublishSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.confirm !== undefined) {
+            body['confirm'] = params.confirm
         }
-    ),
+        if (params.confirm_token !== undefined) {
+            body['confirm_token'] = params.confirm_token
+        }
+        const result = await context.api.request<Schemas.HogFlowPublishResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'workflow.actions.*.config.inputs',
+            'workflow.draft.actions.*.config.inputs',
+        ]) as typeof result
+        return withAgentNote(
+            filtered,
+            'When the workflow in this result has a test_sender_live warning, tell the user its message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.\n'
+        )
+    },
 })
 
 const WorkflowsReputationGetSchema = () => {

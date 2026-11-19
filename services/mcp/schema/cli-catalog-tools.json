@@ -57337,8 +57337,8 @@
     "workflows-publish": {
         "name": "workflows-publish",
         "kind": "http",
-        "requires": ["hook:workflows/publishHooks"],
-        "hooks": "workflows/publishHooks",
+        "requires": [],
+        "hooks": null,
         "uiApp": null,
         "request": {
             "method": "POST",
@@ -57358,7 +57358,7 @@
             ],
             "injectBody": {},
             "softDelete": null,
-            "transformBody": true
+            "transformBody": false
         },
         "response": {
             "list": false,
@@ -57369,7 +57369,7 @@
             },
             "stripNulls": false,
             "enrich": null,
-            "agentNote": null,
+            "agentNote": "When the workflow in this result has a test_sender_live warning, tell the user its message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.\n",
             "informational": null,
             "textInclude": []
         },

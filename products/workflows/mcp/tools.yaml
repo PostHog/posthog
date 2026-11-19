@@ -575,7 +575,9 @@ tools:
             delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
             still parked shortly after publishing are normal, not a sign of a failed publish.
-        hooks: workflows/publishHooks
+        agent_note: >
+            When the workflow in this result has a test_sender_live warning, tell the user its message. Move those
+            steps to a verified sender only when the user asks; workflows-patch-action-email describes how.
         response:
             exclude:
                 - workflow.actions.*.config.inputs

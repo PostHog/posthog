@@ -85,25 +85,17 @@ describe('workflow write response shape', () => {
         expectStepWithoutInputs(result.workflow.draft.actions[0])
     })
 
-    const TEST_SENDER_LIVE = [{ code: 'test_sender_live', message: 'Set up your sending domain.' }]
+    it('tells the agent to relay a test sender warning from a publish', async () => {
+        const warnings = [{ code: 'test_sender_live', message: 'Set up your sending domain.' }]
+        const request = vi.fn().mockResolvedValue({ published: true, workflow: { ...workflow(), warnings } })
 
-    it.each([
-        { tool: 'enable', warnings: TEST_SENDER_LIVE, noted: true },
-        { tool: 'enable', warnings: [], noted: false },
-        { tool: 'publish', warnings: TEST_SENDER_LIVE, noted: true },
-        { tool: 'publish', warnings: [], noted: false },
-    ])('$tool tells the agent to relay a test sender warning: $noted', async ({ tool, warnings, noted }) => {
-        const flow = { ...workflow(), warnings }
-        const request = vi.fn().mockResolvedValue(tool === 'enable' ? flow : { published: true, workflow: flow })
-        const handler = tool === 'enable' ? workflowsEnable().handler : GENERATED_TOOLS['workflows-publish']!().handler
+        const result: any = await GENERATED_TOOLS['workflows-publish']!().handler(createMockContext(request), {
+            id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+            confirm: true,
+            confirm_token: 'preview-token',
+        } as any)
 
-        const result: any = await handler(createMockContext(request), { id: 'wf-1', confirm: true } as any)
-
-        if (noted) {
-            expect(result._agentNote).toContain('test_sender_live')
-            expect((tool === 'enable' ? result : result.workflow).warnings).toEqual(TEST_SENDER_LIVE)
-        } else {
-            expect(result._agentNote).toBeUndefined()
-        }
+        expect(result._agentNote).toContain('test_sender_live')
+        expect(result.workflow.warnings).toEqual(warnings)
     })
 })

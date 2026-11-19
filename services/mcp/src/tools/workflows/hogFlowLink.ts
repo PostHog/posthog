@@ -55,17 +55,3 @@ export function broadcastConversionNote(flow: HogFlowLike): string | null {
         `delivery, open and click numbers, and can no longer take more steps.${exitStep}`
     )
 }
-
-/** Guidance for an agent whose workflow is live with email steps on the PostHog test sender, or null otherwise. */
-export function testSenderLiveNote(
-    flow: { warnings?: readonly { code?: string }[] | null } | null | undefined
-): string | null {
-    if (!flow?.warnings?.some((warning) => warning.code === 'test_sender_live')) {
-        return null
-    }
-    return (
-        "Tell the user the test_sender_live warning's message: this workflow's email steps on the PostHog test sender " +
-        'reach only verified members of their organization. Move those steps to a verified sender only when the user ' +
-        'asks; workflows-patch-action-email describes how.'
-    )
-}

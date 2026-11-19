@@ -3,9 +3,9 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import { HogFlowsPartialUpdateParams } from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { omitResponseFields, withAgentNote, withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { omitResponseFields, withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
-import { hogFlowPath, testSenderLiveNote } from '@/tools/workflows/hogFlowLink'
+import { hogFlowPath } from '@/tools/workflows/hogFlowLink'
 
 const LifecycleSchema = HogFlowsPartialUpdateParams().omit({ project_id: true })
 
@@ -27,9 +27,7 @@ const patchStatus = async (
         body: { status },
     })
     const compact = omitResponseFields(result, WITHOUT_STEP_INPUTS) as Schemas.HogFlow
-    const linked = await withPostHogUrl(context, compact, hogFlowPath(compact))
-    const note = testSenderLiveNote(compact)
-    return note ? withAgentNote(linked, note) : linked
+    return await withPostHogUrl(context, compact, hogFlowPath(compact))
 }
 
 export const workflowsEnable = (): ToolBase<typeof LifecycleSchema, LifecycleResult> =>
