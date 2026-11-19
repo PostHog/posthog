@@ -328,7 +328,8 @@ export const DOMAIN_CHECKS: Record<DomainProfileKey, DomainCheck> = {
         key: 'paying',
         label: 'Paying company',
         domain: 'app.example.io',
-        band: 'Established',
+        // The domain alone would be Starter; the paid plan lifts the start.
+        band: 'Starter',
         signals: [
             { label: 'Domain age', ok: 'warn', detail: 'Registered 1 year ago' },
             { label: 'Receives email', ok: true, detail: 'MX records found' },

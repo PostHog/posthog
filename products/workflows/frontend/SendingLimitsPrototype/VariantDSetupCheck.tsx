@@ -62,7 +62,9 @@ function DomainCheckCard({ check, checkedOn }: { check: DomainCheck; checkedOn: 
             <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2">
                     <h3 className="m-0">Domain check</h3>
-                    <LemonTag type={BAND_TAG[check.band]}>{check.band}</LemonTag>
+                    <LemonTag type={check.source === 'paid plan' ? 'success' : BAND_TAG[check.band]}>
+                        {check.source === 'paid plan' ? 'Paid plan' : check.band}
+                    </LemonTag>
                 </span>
                 <span className="text-xs text-secondary">Checked {checkedOn}</span>
             </div>
@@ -76,7 +78,7 @@ function DomainCheckCard({ check, checkedOn }: { check: DomainCheck; checkedOn: 
                 <span className="text-xl font-semibold">
                     {check.startPerDay === null
                         ? 'On hold'
-                        : `${check.band === 'Established' ? 'Up to ' : ''}${fmt(check.startPerDay)} emails a day`}
+                        : `${check.startPerDay > 1000 ? 'Up to ' : ''}${fmt(check.startPerDay)} emails a day`}
                 </span>
                 <span className="text-xs text-secondary">
                     {check.source === 'paid plan'
@@ -222,7 +224,7 @@ export function VariantDSetupCheck({ surface, state, domainProfile, setDomainPro
     const blocked = state.key === 'blocked' || onHold
     const stopped = broadcast.sample?.verdict === 'stopped'
     // Above the Starter band the first send is a sample, because an aged domain can be bought.
-    const sampleFirst = state.key === 'new' && check.band === 'Established'
+    const sampleFirst = state.key === 'new' && startPerDay > 1000
     const sent = sampleFirst ? Math.round(broadcast.audience * 0.05) : broadcast.sentSoFar
     const newOnHold = onHold && state.key === 'new'
     const plan = sendPlan(state, state.key === 'new' ? flatPlan(broadcast.audience, startPerDay) : undefined)

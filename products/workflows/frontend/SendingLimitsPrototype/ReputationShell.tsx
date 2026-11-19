@@ -52,7 +52,7 @@ export function reputationResponseFor(state: SendingState): TeamEmailReputationR
                 ? [
                       {
                           hog_flow_id: '0199c0de-0000-7000-8000-000000000001',
-                          hog_flow_name: state.broadcast.name,
+                          hog_flow_name: state.key === 'moved-down' ? 'Product updates' : state.broadcast.name,
                           emails_sent: Math.round(state.rates30d.sent * 0.6),
                           bounce_rate: state.rates30d.bounce * 1.4,
                           complaint_rate: state.rates30d.complaint,
