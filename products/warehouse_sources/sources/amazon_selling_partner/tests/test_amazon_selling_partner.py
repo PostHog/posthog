@@ -361,6 +361,45 @@ class TestTransactions:
             for r in _api_requests(result)
         ] == expected
 
+    def test_a_rejected_earliest_window_is_skipped_and_the_walk_continues(self) -> None:
+        invalid_input = ScriptedResponse(
+            status=400, json={"errors": [{"code": "InvalidInput", "message": "Start date too old"}]}
+        )
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            if request.param("postedAfter") == EARLIEST_START:
+                return invalid_input
+            return _transactions_page([request.param("postedAfter") or ""])
+
+        result = _driver().run("transactions", respond)
+
+        assert result.raised is None
+        windows = transaction_windows(datetime(2016, 1, 1, tzinfo=UTC), NOW)
+        assert [r.param("postedAfter") for r in _api_requests(result)] == [to_iso8601(w.posted_after) for w in windows]
+        assert len(result.rows) == len(windows) - 1
+        assert result.saved_states == [
+            AmazonSellingPartnerResumeConfig(
+                window_start=to_iso8601(w.posted_after), window_end=to_iso8601(w.posted_before)
+            )
+            for w in windows[1:]
+        ]
+
+    def test_a_rejected_window_fails_the_sync_once_a_page_was_already_read(self) -> None:
+        invalid_input = ScriptedResponse(
+            status=400, json={"errors": [{"code": "InvalidInput", "message": "The next token has expired"}]}
+        )
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == TOKEN_PATH:
+                return TOKEN
+            return invalid_input if request.param("nextToken") else _transactions_page(["t"], "next")
+
+        result = _driver().run("transactions", respond)
+
+        assert isinstance(result.raised, requests.HTTPError)
+
 
 class TestInventorySummaries:
     def test_discovers_marketplaces_reads_each_one_whole_and_tags_rows(self) -> None:

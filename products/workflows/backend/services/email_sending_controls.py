@@ -47,6 +47,7 @@ def suspend_email_sending(
                 changed_at=None, previously_suspended_at=config.email_sending_suspended_at
             )
         previous_tier = config.email_sending_tier
+        pinned = config.email_sending_tier_pinned
         suspended_at = timezone.now()
         config.email_sending_suspended_at = suspended_at
         config.email_sending_suspension_reason = reason
@@ -75,6 +76,7 @@ def suspend_email_sending(
         previous_tier=previous_tier,
         new_tier=MIN_EMAIL_SENDING_TIER,
         reason="staff_suspension",
+        pin_change=(pinned, pinned),
         user_id=user_id,
         was_impersonated=was_impersonated,
     )

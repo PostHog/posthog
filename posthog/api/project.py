@@ -67,10 +67,12 @@ from posthog.api.team.team_config import (
     drop_cached_workflows_config,
 )
 from posthog.api.team.team_serializer import (
+    AVAILABLE_ERROR_TRACKING_AI_FEATURES_FIELD_SCHEMA,
     REALTIME_COHORTS_FIELD_SCHEMA,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
+    available_error_tracking_ai_features,
     flag_evaluations_read_mode_for,
     hide_team_secrets_from_workload_tokens,
     realtime_cohorts_for_request,
@@ -650,6 +652,7 @@ class ProjectBackwardCompatSerializer(
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
     realtime_cohorts = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    available_error_tracking_ai_features = serializers.SerializerMethodField()  # Compat with TeamSerializer
     flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
@@ -841,6 +844,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
             "realtime_cohorts",  # Compat with TeamSerializer
+            "available_error_tracking_ai_features",  # Compat with TeamSerializer
             "flag_evaluations_mode",  # Compat with TeamSerializer
             "flag_calls_only_in_flag_evaluations",  # Compat with TeamSerializer
             "api_host",  # Compat with TeamSerializer
@@ -886,6 +890,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",
             "managed_viewsets",
             "realtime_cohorts",
+            "available_error_tracking_ai_features",
             "flag_evaluations_mode",
             "flag_calls_only_in_flag_evaluations",
             "api_host",
@@ -1081,6 +1086,10 @@ class ProjectBackwardCompatSerializer(
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Project) -> dict[str, str | int | None]:
         return realtime_cohorts_for_request(self.context.get("request"), obj.passthrough_team)
+
+    @extend_schema_field(AVAILABLE_ERROR_TRACKING_AI_FEATURES_FIELD_SCHEMA)
+    def get_available_error_tracking_ai_features(self, obj: Project) -> list[str]:
+        return available_error_tracking_ai_features(obj.passthrough_team)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1681,10 +1690,14 @@ class ProjectViewSet(
             ):
                 return
 
-            admin_user_ids = OrganizationMembership.objects.filter(
-                organization_id=project.organization_id,
-                level__gte=OrganizationMembership.Level.ADMIN,
-            ).values_list("user_id", flat=True)
+            admin_user_ids = (
+                OrganizationMembership.objects.with_effective_level()
+                .filter(
+                    organization_id=project.organization_id,
+                    resolved_level__gte=OrganizationMembership.Level.ADMIN,
+                )
+                .values_list("user_id", flat=True)
+            )
 
             creator = user.first_name or user.email
             for admin_user_id in admin_user_ids:

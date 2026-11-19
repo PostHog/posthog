@@ -27,6 +27,7 @@ from products.workflows.backend.services.email_sending_tier import (
     recompute_email_sending_tier_for_team,
     recompute_email_sending_tiers,
 )
+from products.workflows.backend.services.email_sending_tier_audit import EMAIL_SENDING_TIER_CHANGED_EVENT
 from products.workflows.backend.services.ses_tenant_state import apply_ses_tenant_state
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
@@ -480,15 +481,23 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
         used = clean_days(2, TIER_DAILY_CAPS[0])
         histories = {self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)}
-        with patch(
-            "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
-            return_value=SendingHistoryWindows(window=histories, recent=histories),
+        with (
+            patch(
+                "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
+                return_value=SendingHistoryWindows(window=histories, recent=histories),
+            ),
+            patch("posthog.event_usage.posthoganalytics.capture") as global_capture,
         ):
             if by_staff:
                 recompute_email_sending_tier_for_team(self.team.id, user_id=self.user.pk)
             else:
                 recompute_workflows_email_sending_tiers()
 
+        assert [
+            (call.kwargs["distinct_id"], call.kwargs["properties"]["changed_by"])
+            for call in global_capture.call_args_list
+            if call.kwargs["event"] == EMAIL_SENDING_TIER_CHANGED_EVENT
+        ] == ([(str(self.team.uuid), "staff")] if by_staff else [])
         config = TeamWorkflowsConfig.objects.get(team=self.team)
         assert config.email_sending_tier == 1
         assert config.email_sending_tier_updated_at is not None
