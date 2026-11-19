@@ -108,7 +108,6 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
 from posthog.query_cache import prefetched_entries
 from posthog.query_cache.read_history import batched_reads
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
@@ -4437,7 +4436,7 @@ class DashboardsViewSet(
     def cached_tiles(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Read the cached results of several insight tiles in one request. Never runs a query: a tile with
         nothing cached comes back as a miss, to be loaded through the insight endpoint."""
-        if not dashboard_v2_enabled(self.team, str(cast(User, request.user).distinct_id)):
+        if not self._dashboard_v2_enabled(request):
             raise exceptions.NotFound()
         # Covers the body as well as the query string: `resolve_execution_mode` honors either.
         if refresh_param_present(request):
@@ -4450,7 +4449,18 @@ class DashboardsViewSet(
                 {"tile_ids": f"Request at most {MAX_CACHED_TILES_BATCH_SIZE} tiles at a time."}
             )
 
-        dashboard = self.get_object()
+        return Response({"results": self._read_cached_tiles(request, self.get_object(), tile_ids)})
+
+    def _dashboard_v2_enabled(self, request: Request) -> bool:
+        return not request.user.is_anonymous and dashboard_v2_enabled(
+            self.team, str(cast(User, request.user).distinct_id)
+        )
+
+    def _read_cached_tiles(
+        self, request: Request, dashboard: Dashboard, tile_ids: builtins.list[int]
+    ) -> builtins.list[dict[str, Any]]:
+        """Each tile's cached result, in `tile_ids` order, from one batched cache read and without running a query.
+        Every reader of cached tiles goes through here, so they serve the same hits to the same people."""
         tiles_by_id = {
             tile.id: (tile, insight)
             for tile in DashboardTile.dashboard_queryset(dashboard.tiles.filter(id__in=tile_ids))
@@ -4507,7 +4517,7 @@ class DashboardsViewSet(
             finally:
                 context.pop("planned_queries", None)
 
-        return Response({"results": results})
+        return results
 
     @extend_schema(
         parameters=[

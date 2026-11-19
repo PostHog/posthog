@@ -175,10 +175,7 @@ def process_query_dict(
 
     tag_queries(query=upgraded_query_json)
 
-    dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
-    variables_override = (
-        [HogQLVariable.model_validate(n) for n in variables_override_json.values()] if variables_override_json else None
-    )
+    dashboard_filters, variables_override = _parse_overrides(dashboard_filters_json, variables_override_json)
 
     return process_query_model(
         team,
@@ -302,23 +299,20 @@ def plan_query_dict(
         query = QuerySchemaRoot.model_validate(upgraded_query).root
     except pydantic_core.ValidationError:
         return None
-    query_runner = _planned_query_runner(
+    query_runner, _ = _find_query_runner(
         query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
     )
     if query_runner is None:
         return None
-    # Configured the way _run_query_runner configures the runner before process_query_dict runs it.
-    dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
-    if dashboard_filters:
-        query_runner.apply_dashboard_filters(dashboard_filters)
-        tag_queries(dashboard_all_time=dashboard_filters.date_from == "all")
-    if variables_override_json:
-        query_runner.apply_variable_overrides(
-            [HogQLVariable.model_validate(n) for n in variables_override_json.values()]
-        )
-    query_runner.is_query_service = False
-    if allow_raw_results:
-        query_runner.serve_raw_cached_results = True
+    dashboard_filters, variables_override = _parse_overrides(dashboard_filters_json, variables_override_json)
+    _configure_query_runner(
+        query_runner,
+        dashboard_filters=dashboard_filters,
+        variables_override=variables_override,
+        pagination_cursor=None,
+        is_query_service=False,
+        allow_raw_results=allow_raw_results,
+    )
     # run() applies the user before it builds the key. Some runners are built without the user, so apply it here too.
     if user is not None:
         query_runner.set_user(user)
@@ -327,29 +321,42 @@ def plan_query_dict(
     )
 
 
-def _planned_query_runner(
+def _parse_overrides(
+    dashboard_filters_json: Optional[dict], variables_override_json: Optional[dict]
+) -> tuple[Optional[DashboardFilter], Optional[list[HogQLVariable]]]:
+    dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
+    variables_override = (
+        [HogQLVariable.model_validate(n) for n in variables_override_json.values()] if variables_override_json else None
+    )
+    return dashboard_filters, variables_override
+
+
+def _find_query_runner(
     query: BaseModel,
     team: Team,
     *,
     limit_context: Optional[LimitContext],
     user: Optional[User],
     user_access_control: Optional[UserAccessControl],
-) -> Optional[QueryRunner]:
-    # Follows process_query_model's dispatch, and gives up wherever that would leave the query runners.
+) -> tuple[Optional[QueryRunner], BaseModel]:
+    """The runner `process_query_model` runs `query` with: the query's own, or else that of the first source down its
+    `source` chain that has one. Also returns the query the search stopped at. The runner is None where
+    `process_query_model` handles that query without a runner: editor queries, Hog queries and unsupported kinds.
+    """
     if isinstance(query, HogQLAutocomplete | HogQLMetadata | DatabaseSchemaQuery):
-        return None
+        return None, query
     query_runner = get_query_runner_or_none(
         query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
     )
     if query_runner is None and hasattr(query, "source") and isinstance(query.source, BaseModel):
-        return _planned_query_runner(
+        return _find_query_runner(
             unwrapped_source(query, query.source),
             team,
             limit_context=limit_context,
             user=user,
             user_access_control=user_access_control,
         )
-    return query_runner
+    return query_runner, query
 
 
 def run_planned_query(
@@ -373,10 +380,7 @@ def run_planned_query(
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
     )
-    raw_results = query_runner.raw_cached_results_bytes
-    if raw_results is not None and isinstance(result, BaseModel):
-        return RawCachedQueryResponse(response=result, raw_results=raw_results)
-    return result
+    return _with_raw_results(query_runner, result)
 
 
 @overload
@@ -480,7 +484,7 @@ def process_query_model(
     if isinstance(query, DatabaseSchemaQuery):
         return process_database_schema_query(team, query, user=user)
 
-    query_runner = get_query_runner_or_none(
+    query_runner, runner_query = _find_query_runner(
         query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
     )
     if query_runner is not None:  # Query runner available - it will handle execution as well as caching
@@ -495,17 +499,18 @@ def process_query_model(
             dashboard_id=dashboard_id,
             is_query_service=is_query_service,
             cache_age_seconds=cache_age_seconds,
-            pagination_cursor=pagination_cursor,
+            # The cursor applies to the query as sent, so a runner found down its source chain runs without it.
+            pagination_cursor=pagination_cursor if runner_query is query else None,
             analytics_props=analytics_props,
             query_status=query_status,
             allow_raw_results=allow_raw_results,
         )
 
     # This query doesn't run via query runner
-    if hasattr(query, "source") and isinstance(query.source, BaseModel):
+    if runner_query is not query:
         return process_query_model(
             team,
-            unwrapped_source(query, query.source),
+            runner_query,
             dashboard_filters=dashboard_filters,
             variables_override=variables_override,
             limit_context=limit_context,
@@ -563,17 +568,14 @@ def _run_query_runner(
     query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse:
-    if dashboard_filters:
-        query_runner.apply_dashboard_filters(dashboard_filters)
-        # A tag, so it reaches the async worker, which rebuilds the runner from the query alone.
-        tag_queries(dashboard_all_time=dashboard_filters.date_from == "all")
-    if variables_override:
-        query_runner.apply_variable_overrides(variables_override)
-    if pagination_cursor:
-        query_runner.apply_pagination_cursor(pagination_cursor)
-    query_runner.is_query_service = is_query_service
-    if allow_raw_results:
-        query_runner.serve_raw_cached_results = True
+    _configure_query_runner(
+        query_runner,
+        dashboard_filters=dashboard_filters,
+        variables_override=variables_override,
+        pagination_cursor=pagination_cursor,
+        is_query_service=is_query_service,
+        allow_raw_results=allow_raw_results,
+    )
 
     # The worker rebuilds the runner, so enqueue-time labels can describe a different access snapshot.
     labels = query_runner.query_status_labels() if query_status is not None else None
@@ -588,6 +590,34 @@ def _run_query_runner(
     )
     if query_status is not None and labels is not None:
         query_status.labels = [*labels, *(["chained"] if "chained" in (query_status.labels or []) else [])]
+    return _with_raw_results(query_runner, result)
+
+
+def _configure_query_runner(
+    query_runner: QueryRunner,
+    *,
+    dashboard_filters: Optional[DashboardFilter],
+    variables_override: Optional[list[HogQLVariable]],
+    pagination_cursor: Optional[str],
+    is_query_service: bool,
+    allow_raw_results: bool,
+) -> None:
+    """Everything that shapes a runner's query and cache key before it runs. Planning a query configures it here too,
+    so a planned key is the key the run reads."""
+    if dashboard_filters:
+        query_runner.apply_dashboard_filters(dashboard_filters)
+        # A tag, so it reaches the async worker, which rebuilds the runner from the query alone.
+        tag_queries(dashboard_all_time=dashboard_filters.date_from == "all")
+    if variables_override:
+        query_runner.apply_variable_overrides(variables_override)
+    if pagination_cursor:
+        query_runner.apply_pagination_cursor(pagination_cursor)
+    query_runner.is_query_service = is_query_service
+    if allow_raw_results:
+        query_runner.serve_raw_cached_results = True
+
+
+def _with_raw_results(query_runner: QueryRunner, result: dict | BaseModel) -> dict | BaseModel | RawCachedQueryResponse:
     raw_results = query_runner.raw_cached_results_bytes
     if raw_results is not None and isinstance(result, BaseModel):
         return RawCachedQueryResponse(response=result, raw_results=raw_results)

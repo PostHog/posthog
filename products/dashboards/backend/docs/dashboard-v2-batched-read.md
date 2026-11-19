@@ -47,6 +47,8 @@ Cached results must never cross a permission boundary. Each check matches the pe
 The first PR reuses `InsightSerializer.insight_result` for each tile, the same code the insight endpoint runs.
 The key inputs, filter layering, variables and access snapshot therefore can't drift between the two paths.
 Planning keeps this property: `InsightSerializer.plan_query` reads the same request inputs as `insight_result`, and the planned runner is the one that runs, so the key that was read is the key the runner computed.
+`plan_query_dict` and `process_query_dict` find and configure the runner through the same two helpers, `_find_query_runner` and `_configure_query_runner`.
+A parity test checks that both produce the same runner and cache key for the same tile, including for a member with restricted properties.
 The stored-key work must keep this property: a stored key has to include an access fingerprint, which is checked on read before an entry is served.
 
 ## Fallback on miss
