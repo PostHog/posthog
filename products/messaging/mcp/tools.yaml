@@ -131,8 +131,8 @@ tools:
             with `opt_in: true` unless the user asks for them. Returns at once with the run. Poll provider-imports-get
             until `status` is `completed` or `failed`. A second start while a run is active returns 409. Importing again
             adds what's new and leaves anything changed or deleted in PostHog as it is. Creates people only when the
-            `new_people` step is selected, and each new person counts as one event, so ask the user before including
-            it. Imported drafts never send on their own.
+            `new_people` step is selected, and each new person counts as one event, so ask the user before including it.
+            Imported drafts never send on their own.
         feature_flag: workflows-resend-import
     provider-imports-get:
         operation: messaging_provider_imports_retrieve
