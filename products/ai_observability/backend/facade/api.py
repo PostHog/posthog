@@ -132,6 +132,7 @@ from ..logic.traces.trace_selection import (
     InvalidTraceWindowError as InvalidTraceWindowError,
     QuickFilter as QuickFilter,
     TraceGroupScope as TraceGroupScope,
+    TracePageBounds,
     TracePosition,
     TraceSelection as TraceSelection,
     TraceWindow,
@@ -214,7 +215,7 @@ def load_trace_list(
     caller that holds a query concurrency slot for the load can release the slot before it runs the step.
     """
     after = decode_cursor(cursor) if cursor is not None else None
-    page = load_selection_page(team, user, selection, after=after, limit=limit)
+    page = load_selection_page(team, user, selection, bounds=TracePageBounds(after=after, before=None), limit=limit)
     loaded = _load_page_rows(team, user, page.positions)
     return lambda: contracts.TraceList(
         items=_list_items(team, user, selection.window, page.positions, loaded),

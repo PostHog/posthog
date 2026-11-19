@@ -22,6 +22,7 @@ from .trace_queries import FEEDBACK_EVENT_NAMES, TRACE_EVENT_NAMES
 from .trace_selection import (
     InvalidTraceSelectionError,
     QuickFilter,
+    TracePageBounds,
     TracePosition,
     TraceSelection,
     filters_test_accounts,
@@ -46,6 +47,7 @@ class SelectionCounts:
 class SelectionPage:
     positions: tuple[TracePosition, ...]
     has_more: bool
+    has_before: bool
     counts: SelectionCounts
 
 
@@ -153,47 +155,107 @@ def _event_condition(team: Team, selection: TraceSelection) -> ast.Expr:
         )
     exprs.extend(_person_scope(selection))
     exprs.extend(_group_scope(selection))
+    if selection.session_id is not None:
+        exprs.append(
+            parse_expr(
+                "properties.$ai_session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=selection.session_id)},
+            )
+        )
     search = (selection.search or "").strip()
     if search:
         exprs.append(_search_filter(team, selection, search))
     return _all(exprs)
 
 
-def _in_page(selection: TraceSelection, after: TracePosition | None) -> ast.Expr:
-    exprs: list[ast.Expr] = []
-    if selection.quick_filter is not None:
-        exprs.append(ast.Field(chain=[_QUICK_FILTER_FACTS[selection.quick_filter]]))
-    if after is not None:
+def _sort_key_ms(selection: TraceSelection) -> ast.Expr:
+    first_ms = parse_expr("toUnixTimestamp64Milli(first_timestamp)")
+    if selection.order == "oldest_first":
+        return first_ms
+    return ast.Call(name="negate", args=[first_ms])
+
+
+def _position_key(selection: TraceSelection, position: TracePosition) -> ast.Tuple:
+    sort_key = position.sort_key if selection.order == "oldest_first" else -position.sort_key
+    return ast.Tuple(exprs=[ast.Constant(value=sort_key), ast.Constant(value=position.trace_id)])
+
+
+def _beyond(selection: TraceSelection, position: TracePosition, op: ast.CompareOperationOp) -> ast.Expr:
+    return ast.CompareOperation(
+        op=op,
+        left=ast.Tuple(exprs=[_sort_key_ms(selection), ast.Field(chain=["trace_id"])]),
+        right=_position_key(selection, position),
+    )
+
+
+def _after_bound(selection: TraceSelection, after: TracePosition) -> ast.Expr:
+    return _beyond(selection, after, ast.CompareOperationOp.Gt)
+
+
+def _before_bound(selection: TraceSelection, before: TracePosition) -> ast.Expr:
+    return _beyond(selection, before, ast.CompareOperationOp.Lt)
+
+
+def _quick_filter_fact(selection: TraceSelection) -> list[ast.Expr]:
+    if selection.quick_filter is None:
+        return []
+    return [ast.Field(chain=[_QUICK_FILTER_FACTS[selection.quick_filter]])]
+
+
+def _in_page(selection: TraceSelection, bounds: TracePageBounds, trace_id: str | None) -> ast.Expr:
+    exprs = _quick_filter_fact(selection)
+    if bounds.after is not None:
+        exprs.append(_after_bound(selection, bounds.after))
+    if bounds.before is not None:
+        exprs.append(_before_bound(selection, bounds.before))
+    if trace_id is not None:
         exprs.append(
-            parse_expr(
-                """
-                toUnixTimestamp64Milli(first_timestamp) < {after_ms}
-                OR (toUnixTimestamp64Milli(first_timestamp) = {after_ms} AND trace_id > {after_id})
-                """,
-                placeholders={
-                    "after_ms": ast.Constant(value=after.sort_key),
-                    "after_id": ast.Constant(value=after.trace_id),
-                },
-            )
+            parse_expr("trace_id = {trace_id}", placeholders={"trace_id": ast.Constant(value=trace_id)}),
         )
     return _all(exprs)
 
 
+def _in_earlier_page(selection: TraceSelection, bounds: TracePageBounds) -> ast.Expr:
+    """Rows that sort before the page: at or before the `after` bound. A `before` read gets this from its extra row."""
+    if bounds.after is None:
+        return ast.Constant(value=False)
+    return _all([*_quick_filter_fact(selection), ast.Not(expr=_after_bound(selection, bounds.after))])
+
+
+def _reads_backwards(bounds: TracePageBounds) -> bool:
+    return bounds.before is not None and bounds.after is None
+
+
+def _page_aggregate(selection: TraceSelection, bounds: TracePageBounds, trace_id: str | None, take: int) -> ast.Expr:
+    key = "tuple({sort_key_ms}, trace_id, first_timestamp)"
+    placeholders = {
+        "take": ast.Constant(value=take),
+        "sort_key_ms": _sort_key_ms(selection),
+        "in_page": _in_page(selection, bounds, trace_id),
+    }
+    if _reads_backwards(bounds):
+        # groupArraySorted only sorts ascending, and the trace id tie break has to descend with the rest of the key.
+        return parse_expr(
+            f"arraySlice(arrayReverse(arraySort(groupArrayIf({key}, {{in_page}}))), 1, {{take}})",
+            placeholders=placeholders,
+        )
+    return parse_expr(f"groupArraySortedIf({{take}})({key}, {{in_page}})", placeholders=placeholders)
+
+
 def _selection_query(
-    team: Team, selection: TraceSelection, after: TracePosition | None, limit: int
+    team: Team, selection: TraceSelection, bounds: TracePageBounds, limit: int, trace_id: str | None = None
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     # HogQL has no microsecond epoch function, so a page orders by the millisecond of the first event and breaks ties
     # by trace id, and the cursor compares on the same key.
+    counted = selection.session_id is None and trace_id is None
     return parse_select(
         """
         SELECT
-            groupArraySortedIf({take})(
-                tuple(negate(toUnixTimestamp64Milli(first_timestamp)), trace_id, first_timestamp),
-                {in_page}
-            ) AS page,
-            count() AS total,
-            countIf(has_error) AS errors,
-            countIf(has_feedback) AS feedback
+            {page} AS page,
+            {total} AS total,
+            {errors} AS errors,
+            {feedback} AS feedback,
+            {has_earlier} AS has_earlier
         FROM (
             SELECT
                 properties.$ai_trace_id AS trace_id,
@@ -211,8 +273,11 @@ def _selection_query(
         )
         """,
         placeholders={
-            "take": ast.Constant(value=limit + 1),
-            "in_page": _in_page(selection, after),
+            "page": _page_aggregate(selection, bounds, trace_id, limit + 1),
+            "total": parse_expr("count()") if counted else ast.Constant(value=0),
+            "errors": parse_expr("countIf(has_error)") if counted else ast.Constant(value=0),
+            "feedback": parse_expr("countIf(has_feedback)") if counted else ast.Constant(value=0),
+            "has_earlier": ast.Call(name="countIf", args=[_in_earlier_page(selection, bounds)]),
             "feedback_events": _events_in(FEEDBACK_EVENT_NAMES),
             "event_condition": _event_condition(team, selection),
             "trace_events": _events_in(TRACE_EVENT_NAMES),
@@ -223,13 +288,18 @@ def _selection_query(
     )
 
 
-def load_selection_page(
-    team: Team, user: User | None, selection: TraceSelection, *, after: TracePosition | None, limit: int
+def _execute(
+    team: Team,
+    user: User | None,
+    selection: TraceSelection,
+    bounds: TracePageBounds,
+    limit: int,
+    trace_id: str | None = None,
 ) -> SelectionPage:
     with tags_context(product=Product.LLM_ANALYTICS):
         tag_queries(name=SELECTION_QUERY_NAME)
         response = execute_hogql_query(
-            query=_selection_query(team, selection, after, limit),
+            query=_selection_query(team, selection, bounds, limit, trace_id),
             team=team,
             user=user,
             query_type=SELECTION_QUERY_NAME,
@@ -239,12 +309,30 @@ def load_selection_page(
             ),
             settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS, timeout_overflow_mode="throw"),
         )
-    page, total, errors, feedback = response.results[0]
+    page, total, errors, feedback, earlier_rows = response.results[0]
+    has_more = len(page) > limit
+    positions = [
+        TracePosition(trace_id=row_trace_id, first_timestamp=first_timestamp.astimezone(UTC))
+        for _, row_trace_id, first_timestamp in page[:limit]
+    ]
+    if _reads_backwards(bounds):
+        positions.reverse()
     return SelectionPage(
-        positions=tuple(
-            TracePosition(trace_id=trace_id, first_timestamp=first_timestamp.astimezone(UTC))
-            for _, trace_id, first_timestamp in page[:limit]
-        ),
-        has_more=len(page) > limit,
+        positions=tuple(positions),
+        has_more=has_more,
+        has_before=has_more if _reads_backwards(bounds) else earlier_rows > 0,
         counts=SelectionCounts(total=total, errors=errors, feedback=feedback),
     )
+
+
+def load_selection_page(
+    team: Team, user: User | None, selection: TraceSelection, *, bounds: TracePageBounds, limit: int
+) -> SelectionPage:
+    return _execute(team, user, selection, bounds, limit)
+
+
+def load_trace_position(
+    team: Team, user: User | None, selection: TraceSelection, trace_id: str
+) -> TracePosition | None:
+    page = _execute(team, user, selection, TracePageBounds(after=None, before=None), 1, trace_id)
+    return page.positions[0] if page.positions else None

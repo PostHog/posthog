@@ -13,6 +13,19 @@
         "expected_counts": { "total": 4, "errors": 0, "feedback": 0 }
     },
     {
+        "name": "oldest first by first event with the trace id breaking ties",
+        "events": [
+            { "event": "$ai_generation", "trace_id": "older", "minutes": -30 },
+            { "event": "$ai_generation", "trace_id": "tie-b", "minutes": 0 },
+            { "event": "$ai_span", "trace_id": "tie-a", "minutes": 0 },
+            { "event": "$ai_generation", "trace_id": "tie-a", "minutes": 20 },
+            { "event": "$ai_generation", "trace_id": "newer", "minutes": 15 }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "order": "oldest_first" },
+        "expected_trace_ids": ["older", "tie-a", "tie-b", "newer"],
+        "expected_counts": { "total": 4, "errors": 0, "feedback": 0 }
+    },
+    {
         "name": "a trace that started before the window but has an event inside it sits at its first event",
         "events": [
             { "event": "$ai_span", "trace_id": "early-start", "minutes": -9 },
@@ -394,6 +407,43 @@
         "name": "an empty selection returns no traces and zero counts",
         "events": [],
         "selection": { "date_from": -60, "date_to": 60 },
+        "expected_trace_ids": [],
+        "expected_counts": { "total": 0, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "session scope keeps only that session's traces",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "mine-late",
+                "minutes": 10,
+                "properties": { "$ai_session_id": "session-a" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "other-session",
+                "minutes": 5,
+                "properties": { "$ai_session_id": "session-b" }
+            },
+            { "event": "$ai_generation", "trace_id": "no-session", "minutes": 4 },
+            {
+                "event": "$ai_generation",
+                "trace_id": "mine-early",
+                "minutes": 0,
+                "properties": { "$ai_session_id": "session-a" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "session_id": "session-a", "order": "oldest_first" },
+        "expected_trace_ids": ["mine-early", "mine-late"],
+        "expected_counts": { "total": 0, "errors": 0, "feedback": 0 }
+    },
+    {
+        "name": "session scope ignores traces whose events carry no session id",
+        "events": [
+            { "event": "$ai_generation", "trace_id": "unscoped-a", "minutes": 1 },
+            { "event": "$ai_span", "trace_id": "unscoped-b", "minutes": 2, "properties": { "$ai_session_id": "" } }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "session_id": "session-a" },
         "expected_trace_ids": [],
         "expected_counts": { "total": 0, "errors": 0, "feedback": 0 }
     }
