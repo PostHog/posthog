@@ -42,6 +42,8 @@ class ContactChunkInputs:
     chunk: int
     send_events: bool
     created_by_id: int | None = None
+    provider: str = ""
+    step: str = ""
 
 
 @frozen
