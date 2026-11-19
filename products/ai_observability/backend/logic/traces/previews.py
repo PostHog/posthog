@@ -184,13 +184,13 @@ def page_turns(
     with time_limit(PREVIEWS_TIME_LIMIT_SECONDS):
         return {
             trace_id: Turn(message=TIMED_OUT, answer=TIMED_OUT)
-            if _out_of_time()
+            if out_of_time()
             else _turn(trace_sources, normalizer, team_id)
             for trace_id, trace_sources in sources.items()
         }
 
 
-def _out_of_time() -> bool:
+def out_of_time() -> bool:
     try:
         check_time_limit()
     except RecipeTimeoutError:
@@ -214,7 +214,7 @@ def _turn(sources: TracePreviewSources, normalizer: Callable[[], RecipeNormalize
             reading,
             input_unread=source.input.unread,
             output_unread=source.output.unread,
-            out_of_time=_out_of_time(),
+            out_of_time=out_of_time(),
         )
 
     first_generation = read(sources.first_generation)

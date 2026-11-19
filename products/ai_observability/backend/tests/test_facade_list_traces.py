@@ -15,11 +15,12 @@ from posthog.models.user import User
 from posthog.test.persons import create_person
 
 from products.ai_observability.backend.facade import api, contracts
-from products.ai_observability.backend.logic.traces import trace_queries
+from products.ai_observability.backend.logic.traces import trace_queries, turn_sides
 from products.ai_observability.backend.logic.traces.events_fallback import FallbackWindow
 from products.ai_observability.backend.logic.traces.preview_queries import PREVIEW_SOURCE_MAX_BYTES
 from products.ai_observability.backend.logic.traces.trace_queries import PageTraceRows
 from products.ai_observability.backend.logic.traces.trace_selection import TraceSelection, TraceWindow
+from products.ai_observability.backend.logic.traces.turn_queries import TURN_SIDE_MAX_BYTES
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.trace_reviews import TraceReview
 
@@ -520,3 +521,65 @@ class TestTraceSentiments(ClickhouseTestMixin, BaseTest):
             ),
             contracts.TraceSentimentItem(trace_id="unknown", sentiment=None),
         ]
+
+
+def _message_texts(side: contracts.TraceSideContent | None) -> list[str]:
+    assert isinstance(side, contracts.TraceMessagesSide)
+    return [
+        part.text for message in side.messages for part in message.parts if isinstance(part, contracts.TraceTextPart)
+    ]
+
+
+class TestTraceTurns(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.events = TraceEvents(self.team, start=STARTED_AT)
+
+    def _turns(self, *trace_ids: str) -> list[contracts.TraceTurn]:
+        return api.load_trace_turns(
+            self.team, self.user, trace_ids, earliest=STARTED_AT, latest=STARTED_AT + timedelta(hours=1)
+        )().items
+
+    def test_a_page_reads_each_requested_trace_once_in_request_order_and_omits_unknown_ones(self) -> None:
+        self.events.add("first", properties=_chat("Where is my parcel?", "On its way."))
+        self.events.add("second", minutes=1, properties=_chat("Can I change the address?", "Yes."))
+        self.events.seed()
+
+        turns = self._turns("second", "unknown", "first", "second")
+
+        assert [(turn.trace_id, _message_texts(turn.input), _message_texts(turn.output)) for turn in turns] == [
+            ("second", ["Can I change the address?"], ["Yes."]),
+            ("first", ["Where is my parcel?"], ["On its way."]),
+        ]
+
+    def test_a_side_too_large_to_read_says_why_and_leaves_the_other_side_readable(self) -> None:
+        self.events.add(
+            "oversized",
+            properties={
+                "$ai_input": [{"role": "user", "content": "Summarize this."}],
+                "$ai_output_choices": [{"role": "assistant", "content": "x" * (TURN_SIDE_MAX_BYTES + 1)}],
+            },
+        )
+        self.events.seed()
+
+        (turn,) = self._turns("oversized")
+
+        assert (
+            _message_texts(turn.input),
+            turn.input_missing_reason,
+            turn.output_missing_reason,
+        ) == (["Summarize this."], None, contracts.TracePreviewMissingReason.TOO_LARGE)
+
+    def test_sides_not_read_before_the_page_time_limit_time_out(self) -> None:
+        self.events.add("slow", properties=_chat("Where is my parcel?", "On its way."))
+        self.events.seed()
+
+        with patch.object(turn_sides, "PREVIEWS_TIME_LIMIT_SECONDS", 0):
+            (turn,) = self._turns("slow")
+
+        assert (turn.input, turn.output, turn.input_missing_reason, turn.output_missing_reason) == (
+            None,
+            None,
+            contracts.TracePreviewMissingReason.TIMED_OUT,
+            contracts.TracePreviewMissingReason.TIMED_OUT,
+        )

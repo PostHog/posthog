@@ -428,6 +428,29 @@ export const AiObservabilityTracesSentimentCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
+ * The turns of a page of traces: what each trace added to its conversation, with the answer it gave.
+ */
+export const aiObservabilityTracesTurnsCreateBodyTraceIdsMax = 20
+
+export const AiObservabilityTracesTurnsCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aiObservabilityTracesTurnsCreateBodyTraceIdsMax)
+        .describe(
+            'The IDs of the traces to read the turns of, from 1 to 20. Items come back in this order, once per ID.'
+        ),
+    earliest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            'The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention.'
+        ),
+    latest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe("The latest createdAt of the rows on the page. It can't be before earliest_created_at."),
+})
+
+/**
  * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
 export const datasetItemsCreateBodyClientItemIdMax = 255

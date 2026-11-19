@@ -34,3 +34,13 @@ class TracePageWithBoundsRequestSerializer(TracePageRequestSerializer):
         if not api.is_usable_page_bounds(earliest, latest):
             raise serializers.ValidationError("The page bounds are out of range.")
         return attrs
+
+
+class TraceTurnsRequestSerializer(TracePageWithBoundsRequestSerializer):
+    trace_ids = serializers.ListField(
+        child=serializers.CharField(trim_whitespace=False),
+        min_length=1,
+        max_length=api.TRACE_TURNS_MAX_IDS,
+        help_text=f"The IDs of the traces to read the turns of, from 1 to {api.TRACE_TURNS_MAX_IDS}. Items come back "
+        "in this order, once per ID.",
+    )

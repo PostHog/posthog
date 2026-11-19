@@ -2310,6 +2310,37 @@ export interface TraceSentimentListApi {
     items: TraceSentimentItemApi[]
 }
 
+export interface TraceTurnsRequestApi {
+    /**
+     * The IDs of the traces to read the turns of, from 1 to 20. Items come back in this order, once per ID.
+     * @minItems 1
+     * @maxItems 20
+     */
+    trace_ids: string[]
+    /** The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention. */
+    earliest_created_at: string
+    /** The latest createdAt of the rows on the page. It can't be before earliest_created_at. */
+    latest_created_at: string
+}
+
+export interface TraceTurnApi {
+    /** The trace the turn belongs to. */
+    traceId: string
+    /** What the trace added to the conversation: the user's message and what followed it, without the history earlier turns carry. Null when it could not be read or there is nothing to show. */
+    input: TraceMessagesSideApi | TraceJsonSideApi | null
+    /** The trace's answer, with the hidden steps that led to it. Null when it could not be read or there is nothing to show. */
+    output: TraceMessagesSideApi | TraceJsonSideApi | null
+    /** Why `input` is null or cut: `too_large` when part of it is too large to read, `timed_out` when the page ran out of time before reading it. Null with a null `input` means there is nothing to show. */
+    inputMissingReason: TracePreviewMissingReasonApi | null
+    /** Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when the page ran out of time before reading it. Null with a null `output` means there is nothing to show. */
+    outputMissingReason: TracePreviewMissingReasonApi | null
+}
+
+export interface TraceTurnListApi {
+    /** One turn per requested trace that was found, in the order requested. A trace that is not found is left out. */
+    items: TraceTurnApi[]
+}
+
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**

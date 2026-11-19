@@ -203,6 +203,8 @@ import type {
     TraceSentimentListApi,
     TraceSummaryApi,
     TraceSummaryRequestApi,
+    TraceTurnListApi,
+    TraceTurnsRequestApi,
     TranslateRequestApi,
     UploadReceiptApi,
     UploadSubmissionApi,
@@ -1310,6 +1312,26 @@ export const aiObservabilityTracesSentimentCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tracePageWithBoundsRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesTurnsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/turns/`
+}
+
+/**
+ * The turns of a page of traces: what each trace added to its conversation, with the answer it gave.
+ */
+export const aiObservabilityTracesTurnsCreate = async (
+    projectId: string,
+    traceTurnsRequestApi: TraceTurnsRequestApi,
+    options?: RequestInit
+): Promise<TraceTurnListApi> => {
+    return apiMutator<TraceTurnListApi>(getAiObservabilityTracesTurnsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceTurnsRequestApi),
     })
 }
 

@@ -585,6 +585,33 @@ class TracePreviewList(Contract):
     )
 
 
+class TraceTurn(Contract):
+    trace_id: str = Field(description="The trace the turn belongs to.")
+    input: TraceSideContent | None = Field(
+        description="What the trace added to the conversation: the user's message and what followed it, without the "
+        "history earlier turns carry. Null when it could not be read or there is nothing to show."
+    )
+    output: TraceSideContent | None = Field(
+        description="The trace's answer, with the hidden steps that led to it. Null when it could not be read or "
+        "there is nothing to show."
+    )
+    input_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `input` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
+        "the page ran out of time before reading it. Null with a null `input` means there is nothing to show."
+    )
+    output_missing_reason: TracePreviewMissingReason | None = Field(
+        description="Why `output` is null or cut: `too_large` when part of it is too large to read, `timed_out` when "
+        "the page ran out of time before reading it. Null with a null `output` means there is nothing to show."
+    )
+
+
+class TraceTurnList(Contract):
+    items: list[TraceTurn] = Field(
+        description="One turn per requested trace that was found, in the order requested. A trace that is not found "
+        "is left out."
+    )
+
+
 class TracePersonItem(Contract):
     trace_id: str = Field(description="The trace the person belongs to.")
     person: TracePerson | None = Field(

@@ -47,6 +47,7 @@ from products.ai_observability.backend.presentation.views.trace_review import Tr
 from products.ai_observability.backend.presentation.views.trace_search import TraceSearchViewSet
 from products.ai_observability.backend.presentation.views.trace_sentiment import TraceSentimentViewSet
 from products.ai_observability.backend.presentation.views.trace_summary import TraceSummaryViewSet
+from products.ai_observability.backend.presentation.views.trace_turns import TraceTurnsViewSet
 from products.ai_observability.backend.presentation.views.traces import TraceViewSet
 
 
@@ -77,6 +78,7 @@ def register_routes(routers: RouterRegistry) -> None:
         ("previews", TracePreviewsViewSet, "project_ai_observability_trace_previews"),
         ("people", TracePeopleViewSet, "project_ai_observability_trace_people"),
         ("sentiment", TraceSentimentViewSet, "project_ai_observability_trace_sentiment"),
+        ("turns", TraceTurnsViewSet, "project_ai_observability_trace_turns"),
     ]:
         routers.projects.register(rf"ai_observability/traces/{prefix}", viewset, basename, ["team_id"])
     traces_router = routers.projects.register(
