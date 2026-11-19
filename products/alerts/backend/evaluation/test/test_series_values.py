@@ -12,7 +12,7 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 
 from products.alerts.backend.evaluation.dispatcher import check_alert_for_insight
-from products.alerts.backend.evaluation.series_values_shadow import SHADOW_COMPARISON_EVENT
+from products.alerts.backend.evaluation.series_values_shadow import SHADOW_BUILD_BUDGET_SECONDS, SHADOW_COMPARISON_EVENT
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.product_analytics.backend.facade.models import Insight
@@ -84,6 +84,25 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
     def _jobs(self) -> int:
         return PreaggregationJob.objects.filter(team_id=self.team.pk).count()
 
+    def _insert_execution_limits(self) -> set[str]:
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            """
+            SELECT DISTINCT Settings['max_execution_time']
+            FROM system.query_log
+            WHERE type = 'QueryFinish'
+              AND query_kind = 'Insert'
+              AND JSONExtractString(log_comment, 'client_query_id') IN %(job_ids)s
+            """,
+            {
+                "job_ids": [
+                    str(job_id)
+                    for job_id in PreaggregationJob.objects.filter(team_id=self.team.pk).values_list("id", flat=True)
+                ]
+            },
+        )
+        return {row[0] for row in rows}
+
     def _shadowed_check(self, alert: AlertConfiguration, raising: bool = False) -> tuple[Any, dict[str, Any]]:
         failure = (
             patch(f"{_SHADOW}.closed_series_values", side_effect=RuntimeError("boom")) if raising else nullcontext()
@@ -121,6 +140,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert cold_properties["buckets_compared"] > 0
         assert cold_properties["alert_kind"] == ("detector" if detector else "threshold")
         assert isinstance(cold_properties["duration_ms"], int)
+        assert self._insert_execution_limits() == {str(SHADOW_BUILD_BUDGET_SECONDS)}
 
     @parameterized.expand(
         [
