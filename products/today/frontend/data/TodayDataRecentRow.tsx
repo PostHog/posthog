@@ -1,8 +1,7 @@
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 import { TodayDataRecent, TodayDataRecentType } from '~/layout/today/todayDataRecents'
-import { TodayRecentRow } from '~/layout/today/TodayRecentRow'
-import { recentRowKey } from '~/layout/today/todayRecents'
+
+import { TodayPinnableRecentRow } from '../TodayPinnableRecentRow'
 
 const RECENT_ICONS: Record<TodayDataRecentType, JSX.Element> = {
     event_definition: iconForType('event_definition'),
@@ -28,19 +27,11 @@ export function TodayDataRecentRow({
     dataAttr: string
 }): JSX.Element {
     return (
-        <TodayRecentRow
-            value={recentRowKey(recent.href)}
-            name={recent.name}
-            href={recent.href}
+        <TodayPinnableRecentRow
+            recent={recent}
             icon={RECENT_ICONS[recent.type]}
             description={RECENT_DESCRIPTIONS[recent.type]}
             active={active}
-            action={
-                <SidebarPinButton
-                    target={{ type: recent.type, name: recent.name, href: recent.href }}
-                    dataAttr={`${dataAttr}-pin`}
-                />
-            }
             dataAttr={dataAttr}
         />
     )
