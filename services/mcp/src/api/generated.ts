@@ -129384,7 +129384,7 @@ export namespace Schemas {
      * Whether PostHog paused this one workflow's email sending, and why.
      */
     export interface WorkflowEmailPauseStatus {
-      /** True while this workflow's email is paused because its spam complaint or hard bounce rate crossed a threshold. Other workflows in the project keep sending. */
+      /** True while this workflow's email is paused because its spam complaint or hard bounce rate crossed a threshold. */
       readonly email_sending_paused: boolean;
       /**
          * When the pause started; null when not paused.
@@ -148028,6 +148028,11 @@ export namespace Schemas {
      */
     suggested_reviewers?: string;
     /**
+     * Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. At most 10. Omit for reports with any tags or none.
+     * @maxItems 10
+     */
+    tags?: string[];
+    /**
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string;
@@ -148307,6 +148312,11 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    /**
+     * Keep only reports that carry at least one of these tags, as repeated parameters or comma-separated, for example `billing,on-call`. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. At most 10. Omit for reports with any tags or none.
+     * @maxItems 10
+     */
+    tags?: string[];
     /**
      * Only reports associated with this task (via the report's task associations).
      */

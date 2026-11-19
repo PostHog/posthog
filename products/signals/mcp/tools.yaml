@@ -651,6 +651,7 @@ tools:
                 - title
                 - summary
                 - metrics
+                - tags
                 - status
                 - priority
                 - actionability

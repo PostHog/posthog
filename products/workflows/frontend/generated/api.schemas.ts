@@ -1871,7 +1871,7 @@ export interface HogInvocationRerunResponseApi {
  * Whether PostHog paused this one workflow's email sending, and why.
  */
 export interface WorkflowEmailPauseStatusApi {
-    /** True while this workflow's email is paused because its spam complaint or hard bounce rate crossed a threshold. Other workflows in the project keep sending. */
+    /** True while this workflow's email is paused because its spam complaint or hard bounce rate crossed a threshold. */
     readonly email_sending_paused: boolean
     /**
      * When the pause started; null when not paused.
