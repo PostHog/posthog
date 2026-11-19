@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from uuid import UUID
 
 from django.conf import settings
@@ -47,7 +47,7 @@ from ...facade.enums import DocsChangeKind
 from ...facade.finished_check_hooks import FinishedDocsCheck
 from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, WRITER_FLAG, team_flag_state
 from ...logic import intake
-from ...logic.docs_pages import NAV_PATH, REDIRECTS_PATH, changed_page_keys
+from ...logic.docs_pages import NAV_FORMATS, VERCEL_REDIRECTS_FORMAT, changed_page_keys
 from ...logic.launch import start_writer
 from ...logic.pull_requests import (
     LINK_BACK_START,
@@ -67,7 +67,14 @@ from ...logic.records import (
 from ...logic.routing import route_request
 from ...logic.server_commit import docs_branch_head
 from ...logic.writer_change import WRITER_CHANGE_ARTIFACT_NAME, docs_folders_of, writer_change_artifact
-from ...settings import WriterSettings, source_repositories, writer_settings
+from ...settings import (
+    DocsSource,
+    WriterSettings,
+    companion_files,
+    docs_source_for,
+    source_repositories,
+    writer_settings,
+)
 from ...temporal.client import merge_check_workflow_id, publish_workflow_id
 
 PRODUCTION_DOCS_REPOSITORY = "posthog/posthog.com"
@@ -113,17 +120,29 @@ SCENARIO_CHANGE_KINDS = {
     PageScenario.MOVE_PAGE: DocsChangeKind.UPDATE,
     PageScenario.REMOVE_PAGE: DocsChangeKind.REMOVE,
 }
-SCENARIO_INSTRUCTIONS = {
-    PageScenario.ADD_PAGE: f"Add a new page under /docs/{{section}} for this change and list it in {NAV_PATH}.",
-    PageScenario.MOVE_PAGE: (
-        f"Move one existing page under /docs/{{section}} to a new URL in the same section, "
-        f"update its {NAV_PATH} entry, and add a {REDIRECTS_PATH} redirect from the old URL."
-    ),
-    PageScenario.REMOVE_PAGE: (
-        f"Remove one existing page under /docs/{{section}} that this change makes obsolete, "
-        f"drop its {NAV_PATH} entry, and add a {REDIRECTS_PATH} redirect from its URL to /docs/{{section}}."
-    ),
-}
+
+
+def companion_paths_of(formats: frozenset[str]) -> tuple[str, ...]:
+    return tuple(path for path, companion_format in companion_files() if companion_format in formats)
+
+
+def scenario_instruction(scenario: PageScenario, section: str, docs_source: DocsSource) -> str:
+    section_path = f"{urlparse(docs_source.docs_url_prefix).path}{section}"
+    nav_files = " and ".join(companion_paths_of(NAV_FORMATS)) or "the nav"
+    redirect_files = companion_paths_of(frozenset({VERCEL_REDIRECTS_FORMAT}))
+    if scenario == PageScenario.ADD_PAGE:
+        return f"Add a new page under {section_path} for this change and list it in {nav_files}."
+    if scenario == PageScenario.MOVE_PAGE:
+        redirect = f", and add a {redirect_files[0]} redirect from the old URL" if redirect_files else ""
+        return (
+            f"Move one existing page under {section_path} to a new URL in the same section, "
+            f"update its {nav_files} entry{redirect}."
+        )
+    redirect = f", and add a {redirect_files[0]} redirect from its URL to {section_path}" if redirect_files else ""
+    return (
+        f"Remove one existing page under {section_path} that this change makes obsolete, "
+        f"drop its {nav_files} entry{redirect}."
+    )
 
 
 @frozen
@@ -518,7 +537,9 @@ def pull_request_changed_files(
 
 
 def scenario_problems(
-    scenario: PageScenario, changed_files: list[dict[str, Any]], docs_folders: tuple[str, ...]
+    scenario: PageScenario,
+    changed_files: list[dict[str, Any]],
+    docs_folders: tuple[str, ...],
 ) -> list[str]:
     added_pages = changed_page_keys(changed_files, docs_folders, statuses=frozenset({"added"}))
     removed_pages = changed_page_keys(changed_files, docs_folders, statuses=frozenset({"removed"}))
@@ -529,9 +550,13 @@ def scenario_problems(
         PageScenario.MOVE_PAGE: ("a docs page is moved", bool(renamed_pages or (added_pages and removed_pages))),
         PageScenario.REMOVE_PAGE: ("a docs page is removed", bool(removed_pages)),
     }
-    checks = dict([page_checks[scenario], (f"{NAV_PATH} is edited", NAV_PATH in changed_paths)])
-    if scenario != PageScenario.ADD_PAGE:
-        checks[f"{REDIRECTS_PATH} is edited"] = REDIRECTS_PATH in changed_paths
+    nav_files = companion_paths_of(NAV_FORMATS)
+    redirect_files = companion_paths_of(frozenset({VERCEL_REDIRECTS_FORMAT}))
+    checks = dict([page_checks[scenario]])
+    if nav_files:
+        checks[f"one of {', '.join(nav_files)} is edited"] = bool(changed_paths.intersection(nav_files))
+    if redirect_files and scenario != PageScenario.ADD_PAGE:
+        checks[f"one of {', '.join(redirect_files)} is edited"] = bool(changed_paths.intersection(redirect_files))
     return [f"{scenario}: {description}" for description, passed in checks.items() if not passed]
 
 
@@ -601,7 +626,9 @@ def run_scratch_request(
     branches: list[str],
     announce: Callable[[str], object],
 ) -> WriterPullRequest:
-    request = smoke_request(section, unreachable_source(writer.user_id), smoke_id)
+    request = smoke_request(
+        section, unreachable_source(writer.user_id), smoke_id, docs_source_for(writer.docs_repository)
+    )
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     base_sha = docs_branch_head(github, writer.docs_repository)
     if base_sha is None:
@@ -613,7 +640,9 @@ def run_scratch_request(
     branches.append(head_branch)
     page = f"Knowledge writer smoke test on {head_branch}.\n".encode()
     change = {
-        "written": {f"contents/docs/{section}/{SCRATCH_PAGE_NAME}": base64.b64encode(page).decode()},
+        "written": {
+            f"{docs_folders_of(writer, None)[0]}/{section}/{SCRATCH_PAGE_NAME}": base64.b64encode(page).decode()
+        },
         "deleted": [],
         "patches": {},
     }
@@ -665,19 +694,27 @@ def unreachable_source(requested_by_user_id: int) -> DocsCommandRequest:
 
 
 def smoke_verdict(
-    section: str, source: DocsCommandRequest, smoke_suffix: str, scenario: PageScenario | None
+    section: str,
+    source: DocsCommandRequest,
+    smoke_suffix: str,
+    docs_source: DocsSource,
+    scenario: PageScenario | None,
 ) -> AdapterVerdict:
     return AdapterVerdict(
         source=CommandTagAdapter.source,
         subject_id=pull_request_dedupe_id(source.repository, source.pull_request_number),
         needs_docs=True,
         reason="requested",
-        request=smoke_request(section, source, smoke_suffix, scenario),
+        request=smoke_request(section, source, smoke_suffix, docs_source, scenario),
     )
 
 
 def smoke_request(
-    section: str, source: DocsCommandRequest, smoke_suffix: str, scenario: PageScenario | None = None
+    section: str,
+    source: DocsCommandRequest,
+    smoke_suffix: str,
+    docs_source: DocsSource,
+    scenario: PageScenario | None = None,
 ) -> DocsRequest:
     source_url = source_pull_request_url(source)
     return DocsRequest(
@@ -685,8 +722,8 @@ def smoke_request(
         source_url=source_url,
         evidence=f"Pull request {source_url}.",
         change_kind=SCENARIO_CHANGE_KINDS[scenario] if scenario else DocsChangeKind.UPDATE,
-        suggested_page_urls=(f"https://posthog.com/docs/{section}",),
-        trigger_instructions=SCENARIO_INSTRUCTIONS[scenario].format(section=section) if scenario else source.note,
+        suggested_page_urls=(f"{docs_source.docs_url_prefix}{section}",),
+        trigger_instructions=scenario_instruction(scenario, section, docs_source) if scenario else source.note,
         dedupe_id=f"knowledge_writer:command_tag:smoke-{smoke_suffix}",
         requested_by=source.requested_by,
         requested_by_user_id=source.requested_by_user_id,
@@ -713,7 +750,10 @@ def run_agent_request(
     async_to_sync(initialize_self_capture_api_token)()
     deadline = time.monotonic() + timeout_minutes * 60
     try:
-        outcome = intake.submit(smoke_verdict(section, source, smoke_id, scenario), team_id=team.id)
+        outcome = intake.submit(
+            smoke_verdict(section, source, smoke_id, docs_source_for(writer.docs_repository), scenario),
+            team_id=team.id,
+        )
     except intake.WriterLaunchDeferred as error:
         raise CommandError("open writer pull requests could not be listed, retry") from error
     if outcome.status == "shadow":

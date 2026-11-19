@@ -19,9 +19,12 @@ CODE_FENCE = "`" * 3
 SOURCE_DIFF_ATTACHMENT_NAME = "knowledge-writer-source.diff"
 HARNESS_FOLDER = ".posthog"
 WRITER_QUOTES_PATH = ".git/writer-quotes.json"
-NAV_PATH = "src/navs/index.js"
-REDIRECTS_PATH = "vercel.json"
-COMPANION_PATHS = frozenset({REDIRECTS_PATH, NAV_PATH})
+POSTHOG_NAV_FORMAT = "posthog-nav"
+VERCEL_REDIRECTS_FORMAT = "vercel-redirects"
+LINKS_FORMAT = "links"
+COMPANION_FORMATS = frozenset({POSTHOG_NAV_FORMAT, VERCEL_REDIRECTS_FORMAT, LINKS_FORMAT})
+NAV_FORMATS = frozenset({POSTHOG_NAV_FORMAT, LINKS_FORMAT})
+DEFAULT_COMPANION_FILES = (("src/navs/index.js", POSTHOG_NAV_FORMAT), ("vercel.json", VERCEL_REDIRECTS_FORMAT))
 RULES_FILE_NAMES = frozenset({"AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"})
 WRITER_FORMAT_COMMAND_PATH = ".git/writer-format-command"
 FORMAT_TIMEOUT_SECONDS = 300
@@ -77,9 +80,9 @@ def without_docs_extension(token: str) -> str:
     return token
 
 
-def nav_line_links(line: str) -> tuple[str, ...] | None:
-    code, position, previous_kind, pending_key = line.rstrip(), 0, "start", None
-    links: list[str] = []
+def plain_data_tokens(line: str) -> tuple[re.Match, ...] | None:
+    code, position, previous_kind = line.rstrip(), 0, "start"
+    tokens: list[re.Match] = []
     while position < len(code):
         token = NAV_LINE_TOKEN_PATTERN.match(code, position)
         if token is None or token.end() == position:
@@ -88,14 +91,23 @@ def nav_line_links(line: str) -> tuple[str, ...] | None:
         current_kind = nav_token_kind(token)
         if not can_follow(previous_kind, current_kind):
             return None
-        link = string_literal(token)
-        if pending_key in NAV_LINK_KEYS and link is None:
-            return None
-        if pending_key in NAV_LINK_KEYS and link is not None:
-            links.append(link)
-        previous_kind, pending_key = current_kind, token.group("key")
-    if pending_key in NAV_LINK_KEYS:
+        tokens.append(token)
+        previous_kind = current_kind
+    return tuple(tokens)
+
+
+def nav_line_links(line: str) -> tuple[str, ...] | None:
+    tokens = plain_data_tokens(line)
+    if tokens is None:
         return None
+    links: list[str] = []
+    for key_token, value_token in zip((None, *tokens), (*tokens, None)):
+        if key_token is None or key_token.group("key") not in NAV_LINK_KEYS:
+            continue
+        link = None if value_token is None else string_literal(value_token)
+        if link is None:
+            return None
+        links.append(link)
     return tuple(links)
 
 
@@ -608,7 +620,9 @@ def companion_check(
     docs_url_path: str,
     base_texts: Mapping[str, str | None],
     head_texts: Mapping[str, str | None],
+    declared_companions: tuple[tuple[str, str], ...],
 ) -> CompanionCheck:
+    format_by_path = dict(declared_companions)
     companion_files = [
         changed_file for changed_file in changed_files if not is_docs_path(changed_file["filename"], docs_folders)
     ]
@@ -621,7 +635,11 @@ def companion_check(
         return CompanionCheck(refusal=None, flags=(), rules_flags=tuple(rules_flags))
     folders_with_rules = rules_folders(changed_files, docs_folders)
     unlisted_companion = next(
-        (changed_file for changed_file in companion_files if not is_listed_companion(changed_file, folders_with_rules)),
+        (
+            changed_file
+            for changed_file in companion_files
+            if not is_listed_companion(changed_file, folders_with_rules, format_by_path)
+        ),
         None,
     )
     if unlisted_companion is not None:
@@ -647,15 +665,57 @@ def companion_check(
             return companion_refused(filename)
         if is_rules_file(filename):
             continue
-        file_flags = (
-            redirect_flags(filename, base_text, head_text, page_paths, removed_page_paths, docs_url_path)
-            if filename.endswith(".json")
-            else nav_flags(filename, base_text, head_text, changed_file["patch"], page_paths)
+        file_flags = companion_flags(
+            format_by_path[filename],
+            filename,
+            base_text,
+            head_text,
+            changed_file["patch"],
+            page_paths,
+            removed_page_paths,
+            docs_url_path,
         )
         if file_flags is None:
             return companion_refused(filename)
         flags.extend(file_flags)
     return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys(flags)), rules_flags=tuple(rules_flags))
+
+
+def companion_flags(
+    companion_format: str,
+    filename: str,
+    base_text: str | None,
+    head_text: str | None,
+    patch: str,
+    page_paths: frozenset[str],
+    removed_page_paths: frozenset[str],
+    docs_url_path: str,
+) -> list[str] | None:
+    if companion_format == VERCEL_REDIRECTS_FORMAT:
+        return redirect_flags(filename, base_text, head_text, page_paths, removed_page_paths, docs_url_path)
+    if companion_format == POSTHOG_NAV_FORMAT:
+        return nav_flags(filename, base_text, head_text, patch, page_paths)
+    return links_flags(filename, patch, page_paths, docs_url_path)
+
+
+def links_flags(filename: str, patch: str, page_paths: frozenset[str], docs_url_path: str) -> list[str] | None:
+    tokens_by_line = {line: plain_data_tokens(line) for line in dict.fromkeys(changed_lines(patch))}
+    if any(tokens is None for tokens in tokens_by_line.values()):
+        return None
+    page_keys = frozenset(page_path.removeprefix(docs_url_path) for page_path in page_paths)
+    return [
+        f"{filename}: changes a line that names no page this change adds or removes: {line.strip()}"
+        for line, tokens in tokens_by_line.items()
+        if not any(names_page_key(string_literal(token), page_keys, docs_url_path) for token in tokens or ())
+        and any(string_literal(token) is not None for token in tokens or ())
+    ]
+
+
+def names_page_key(literal: str | None, page_keys: frozenset[str], docs_url_path: str) -> bool:
+    if literal is None:
+        return False
+    page_reference = literal.split("#", 1)[0].removeprefix(docs_url_path).strip("/")
+    return page_reference in page_keys
 
 
 def is_companion_edit_too_large(changed_file: dict, base_text: str | None, head_text: str | None) -> bool:
@@ -732,17 +792,19 @@ def changed_page_keys(
     )
 
 
-def is_listed_companion(changed_file: dict, folders_with_rules: frozenset[str]) -> bool:
+def is_listed_companion(
+    changed_file: dict, folders_with_rules: frozenset[str], format_by_path: Mapping[str, str]
+) -> bool:
     filename = changed_file["filename"]
     return (
-        (filename in COMPANION_PATHS or is_nearby_rules_file(filename, folders_with_rules))
+        (filename in format_by_path or is_nearby_rules_file(filename, folders_with_rules))
         and changed_file.get("status") == "modified"
         and isinstance(changed_file.get("patch"), str)
     )
 
 
-def is_companion_path(path: str) -> bool:
-    return path in COMPANION_PATHS or is_rules_file(path)
+def is_companion_path(path: str, companion_files: tuple[tuple[str, str], ...]) -> bool:
+    return path in dict(companion_files) or is_rules_file(path)
 
 
 def is_rules_file(path: str) -> bool:
@@ -896,6 +958,7 @@ class SandboxChangeSettings:
     max_base_tree_lookups: int
     manifest_path: str
     routed_page_keys: frozenset[str]
+    companion_files: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=False, slots=True, kw_only=True)
@@ -922,7 +985,12 @@ def sandbox_change_check(settings: SandboxChangeSettings) -> int:
     for raw_entry, path in zip(listed[0::2], listed[1::2]):
         read_staged_path(change, settings, raw_entry, path)
     companion = companion_check(
-        change.changed_files, settings.docs_folders, settings.docs_url_path, change.base_texts, change.head_texts
+        change.changed_files,
+        settings.docs_folders,
+        settings.docs_url_path,
+        change.base_texts,
+        change.head_texts,
+        settings.companion_files,
     )
     for rules_path in applicable_rules_files(change.changed_files, settings.docs_folders):
         show_agent(f"rules: {rules_path}")
@@ -1083,7 +1151,7 @@ def read_staged_path(change: SandboxChange, settings: SandboxChangeSettings, raw
     name = path.decode("utf-8", "replace")
     old_mode_field, new_mode_field, old_blob, new_blob = raw_entry.lstrip(b":").split()[:4]
     base_mode, new_mode = int(old_mode_field, 8) or None, int(new_mode_field, 8)
-    is_companion = is_companion_path(name)
+    is_companion = is_companion_path(name, settings.companion_files)
     if len(path) > settings.max_path_bytes:
         change.problems.append(f"{name}: the path is longer than {settings.max_path_bytes} bytes, use a shorter name")
     if name.encode() != path:
@@ -1091,7 +1159,7 @@ def read_staged_path(change: SandboxChange, settings: SandboxChangeSettings, raw
     if not is_companion and not is_docs_path(name, settings.docs_folders):
         docs_folders_named = ", ".join(f"{folder}/" for folder in settings.docs_folders)
         change.problems.append(
-            f"{name}: only files under {docs_folders_named}, the files {', '.join(sorted(COMPANION_PATHS))}, "
+            f"{name}: only files under {docs_folders_named}, the files {', '.join(sorted(dict(settings.companion_files)))}, "
             f"and the {', '.join(sorted(RULES_FILE_NAMES))} files above a changed docs page can change, "
             "undo this change"
         )
@@ -1176,7 +1244,7 @@ def companion_problem(refused_path: str, change: SandboxChange, settings: Sandbo
             f"{refused_path}: only the {', '.join(sorted(RULES_FILE_NAMES))} files in the repository root "
             "or in a folder above a docs page this change edits can change, undo this change"
         )
-    if refused_path.endswith(".json"):
+    if dict(settings.companion_files).get(refused_path) == VERCEL_REDIRECTS_FORMAT:
         return (
             f"{refused_path}: the publish check refuses this edit. Only add or remove whole redirects, "
             f"each a literal source and destination starting with {settings.docs_url_path}, keep the other "

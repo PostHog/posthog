@@ -17,7 +17,7 @@ from ..backend.facade.contracts import MergeCheckReport
 from ..backend.logic.pull_requests import CompanionCheck, changed_files_for, decoded_text, head_texts, publication_check
 from ..backend.logic.server_commit import BaseEntry, BaseTree, ancestor_directories
 from ..backend.logic.writer_change import WriterChangeRefused, parse_writer_change
-from ..backend.settings import DEFAULT_DOCS_PATHS, DocsSource, docs_source_for
+from ..backend.settings import DEFAULT_DOCS_PATHS, DocsSource, companion_files, docs_source_for
 from .check import run_merge_check
 from .judge import judge_client
 from .sources import (
@@ -389,7 +389,7 @@ def commit_publication_check(github: GitHubReader, repository: str, commit_sha: 
     if changed_files is None:
         return refused_publication("unsafe_base_entry")
     return publication_check(
-        changed_files, (DEFAULT_DOCS_PATHS.strip("/"),), repository, tree.texts, head_texts(change)
+        changed_files, (DEFAULT_DOCS_PATHS.strip("/"),), repository, tree.texts, head_texts(change), companion_files()
     )
 
 

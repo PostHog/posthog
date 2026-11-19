@@ -24,7 +24,7 @@ from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from ..facade.contracts import DocsRequest
 from ..feature_flags import open_pull_requests_flag_state
-from ..settings import WriterSettings, docs_source_for, writer_settings
+from ..settings import WriterSettings, companion_files, docs_source_for, writer_settings
 from .docs_pages import (
     DOCS_SOURCE_EXTENSIONS,
     CompanionCheck,
@@ -42,6 +42,7 @@ from .grounding import MAX_GROUNDED_LINES, GroundingResult, ground_draft
 from .launch import HEAD_BRANCH_PREFIX, replace_entry_with
 from .records import (
     BASE_SHA_STATE_KEY,
+    COMPANION_FILES_STATE_KEY,
     DOCS_CONTENT_ROOT_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
@@ -433,7 +434,14 @@ def publish_change(
         request=request, task_id=task_id, task_run_id=task_run_id, team_id=team_id, changed_files=changed_files
     )
     docs_folders = docs_folders_for(writer, task_id, team_id)
-    publication = publication_check(changed_files, docs_folders, writer.docs_repository, tree.texts, head_texts(change))
+    publication = publication_check(
+        changed_files,
+        docs_folders,
+        writer.docs_repository,
+        tree.texts,
+        head_texts(change),
+        declared_companions_for(task_id, team_id),
+    )
     if publication.refusal is not None:
         refuse_draft(draft, publication.refusal)
         return None
@@ -679,20 +687,34 @@ def publication_check(
     docs_repository: str,
     base_texts: Mapping[str, str | None],
     head_texts: Mapping[str, str | None],
+    declared_companions: tuple[tuple[str, str], ...],
 ) -> CompanionCheck:
     docs_url_path = urlparse(docs_source_for(docs_repository).docs_url_prefix).path
-    companion = companion_check(changed_files, docs_folders, docs_url_path, base_texts, head_texts)
+    companion = companion_check(changed_files, docs_folders, docs_url_path, base_texts, head_texts, declared_companions)
     if companion.refusal is not None:
         return companion
-    if not all(is_page_source_or_companion(changed_file["filename"]) for changed_file in changed_files):
+    if not all(
+        is_page_source_or_companion(changed_file["filename"], declared_companions) for changed_file in changed_files
+    ):
         return CompanionCheck(refusal="non_page_file", flags=())
     if any(head_text is None for head_text in head_texts.values()):
         return CompanionCheck(refusal="non_text_file", flags=())
     return companion
 
 
-def is_page_source_or_companion(path: str) -> bool:
-    return path.endswith(DOCS_SOURCE_EXTENSIONS) or is_companion_path(path)
+def is_page_source_or_companion(path: str, companion_files: tuple[tuple[str, str], ...]) -> bool:
+    return path.endswith(DOCS_SOURCE_EXTENSIONS) or is_companion_path(path, companion_files)
+
+
+def declared_companions_for(task_id: UUID, team_id: int) -> tuple[tuple[str, str], ...]:
+    stored = tasks_facade.read_task_state_entry(task_id, team_id, COMPANION_FILES_STATE_KEY)
+    if not isinstance(stored, list):
+        return companion_files()
+    return tuple(
+        (companion[0], companion[1])
+        for companion in stored
+        if isinstance(companion, list) and len(companion) == 2 and all(isinstance(part, str) for part in companion)
+    )
 
 
 def routed_page_keys(task_id: UUID, team_id: int) -> frozenset[str]:

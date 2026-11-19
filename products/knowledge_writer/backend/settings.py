@@ -1,7 +1,10 @@
+from django.core.exceptions import ImproperlyConfigured
+
 from posthog.dataclasses import frozen
 from posthog.settings.utils import get_from_env
 
 from .feature_flags import is_writer_enabled
+from .logic.docs_pages import COMPANION_FORMATS, DEFAULT_COMPANION_FILES
 
 DEFAULT_DOCS_PATHS = "contents/docs/"
 DEFAULT_DOCS_SITEMAP_URL = "https://posthog.com/sitemap/sitemap-0.xml"
@@ -38,6 +41,20 @@ def docs_source_for(docs_repository: str) -> DocsSource:
         sitemap_url=sitemap_url,
         docs_url_prefix=get_from_env("KNOWLEDGE_WRITER_DOCS_URL_PREFIX", f"{sitemap_origin}/docs/"),
     )
+
+
+def companion_files() -> tuple[tuple[str, str], ...]:
+    declared = comma_separated(get_from_env("KNOWLEDGE_WRITER_COMPANION_FILES", ""))
+    if not declared:
+        return DEFAULT_COMPANION_FILES
+    pairs = tuple(tuple(part.strip() for part in entry.split("=", 1)) for entry in declared)
+    malformed = [entry for entry, pair in zip(declared, pairs) if len(pair) != 2 or pair[1] not in COMPANION_FORMATS]
+    if malformed:
+        raise ImproperlyConfigured(
+            f"KNOWLEDGE_WRITER_COMPANION_FILES entries must be path=format with a format in "
+            f"{', '.join(sorted(COMPANION_FORMATS))}: {', '.join(malformed)}"
+        )
+    return tuple((path, companion_format) for path, companion_format in pairs)
 
 
 def comma_separated(listed: str) -> tuple[str, ...]:

@@ -30,6 +30,7 @@ from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsR
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.docs_pages import (
+    DEFAULT_COMPANION_FILES,
     SOURCE_DIFF_ATTACHMENT_NAME,
     WRITER_FORMAT_COMMAND_PATH,
     WRITER_QUOTES_PATH,
@@ -69,6 +70,9 @@ WORKFLOW_PATH = ".github/workflows/deploy.yml"
 SIBLING_OF_DOCS_PATH = "contents/docs-tools/build.js"
 NEW_PAGE_PATH = "contents/docs/session-replay/retention-presets.mdx"
 NAV_PATH = "src/navs/index.js"
+SIDEBAR_PATH = "sidebars.js"
+SIDEBAR_BASE = "module.exports = [\n  'session-replay/retention',\n];\n"
+SIDEBAR_WITH_NEW_PAGE = "module.exports = [\n  'session-replay/retention',\n  'session-replay/retention-presets',\n];\n"
 BASE_SHA = "b" * 40
 BASE_TREE_SHA = "e" * 40
 NEW_PAGE_NAV_LINE = "  { name: 'Retention presets', url: '/docs/session-replay/retention-presets' },"
@@ -95,6 +99,7 @@ BASE_FILES = {
     WORKFLOW_PATH: "  - run: make test\n",
     SIBLING_OF_DOCS_PATH: "build()\n",
     "AGENTS.md": "Docs follow the style guide.\n",
+    SIDEBAR_PATH: SIDEBAR_BASE,
 }
 REGULAR_FILE_MODE = 0o100644
 SYMLINK_MODE = 0o120000
@@ -1117,10 +1122,10 @@ def test_a_modified_page_publishes_only_when_its_shipped_patch_rebuilds_it_from_
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "docs_content_root, change, expected_outcome",
+    "docs_content_root, change, declared_companions, expected_outcome",
     [
-        ("docs/", _change({"docs/session-replay/retention.md": "Retention lasts 90 days.\n"}), "logged"),
-        ("docs/", DOCS_CHANGE, "refused"),
+        ("docs/", _change({"docs/session-replay/retention.md": "Retention lasts 90 days.\n"}), None, "logged"),
+        ("docs/", DOCS_CHANGE, None, "refused"),
         (
             ROUTE_GROUP_DOCS_ROOT,
             _change(
@@ -1129,11 +1134,33 @@ def test_a_modified_page_publishes_only_when_its_shipped_patch_rebuilds_it_from_
                     NAV_PATH: _nav("  { name: 'Presets', url: '/docs/replay-presets' },"),
                 }
             ),
+            None,
             "logged",
         ),
-        (None, _renamed_page_with_redirects({**VERCEL_BASE, "redirects": [RENAME_REDIRECT]}), "logged"),
+        (None, _renamed_page_with_redirects({**VERCEL_BASE, "redirects": [RENAME_REDIRECT]}), None, "logged"),
+        (None, _new_page_with(SIDEBAR_PATH, SIDEBAR_WITH_NEW_PAGE), f"{SIDEBAR_PATH}=links", "logged"),
+        (None, _new_page_with(SIDEBAR_PATH, SIDEBAR_WITH_NEW_PAGE), None, "refused"),
+        (
+            None,
+            _new_page_with(
+                SIDEBAR_PATH,
+                f"{SIDEBAR_WITH_NEW_PAGE}require('node:child_process').execSync('x'); // session-replay/retention-presets\n",
+            ),
+            f"{SIDEBAR_PATH}=links",
+            "refused",
+        ),
+        (None, _new_page_with(NAV_PATH, _nav(NEW_PAGE_NAV_LINE)), f"{SIDEBAR_PATH}=links", "refused"),
     ],
-    ids=["page_in_found_root", "page_outside_found_root", "page_in_route_group_root", "renamed_page_with_redirect"],
+    ids=[
+        "page_in_found_root",
+        "page_outside_found_root",
+        "page_in_route_group_root",
+        "renamed_page_with_redirect",
+        "declared_links_companion",
+        "undeclared_sidebar",
+        "links_companion_code_line_naming_the_page",
+        "default_nav_once_other_companions_are_declared",
+    ],
 )
 def test_without_configured_docs_paths_publish_allows_only_the_docs_folder_the_merge_check_found(
     team,
@@ -1142,10 +1169,13 @@ def test_without_configured_docs_paths_publish_allows_only_the_docs_folder_the_m
     monkeypatch,
     docs_content_root,
     change,
+    declared_companions,
     expected_outcome,
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
     monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
+    if declared_companions is not None:
+        monkeypatch.setenv("KNOWLEDGE_WRITER_COMPANION_FILES", declared_companions)
     with (
         patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
         patch(START_WORKFLOW),
@@ -1570,7 +1600,11 @@ def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
         (tmp_path / WRITER_QUOTES_PATH).write_text(json.dumps(quote_by_line))
 
     check = subprocess.run(
-        ["bash", "-c", change_manifest_script(base, ("contents/docs",), "/docs/", routed_page_keys)],
+        [
+            "bash",
+            "-c",
+            change_manifest_script(base, ("contents/docs",), "/docs/", routed_page_keys, DEFAULT_COMPANION_FILES),
+        ],
         cwd=tmp_path,
         env=git_env,
         capture_output=True,

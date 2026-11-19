@@ -52,7 +52,11 @@ flox activate -- python manage.py knowledge_writer_pr_smoke \
   --with-agent <merged pull request url>
 ```
 
-`--scenario add-page|move-page|remove-page`, with `--with-agent`, asks the writer to add, move or remove one page in the section instead of updating one. The run fails unless the docs pull request changes a page that way and edits `src/navs/index.js`, plus `vercel.json` for a move or a removal.
+`--scenario add-page|move-page|remove-page`, with `--with-agent`, asks the writer to add, move or remove one page in the section instead of updating one. The run fails unless the docs pull request changes a page that way and edits a declared nav file, plus a declared `vercel-redirects` file for a move or a removal.
+
+## Docs repositories other than posthog.com
+
+`KNOWLEDGE_WRITER_COMPANION_FILES` lists the files outside the docs folder the writer may edit, as `path=format` pairs: `posthog-nav` and `vercel-redirects` get strict parsers, and `links` (a Docusaurus `sidebars.js`) refuses a changed line that is not plain data (keys, quoted strings, numbers, brackets and commas) and flags each one whose strings name no page the change adds, moves or removes. Launch saves the list in the writer task's state, so publish checks a run against the list its sandbox check used. Unset, it is `src/navs/index.js=posthog-nav,vercel.json=vercel-redirects`. Set `KNOWLEDGE_WRITER_DOCS_PATHS`, `KNOWLEDGE_WRITER_DOCS_SITEMAP_URL` and `KNOWLEDGE_WRITER_DOCS_URL_PREFIX` for the same repository.
 
 `--from-merge <merged pull request url>` sends that pull request through the merge check as a webhook delivery would, then waits for the verdict and, when it starts a writer, the docs pull request. The pull request must be in a public repository listed in `KNOWLEDGE_WRITER_SOURCE_REPOSITORIES` on the account the App is installed on, and the judge needs `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`. Before and after each run the command deletes the merge check workflow from local Temporal and releases the writer task's key, so the same pull request runs again. Each run writes its verdict, routed pages and changed files to `~/.cache/posthog/knowledge-writer-e2e/<owner>-<repo>-<number>/` and prints what changed since the previous run.
 
