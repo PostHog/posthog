@@ -622,12 +622,15 @@ describe('EmailTrackingService', () => {
                 })
             })
 
-            it('refuses an email with more elements than any email may build', () => {
+            it.each([
+                ['elements', '<br>'],
+                ['comments', '<!>'],
+            ])('refuses an email with more %s than any email may build', (_, node) => {
                 const link = '<a href="https://example.com/">a</a>'
                 // html, head and body take three elements.
-                const breaks = (count: number): string => `<body>${'<br>'.repeat(count)}${link}</body>`
-                expect(sesTrack(breaks(MAX_ELEMENT_BUDGET - 4))).toContain('phl:0')
-                expect(() => sesTrack(breaks(MAX_ELEMENT_BUDGET - 3))).toThrow(EmailFormattingTooCostlyError)
+                const nodes = (count: number): string => `<body>${node.repeat(count)}${link}</body>`
+                expect(sesTrack(nodes(MAX_ELEMENT_BUDGET - 4))).toContain('phl:0')
+                expect(() => sesTrack(nodes(MAX_ELEMENT_BUDGET - 3))).toThrow(EmailFormattingTooCostlyError)
             })
 
             it('refuses an email with more attributes than any email may hold', () => {

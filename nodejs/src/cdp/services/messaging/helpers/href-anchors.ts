@@ -77,8 +77,8 @@ export const MIN_NESTING_LIMIT = 256
 // short email can build elements with the square of its size. Allowing a few per tag keeps the tree linear.
 export const ELEMENTS_PER_TAG = 2
 export const MIN_ELEMENT_BUDGET = 50_000
-// Each element costs memory and time even when the tree stays linear, and a send may carry tens of megabytes of
-// HTML. No email a client renders in full comes near this many.
+// Each element or comment costs memory and time even when the tree stays linear, and a send may carry tens of
+// megabytes of HTML. No email a client renders in full comes near this many.
 export const MAX_ELEMENT_BUDGET = 500_000
 // The tokenizer builds each attribute with its source location before the parser sees the tag, so one tag can hold
 // hundreds of megabytes of them.
@@ -204,6 +204,12 @@ const boundedAdapter = (
                 throw new EmailFormattingTooCostlyError()
             }
             return defaultTreeAdapter.getAttrList(element)
+        },
+        createCommentNode(data) {
+            if (--bounds.elementsLeft < 0) {
+                throw new EmailFormattingTooCostlyError()
+            }
+            return defaultTreeAdapter.createCommentNode(data)
         },
         createElement(tagName, namespaceURI, attrs) {
             if (--bounds.elementsLeft < 0) {
