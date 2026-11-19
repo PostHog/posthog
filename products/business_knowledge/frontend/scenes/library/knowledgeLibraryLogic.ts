@@ -262,7 +262,7 @@ export const knowledgeLibraryLogic = kea<knowledgeLibraryLogicType>([
             },
         ],
     }),
-    listeners(({ actions, cache, props }) => {
+    listeners(({ actions, cache, props, values }) => {
         async function changeSourceLibraries(
             sourceId: string,
             change: (libraryIds: string[]) => string[]
@@ -285,6 +285,23 @@ export const knowledgeLibraryLogic = kea<knowledgeLibraryLogicType>([
             } finally {
                 actions.finishSourceChange(sourceId)
             }
+        }
+
+        function pollPendingSources(sources: KnowledgeSourceApi[] | null, afterFailure: boolean): void {
+            // Ingestion and embedding run in the background. Poll until each source settles.
+            const isProcessing = (sources ?? []).some((source) => source.status === 'processing')
+            const isEmbedding = (sources ?? []).some(
+                (source) => source.status === 'ready' && source.embedding_status === 'pending'
+            )
+            if (!isProcessing && !isEmbedding) {
+                cache.disposables.dispose('pollProcessing')
+                return
+            }
+            const delayMs = afterFailure || !isProcessing ? 60000 : 3000
+            cache.disposables.add(() => {
+                const id = setTimeout(() => actions.loadSources(), delayMs)
+                return () => clearTimeout(id)
+            }, 'pollProcessing')
         }
 
         return {
@@ -331,19 +348,11 @@ export const knowledgeLibraryLogic = kea<knowledgeLibraryLogicType>([
                 await changeSourceLibraries(sourceId, (libraryIds) => libraryIds.filter((id) => id !== props.id))
             },
             loadSourcesSuccess: ({ sources }) => {
-                // Ingestion and embedding run in the background. Poll until each source settles.
-                const isProcessing = (sources ?? []).some((source) => source.status === 'processing')
-                const isEmbedding = (sources ?? []).some(
-                    (source) => source.status === 'ready' && source.embedding_status === 'pending'
-                )
-                if (isProcessing || isEmbedding) {
-                    cache.disposables.add(() => {
-                        const id = setTimeout(() => actions.loadSources(), isProcessing ? 3000 : 60000)
-                        return () => clearTimeout(id)
-                    }, 'pollProcessing')
-                } else {
-                    cache.disposables.dispose('pollProcessing')
-                }
+                pollPendingSources(sources, false)
+            },
+            loadSourcesFailure: () => {
+                // A failed poll must not end the polling. The last known list says if a source is still pending.
+                pollPendingSources(values.sources, true)
             },
         }
     }),

@@ -1,7 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -43,14 +42,13 @@ const mockedApi = api as jest.Mocked<typeof api>
 describe('librariesLogic', () => {
     let logic: ReturnType<typeof librariesLogic.build>
 
-    async function mountAs(level: OrganizationMembershipLevel): Promise<void> {
+    async function mountIn(environment: 'main' | 'child'): Promise<void> {
         initKeaTests()
         teamLogic.mount()
         const team = teamLogic.values.currentTeam as TeamType
         teamLogic.actions.loadCurrentTeamSuccess({
             ...team,
-            project_id: team.id,
-            effective_membership_level: level,
+            project_id: environment === 'main' ? team.id : team.id + 1,
         })
         logic = librariesLogic()
         logic.mount()
@@ -67,8 +65,8 @@ describe('librariesLogic', () => {
         logic?.unmount()
     })
 
-    it('counts the keys for each library and for all business knowledge when an admin opens the tab', async () => {
-        await mountAs(OrganizationMembershipLevel.Admin)
+    it('counts the keys for each library and for all business knowledge', async () => {
+        await mountIn('main')
 
         expect(logic.values.rows.map((row) => [row.name, row.keyCount])).toEqual([
             ['All business knowledge', 1],
@@ -76,15 +74,15 @@ describe('librariesLogic', () => {
         ])
     })
 
-    it('lists the libraries without key counts and without a key request for a member', async () => {
-        await mountAs(OrganizationMembershipLevel.Member)
+    it('lists the libraries without key counts and without a key request in a child environment', async () => {
+        await mountIn('child')
 
         expect(businessKnowledgeKeysList).not.toHaveBeenCalled()
         expect(logic.values.rows.map((row) => [row.name, row.keyCount])).toEqual([['Docs', null]])
     })
 
     it('opens the new library after it is created', async () => {
-        await mountAs(OrganizationMembershipLevel.Member)
+        await mountIn('main')
         mockedApi.createLibrary.mockResolvedValue({ ...DOCS, id: 'library-new', name: 'Support' })
 
         logic.actions.createLibrary('Support')

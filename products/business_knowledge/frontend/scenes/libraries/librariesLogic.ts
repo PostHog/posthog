@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -22,7 +21,7 @@ export interface LibraryTableRow {
     name: string
     /** Null for the row that stands for all business knowledge. */
     library: KnowledgeLibraryApi | null
-    /** Null when this user cannot list keys. */
+    /** Null when the keys are not loaded, for example in a child environment. */
     keyCount: number | null
 }
 
@@ -147,13 +146,10 @@ export const librariesLogic = kea<librariesLogicType>([
         ],
     }),
     selectors({
-        // The keys endpoint accepts project admins only, and it refuses a child environment.
+        // The keys endpoint refuses a child environment, because business knowledge belongs to the project.
         canListKeys: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamType | null): boolean =>
-                !!currentTeam &&
-                currentTeam.id === currentTeam.project_id &&
-                (currentTeam.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
+            (currentTeam: TeamType | null): boolean => !!currentTeam && currentTeam.id === currentTeam.project_id,
         ],
         rows: [
             (s) => [s.libraries, s.keys],
