@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -43,21 +44,23 @@ describe('emailPreviewPersonLogic', () => {
         const query = jest
             .spyOn(api, 'query')
             .mockResolvedValue({ results: [[JSON.stringify({ plan: 'Pro' })]] } as any)
-        logic.actions.setTrigger({ event: 'upgraded', properties: [PRO_PLAN] })
-        await expectLogic(logic).toDispatchActions(['loadPersonEventSuccess'])
+        logic.actions.setTrigger({ event: 'upgraded', properties: [PRO_PLAN], filterTestAccounts: true })
 
+        await waitFor(() =>
+            expect(renderEmailPreview('{{ event.properties.plan }}', logic.values.previewPerson)).toBe('Pro')
+        )
         expect(query.mock.lastCall?.[0]).toMatchObject({
             event: 'upgraded',
             properties: [PRO_PLAN],
+            filterTestAccounts: true,
             personId: 'person-ada',
         })
-        expect(renderEmailPreview('{{ event.properties.plan }}', logic.values.previewPerson)).toBe('Pro')
     })
 
     it('never shows one person an event loaded for another', async () => {
         jest.spyOn(api, 'query').mockResolvedValue({ results: [[JSON.stringify({ plan: 'Pro' })]] } as any)
-        logic.actions.setTrigger({ event: 'upgraded', properties: [] })
-        await expectLogic(logic).toDispatchActions(['loadPersonEventSuccess'])
+        logic.actions.setTrigger({ event: 'upgraded', properties: [], filterTestAccounts: false })
+        await waitFor(() => expect(logic.values.previewPerson?.event).toBeTruthy())
 
         jest.spyOn(api, 'query').mockReturnValue(new Promise(() => {}))
         logic.actions.pickPerson(GRACE)

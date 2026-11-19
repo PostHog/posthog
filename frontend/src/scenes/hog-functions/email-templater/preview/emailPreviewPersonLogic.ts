@@ -46,9 +46,11 @@ const CUSTOM_PERSON_ID = 'custom'
 
 /** The event that starts the workflow, with its property filters, so previews read an event that would have. */
 export interface PreviewTrigger {
-    /** Null for a trigger on any event. */
+    /** Null for a trigger on any event, or on an action. */
     event: string | null
+    actionId?: number
     properties: AnyPropertyFilter[]
+    filterTestAccounts: boolean
 }
 
 interface SourcedEvent {
@@ -316,12 +318,16 @@ export const emailPreviewPersonLogic = kea<emailPreviewPersonLogicType>([
                     if (!trigger || !chosenPerson || chosenPerson.id === CUSTOM_PERSON_ID) {
                         return null
                     }
+                    // Shuffling or editing the trigger fires this in bursts, so only the last one queries.
+                    await breakpoint(300)
                     const response = await api.query<EventsQuery>({
                         kind: NodeKind.EventsQuery,
                         tags: { productKey: ProductKey.WORKFLOWS },
                         select: ['properties'],
                         event: trigger.event,
+                        actionId: trigger.actionId,
                         properties: trigger.properties,
+                        filterTestAccounts: trigger.filterTestAccounts,
                         personId: chosenPerson.id,
                         after: '-30d',
                         orderBy: ['timestamp DESC'],
