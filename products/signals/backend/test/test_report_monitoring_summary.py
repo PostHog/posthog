@@ -140,6 +140,15 @@ class TestSummarizeMonitoring(SimpleTestCase):
                 "passed",
             ),
             (
+                "cancelled_check_shows_cancelled",
+                [[True], [True]],
+                2,
+                "on_track",
+                0,
+                ["on_track", "cancelled"],
+                "cancelled",
+            ),
+            (
                 "final_failure_outranks_interim_pass",
                 [[True], [True]],
                 8,

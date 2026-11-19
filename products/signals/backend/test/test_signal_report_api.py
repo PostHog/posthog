@@ -1574,7 +1574,7 @@ class TestSignalReportListAPI(APIBaseTest):
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
         ):
             expected_monitoring = {str(monitoring.id)} if enabled else set()
-            for query in [{"status": "monitoring"}, {"view": "monitoring"}]:
+            for query in [{"status": "monitoring"}, {"view": "monitoring"}, {"view": "monitoring_recent"}]:
                 filtered = self.client.get(self._list_url(**query))
                 assert filtered.status_code == status.HTTP_200_OK
                 assert {row["id"] for row in filtered.json()["results"]} == expected_monitoring
