@@ -102,6 +102,8 @@ class AppfollowEndpointConfig:
     # "dated_fanout" only: see RowShape.
     row_shape: RowShape = "list"
     group_field: Optional[str] = None
+    # "dated_fanout" only: statuses that mean this app cannot use the endpoint. The walk skips the app.
+    skip_app_statuses: tuple[int, ...] = ()
 
 
 _REVIEW_UPDATED_FIELD: IncrementalField = {
@@ -253,6 +255,8 @@ APPFOLLOW_ENDPOINTS: dict[str, AppfollowEndpointConfig] = {
         max_window_days=30,
         backfill_days=365,
         extra_params=(("channel", "channel"), ("period", "daily")),
+        # 424: the app has no App Store Connect integration, for example a Google Play app.
+        skip_app_statuses=(424,),
         default_incremental_field="date",
         incremental_fields=[_DATE_FIELD],
         should_sync_default=False,

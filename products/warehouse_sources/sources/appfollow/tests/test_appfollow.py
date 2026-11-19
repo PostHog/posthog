@@ -360,7 +360,9 @@ class TestWindowedFanOut:
         assert _requests_to(result, "/reviews/stats")[0].param("from") == "2026-06-15"
 
 
-def _dated_api(respond: Callable[[RecordedRequest], dict[str, Any]], ext_ids: tuple[str, ...] = ("111",)) -> Script:
+def _dated_api(
+    respond: Callable[[RecordedRequest], dict[str, Any] | ScriptedResponse], ext_ids: tuple[str, ...] = ("111",)
+) -> Script:
     discovery = _V2Api(
         collections=[{"id": 10, "title_normalized": "team"}],
         apps_by_collection={
@@ -371,7 +373,8 @@ def _dated_api(respond: Callable[[RecordedRequest], dict[str, Any]], ext_ids: tu
     def script(request: RecordedRequest) -> ScriptedResponse:
         if request.path.endswith(("/account/apps", "/account/apps/app")):
             return discovery(request)
-        return ScriptedResponse(json=respond(request))
+        response = respond(request)
+        return response if isinstance(response, ScriptedResponse) else ScriptedResponse(json=response)
 
     return script
 
@@ -406,6 +409,38 @@ class TestDatedFanOut:
         assert all((end - start).days < 30 for start, end in windows)
         assert all(nxt[0] == prev[1] + timedelta(days=1) for prev, nxt in zip(windows, windows[1:]))
         assert all(r.param("channel") == "channel" and r.param("period") == "daily" for r in requests_)
+
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_a_stale_watermark_scans_no_further_back_than_the_backfill_window(self) -> None:
+        # An app with no rows for months keeps the watermark still; the daily scan must not grow with it.
+        api = _dated_api(lambda request: {"rating_stat": []})
+        result = _run(
+            "reviews_ratings_stats",
+            api,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 1, 1),
+        )
+        assert result.raised is None
+        days = [request.param("date") for request in _requests_to(result, "/reviews/stats/ratings")]
+        assert days[0] == "2026-05-16"
+        assert len(days) == 31
+
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_an_app_without_the_aso_integration_is_skipped_not_fatal(self) -> None:
+        def respond(request: RecordedRequest) -> dict[str, Any] | ScriptedResponse:
+            if request.param("ext_id") == "111":
+                return ScriptedResponse(status=424, body=b"Check you settings: App Store Connect")
+            return {"data": [{"date": "2026-06-10", "channel": "Web Referrer"}]}
+
+        result = _run(
+            "aso_reports",
+            _dated_api(respond, ext_ids=("111", "222")),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 6, 14),
+        )
+        assert result.raised is None
+        assert [row["ext_id"] for row in result.rows] == ["222"]
+        assert [request.param("ext_id") for request in _requests_to(result, "/reports/aso")] == ["111", "222"]
 
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_resume_starts_at_the_saved_app_and_day_and_stages_the_next_bookmark_before_each_batch(self) -> None:

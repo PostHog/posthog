@@ -557,24 +557,34 @@ def _dated_fanout_start(
     if should_use_incremental_field and db_incremental_field_last_value:
         watermark = _to_date_str(_clamp_future_value_to_now(db_incremental_field_last_value))
         if watermark:
-            return date.fromisoformat(watermark) - timedelta(days=DATED_FANOUT_LOOKBACK_DAYS)
+            start = date.fromisoformat(watermark) - timedelta(days=DATED_FANOUT_LOOKBACK_DAYS)
+            # The watermark stops moving while an app has no rows, so cap the scan at the backfill window.
+            if config.backfill_days is not None:
+                start = max(start, today - timedelta(days=config.backfill_days))
+            return start
     if config.backfill_days is not None:
         return today - timedelta(days=config.backfill_days)
     return date.fromisoformat(DEFAULT_START_DATE)
 
 
-def _date_slices(config: AppfollowEndpointConfig, start: date, end: date) -> list[tuple[date, date]]:
+@frozen
+class _DateSlice:
+    start: date
+    end: date
+
+
+def _date_slices(config: AppfollowEndpointConfig, start: date, end: date) -> list[_DateSlice]:
     if config.time_mode == "daily":
         span = 1
     elif config.max_window_days:
         span = config.max_window_days
     else:
-        return [(start, end)] if start <= end else []
-    slices: list[tuple[date, date]] = []
+        return [_DateSlice(start=start, end=end)] if start <= end else []
+    slices: list[_DateSlice] = []
     current = start
     while current <= end:
         stop = min(current + timedelta(days=span - 1), end)
-        slices.append((current, stop))
+        slices.append(_DateSlice(start=current, end=stop))
         current = stop + timedelta(days=1)
     return slices
 
@@ -604,23 +614,37 @@ def _get_dated_fanout(
     for i, target in enumerate(remaining):
         first_day = max(start, resume_from) if i == 0 and resume_from else start
         slices = _date_slices(config, first_day, today)
-        for j, (slice_from, slice_to) in enumerate(slices):
+        for j, date_slice in enumerate(slices):
             params: dict[str, Any] = {"ext_id": target.ext_id, **dict(config.extra_params)}
             if config.time_mode == "daily":
-                params["date"] = slice_from.isoformat()
+                params["date"] = date_slice.start.isoformat()
             else:
-                params["from"] = slice_from.isoformat()
-                params["to"] = slice_to.isoformat()
+                params["from"] = date_slice.start.isoformat()
+                params["to"] = date_slice.end.isoformat()
 
-            data = _fetch(session, f"{APPFOLLOW_BASE_URL}{config.path}", params, logger)
-            rows = _extract_dated_fanout_rows(data, config)
+            skip_app = False
+            try:
+                data = _fetch(session, f"{APPFOLLOW_BASE_URL}{config.path}", params, logger)
+            except requests.HTTPError as error:
+                status = error.response.status_code if error.response is not None else None
+                if status not in config.skip_app_statuses:
+                    raise
+                logger.warning(
+                    f"AppFollow {config.name}: skipping ext_id={target.ext_id}, the endpoint returned {status}"
+                )
+                data, skip_app = None, True
+            rows = [] if skip_app else _extract_dated_fanout_rows(data, config)
 
-            if j + 1 < len(slices):
+            if j + 1 < len(slices) and not skip_app:
                 manager.save_state(
-                    AppfollowResumeConfig(ext_id=target.ext_id, slice_start=slices[j + 1][0].isoformat())
+                    AppfollowResumeConfig(ext_id=target.ext_id, slice_start=slices[j + 1].start.isoformat())
                 )
             elif i + 1 < len(remaining):
                 manager.save_state(AppfollowResumeConfig(ext_id=remaining[i + 1].ext_id))
+
+            if skip_app:
+                manager.safe_point()
+                break
 
             if not rows:
                 manager.safe_point()
@@ -628,7 +652,7 @@ def _get_dated_fanout(
             for row in rows:
                 row.setdefault("ext_id", target.ext_id)
                 if config.time_mode == "daily":
-                    row.setdefault("date", slice_from.isoformat())
+                    row.setdefault("date", date_slice.start.isoformat())
             yield rows
 
 
