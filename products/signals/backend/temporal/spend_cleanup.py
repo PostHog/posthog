@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.utils import timezone
@@ -30,25 +30,28 @@ CLEANUP_SCHEDULE_ID = "signal-spend-cleanup-schedule"
 _CLEANUP_TIMEOUT = timedelta(minutes=30)
 
 
-def delete_expired_spend() -> int:
-    cutoff = timezone.now() - SPEND_RETENTION
-    deleted = 0
-    while True:
-        ids = list(
-            SignalSpend.objects.unscoped()
-            .filter(created_at__lt=cutoff)
-            .order_by("created_at")
-            .values_list("id", flat=True)[:_DELETE_BATCH_SIZE]
-        )
-        if not ids:
-            return deleted
-        deleted += SignalSpend.objects.unscoped().filter(id__in=ids).delete()[0]
+def _delete_expired_spend_batch(cutoff: datetime) -> int:
+    ids = list(
+        SignalSpend.objects.unscoped()
+        .filter(created_at__lt=cutoff)
+        .order_by("created_at")
+        .values_list("id", flat=True)[:_DELETE_BATCH_SIZE]
+    )
+    if not ids:
+        return 0
+    return SignalSpend.objects.unscoped().filter(id__in=ids).delete()[0]
 
 
 @activity.defn
 async def delete_expired_spend_activity() -> int:
+    cutoff = timezone.now() - SPEND_RETENTION
+    deleted = 0
     async with Heartbeater():
-        return await database_sync_to_async(delete_expired_spend, thread_sensitive=False)()
+        while True:
+            batch_deleted = await database_sync_to_async(_delete_expired_spend_batch, thread_sensitive=False)(cutoff)
+            if not batch_deleted:
+                return deleted
+            deleted += batch_deleted
 
 
 @workflow.defn(name=CLEANUP_WORKFLOW_NAME)
@@ -79,6 +82,6 @@ async def create_signal_spend_cleanup_schedule(client: Client) -> None:
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, CLEANUP_SCHEDULE_ID):
-        await a_update_schedule(client, CLEANUP_SCHEDULE_ID, schedule)
+        await a_update_schedule(client, CLEANUP_SCHEDULE_ID, schedule, keep_paused=True)
     else:
         await a_create_schedule(client, CLEANUP_SCHEDULE_ID, schedule, trigger_immediately=False)

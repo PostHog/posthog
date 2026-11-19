@@ -1,21 +1,25 @@
 import uuid
+import asyncio
 from datetime import datetime, timedelta
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Team
 
 from products.signals.backend.models import SignalSpend
-from products.signals.backend.temporal.spend_cleanup import delete_expired_spend
+from products.signals.backend.temporal.spend_cleanup import _delete_expired_spend_batch, delete_expired_spend_activity
 
 
-class TestDeleteExpiredSpend(BaseTest):
+class TestDeleteExpiredSpend(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def _create_spend(self, created_at: datetime, team_id: int | None = None) -> SignalSpend:
         team_id = self.team.id if team_id is None else team_id
         with time_machine.travel(created_at, tick=False):
@@ -36,11 +40,10 @@ class TestDeleteExpiredSpend(BaseTest):
             at_cutoff = self._create_spend(cutoff_at)
             newer = self._create_spend(cutoff_at + timedelta(days=1))
 
-            assert delete_expired_spend() == 1
+            assert asyncio.run(ActivityEnvironment().run(delete_expired_spend_activity)) == 1
             assert set(SignalSpend.objects.unscoped().values_list("id", flat=True)) == {at_cutoff.id, newer.id}
-            assert delete_expired_spend() == 0
+            assert asyncio.run(ActivityEnvironment().run(delete_expired_spend_activity)) == 0
 
-    @time_machine.travel("2026-11-19T12:00:00+00:00", tick=False)
     def test_deletes_all_accounting_states_across_teams_and_batches(self) -> None:
         old = timezone.now() - timedelta(days=120)
         finalized = self._create_spend(old)
@@ -54,6 +57,32 @@ class TestDeleteExpiredSpend(BaseTest):
         )
 
         with patch("products.signals.backend.temporal.spend_cleanup._DELETE_BATCH_SIZE", 2):
-            assert delete_expired_spend() == 3
+            assert asyncio.run(ActivityEnvironment().run(delete_expired_spend_activity)) == 3
 
         assert not SignalSpend.objects.unscoped().exists()
+
+    def test_cancellation_stops_after_the_current_batch(self) -> None:
+        for _ in range(3):
+            self._create_spend(timezone.now() - timedelta(days=120))
+
+        async def cancel_during_cleanup() -> None:
+            environment = ActivityEnvironment()
+            loop = asyncio.get_running_loop()
+
+            def delete_batch_and_cancel(cutoff: datetime) -> int:
+                deleted = _delete_expired_spend_batch(cutoff)
+                loop.call_soon_threadsafe(environment.cancel)
+                return deleted
+
+            with (
+                patch("products.signals.backend.temporal.spend_cleanup._DELETE_BATCH_SIZE", 1),
+                patch(
+                    "products.signals.backend.temporal.spend_cleanup._delete_expired_spend_batch",
+                    side_effect=delete_batch_and_cancel,
+                ),
+                self.assertRaises(asyncio.CancelledError),
+            ):
+                await environment.run(delete_expired_spend_activity)
+
+        asyncio.run(cancel_during_cleanup())
+        assert SignalSpend.objects.unscoped().count() == 2
