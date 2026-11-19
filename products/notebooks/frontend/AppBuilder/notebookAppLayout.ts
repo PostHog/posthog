@@ -75,6 +75,7 @@ export function pinAppCells(markdown: string, nodeIds: string[]): { markdown: st
         node.id = pinnedId
         if (node.type === 'component') {
             node.props = { ...node.props, nodeId: pinnedId }
+            node.raw = undefined
         }
         changed = true
         return pinnedId

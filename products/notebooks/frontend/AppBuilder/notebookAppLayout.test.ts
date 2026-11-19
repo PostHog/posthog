@@ -27,6 +27,19 @@ it('preserves executable cell identifiers and code when linking a source', () =>
     expect(pinAppCell(markdown, 'query-1')).toEqual({ markdown, nodeId: 'query-1' })
 })
 
+it('persists a new identifier for multiline cells so app results merge back into the source', () => {
+    const markdown = '<SQLV2 code="select 1"\n  height={600}\n/>'
+    const pinned = pinAppCell(markdown, appSourceCells(markdown)[0].id)
+    expect(appSourceCells(pinned.markdown)[0]).toMatchObject({
+        id: pinned.nodeId,
+        props: { nodeId: pinned.nodeId, code: 'select 1', height: 600 },
+    })
+    const output = `<SQLV2 nodeId="${pinned.nodeId}" code="select 1" runStatus="done" result={{"first_page":[[1]]}} />`
+    expect(appSourceCells(mergeAppCellOutput(pinned.markdown, pinned.nodeId, output))[0]).toMatchObject({
+        props: { nodeId: pinned.nodeId, height: 600, runStatus: 'done', result: { first_page: [[1]] } },
+    })
+})
+
 it('links repeated paragraphs to distinct persistent sources in bulk', () => {
     const markdown = 'Repeated paragraph\n\nRepeated paragraph\n\n<SQLV2 nodeId="query-1" code="select 1" />'
     const cells = appSourceCells(markdown)
