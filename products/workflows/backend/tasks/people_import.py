@@ -15,11 +15,10 @@ from products.workflows.backend.services.people_import import (
     StagedPerson,
     StallCheck,
     check_stalled_people_import,
-    delete_people,
     existing_distinct_ids,
     fail_people_import,
     finish_people_import_batch,
-    finish_update_only_import,
+    finish_people_import_rows,
     mark_people_import_populating,
     people_import_batch_rows,
     people_import_fills_cohort,
@@ -88,7 +87,7 @@ def fill_people_import_cohort(*, team_id: int, cohort_id: int, storage_key: str,
     last_attempt = attempt + 1 >= WAIT_MAX_ATTEMPTS
     try:
         if not people_import_fills_cohort(storage_key):
-            finish_update_only_import(team_id, storage_key)
+            finish_people_import_rows(team_id, storage_key)
             return
         distinct_ids = [person["distinct_id"] for person in read_people(storage_key)]
         found = existing_distinct_ids(team_id, distinct_ids)
@@ -107,46 +106,52 @@ def fill_people_import_cohort(*, team_id: int, cohort_id: int, storage_key: str,
     if missing:
         # The cohort import records the people it can't find, so the cohort shows the shortfall.
         logger.warning("people_import_people_missing", team_id=team_id, cohort_id=cohort_id, missing=missing)
-    if part is None:
-        _populate(team_id, cohort_id, [storage_key], distinct_ids)
-    elif wait_for_other_parts(team_id, storage_key):
-        fill_people_import_batch.delay(team_id=team_id, batch_id=str(part[0]))
+    try:
+        if part is None:
+            _populate(team_id, cohort_id, [storage_key], distinct_ids)
+        elif wait_for_other_parts(team_id, storage_key):
+            fill_people_import_batch.delay(team_id=team_id, batch_id=str(part[0]))
+    except Exception as error:
+        # Both steps can run again: a part counts once, and a cohort ignores people it already has.
+        logger.warning("people_import_fill_start_failed", team_id=team_id, cohort_id=cohort_id, error=str(error))
+        if last_attempt:
+            fail_people_import(team_id, cohort_id, storage_key)
+        else:
+            _schedule_fill(team_id, cohort_id, storage_key, attempt=attempt + 1)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(bind=True, ignore_result=True, queue=CeleryQueue.DEFAULT.value, max_retries=STALL_CHECK_MAX_RETRIES)
 @skip_team_scope_audit
-def fill_people_import_batch(*, team_id: int, batch_id: str) -> None:
+def fill_people_import_batch(self: Task, *, team_id: int, batch_id: str) -> None:
     """Fills the cohort with every part of a batch, once the people of all of them exist."""
-    batch = people_import_batch_rows(team_id, UUID(batch_id))
-    if batch is None:
-        # A part failed, and the stall check of each other part ends it.
-        return
-    cohort_id, storage_keys = batch
-    distinct_ids = list(dict.fromkeys(person["distinct_id"] for key in storage_keys for person in read_people(key)))
-    if not distinct_ids:
-        finish_people_import_batch(team_id, UUID(batch_id))
-        return
-    _populate(team_id, cohort_id, storage_keys, distinct_ids, batch_id=batch_id)
+    try:
+        batch = people_import_batch_rows(team_id, UUID(batch_id))
+        if batch is None:
+            # A part failed, and the stall check of each other part ends it.
+            return
+        cohort_id, storage_keys = batch
+        distinct_ids = list(dict.fromkeys(person["distinct_id"] for key in storage_keys for person in read_people(key)))
+        if not distinct_ids:
+            finish_people_import_batch(team_id, UUID(batch_id))
+            return
+        _populate(team_id, cohort_id, storage_keys, distinct_ids, batch_id=batch_id)
+    except Exception as error:
+        # The parts keep their rows. Once these retries run out, a part's stall check starts the fill again.
+        logger.warning("people_import_batch_fill_failed", team_id=team_id, batch_id=batch_id, error=str(error))
+        raise self.retry(countdown=STALL_CHECK_RETRY_SECONDS * (self.request.retries + 1))
 
 
 def _populate(
     team_id: int, cohort_id: int, storage_keys: list[str], distinct_ids: list[str], *, batch_id: str | None = None
 ) -> None:
-    try:
-        for storage_key in storage_keys:
-            mark_people_import_populating(storage_key)
-        # The rows stay until the population succeeds, so the stall check can tell a lost population from a running one.
-        calculate_cohort_from_list.apply_async(
-            args=[cohort_id, distinct_ids],
-            kwargs={"team_id": team_id, "id_type": "distinct_id"},
-            link=finish_people_import.si(team_id=team_id, storage_keys=storage_keys, batch_id=batch_id),
-        )
-    except Exception as error:
-        logger.warning(
-            "people_import_population_dispatch_failed", team_id=team_id, cohort_id=cohort_id, error=str(error)
-        )
-        for storage_key in storage_keys:
-            fail_people_import(team_id, cohort_id, storage_key)
+    for storage_key in storage_keys:
+        mark_people_import_populating(storage_key)
+    # The rows stay until the population succeeds, so the stall check can tell a lost population from a running one.
+    calculate_cohort_from_list.apply_async(
+        args=[cohort_id, distinct_ids],
+        kwargs={"team_id": team_id, "id_type": "distinct_id"},
+        link=finish_people_import.si(team_id=team_id, storage_keys=storage_keys, batch_id=batch_id),
+    )
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -154,7 +159,7 @@ def _populate(
 def finish_people_import(*, team_id: int, storage_keys: list[str], batch_id: str | None = None) -> None:
     """Deletes an import's stored rows once its cohort population succeeded."""
     for storage_key in storage_keys:
-        delete_people(storage_key)
+        finish_people_import_rows(team_id, storage_key)
     if batch_id is not None:
         finish_people_import_batch(team_id, UUID(batch_id))
 
@@ -170,14 +175,21 @@ def fail_people_import_if_stalled(
     except Exception as error:
         # Nothing else checks this import again, so a storage or database blip must not end the checks.
         logger.warning("people_import_stall_check_failed", team_id=team_id, cohort_id=cohort_id, error=str(error))
-        raise self.retry(countdown=STALL_CHECK_RETRY_SECONDS * (self.request.retries + 1))
+        if self.request.retries < STALL_CHECK_MAX_RETRIES:
+            raise self.retry(countdown=STALL_CHECK_RETRY_SECONDS * (self.request.retries + 1))
+        # Out of quick retries, the next hourly check takes over, and the last one deletes the rows.
+        outcome = StallCheck.WAITING
     if outcome == StallCheck.FAILED:
         logger.warning("people_import_stalled", team_id=team_id, cohort_id=cohort_id)
     elif outcome == StallCheck.WAITING:
-        fail_people_import_if_stalled.apply_async(
-            kwargs={"team_id": team_id, "cohort_id": cohort_id, "storage_key": storage_key, "check": check + 1},
-            countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
-        )
+        next_check = {"team_id": team_id, "cohort_id": cohort_id, "storage_key": storage_key, "check": check + 1}
+        try:
+            fail_people_import_if_stalled.apply_async(
+                kwargs=next_check, countdown=int(STALLED_IMPORT_AFTER.total_seconds())
+            )
+        except Exception as error:
+            logger.warning("people_import_stall_check_schedule_failed", team_id=team_id, error=str(error))
+            raise self.retry(kwargs=next_check, countdown=STALL_CHECK_RETRY_SECONDS)
 
 
 def _set_events(people: list[StagedPerson], storage_key: str) -> list[dict[str, object]]:

@@ -197,8 +197,8 @@ def start_people_import(
 
     try:
         object_storage.write(storage_key, json.dumps(people))
-        # Nothing on the cohort shows that an update-only import committed, so a row written with it does.
-        marker = None if fill_cohort else start_people_import_batch(team.id, target_id, 1)
+        # A row written in the caller's transaction shows the import committed. A batch's own row does that for a part.
+        marker = start_people_import_batch(team.id, target_id, 1) if batch is None else None
         _set_phase(
             storage_key,
             ImportPhase.STAGED,
@@ -214,7 +214,7 @@ def start_people_import(
             countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
         )
     except Exception:
-        fail_people_import(team.id, target_id, storage_key)
+        fail_people_import(team.id, target_id, storage_key, fills_cohort=fill_cohort)
         raise
 
     # A caller's transaction can still roll back the cohort, and events sent before that can't be taken back.
@@ -361,8 +361,8 @@ def wait_for_other_parts(team_id: int, storage_key: str) -> bool:
     )
 
 
-def finish_update_only_import(team_id: int, storage_key: str) -> None:
-    """Deletes what an import that only updates people stored, once its events are sent."""
+def finish_people_import_rows(team_id: int, storage_key: str) -> None:
+    """Deletes what a finished import stored."""
     _drop_commit_marker(team_id, _read_phase(storage_key))
     delete_people(storage_key)
 
@@ -372,16 +372,19 @@ def _drop_commit_marker(team_id: int, state: dict[str, Any]) -> None:
         finish_people_import_batch(team_id, UUID(state["commit_marker"]))
 
 
-def _committed(team_id: int, state: dict[str, Any], cohort: Cohort | None) -> bool:
-    """Whether the caller that staged the import committed, so its rows aren't left over from a rollback."""
+def _committed(team_id: int, state: dict[str, Any]) -> bool:
+    """Whether the caller that staged the import committed, from the row it wrote in the same transaction."""
     marker = state.get("commit_marker") or (state.get("batch") or [None])[0]
-    if marker:
-        return PeopleImportBatch.objects.for_team(team_id).filter(id=marker).exists()
-    return bool(cohort and cohort.is_calculating)
+    return bool(marker) and PeopleImportBatch.objects.for_team(team_id).filter(id=marker).exists()
 
 
-def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
-    """Ends an import that can't finish: the cohort stops calculating and shows an error."""
+def fail_people_import(team_id: int, cohort_id: int, storage_key: str, *, fills_cohort: bool | None = None) -> None:
+    """Ends an import that can't finish: the cohort stops calculating and shows an error.
+
+    `fills_cohort` says whether the import owns the cohort, for a caller that knows. Otherwise the import's record
+    says, and an import without one leaves the cohort alone.
+    """
+    state: dict[str, Any] = {}
     try:
         state = _read_phase(storage_key)
         _drop_commit_marker(team_id, state)
@@ -390,7 +393,9 @@ def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
             fail_people_import_batch(team_id, UUID(batch[0]))
     except Exception:
         logger.exception("people_import_batch_fail_failed", team_id=team_id, cohort_id=cohort_id)
-    if people_import_fills_cohort(storage_key):
+    if fills_cohort is None:
+        fills_cohort = bool(state) and bool(state.get("fill_cohort", True))
+    if fills_cohort:
         Cohort.objects.filter(pk=cohort_id, team_id=team_id).update(
             is_calculating=False, errors_calculating=F("errors_calculating") + 1, last_error_at=timezone.now()
         )
@@ -415,13 +420,19 @@ def check_stalled_people_import(team_id: int, cohort_id: int, storage_key: str, 
     if object_storage.read(storage_key, missing_ok=True) is None:
         return StallCheck.FINISHED
     state = _read_phase(storage_key)
-    phase = state.get("phase")
-    cohort = Cohort.objects.filter(pk=cohort_id, team_id=team_id).first()
-    if phase == ImportPhase.STAGED and not _committed(team_id, state, cohort):
-        # The caller's transaction rolled back, so the cohort never started filling.
+    if not state:
+        # Staging stopped before it recorded the import, so nothing will send these rows.
         delete_people(storage_key)
         return StallCheck.FINISHED
+    phase = state.get("phase")
+    cohort = Cohort.objects.filter(pk=cohort_id, team_id=team_id).first()
     last_check = check + 1 >= MAX_STALL_CHECKS
+    if phase == ImportPhase.STAGED and not _committed(team_id, state):
+        # A caller staging a long list can still be in its transaction, so only the last check takes it as rolled back.
+        if not last_check:
+            return StallCheck.WAITING
+        delete_people(storage_key)
+        return StallCheck.FINISHED
     if phase in (ImportPhase.STAGED, ImportPhase.DISPATCH_FAILED) and not last_check:
         # The caller committed, but the dispatch failed or never ran.
         dispatch_people_import(team_id, cohort_id, storage_key, send_events=bool(state.get("send_events", True)))
@@ -438,7 +449,7 @@ def check_stalled_people_import(team_id: int, cohort_id: int, storage_key: str, 
     if phase == ImportPhase.POPULATING and cohort is not None:
         if not cohort.is_calculating:
             # The population ended, and the cohort shows how. Only the cleanup after it went missing.
-            delete_people(storage_key)
+            finish_people_import_rows(team_id, storage_key)
             return StallCheck.FINISHED
         started = datetime.fromisoformat(state["at"])
         attempts = CohortCalculationHistory.objects.filter(cohort_id=cohort_id, started_at__gte=started)

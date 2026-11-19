@@ -284,7 +284,8 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         fail_people_import_if_stalled(**stall_kwargs)
 
         assert self.dispatch.called is sent_again
-        assert (stall_kwargs["storage_key"] in self.storage.objects) is sent_again
+        # A rolled-back import waits for later checks, in case its caller is still in its transaction.
+        assert stall_kwargs["storage_key"] in self.storage.objects
         cohort.refresh_from_db()
         assert (cohort.is_calculating, cohort.errors_calculating) == (False, 0)
 
@@ -424,6 +425,43 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
 
         assert (result.status, result.person_emails) == ("failed", ("Left@Example.com",))
 
+    def test_ends_the_import_when_its_record_cannot_be_stored_or_read(self) -> None:
+        write, read = self.storage.write, self.storage.read
+
+        def no_phase_write(key: str, content: str) -> None:
+            if key.endswith(".phase.json"):
+                raise ConnectionError("storage is down")
+            write(key, content)
+
+        def no_phase_read(key: str, *, missing_ok: bool = False) -> str | None:
+            if key.endswith(".phase.json"):
+                raise ConnectionError("storage is down")
+            return read(key, missing_ok=missing_ok)
+
+        with (
+            patch.object(self.storage, "write", side_effect=no_phase_write),
+            patch.object(self.storage, "read", side_effect=no_phase_read),
+            self.assertRaises(ConnectionError),
+        ):
+            start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "a@example.com"}])
+
+        cohort = Cohort.objects.get(team_id=self.team.id)
+        assert (cohort.is_calculating, cohort.errors_calculating) == (False, 1)
+
+    def test_stall_check_leaves_a_rolled_back_import_alone_while_another_fills_the_cohort(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="VIPs", is_static=True)
+        with self.captureOnCommitCallbacks(execute=True), self.assertRaises(RuntimeError), transaction.atomic():
+            start_people_import(
+                team=self.team, user=self.user, name="VIPs", rows=[{"email": "a@example.com"}], cohort_id=cohort.id
+            )
+            raise RuntimeError("the page failed")
+        # Another import of the same cohort is running.
+        Cohort.objects.filter(id=cohort.id).update(is_calculating=True)
+
+        fail_people_import_if_stalled(**self.stall_check.call_args.kwargs["kwargs"])
+
+        self.dispatch.assert_not_called()
+
     def test_ends_the_import_when_staging_fails(self) -> None:
         with patch.object(self.storage, "write", side_effect=ConnectionError("storage is down")):
             with self.assertRaises(ConnectionError):
@@ -445,10 +483,10 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
     ) -> tuple[int, str]:
         cohort = Cohort.objects.create(team=self.team, name="List", is_static=True, is_calculating=calculating)
         key = f"workflows_people_imports/team-{self.team.id}/{cohort.pk}.json"
-        if phase is not None:
-            self.storage.write(
-                f"workflows_people_imports/team-{self.team.id}/{cohort.pk}.phase.json", json.dumps(phase)
-            )
+        self.storage.write(
+            f"workflows_people_imports/team-{self.team.id}/{cohort.pk}.phase.json",
+            json.dumps(phase or {"phase": "dispatched"}),
+        )
         people = [
             {
                 "distinct_id": d,
@@ -621,6 +659,73 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         self.dispatch.assert_not_called()
         assert key in self.storage.objects
 
+    def test_stall_check_drops_rows_without_a_record_and_leaves_the_cohort_alone(self) -> None:
+        cohort_id, key = self._stage()
+        self.storage.delete(key.removesuffix(".json") + ".phase.json")
+
+        fail_people_import_if_stalled(team_id=self.team.id, cohort_id=cohort_id, storage_key=key)
+
+        cohort = Cohort.objects.get(pk=cohort_id)
+        assert (key in self.storage.objects, cohort.is_calculating, cohort.errors_calculating) == (False, True, 0)
+
+    def test_stall_check_hands_over_to_the_next_hourly_check_when_its_retries_run_out(self) -> None:
+        cohort_id, key = self._stage()
+
+        with patch.object(self.storage, "read", side_effect=ConnectionError("storage is down")):
+            fail_people_import_if_stalled.apply(
+                kwargs={"team_id": self.team.id, "cohort_id": cohort_id, "storage_key": key, "check": 1},
+                retries=people_import_tasks.STALL_CHECK_MAX_RETRIES,
+            )
+
+        assert self.stall_check.call_args.kwargs["kwargs"]["check"] == 2
+
+    def test_stall_check_retries_when_it_cannot_schedule_the_next_check(self) -> None:
+        cohort_id, key = self._stage(phase={"phase": "dispatch_failed"})
+        self.stall_check.side_effect = ConnectionError("broker is down")
+
+        with (
+            patch.object(fail_people_import_if_stalled, "retry", return_value=Retry()) as retry,
+            self.assertRaises(Retry),
+        ):
+            fail_people_import_if_stalled(team_id=self.team.id, cohort_id=cohort_id, storage_key=key)
+
+        assert retry.call_args.kwargs["kwargs"]["check"] == 1
+
+    @parameterized.expand(
+        [("readiness", "wait_for_other_parts"), ("population_setup", "mark_people_import_populating")]
+    )
+    @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
+    def test_fill_retries_a_failed_start_and_keeps_the_rows(self, _name: str, step: str, reschedule: MagicMock) -> None:
+        batch = PeopleImportBatch.objects.for_team(self.team.id).create(team=self.team, cohort_id=0, parts=2)
+        phase = {"phase": "dispatched", **({"batch": [str(batch.id), 0]} if step == "wait_for_other_parts" else {})}
+        cohort_id, key = self._stage(phase=phase)
+
+        with (
+            patch.object(people_import, "get_person_uuids_and_matched_distinct_ids", return_value=([], {"user-1"})),
+            patch.object(people_import_tasks, step, side_effect=ConnectionError("storage is down")),
+        ):
+            fill_people_import_cohort(team_id=self.team.id, cohort_id=cohort_id, storage_key=key, attempt=0)
+
+        assert reschedule.call_args.kwargs["kwargs"]["attempt"] == 1
+        cohort = Cohort.objects.get(pk=cohort_id)
+        assert (key in self.storage.objects, cohort.errors_calculating) == (True, 0)
+
+    def test_batch_fill_retries_when_it_cannot_start(self) -> None:
+        cohort_id, key = self._stage(phase={"phase": "waiting_for_parts"})
+        batch = PeopleImportBatch.objects.for_team(self.team.id).create(
+            team=self.team, cohort_id=cohort_id, parts=1, ready_parts={"0": key}
+        )
+
+        with (
+            patch.object(people_import_tasks, "mark_people_import_populating", side_effect=ConnectionError("down")),
+            patch.object(fill_people_import_batch, "retry", return_value=Retry()) as retry,
+            self.assertRaises(Retry),
+        ):
+            fill_people_import_batch(team_id=self.team.id, batch_id=str(batch.id))
+
+        retry.assert_called_once()
+        assert key in self.storage.objects
+
     def test_stall_check_retries_a_storage_error_with_the_same_check(self) -> None:
         cohort_id, key = self._stage()
 
@@ -638,8 +743,10 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         [
             # (name, phase, cohort calculating, earlier attempt, attempt since, check, rows kept, errors, checks again)
             ("finished", None, True, False, False, 0, False, 0, False),
-            ("rolled_back", "staged", False, False, False, 0, False, 0, False),
-            ("dispatch_never_ran", "staged", True, False, False, 0, True, 0, True),
+            # A caller staging a long list can still be in its transaction, so only the last check drops the rows.
+            ("not_committed_yet", "staged", False, False, False, 0, True, 0, True),
+            ("rolled_back", "staged", False, False, False, 5, False, 0, False),
+            ("dispatch_never_ran", "staged_and_committed", True, False, False, 0, True, 0, True),
             ("dispatch_failed", "dispatch_failed", True, False, False, 0, True, 0, True),
             ("dispatch_failed_on_the_last_check", "dispatch_failed", True, False, False, 5, False, 1, False),
             ("capture_stalled", "dispatched", True, False, False, 0, False, 1, False),
@@ -665,8 +772,12 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
     ) -> None:
         started = timezone.now() - timedelta(hours=2)
         batch = PeopleImportBatch.objects.for_team(self.team.id).create(team=self.team, cohort_id=0, parts=2)
+        marker = PeopleImportBatch.objects.for_team(self.team.id).create(team=self.team, cohort_id=0, parts=1)
+        committed = phase == "staged_and_committed"
+        phase = "staged" if committed else phase
         cohort_id, key = self._stage(
             phase={
+                **({"commit_marker": str(marker.id)} if committed else {}),
                 "phase": phase,
                 "at": started.isoformat(),
                 "send_events": True,
@@ -694,7 +805,7 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         cohort = Cohort.objects.get(pk=cohort_id)
         assert (key in self.storage.objects, cohort.errors_calculating) == (rows_kept, errors)
         assert self.stall_check.called is checks_again
-        assert self.dispatch.called is (phase in ("staged", "dispatch_failed") and checks_again)
+        assert self.dispatch.called is ((committed or phase == "dispatch_failed") and checks_again)
 
 
 class TestPeopleImportBatchConcurrency(NonAtomicBaseTest):
