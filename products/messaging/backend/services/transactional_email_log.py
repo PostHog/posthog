@@ -59,6 +59,7 @@ from products.workflows.backend.facade.message_assets import (
 RETENTION = timedelta(days=EMAIL_STATUS_RETENTION_DAYS)
 # The send API stamps a message id with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
+_EVENTS_RANGE_MARGIN = timedelta(days=1)
 # A conversion window longer than this would reach past what the log keeps.
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
@@ -580,7 +581,7 @@ def transactional_email_results(
 
     conversions: dict[str, _Conversion] = {}
     recipients = list(distinct_ids_of.items())
-    for batch in _batches_by_query_size(team.id, recipients, _recipient_query_bytes, limit_divisor=1):
+    for batch in _batches_by_query_size(team.id, recipients, _recipient_query_bytes):
         batch_first_send = {recipient: first_send[recipient] for recipient, _ in batch}
         conversions |= _conversions(
             team,
@@ -591,7 +592,7 @@ def transactional_email_results(
             batch_first_send,
             window,
             min(batch_first_send.values()),
-            max(batch_first_send.values()) + window + timedelta(seconds=1),
+            max(batch_first_send.values()) + window + _EVENTS_RANGE_MARGIN,
         )
     converted_at = {person: conversion.first_at for person, conversion in conversions.items()}
     revenue = sum(conversion.revenue for conversion in conversions.values())
@@ -758,10 +759,8 @@ def _clickhouse_size_in_bytes(setting: object) -> int:
     return int(number) * (1024**power if binary else 1000**power)
 
 
-def _batches_by_query_size[T](
-    team_id: int, items: list[T], query_bytes_of: Callable[[T], int], *, limit_divisor: int = 4
-) -> Iterator[list[T]]:
-    budget = _max_query_size(team_id) // limit_divisor
+def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
+    budget = _max_query_size(team_id) // 2
     batch: list[T] = []
     batch_bytes = 0
     for item in items:
@@ -800,7 +799,7 @@ def _escaped_literal_bytes(value: str) -> int:
 def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     window = timedelta(days=IMPACT_WINDOW_DAYS)
     start = min(send.since for send in sends)
-    end = max(send.since for send in sends) + window + timedelta(seconds=1)
+    end = max(send.since for send in sends) + window + _EVENTS_RANGE_MARGIN
     response = execute_hogql_query(
         """
         SELECT DISTINCT sends.message_id

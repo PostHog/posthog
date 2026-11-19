@@ -584,6 +584,35 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"recipients": 5, "converted": 3, "revenue": 62.0, "median_hours_to_convert": 5.0}
 
+    def test_counts_a_conversion_whose_window_ends_in_the_repeated_daylight_saving_hour(self, _flag):
+        self.team.timezone = "Europe/London"
+        self.team.save()
+        sent_at = datetime(2026, 10, 24, 1, 30, tzinfo=UTC)
+        create_person(team=self.team, distinct_ids=["late-october"])
+        self._record_distinct_id(str(UUIDT()), "late-october", "late-october@example.com", sent_at)
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="late-october",
+            timestamp=sent_at + timedelta(days=1) - timedelta(minutes=15),
+        )
+        flush_persons_and_events()
+
+        with time_machine.travel(sent_at + timedelta(days=3), tick=False):
+            self.client.force_login(self.user)
+            response = self.client.get(
+                self._url("results/"),
+                {
+                    "workflow_id": str(self.workflow_id),
+                    "event": "purchase",
+                    "window_days": "1",
+                    "date_from": (sent_at - timedelta(days=1)).isoformat(),
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["converted"] == 1
+
     def test_counts_a_person_once_when_their_distinct_ids_need_separate_person_lookups(self, _flag):
         names = ["phone", "laptop", *[f"other-{index}" for index in range(SPLIT_LOOKUP_OTHERS)]]
         distinct_ids = {name: f"split-{name}-{'€' * 433}" for name in names}
@@ -694,10 +723,17 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         }
 
     @parameterized.expand(
-        [("number_as_text", str(SMALL_MAX_QUERY_SIZE)), ("binary_suffix", "16Ki"), ("plus_sign", "+16Ki")]
+        [
+            ("number_as_text", str(SMALL_MAX_QUERY_SIZE), "€"),
+            ("binary_suffix", "16Ki", "€"),
+            ("plus_sign", "+16Ki", "€"),
+            ("ids_that_double_when_escaped", "16Ki", "\\"),
+        ]
     )
-    def test_counts_conversions_of_sends_whose_ids_overflow_one_clickhouse_query(self, _flag, _name, team_limit):
-        long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
+    def test_counts_conversions_of_sends_whose_ids_overflow_one_clickhouse_query(
+        self, _flag, _name, team_limit, id_character
+    ):
+        long_distinct_ids = [f"long-{index:02d}-{id_character * 380}" for index in range(LONG_ID_SENDS)]
         for minutes_ago, distinct_id in enumerate(long_distinct_ids, start=10):
             create_person(team=self.team, distinct_ids=[distinct_id])
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
@@ -754,12 +790,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._welcomed: list[str] = []
         self._run_token = UUIDT().hex
         with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": "0"}}):
-            few = self._conversion_queries_after_adding_sends(3)
-            more = self._conversion_queries_after_adding_sends(3)
+            few = self._queries_naming_the_sends_after_adding(3)
+            more = self._queries_naming_the_sends_after_adding(3)
 
+        assert few > 0
         assert more == few
 
-    def _conversion_queries_after_adding_sends(self, count: int) -> int:
+    def _queries_naming_the_sends_after_adding(self, count: int) -> int:
         for _ in range(count):
             name = f"welcome-{self._run_token}-{len(self._welcomed)}"
             self._welcomed.append(name)
@@ -774,15 +811,15 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert impact["without_click"] == {"sends": len(self._welcomed), "converted": len(self._welcomed)}
         sync_execute("SYSTEM FLUSH LOGS")
-        [(conversion_queries,)] = sync_execute(
+        [(queries,)] = sync_execute(
             """
             SELECT uniqExact(query_id) FROM system.query_log
             WHERE event_time_microseconds >= fromUnixTimestamp64Micro(%(since_micros)s) AND current_database = currentDatabase()
-              AND has(tables, concat(currentDatabase(), '.events')) AND position(query, %(run_token)s) > 0
+              AND position(query, %(run_token)s) > 0
             """,
             {"since_micros": since_micros, "run_token": self._run_token},
         )
-        return conversion_queries
+        return queries
 
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
         self._seed_impact_sends()
