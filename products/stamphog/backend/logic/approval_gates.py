@@ -52,7 +52,6 @@ from products.stamphog.backend.temporal.constants import (
 
 logger = structlog.get_logger(__name__)
 
-# The engine's names for the gates that refuse a PR for what it changes.
 _HUMAN_GATES = frozenset({"size", "deny-list", "tier"})
 # The not_final_reason the engine gives when no gate failed (`_not_final_reason` in review_local.py).
 _NO_FAILING_GATE = "no_failing_gate"
@@ -130,8 +129,7 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
         folder_policy_future = submit(fetch_folder_policy_files, client, repo, head_sha, files)
 
         policy_files = {path: text for path, future in policy_futures.items() if (text := future.result()) is not None}
-        # Read as the review path reads them: each manifest the policy names, as the blob at its path. An absent
-        # one leaves its attestation entry unusable, so it lifts nothing here either.
+        # Like the review path, so an attestation entry pinned through an issuer manifest can lift a deny here too.
         for path in issuer_manifest_paths(policy_files.get(STAMPHOG_POLICY_ENTRYPOINT)):
             if (manifest := client.get_default_branch_blob_text(repo, path)) is not None:
                 policy_files[path] = manifest
@@ -147,9 +145,8 @@ def _check_approval_gates(*, team_id: int, repository: str, pr_number: int, head
         if folder_policy_files is None:
             raise _Unknown("folder_policy_files_unknown")
         invocation = build_reviewer_invocation(
-            # No prerequisite input fails, as the module docstring says. A failing prerequisite would also make the
-            # engine's refusal final over a deny that a pending attestation can still lift (`_denial_is_final` in
-            # review_local.py).
+            # A failing prerequisite makes the engine's refusal final over a deny that a pending attestation can
+            # still lift (`_denial_is_final` in review_local.py).
             pr={**pr, "draft": False, "mergeable_state": "clean"},
             files=files,
             reviews=[],

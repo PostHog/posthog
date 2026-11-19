@@ -286,8 +286,7 @@ class ReviewReasoningDTO:
 class ApprovalGateCheck:
     """What stamphog's deterministic gates decide for one PR head, outside any review run."""
 
-    # True when a size, restricted-path (deny-list) or tier gate refuses this head and the engine
-    # pre-check says the full review would refuse it too.
+    # A size, restricted-path (deny-list) or tier gate refuses this head, and the engine pre-check is final.
     needs_human: bool
     # The engine gate names that failed among "size", "deny-list" and "tier", in engine order.
     # Empty when needs_human is False.

@@ -161,7 +161,6 @@ class AutomaticDispatch:
     team_id: int | None = None
     # The user the review runs as: the author, or the connector for a bot pull request.
     run_as_user_id: int | None = None
-    # The started review is Deep because stamphog's gates send the head to a person.
     gates_need_human: bool = False
 
 
@@ -347,10 +346,8 @@ class AuthoredPRReview:
             return
         if dispatch.outcome == "started" and not dispatch.gates_need_human:
             return
-        # Stamphog waits for a report on this ready head before it routes reviewers. Either no turn will review
-        # the head, or the turn is a Deep review of a head that stamphog's gates send to a person. A Deep turn
-        # records no clean coverage, so it never starts a silent stamphog review, and it can outlast stamphog's
-        # routing safety net. The queue's report after the turn then finds nothing left to route.
+        # Stamphog waits for a report on a ready head before it routes reviewers. No turn reviews this head, or a Deep
+        # turn does, which never starts a silent stamphog review and can outlast stamphog's routing safety net.
         queue_routing_after_external_review(
             team_id=dispatch.team_id, repository=self.repository, pr_number=self.pr_number, head_sha=self.head_sha
         )
