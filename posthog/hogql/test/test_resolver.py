@@ -898,9 +898,193 @@ class TestResolver(BaseTest):
         )
 
     def test_ctes_field_access(self):
+        self.assertEqual(
+            self._print_hogql("with properties as cte select cte.$browser from events"),
+            "WITH properties AS cte SELECT cte.$browser FROM events LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_referencing_table_field(self):
+        self.assertEqual(
+            self._print_hogql("with timestamp as ts select ts from events"),
+            "WITH timestamp AS ts SELECT ts FROM events LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql("with toStartOfDay(timestamp) as day select day, count() from events group by day"),
+            "WITH toStartOfDay(timestamp) AS day SELECT day, count() FROM events GROUP BY day LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_referencing_joined_table(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(timestamp) as day select event from events join persons on toStartOfDay(persons.created_at) = day"
+            ),
+            "WITH toStartOfDay(timestamp) AS day SELECT event FROM events JOIN persons ON equals(toStartOfDay(persons.created_at), day) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_in_join_on_referencing_joined_table(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(persons.created_at) as pday select event from events join persons on toStartOfDay(timestamp) = pday"
+            ),
+            "WITH toStartOfDay(persons.created_at) AS pday SELECT event FROM events JOIN persons ON equals(toStartOfDay(timestamp), pday) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_not_in_scope_raises(self):
         with self.assertRaises(QueryError) as e:
-            self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("No scope or CTE available", str(e.exception))
+            resolve_types(
+                self._select("with no_such_column as alias select alias from events"),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: no_such_column", str(e.exception))
+
+    def test_ctes_column_alias_forward_join_reference_raises(self):
+        with self.assertRaises(QueryError) as e:
+            resolve_types(
+                self._select(
+                    "with persons.created_at as pdate select e.event from events e join numbers(1) n on n.number = 0 and toDate(pdate) = today() join persons on e.distinct_id = persons.id"
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: pdate", str(e.exception))
+
+    def test_ctes_speculative_resolution_on_joins(self):
+        attempts: dict[str, int] = {}
+        orig_try = Resolver._try_resolve_scalar_cte
+
+        def mock_try(resolver_self, cte):
+            attempts[cte.name] = attempts.get(cte.name, 0) + 1
+            return orig_try(resolver_self, cte)
+
+        with patch.object(Resolver, "_try_resolve_scalar_cte", mock_try):
+            # A scalar CTE not referenced in join constraints is never speculatively attempted during joins
+            self._print_hogql(
+                """
+                with toStartOfDay(timestamp) as day
+                select day
+                from events e
+                join numbers(1) n1 on 1=1
+                join numbers(1) n2 on 1=1
+                join numbers(1) n3 on 1=1
+                join numbers(1) n4 on 1=1
+                join numbers(1) n5 on 1=1
+                """
+            )
+            # Exactly 1 eager attempt before FROM; zero speculative attempts during the 5 joins
+            self.assertEqual(attempts.get("day"), 1)
+
+            # A scalar CTE in join constraints whose required table is not in scope is not attempted during joins
+            attempts.clear()
+            with self.assertRaises(QueryError) as e:
+                resolve_types(
+                    self._select(
+                        """
+                        with non_existent_table.col as bad_alias
+                        select 1
+                        from events e
+                        join numbers(1) n1 on 1=1 and bad_alias = 1
+                        join numbers(1) n2 on 1=1 and bad_alias = 1
+                        join numbers(1) n3 on 1=1 and bad_alias = 1
+                        join numbers(1) n4 on 1=1 and bad_alias = 1
+                        join numbers(1) n5 on 1=1 and bad_alias = 1
+                        """
+                    ),
+                    self.context,
+                    dialect="clickhouse",
+                )
+            self.assertIn("Unable to resolve field: bad_alias", str(e.exception))
+            # Exactly 1 eager attempt before FROM; 0 speculative attempts during joins because required table is never in scope
+            self.assertEqual(attempts.get("bad_alias"), 1)
+
+    def test_ctes_scalar_alias_resolved_in_later_joins(self):
+        # A scalar WITH alias referencing a table joined later is resolved once that table
+        # enters scope, regardless of how many joins precede it.
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with n2.number as v
+                select v from numbers(1) n0
+                join numbers(1) n1 on 1=1
+                join numbers(1) n2 on v=n0.number
+                """
+            ),
+            "WITH n2.number AS v SELECT v FROM numbers(1) AS n0 JOIN numbers(1) AS n1 ON equals(1, 1) JOIN numbers(1) AS n2 ON equals(v, n0.number) LIMIT 50000",
+        )
+
+        attempts: dict[str, int] = {}
+        orig_try = Resolver._try_resolve_scalar_cte
+
+        def mock_try(resolver_self, cte):
+            attempts[cte.name] = attempts.get(cte.name, 0) + 1
+            return orig_try(resolver_self, cte)
+
+        with patch.object(Resolver, "_try_resolve_scalar_cte", mock_try):
+            printed = self._print_hogql(
+                """
+                with n5.number as v
+                select v from numbers(1) n0
+                join numbers(1) n1 on 1=1
+                join numbers(1) n2 on 1=1
+                join numbers(1) n3 on 1=1
+                join numbers(1) n4 on 1=1
+                join numbers(1) n5 on v=n0.number
+                """
+            )
+            self.assertIn("equals(v, n0.number)", printed)
+            # Exactly 1 eager attempt before FROM + 1 attempt when n5 enters scope = 2
+            self.assertEqual(attempts.get("v"), 2)
+
+    def test_ctes_failed_speculative_resolution_does_not_leak_scopes(self):
+        # A speculative resolution attempt that fails must not leak scopes pushed by nested
+        # visitors (e.g. lambda arguments) into subsequent field resolution.
+        with self.assertRaises(QueryError) as e:
+            resolve_types(
+                self._select(
+                    """
+                    with arrayMap(x -> x + n.number, [1]) as a
+                    select x from numbers(1) n
+                    join numbers(1) m on a[1]=m.number
+                    """
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: x", str(e.exception))
+
+    def test_ctes_scalar_alias_dotted_property_paths_in_joins(self):
+        # A multi-part scalar WITH alias over an unqualified JSON property or another scalar alias
+        # is staged once the underlying column or alias is in scope.
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with properties.$browser as b
+                select b from events e
+                join numbers(1) n on b = 'Chrome'
+                """
+            ),
+            "WITH properties.$browser AS b SELECT b FROM events AS e JOIN numbers(1) AS n ON equals(b, 'Chrome') LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with properties as p, p.$browser as b
+                select b from events e
+                join numbers(1) n on b = 'Chrome'
+                """
+            ),
+            "WITH properties AS p, p.$browser AS b SELECT b FROM events AS e JOIN numbers(1) AS n ON equals(b, 'Chrome') LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql(
+                """
+                with e.properties.$browser as b
+                select b from events e
+                join numbers(1) n on b = 'Chrome'
+                """
+            ),
+            "WITH e.properties.$browser AS b SELECT b FROM events AS e JOIN numbers(1) AS n ON equals(b, 'Chrome') LIMIT 50000",
+        )
 
     def test_ctes_subqueries(self):
         self.assertEqual(

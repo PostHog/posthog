@@ -1,4 +1,5 @@
 import string
+from collections import defaultdict
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -68,6 +69,7 @@ from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
+    _folds_identifier_case,
     available_fields_suffix,
     expand_hogqlx_query,
     lookup_field_by_name,
@@ -477,6 +479,83 @@ class CteReferenceBinder(TraversingVisitor):
         super().visit_join_expr(node)
 
 
+class FreeFieldCollector(TraversingVisitor):
+    def __init__(self):
+        super().__init__()
+        self.fields: list[ast.Field] = []
+        self._local_vars: list[set[str]] = []
+
+    def visit_lambda(self, node: ast.Lambda):
+        self._local_vars.append(set(node.args))
+        try:
+            super().visit_lambda(node)
+        finally:
+            self._local_vars.pop()
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        # Subqueries create their own scope; do not collect their inner fields as outer requirements.
+        return node
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        return node
+
+    def visit_field(self, node: ast.Field):
+        if node.chain:
+            root = str(node.chain[0])
+            is_local = any(root in s for s in self._local_vars)
+            if not is_local:
+                self.fields.append(node)
+        return node
+
+
+def _table_has_field(table: ast.Type, name: str, context: HogQLContext) -> bool:
+    try:
+        return table.has_child(name, context)
+    except Exception:
+        return False
+
+
+def _collect_field_root_names(node: ast.AST | None) -> set[str]:
+    if node is None:
+        return set()
+    collector = FreeFieldCollector()
+    collector.visit(node)
+    return {str(f.chain[0]) for f in collector.fields if f.chain}
+
+
+def _collect_join_constraint_field_roots(join_expr: ast.JoinExpr | None) -> set[str]:
+    roots: set[str] = set()
+    current = join_expr
+    while current:
+        if current.constraint and current.constraint.expr:
+            roots.update(_collect_field_root_names(current.constraint.expr))
+        if current.table_args:
+            for arg in current.table_args:
+                roots.update(_collect_field_root_names(arg))
+        if isinstance(current.table, ast.JoinExpr):
+            roots.update(_collect_join_constraint_field_roots(current.table))
+        current = current.next_join
+    return roots
+
+
+def _expand_cte_dependencies(roots: set[str], pending_ctes: dict[str, ast.CTE]) -> set[str]:
+    candidates: set[str] = set()
+    queue = list(roots)
+    while queue:
+        name = queue.pop()
+        if name in pending_ctes and name not in candidates:
+            candidates.add(name)
+            for dep in _collect_field_root_names(pending_ctes[name].expr):
+                if dep in pending_ctes and dep not in candidates:
+                    queue.append(dep)
+    return candidates
+
+
+# Marker for "name absent from self.ctes" in the staged-alias journal, distinct from a
+# shadowed CTE value (which may legitimately be any ast.CTE).
+_MISSING_CTE: Any = object()
+
+
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
@@ -521,6 +600,11 @@ class Resolver(CloningVisitor):
         # on a direct-connection table literal (so the external server expands the star); nested and
         # CTE-body stars still expand to explicit columns so enclosing queries can read them.
         self._entered_root_select: bool = False
+        # Deferred scalar ("column") WITH aliases, one frame per SELECT level. A frame holds the
+        # aliases still waiting for the FROM scope ("pending"), the ones already resolved against
+        # it ("staged"), and a journal of names temporarily published onto self.ctes while the
+        # join tree is visited ("published": the name plus the value it shadowed, or _MISSING_CTE).
+        self._pending_scalar_ctes: list[dict[str, Any]] = []
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -542,44 +626,44 @@ class Resolver(CloningVisitor):
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
+        try:
+            initial = self.visit(node.initial_select_query)
 
-        initial = self.visit(node.initial_select_query)
+            # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
+            if isinstance(initial, ast.SelectQuery) and initial.ctes:
+                for name, cte in initial.ctes.items():
+                    self.ctes[name] = cte
 
-        # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
-        if isinstance(initial, ast.SelectQuery) and initial.ctes:
-            for name, cte in initial.ctes.items():
-                self.ctes[name] = cte
+            subsequent: list[ast.SelectSetNode] = []
+            for expr in node.subsequent_select_queries:
+                subsequent.append(
+                    ast.SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
+                )
 
-        subsequent: list[ast.SelectSetNode] = []
-        for expr in node.subsequent_select_queries:
-            subsequent.append(
-                ast.SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
+            result = ast.SelectSetQuery(
+                start=node.start,
+                end=node.end,
+                initial_select_query=initial,
+                subsequent_select_queries=subsequent,
+                limit=self.visit(node.limit) if node.limit is not None else None,
+                offset=self.visit(node.offset) if node.offset is not None else None,
+                limit_percent=node.limit_percent,
+                limit_with_ties=node.limit_with_ties,
+            )
+            self._lower_by_name_operators(result)
+
+            select_types = [
+                result.initial_select_query.type,
+                *(x.select_query.type for x in result.subsequent_select_queries),
+            ]
+            result.type = ast.SelectSetQueryType(
+                types=select_types,  # type: ignore[arg-type]
+                columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
             )
 
-        result = ast.SelectSetQuery(
-            start=node.start,
-            end=node.end,
-            initial_select_query=initial,
-            subsequent_select_queries=subsequent,
-            limit=self.visit(node.limit) if node.limit is not None else None,
-            offset=self.visit(node.offset) if node.offset is not None else None,
-            limit_percent=node.limit_percent,
-            limit_with_ties=node.limit_with_ties,
-        )
-        self._lower_by_name_operators(result)
-
-        select_types = [
-            result.initial_select_query.type,
-            *(x.select_query.type for x in result.subsequent_select_queries),
-        ]
-        result.type = ast.SelectSetQueryType(
-            types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
-        )
-
-        self.ctes = parent_ctes
-
-        return result
+            return result
+        finally:
+            self.ctes = parent_ctes
 
     def _lower_by_name_operators(self, node: ast.SelectSetQuery) -> None:
         """Align named set operands before positional type unification.
@@ -923,107 +1007,126 @@ class Resolver(CloningVisitor):
 
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
+        try:
+            cte_expr = self._copy(node.expr)
 
-        cte_expr = self._copy(node.expr)
+            if node.recursive and isinstance(cte_expr, ast.SelectSetQuery):
+                # For recursive CTEs, resolve the base case first to determine column types,
+                # then register the CTE so the recursive branch can self-reference it.
+                base_select = self._copy(cte_expr.initial_select_query)
+                base_select = self.visit(base_select)
 
-        if node.recursive and isinstance(cte_expr, ast.SelectSetQuery):
-            # For recursive CTEs, resolve the base case first to determine column types,
-            # then register the CTE so the recursive branch can self-reference it.
-            base_select = self._copy(cte_expr.initial_select_query)
-            base_select = self.visit(base_select)
+                placeholder = ast.CTE(
+                    name=node.name,
+                    expr=base_select,
+                    cte_type=node.cte_type,
+                    recursive=True,
+                    type=ast.CTETableType(name=node.name, select_query_type=base_select.type),
+                    materialized=node.materialized,
+                    using_key=node.using_key,
+                )
+                self.ctes[node.name] = placeholder
 
-            placeholder = ast.CTE(
-                name=node.name,
-                expr=base_select,
-                cte_type=node.cte_type,
-                recursive=True,
-                type=ast.CTETableType(name=node.name, select_query_type=base_select.type),
-                materialized=node.materialized,
-                using_key=node.using_key,
-            )
-            self.ctes[node.name] = placeholder
+            cte_expr = self.visit(cte_expr)
 
-        cte_expr = self.visit(cte_expr)
+            # If the CTE has a column name list, remap the type's columns
+            if node.columns:
+                if isinstance(cte_expr, ast.SelectQuery):
+                    if len(node.columns) != len(cte_expr.select):
+                        raise QueryError(
+                            f"CTE '{node.name}' has {len(cte_expr.select)} column(s) but {len(node.columns)} column name(s) were provided"
+                        )
 
-        # If the CTE has a column name list, remap the type's columns
-        if node.columns:
-            if isinstance(cte_expr, ast.SelectQuery):
-                if len(node.columns) != len(cte_expr.select):
-                    raise QueryError(
-                        f"CTE '{node.name}' has {len(cte_expr.select)} column(s) but {len(node.columns)} column name(s) were provided"
-                    )
+                    # Remap the columns in the CTE's type to use the provided column names instead of the original ones.
+                    if cte_expr.type is not None:
+                        cte_expr.type.columns = {
+                            new_name: cte_expr.select[i].type or ast.UnknownType()
+                            for i, new_name in enumerate(node.columns)
+                        }
+                elif isinstance(cte_expr, ast.SelectSetQuery):
+                    initial = cte_expr.initial_select_query
+                    while isinstance(initial, ast.SelectSetQuery):
+                        initial = initial.initial_select_query
+                    if len(node.columns) != len(initial.select):
+                        raise QueryError(
+                            f"CTE '{node.name}' has {len(initial.select)} column(s) but {len(node.columns)} column name(s) were provided"
+                        )
 
-                # Remap the columns in the CTE's type to use the provided column names instead of the original ones.
-                if cte_expr.type is not None:
-                    cte_expr.type.columns = {
-                        new_name: cte_expr.select[i].type or ast.UnknownType()
-                        for i, new_name in enumerate(node.columns)
-                    }
-            elif isinstance(cte_expr, ast.SelectSetQuery):
-                initial = cte_expr.initial_select_query
-                while isinstance(initial, ast.SelectSetQuery):
-                    initial = initial.initial_select_query
-                if len(node.columns) != len(initial.select):
-                    raise QueryError(
-                        f"CTE '{node.name}' has {len(initial.select)} column(s) but {len(node.columns)} column name(s) were provided"
-                    )
+                    # Remap the columns in the first type of the set query's type list.
+                    if cte_expr.type is not None:
+                        first_type = cte_expr.type.types[0]
+                        while isinstance(first_type, ast.SelectSetQueryType):
+                            first_type = first_type.types[0]
+                        first_type.columns = {
+                            new_name: initial.select[i].type or ast.UnknownType()
+                            for i, new_name in enumerate(node.columns)
+                        }
 
-                # Remap the columns in the first type of the set query's type list.
-                if cte_expr.type is not None:
+            if node.using_key is not None:
+                if node.columns:
+                    valid_columns = set(node.columns)
+                elif isinstance(cte_expr, ast.SelectQuery) and cte_expr.type:
+                    valid_columns = set(cte_expr.type.columns.keys())
+                elif isinstance(cte_expr, ast.SelectSetQuery) and cte_expr.type:
                     first_type = cte_expr.type.types[0]
                     while isinstance(first_type, ast.SelectSetQueryType):
                         first_type = first_type.types[0]
-                    first_type.columns = {
-                        new_name: initial.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
-                    }
+                    valid_columns = set(first_type.columns.keys())
+                else:
+                    valid_columns = set()
 
-        if node.using_key is not None:
-            if node.columns:
-                valid_columns = set(node.columns)
-            elif isinstance(cte_expr, ast.SelectQuery) and cte_expr.type:
-                valid_columns = set(cte_expr.type.columns.keys())
-            elif isinstance(cte_expr, ast.SelectSetQuery) and cte_expr.type:
-                first_type = cte_expr.type.types[0]
-                while isinstance(first_type, ast.SelectSetQueryType):
-                    first_type = first_type.types[0]
-                valid_columns = set(first_type.columns.keys())
-            else:
-                valid_columns = set()
+                if valid_columns:
+                    invalid = [k for k in node.using_key if k not in valid_columns]
+                    if invalid:
+                        raise QueryError(
+                            f"USING KEY column(s) {', '.join(repr(k) for k in invalid)} not found in CTE '{node.name}'. "
+                            f"Available columns: {', '.join(sorted(valid_columns))}"
+                        )
 
-            if valid_columns:
-                invalid = [k for k in node.using_key if k not in valid_columns]
-                if invalid:
-                    raise QueryError(
-                        f"USING KEY column(s) {', '.join(repr(k) for k in invalid)} not found in CTE '{node.name}'. "
-                        f"Available columns: {', '.join(sorted(valid_columns))}"
-                    )
+            # Create a new CTE node instead of modifying the input
+            # This ensures we can resolve CTEs even if they appear multiple times
+            new_node = ast.CTE(
+                start=node.start,
+                end=node.end,
+                type=ast.CTETableType(name=node.name, select_query_type=cast(ast.SelectQueryType, cte_expr.type)),
+                name=node.name,
+                expr=cte_expr,
+                cte_type=node.cte_type,
+                recursive=node.recursive,
+                materialized=node.materialized,
+                using_key=node.using_key,
+                columns=node.columns,
+            )
 
-        # Create a new CTE node instead of modifying the input
-        # This ensures we can resolve CTEs even if they appear multiple times
-        new_node = ast.CTE(
-            start=node.start,
-            end=node.end,
-            type=ast.CTETableType(name=node.name, select_query_type=cast(ast.SelectQueryType, cte_expr.type)),
-            name=node.name,
-            expr=cte_expr,
-            cte_type=node.cte_type,
-            recursive=node.recursive,
-            materialized=node.materialized,
-            using_key=node.using_key,
-            columns=node.columns,
-        )
+            # Add this CTE to the current scope so subsequent CTEs can reference it
+            self.ctes[node.name] = new_node
 
-        self.cte_counter -= 1
-
-        # Add this CTE to the current scope so subsequent CTEs can reference it
-        self.ctes[node.name] = new_node
-
-        return new_node
+            return new_node
+        finally:
+            self.cte_counter -= 1
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         """Visit each SELECT query or subquery."""
-        with self.context.entering_select(node.view_name):
-            return self._resolve_select_query(node)
+        # Each SELECT level gets its own frame of deferred scalar WITH aliases, so joins inside
+        # a subquery can never resolve (or consume) an outer level's pending aliases.
+        self._pending_scalar_ctes.append(
+            {
+                "pending": {},
+                "staged": {},
+                "published": [],
+                "failed_table_sets": defaultdict(set),
+                "relevant_for_joins": set(),
+            }
+        )
+        scopes_before = len(self.scopes)
+        ctes_before = self.ctes
+        try:
+            with self.context.entering_select(node.view_name):
+                return self._resolve_select_query(node)
+        finally:
+            del self.scopes[scopes_before:]
+            self.ctes = ctes_before
+            self._pending_scalar_ctes.pop()
 
     def _resolve_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # Capture before visiting CTEs/subqueries (which re-enter here), so only the outermost query
@@ -1040,12 +1143,22 @@ class Resolver(CloningVisitor):
         # Track CTEs defined at this level (will be attached to new_node)
         current_level_ctes: dict[str, ast.CTE] | None = None
 
-        # First step: resolve all the "WITH" CTEs onto "self.ctes" if there are any
+        # First step: resolve the "WITH" CTEs onto "self.ctes" if there are any.
+        # Subquery CTEs must resolve before FROM, which may reference them. Scalar
+        # ("column") aliases are resolved eagerly too when possible, but an alias that
+        # needs the table scope (e.g. `WITH toStartOfDay(timestamp) AS day`) is deferred
+        # until after the FROM clause is visited, matching ClickHouse semantics.
         if node.ctes:
             self.ctes = dict(parent_ctes)
             current_level_ctes = {}
             for cte in node.ctes.values():
-                resolved_cte = self.visit(cte)
+                if cte.cte_type == "column":
+                    resolved_cte = self._try_resolve_scalar_cte(cte)
+                    if resolved_cte is None:
+                        self._pending_scalar_ctes[-1]["pending"][cte.name] = cte
+                        continue
+                else:
+                    resolved_cte = self.visit(cte)
                 current_level_ctes[cte.name] = resolved_cte
             node_type.ctes = current_level_ctes
         else:
@@ -1065,8 +1178,35 @@ class Resolver(CloningVisitor):
             select=[],
         )
 
-        # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
+        # Compute which pending scalar WITH aliases are actually referenced (directly or
+        # transitively) by join constraints or table args in the join tree. Only those CTEs
+        # will be speculatively attempted during join traversal.
+        self._pending_scalar_ctes[-1]["relevant_for_joins"] = _expand_cte_dependencies(
+            _collect_join_constraint_field_roots(node.select_from),
+            self._pending_scalar_ctes[-1]["pending"],
+        )
+
+        # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1].
+        # While the join tree is visited, deferred scalar WITH aliases resolve ("stage") as soon
+        # as the tables they need are in scope, so a JOIN's ON clause can reference them. Staged
+        # aliases are unpublished again when each join visit returns, so an alias that needs a
+        # later-written table never leaks into the ON clause of an earlier-written join.
         new_node.select_from = self.visit(node.select_from)
+
+        # Publish the aliases staged while visiting FROM and resolve any still pending now that
+        # the FROM scope exists, then restore the WITH clause's written order.
+        scalar_cte_frame = self._pending_scalar_ctes[-1]
+        if scalar_cte_frame["staged"] or scalar_cte_frame["pending"]:
+            assert current_level_ctes is not None
+            for name, staged_cte in scalar_cte_frame["staged"].items():
+                self.ctes[name] = staged_cte
+                current_level_ctes[name] = staged_cte
+            for name, pending_cte in scalar_cte_frame["pending"].items():
+                current_level_ctes[name] = self.visit(pending_cte)
+            scalar_cte_frame["pending"].clear()
+            ordered_ctes = {name: current_level_ctes[name] for name in node.ctes}
+            current_level_ctes.clear()
+            current_level_ctes.update(ordered_ctes)
 
         if node.limit_percent and self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             if self.dialect == "clickhouse":
@@ -1527,7 +1667,17 @@ class Resolver(CloningVisitor):
 
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
+        # Stage the innermost SELECT's deferred scalar WITH aliases that the tables in scope so
+        # far can satisfy, so this join's ON clause can reference them. Aliases staged by deeper
+        # (later-written) joins are unpublished again when this visit returns, keeping each ON
+        # clause limited to the aliases resolvable from the tables written up to that join.
+        staged_ctes_mark = self._stage_pending_scalar_ctes()
+        try:
+            return self._visit_join_expr(node)
+        finally:
+            self._unpublish_staged_scalar_ctes(staged_ctes_mark)
 
+    def _visit_join_expr(self, node: ast.JoinExpr):
         if len(self.scopes) == 0:
             raise ImpossibleASTError("Unexpected JoinExpr outside a SELECT query")
 
@@ -2042,11 +2192,165 @@ class Resolver(CloningVisitor):
             column_names.append(expr.chain[-1])
         return column_names
 
+    def _try_resolve_scalar_cte(self, cte: ast.CTE) -> Optional[ast.CTE]:
+        """Resolve a scalar ("column") WITH alias, returning None when it needs a table that is
+        not in scope yet.
+
+        Unresolvable fields raise QueryError in the clickhouse dialect, but only record context
+        errors in the SQL-target dialects, so both signals count as "not resolvable yet". A
+        failed attempt leaves no trace: recorded errors are dropped, scopes pushed by nested
+        visitors are rolled back, and the CTE registration (a visit_cte side effect) is undone.
+        """
+        errors_before = len(self.context.errors)
+        warnings_before = len(self.context.warnings)
+        notices_before = len(self.context.notices)
+        scopes_before = len(self.scopes)
+        cte_counter_before = self.cte_counter
+        ctes_before = dict(self.ctes)
+        try:
+            resolved_cte = self.visit(cte)
+        except QueryError:
+            resolved_cte = None
+        if resolved_cte is None or len(self.context.errors) > errors_before:
+            # A failed attempt leaves no trace, however it failed: drop any errors recorded
+            # along the way, restore scopes, and undo the CTE registration (a visit_cte side effect).
+            del self.context.errors[errors_before:]
+            del self.context.warnings[warnings_before:]
+            del self.context.notices[notices_before:]
+            del self.scopes[scopes_before:]
+            self.cte_counter = cte_counter_before
+            self.ctes = ctes_before
+            return None
+        return resolved_cte
+
+    def _required_tables_available(
+        self,
+        cte: ast.CTE,
+        scope: ast.SelectQueryType | None,
+        pending_ctes: dict[str, ast.CTE],
+    ) -> bool:
+        """Check whether the tables, columns, and alias references required by a scalar WITH alias
+        are already available in scope, avoiding speculative attempts before those tables join."""
+        if scope is None:
+            return False
+
+        collector = FreeFieldCollector()
+        collector.visit(cte.expr)
+
+        for field in collector.fields:
+            if not field.chain:
+                continue
+
+            name = str(field.chain[0])
+            if name in pending_ctes:
+                return False
+            if name in self.ctes:
+                continue
+            if name in scope.aliases:
+                continue
+            if self.context.globals is not None and name in self.context.globals:
+                continue
+            if self.dialect in SQL_TARGET_DIALECTS and name.lower() in POSTGRES_KEYWORD_TYPES:
+                continue
+
+            curr: ast.SelectQueryType | ast.SelectSetQueryType | None = scope
+            is_available = False
+            while curr is not None:
+                if isinstance(curr, ast.SelectSetQueryType):
+                    is_available = lookup_field_by_name(curr, name, self.context) is not None
+                    break
+                if name in curr.tables:
+                    is_available = True
+                    break
+                if any(alias.lower() == name.lower() and _folds_identifier_case(t) for alias, t in curr.tables.items()):
+                    is_available = True
+                    break
+                if len(field.chain) > 1 and lookup_table_by_nested_name(curr, field):
+                    is_available = True
+                    break
+                if name in curr.aliases:
+                    is_available = True
+                    break
+                if any(_table_has_field(t, name, self.context) for t in curr.tables.values()) or any(
+                    _table_has_field(t, name, self.context) for t in curr.anonymous_tables
+                ):
+                    is_available = True
+                    break
+                curr = curr.parent
+
+            if not is_available:
+                return False
+
+        return True
+
+    def _stage_pending_scalar_ctes(self) -> int:
+        """Resolve whichever of the innermost SELECT's deferred scalar WITH aliases the tables
+        currently in scope can satisfy, publishing them onto self.ctes.
+
+        Returns a watermark for _unpublish_staged_scalar_ctes: aliases journaled past it were
+        staged by deeper (later-written) joins and are rolled back when those visits return.
+        """
+        if not self._pending_scalar_ctes:
+            return 0
+        frame = self._pending_scalar_ctes[-1]
+        relevant: set[str] = frame.get("relevant_for_joins", set())
+        if not relevant or not frame["pending"]:
+            return len(frame["published"])
+
+        scope = self.scopes[-1] if self.scopes else None
+        visible_tables = (
+            frozenset(scope.tables.keys()) if scope else frozenset(),
+            len(scope.anonymous_tables) if scope else 0,
+        )
+
+        resolved_any = True
+        while resolved_any:
+            resolved_any = False
+            for name in list(frame["pending"].keys()):
+                if name not in relevant:
+                    continue
+                if visible_tables in frame["failed_table_sets"][name]:
+                    continue
+                cte = frame["pending"][name]
+                if not self._required_tables_available(cte, scope, frame["pending"]):
+                    continue
+
+                shadowed = self.ctes.get(name, _MISSING_CTE)
+                resolved_cte = self._try_resolve_scalar_cte(cte)
+                if resolved_cte is None:
+                    # Needs a table that is not in scope yet; a later join (or the post-FROM
+                    # resolution) will try again.
+                    frame["failed_table_sets"][name].add(visible_tables)
+                    continue
+                frame["staged"][name] = resolved_cte
+                del frame["pending"][name]
+                frame["published"].append((name, shadowed))
+                resolved_any = True
+
+        return len(frame["published"])
+
+    def _unpublish_staged_scalar_ctes(self, mark: int) -> None:
+        """Roll back the aliases staged past the watermark, restoring any names they shadowed."""
+        if not self._pending_scalar_ctes:
+            return
+        frame = self._pending_scalar_ctes[-1]
+        while len(frame["published"]) > mark:
+            name, shadowed = frame["published"].pop()
+            if shadowed is _MISSING_CTE:
+                self.ctes.pop(name, None)
+            else:
+                self.ctes[name] = shadowed
+
     def _resolve_join_constraint(
         self, node: ast.JoinExpr, using_column_names: Optional[list[str]]
     ) -> Optional[ast.JoinConstraint]:
         if node.constraint is None:
             return None
+        if node.next_join is None:
+            # The last join's constraint may reference scalar WITH aliases that need its own
+            # table; stage them now. Earlier-written joins' constraints have already resolved
+            # (next_join is visited first), so these aliases are visible to this constraint only.
+            self._stage_pending_scalar_ctes()
         if node.constraint.constraint_type == "USING":
             return self._desugar_using_constraint(node, using_column_names)
         return self.visit_join_constraint(node.constraint)
@@ -2507,14 +2811,13 @@ class Resolver(CloningVisitor):
             )
 
         self.scopes.append(node_type)
-
-        new_node = self._copy(node)
-        new_node.type = node_type
-        new_node.expr = self.visit(new_node.expr)
-
-        self.scopes.pop()
-
-        return new_node
+        try:
+            new_node = self._copy(node)
+            new_node.type = node_type
+            new_node.expr = self.visit(new_node.expr)
+            return new_node
+        finally:
+            self.scopes.pop()
 
     def visit_expr_call(self, node: ast.ExprCall):
         raise QueryError("You can only call simple functions in HogQL, not expressions")
@@ -2532,14 +2835,13 @@ class Resolver(CloningVisitor):
             node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
 
         self.scopes.append(node_type)
-
-        new_node = self._copy(node)
-        new_node.type = node_type
-        new_node.expr = self.visit(new_node.expr)
-
-        self.scopes.pop()
-
-        return new_node
+        try:
+            new_node = self._copy(node)
+            new_node.type = node_type
+            new_node.expr = self.visit(new_node.expr)
+            return new_node
+        finally:
+            self.scopes.pop()
 
     def visit_window_function(self, node: ast.WindowFunction):
         node = cast(ast.WindowFunction, super().visit_window_function(node))
@@ -2707,6 +3009,11 @@ class Resolver(CloningVisitor):
                             first_column_type = next(iter(select_query_type.columns.values()), None)
                             if first_column_type is not None:
                                 inner_type = first_column_type
+                    elif cte.expr.type is not None:
+                        if isinstance(cte.expr.type, ast.CallType):
+                            inner_type = cte.expr.type.return_type
+                        else:
+                            inner_type = cte.expr.type
 
                     return ast.Field(chain=node.chain, type=ast.FieldAliasType(alias=name, type=inner_type))
                 else:
@@ -2843,9 +3150,10 @@ class Resolver(CloningVisitor):
                         f'Expression field "{node.type.name}" is nested too deeply. '
                         f"Expression fields can't reference themselves, directly or through another expression."
                     )
+                finally:
+                    if node.type.isolate_scope:
+                        self.scopes.pop()
 
-                if node.type.isolate_scope:
-                    self.scopes.pop()
                 return new_node
 
         if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
