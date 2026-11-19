@@ -14,6 +14,7 @@ const toSortSelectOption = (option: InboxSortOption): { value: string; label: st
     tooltip: option.description,
 })
 const SORT_SELECT_OPTIONS = INBOX_SORT_OPTIONS.map(toSortSelectOption)
+const MODEL_SORT_SELECT_OPTIONS = INBOX_MODEL_SORT_OPTIONS.map(toSortSelectOption)
 
 /**
  * The report list's sort order. It orders the list rather than narrowing it, so it sits after the
@@ -22,8 +23,7 @@ const SORT_SELECT_OPTIONS = INBOX_SORT_OPTIONS.map(toSortSelectOption)
 export function InboxSortSelect(): JSX.Element {
     const { activeSortField, activeSortDirection, modelSortAvailable } = useValues(inboxFiltersLogic)
     const { setSort } = useActions(inboxFiltersLogic)
-    const modelSortOptions = modelSortAvailable ? INBOX_MODEL_SORT_OPTIONS : []
-    const sortOptions = [...INBOX_SORT_OPTIONS, ...modelSortOptions]
+    const sortOptions = modelSortAvailable ? [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS] : INBOX_SORT_OPTIONS
     const activeKey = inboxSortOptionKey(activeSortField, activeSortDirection)
     const activeLabel = sortOptions.find((o) => inboxSortOptionKey(o.field, o.direction) === activeKey)?.label ?? ''
 
@@ -38,12 +38,12 @@ export function InboxSortSelect(): JSX.Element {
                 }
             }}
             options={
-                modelSortOptions.length > 0
+                modelSortAvailable
                     ? [
                           { options: SORT_SELECT_OPTIONS },
                           {
                               title: 'Model scores',
-                              options: modelSortOptions.map(toSortSelectOption),
+                              options: MODEL_SORT_SELECT_OPTIONS,
                           },
                       ]
                     : SORT_SELECT_OPTIONS

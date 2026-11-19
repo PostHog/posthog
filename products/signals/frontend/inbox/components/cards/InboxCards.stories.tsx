@@ -622,7 +622,7 @@ export const ReportCardRankingPillsNarrow: Story = {
     ),
 }
 
-// The Personalized sort: three tiers with reasons, a long reason that truncates, and a report after the
+// The personal order: three tiers with reasons, a long reason that truncates, and a report after the
 // list with no tier or reason.
 const personalReports: SignalReport[] = [
     makeReport({

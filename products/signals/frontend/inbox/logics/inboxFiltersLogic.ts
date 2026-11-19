@@ -70,11 +70,6 @@ function isLegacyDefaultSort(field: InboxSortField, direction: InboxSortDirectio
     return field === 'priority' && direction === 'asc'
 }
 
-/** Whether a stored sort is the retired Personalized sort. Recommended serves the personal order now. */
-function isRetiredPersonalSort(field: string): boolean {
-    return field === 'personal'
-}
-
 /**
  * The states selected by default: the two that hold open work. The closed states (Resolved,
  * Dismissed) stay one checkbox away so the fresh inbox leads with what needs a person.
@@ -1007,7 +1002,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     // Before `urlToAction`, so a shared link still wins over the migrated sort.
     afterMount(({ actions, values }) => {
         if (
-            isRetiredPersonalSort(values.sortField) ||
+            (values.sortField as string) === 'personal' ||
             (!values.hasUserChosenSort && isLegacyDefaultSort(values.sortField, values.sortDirection))
         ) {
             actions.migrateLegacyDefaultSort()
