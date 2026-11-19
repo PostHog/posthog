@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    format_datetime,
     make_tracked_session,
     reach_safe_point,
     retry_with_deadline,
@@ -74,12 +75,6 @@ class ShippoResumeConfig:
 
 def _headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"ShippoToken {api_key}", "Accept": "application/json"}
-
-
-def _format_datetime(value: datetime) -> str:
-    # Shippo's date filters take ISO 8601 UTC without offsets; truncating to whole seconds only
-    # ever widens the exclusive lower bound, and merge dedupes any re-pulled rows.
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parse_datetime(value: Any) -> Optional[datetime]:
@@ -226,7 +221,7 @@ def get_rows(
         window_start = watermark
         while window_start < now:
             window_end = min(window_start + CREATED_FILTER_WINDOW, now)
-            start_iso = _format_datetime(window_start)
+            start_iso = format_datetime(window_start)
             if resume_url is not None:
                 first_url, resume_url = resume_url, None
             else:
@@ -235,14 +230,14 @@ def get_rows(
                     {
                         "results": PAGE_SIZE,
                         "object_created_gt": start_iso,
-                        "object_created_lte": _format_datetime(window_end),
+                        "object_created_lte": format_datetime(window_end),
                     },
                 )
             yield from _paginate(session, first_url, start_iso, endpoint, logger, resumable_source_manager)
 
             window_start = window_end
             resumable_source_manager.save_state(
-                ShippoResumeConfig(next_url=None, window_start=_format_datetime(window_start))
+                ShippoResumeConfig(next_url=None, window_start=format_datetime(window_start))
             )
     else:
         if resume is not None and resume.next_url is not None and resume.window_start is None:

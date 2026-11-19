@@ -68,6 +68,23 @@ class InvalidScratchpadError(ValueError):
     """The agent tried to write a memory with invalid shape (empty key, oversized, etc)."""
 
 
+class ScratchpadConflictError(Exception):
+    """A `remember` precondition failed: the entry changed since the caller read it, or no longer exists.
+
+    `current_updated_at` is the stored entry's `updated_at`, or None when no entry has the key, so the
+    caller can read the entry again and decide.
+    """
+
+    def __init__(self, *, key: str, current_updated_at: str | None) -> None:
+        self.key = key
+        self.current_updated_at = current_updated_at
+        if current_updated_at is None:
+            message = f"no entry has the key '{key}', so nothing was written"
+        else:
+            message = f"the entry '{key}' changed since you read it, so nothing was written"
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class ScratchpadEntry:
     key: str
@@ -203,6 +220,7 @@ def remember(
     run_id: str | None = None,
     identity: str | None = None,
     expires_at: datetime | None = None,
+    if_updated_at: datetime | None = None,
 ) -> ScratchpadEntry:
     """Write or update a memory entry. Idempotent on `(team, key)`.
 
@@ -216,6 +234,10 @@ def remember(
     It is stored on create only, so provenance names the entry's author rather than
     whoever last rewrote it — the same rule `created_by_run` follows.
 
+    `if_updated_at` makes the write conditional on the entry being the one the caller read. When
+    the stored `updated_at` differs, or no entry has the key, nothing is written and
+    `ScratchpadConflictError` is raised. Without it the last writer wins.
+
     The previous `human_confirmed` authority guard was dropped — the human-in-the-
     loop write path was reserved-for-future and never landed. Re-add if it ships.
     """
@@ -223,15 +245,28 @@ def remember(
 
     try:
         row = _upsert_entry(
-            team_id=team_id, key=key, content=content, run_id=run_id, identity=identity, expires_at=expires_at
+            team_id=team_id,
+            key=key,
+            content=content,
+            run_id=run_id,
+            identity=identity,
+            expires_at=expires_at,
+            if_updated_at=if_updated_at,
         )
     except IntegrityError:
         # Lost the create race: our SELECT saw no row, but a concurrent request
         # committed an insert for the same `(team, key)` before ours, tripping the
         # unique constraint. The row now exists, so a single retry resolves to the
-        # update branch and preserves the idempotent-upsert contract.
+        # update branch and preserves the idempotent-upsert contract. A conditional write never
+        # creates a row, so it never reaches this branch.
         row = _upsert_entry(
-            team_id=team_id, key=key, content=content, run_id=run_id, identity=identity, expires_at=expires_at
+            team_id=team_id,
+            key=key,
+            content=content,
+            run_id=run_id,
+            identity=identity,
+            expires_at=expires_at,
+            if_updated_at=if_updated_at,
         )
     return _to_entry(row)
 
@@ -261,10 +296,24 @@ def record_not_in_use_write(*, run_id: str, team_id: int) -> None:
 
 
 def _upsert_entry(
-    *, team_id: int, key: str, content: str, run_id: str | None, identity: str | None, expires_at: datetime | None
+    *,
+    team_id: int,
+    key: str,
+    content: str,
+    run_id: str | None,
+    identity: str | None,
+    expires_at: datetime | None,
+    if_updated_at: datetime | None,
 ) -> SignalScratchpad:
     with transaction.atomic():
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
+        # The row lock makes the comparison and the write atomic: no other writer can change the
+        # entry between this check and the save below.
+        if if_updated_at is not None and (existing is None or existing.updated_at != if_updated_at):
+            raise ScratchpadConflictError(
+                key=key,
+                current_updated_at=existing.updated_at.isoformat() if existing is not None else None,
+            )
         if existing is None:
             return SignalScratchpad.objects.create(
                 team_id=team_id,

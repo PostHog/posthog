@@ -388,7 +388,7 @@ Note: Diffed all collection GET paths in Airwallex's official OpenAPI spec, incl
 
 ## Aiven — gaps
 
-Today (13): `billing_group_projects`, `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `project_events`, `project_users`, `projects`, `services`, `user_group_members`, `user_groups`
+Today (16): `billing_group_credits`, `billing_group_projects`, `billing_groups`, `clouds`, `invoice_lines`, `invoices`, `organization_users`, `organizations`, `project_events`, `project_users`, `projects`, `service_integrations`, `service_plans`, `services`, `user_group_members`, `user_groups`
 
 Diffed against: <https://api.aiven.io/doc/openapi.json>
 
@@ -396,12 +396,12 @@ Diffed against: <https://api.aiven.io/doc/openapi.json>
 - [x] `GET /organization/{organization_id}/user-groups/{user_group_id}/members` — membership rows for the user_groups table already synced (high)
 - [x] `GET /billing-group/{billing_group_id}/projects` — lookup mapping projects to billing groups, needed to attribute invoice_lines to projects (high)
 - [x] `GET /project/{project}/events` — project/service audit and state-change history (high)
-- [ ] `GET /billing-group/{billing_group_id}/credits` — credit transactions that offset the invoices already synced (medium)
-- [ ] `GET /project/{project}/service-types and /project/{project}/service-types/{service_type}/plans` — lookup resolving the service_type/plan identifiers carried on services (medium)
+- [x] `GET /billing-group/{billing_group_id}/credits` — credit transactions that offset the invoices already synced (medium). Added as `billing_group_credits` (fan-out over billing groups).
+- [x] `GET /project/{project}/service-types and /project/{project}/service-types/{service_type}/plans` — lookup resolving the service_type/plan identifiers carried on services (medium). Added as `service_plans` from `GET /project/{project}/service_types`, which returns every service type with its plans in one call. No separate service types table: the plan rows carry `service_type`, and `/service-types` returns an object keyed by type, not a list.
 - [ ] `GET /project/{project}/service/{service_name}/tags and /project/{project}/tags` — tag dimensions used for cost and ownership attribution (medium)
 - [ ] `GET /project/{project}/service/{service_name}/backups` — backup history per service for retention/RPO analysis (medium)
-- [ ] `GET /project/{project}/service/{service_name}/integration` — service-to-service integration edges (metrics/log shipping topology) (medium)
-- [ ] `GET /organization/{organization_id}/tickets` — support ticket volume per org/project (medium)
+- [x] `GET /project/{project}/service/{service_name}/integration` — service-to-service integration edges (metrics/log shipping topology) (medium). Added as `service_integrations` (fan-out over project services).
+- [ ] `GET /organization/{organization_id}/tickets` — support ticket volume per org/project (medium). Skipped: the current spec has no ticket paths, only a "Support ticket" tag description.
 - [ ] `GET /project/{project}/alerts and /project/{project}/service/{service_name}/alerts` — open service alerts as an operational health table (low)
 - [ ] `GET /organization/{organization_id}/emissions` — carbon emissions reporting per organization (low)
 
@@ -5999,8 +5999,8 @@ Diffed against: <https://docs.hitpayapp.com/openapi.json>
 - [x] `Balance Transactions (GET /v1/balances/{balance_provider}/transactions)` — explain balance changes from payments, fees, refunds, and settlements (high)
 - [x] `Invoices (GET /v1/invoices)` — measure invoiced revenue, unpaid balances, and collection status alongside payment requests (high)
 - [ ] `Orders (GET /v1/orders)` — analyze order revenue and purchase activity beyond individual payment records (high); skipped, the spec documents no page or cursor parameter for this endpoint and describes the response as a single order, so a full sync cannot be paged reliably
-- [ ] `Products (GET /v1/products)` — analyze product sales, prices, inventory, and catalog status (medium)
-- [ ] `Transfers (GET /v1/transfers)` — track outgoing payments to third parties, including their amounts and completion status (medium)
+- [x] `Products (GET /v1/products)` — analyze product sales, prices, inventory, and catalog status (medium)
+- [x] `Transfers (GET /v1/transfers)` — track outgoing payments to third parties, including their amounts and completion status (medium)
 
 Note: Parsed all GET paths in the official OpenAPI specification against the five static tables. Balance transactions are restricted to Singapore merchants with Cards by Adyen balances. Charges already embed location labels, and payout charges reuse existing charges data. No refund collection is documented; auth and payment hardware are excluded.
 
@@ -7456,10 +7456,10 @@ Diffed against: <https://raw.githubusercontent.com/lob/lob-openapi/main/lob-api-
 - [ ] `GET /creatives` — lookup resolving the creative id referenced by campaigns we already sync (high). Skipped: the API has no list operation for creatives, only create and get-by-id.
 - [x] `GET /billing_groups` — lookup resolving billing_group_id present on every mailpiece, needed for cost attribution (high). Added as `billing_groups`.
 - [x] `GET /uploads and /uploads/{upl_id}/report` — campaign audience uploads plus per-upload success/failure report (high). Added `uploads`. `/uploads/{upl_id}/report` skipped: Lob gates it behind a per-account feature flag, and its rows echo the raw audience CSV.
-- [ ] `GET /snap_packs` — a first-class mailpiece type missing alongside letters/postcards/self_mailers (medium)
-- [ ] `GET /booklets` — a first-class mailpiece type missing from the current set (medium)
-- [ ] `GET /cards and /cards/{card_id}/orders` — card inventory plus order line items (spend and quantity) (medium)
-- [ ] `GET /templates/{tmpl_id}/versions` — template version lookup resolving the version id stamped on each mailpiece (medium)
+- [x] `GET /snap_packs` — a first-class mailpiece type missing alongside letters/postcards/self_mailers (medium). Added as `snap_packs` (incremental on `date_created`).
+- [x] `GET /booklets` — a first-class mailpiece type missing from the current set (medium). Added as `booklets` (incremental on `date_created`).
+- [x] `GET /cards and /cards/{card_id}/orders` — card inventory plus order line items (spend and quantity) (medium). Added `cards` and `card_orders` (full refresh, fan-out per card).
+- [x] `GET /templates/{tmpl_id}/versions` — template version lookup resolving the version id stamped on each mailpiece (medium). Added as `template_versions` (full refresh, fan-out per template).
 - [ ] `GET /links` — tracked link definitions that resolve click/scan attribution (medium)
 - [ ] `GET /buckslips and /buckslips/{buckslip_id}/orders` — buckslip inserts and their orders, same shape as cards (low)
 - [ ] `GET /informed_delivery_campaigns` — USPS Informed Delivery campaign records tied to mailpieces (low)
@@ -8542,9 +8542,9 @@ Today (2): `Downloads`, `Versions`
 Diffed against: <https://raw.githubusercontent.com/npm/registry/master/docs/REGISTRY-API.md>
 
 - [x] `GET https://api.npmjs.org/versions/{package}/last-week` — per-version download counts - joins straight onto the Versions table already synced and is the only way to measure version adoption or upgrade lag (high)
-- [ ] `GET /-/v1/search` — search results carry npms.io quality, popularity and maintenance scores per package, unavailable from the packument (medium)
-- [ ] `GET https://api.npmjs.org/downloads/point/{period}/{pkg1},{pkg2}` — bulk point downloads for up to 128 packages in one call - same data as Downloads but far cheaper for large package lists (low)
-- [ ] `GET / (registry meta)` — registry-wide doc_count and update_seq, useful only as a sync watermark (low)
+- [x] `GET /-/v1/search` — search results carry npms.io quality, popularity and maintenance scores per package, unavailable from the packument (medium)
+- [ ] `GET https://api.npmjs.org/downloads/point/{period}/{pkg1},{pkg2}` — bulk point downloads for up to 128 packages in one call - same data as Downloads but far cheaper for large package lists (low) Skipped: period totals of the existing Downloads table, and bulk queries do not support scoped packages.
+- [ ] `GET / (registry meta)` — registry-wide doc_count and update_seq, useful only as a sync watermark (low) Skipped: the endpoint now returns an empty object, and registry-wide counters are not about the configured packages.
 
 Note: Also diffed against https://raw.githubusercontent.com/npm/registry/master/docs/download-counts.md. The public registry API is genuinely small (packument, version doc, search, meta) plus the downloads service (point, range, per-version). PostHog's Versions table comes from the packument and Downloads from /downloads/range, so 2 of roughly 4 useful data shapes are covered. Tables are static per source; the user supplies the package list, so breadth here is packages, not endpoints.
 
@@ -10304,9 +10304,9 @@ Diffed against: <https://www.reverb-api.com/docs>
 - [x] `Refund requests (GET /api/my/refund_requests/selling)` — measure returned orders, refund amounts, reasons, and seller response status (high)
 - [x] `Selling payments (GET /api/my/payments/selling)` — reconcile order payments and payment methods with sales and payouts (high)
 - [x] `Bump statistics (GET /api/listings/{listing_id}/bump)` — compare promotion costs, impressions, and attributed sales across listings (medium)
-- [ ] `Active offers (GET /api/my/listings/negotiations)` — analyze negotiation activity and offers before orders are placed (medium)
-- [ ] `Conversations and messages (GET /api/my/conversations; GET /api/my/conversations/{conversation_id})` — analyze buyer questions and communication associated with sales (medium)
-- [ ] `Received feedback (GET /api/my/feedback/received)` — compare customer ratings and feedback with order outcomes (medium)
+- [x] `Active offers (GET /api/my/listings/negotiations)` — analyze negotiation activity and offers before orders are placed (medium)
+- [x] `Conversations and messages (GET /api/my/conversations; GET /api/my/conversations/{conversation_id})` — analyze buyer questions and communication associated with sales (medium). The per-conversation message detail was not added: Reverb publishes no response shape for it, and the list already carries each conversation's last message.
+- [x] `Received feedback (GET /api/my/feedback/received)` — compare customer ratings and feedback with order outcomes (medium)
 
 Note: The official documentation index was fetched with curl, followed by guides for payouts, refunds, payments, promotions, offers, messages, and feedback. Their request examples confirm the listed GET paths; the public reference page does not publish a downloadable specification. Line items, payments, promotion statistics, and message details require requests for each parent record. Order status filters duplicate the existing Orders table, while listing writes and offer settings are excluded.
 

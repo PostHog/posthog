@@ -144,6 +144,7 @@ from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.free_trial import FREE_TRIAL_PR_MESSAGE
 from products.signals.backend.hybrid_search import SearchMode, SemanticSearchUnavailable
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_prs_for_reports,
@@ -173,7 +174,7 @@ from products.signals.backend.personal_ranking.list_sort import (
     personal_list_order,
     personal_ranking_status,
 )
-from products.signals.backend.personal_ranking.serve import serve_personal_ranking
+from products.signals.backend.personal_ranking.serve import serve_personal_ranking, start_inbox_load_build
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.spend import ReportSpendSerializer
@@ -258,6 +259,7 @@ from products.signals.backend.report_search import (
     search_enabled as report_search_enabled,
     search_reports,
 )
+from products.signals.backend.report_tags import team_tag_vocabulary
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
     IMPLEMENT_RUN_ACTIVE_DETAIL,
@@ -354,6 +356,7 @@ from products.signals.backend.serializers import (
     SignalReportSourceMetadataRequestSerializer,
     SignalReportSourceMetadataResponseSerializer,
     SignalReportSuggestedReviewersArtefactSerializer,
+    SignalReportTagOptionsSerializer,
     SignalReportTaskActionErrorSerializer,
     SignalReportTaskActionListResponseSerializer,
     SignalReportTaskActionRunRequestSerializer,
@@ -1667,7 +1670,7 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "nullable": True,
             "description": (
                 "Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first "
-                "page only, and never starts a build. Null on later pages and when personal ranking is off for you."
+                "page only. Null on later pages and when personal ranking is off for you."
             ),
             "properties": {
                 "state": {
@@ -1703,8 +1706,16 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
                     "nullable": True,
                     "description": "Why the build kept the default order, when state is fallback. Else null.",
                 },
+                "building": {
+                    "type": "boolean",
+                    "description": (
+                        "True when no ranking is stored and a build of yours is queued or running. The web and "
+                        "desktop inbox start that build on the first page of sort=recommended or sort=personal, "
+                        "unless the request passes ordering or scope=teammate. Else false."
+                    ),
+                },
             },
-            "required": ["state", "size", "age_minutes", "checked_age_minutes", "fallback_reason"],
+            "required": ["state", "size", "age_minutes", "checked_age_minutes", "fallback_reason", "building"],
         }
         paginated["properties"]["count_is_capped"] = {
             "type": "boolean",
@@ -2306,6 +2317,7 @@ class SignalReportViewSet(
         excluded = request.validated_query_data["exclude"]
         if excluded:
             queryset = queryset.exclude(id__in=excluded)
+        queryset = self._apply_signal_report_tags_filter(queryset, request.validated_query_data["tags"])
         has_pr = self._implementation_pr_report_filter()
         counts = queryset.order_by().aggregate(
             pull_requests=Count("id", filter=has_pr),
@@ -2615,6 +2627,15 @@ class SignalReportViewSet(
         if not search:
             return queryset
         return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+
+    @staticmethod
+    def _apply_signal_report_tags_filter(queryset, tags: list[str]):
+        # Any-of, like the scout fleet's tag filter. `&&` runs as a row filter on the team's
+        # already-scoped reports rather than through a GIN index, which every report write would
+        # have to maintain.
+        if not tags:
+            return queryset
+        return queryset.filter(tags__overlap=tags)
 
     def _datetime_query_param(self, name: str) -> datetime | None:
         raw = self.request.query_params.get(name)
@@ -3217,7 +3238,20 @@ class SignalReportViewSet(
         ):
             return None
         status = personal_ranking_status(self.team, user, timezone.now())
-        return dataclasses.asdict(status) if status is not None else None
+        if status is None:
+            return None
+        building = (
+            status.state == "none" and self._starts_inbox_load_build() and start_inbox_load_build(self.team, user)
+        )
+        return {**dataclasses.asdict(status), "building": building}
+
+    def _starts_inbox_load_build(self) -> bool:
+        """Whether this first page is the caller's own Recommended or Personal inbox, loaded by a person in the app."""
+        return (
+            self._ranked_inbox_sort
+            and self.request.query_params.get("scope") != "teammate"
+            and classify_report_list_client(self.request.headers.get("user-agent")) in {"web", "desktop"}
+        )
 
     def _personal_ranking_owner(self, user: User) -> User | None:
         """Whose stored ranking the ranked sorts read: the teammate `scope=teammate` names, else the caller."""
@@ -3727,6 +3761,7 @@ class SignalReportViewSet(
             queryset = self.filter_queryset(self.get_queryset())
             if excluded:
                 queryset = queryset.exclude(id__in=excluded)
+            queryset = self._apply_signal_report_tags_filter(queryset, request.validated_query_data["tags"])
             if count_only:
                 total_count = queryset.count()
             else:
@@ -3910,6 +3945,14 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.serialize"):
             return serializer.data
+
+    @extend_schema(
+        summary="List the team's most-used report tags",
+        responses={200: SignalReportTagOptionsSerializer},
+    )
+    @action(detail=False, methods=["get"], url_path="tag_options", required_scopes=["inbox:read"])
+    def tag_options(self, request, **kwargs):
+        return Response(SignalReportTagOptionsSerializer({"tags": team_tag_vocabulary(self.team.id)}).data)
 
     @extend_schema(
         summary="List the org members who can be suggested as reviewers",
@@ -6451,11 +6494,7 @@ def append_suggested_reviewers(
     on both the report and artefact viewsets. Returns the new artefact.
     Raises `ReviewerWriteError` on unresolvable entries."""
     edit = edit or ReviewerEdit(action="replace")
-    # App/user-only write (agents append reviewers via the artefacts POST), so always attribute to
-    # the requesting user — never the X-PostHog-Task-Id header. A task-attributed reviewers row has
-    # no created_by_id, which makes auto-start treat the list as agent-authored and run the
-    # implementation task as a named colleague instead of the editor — the reviewer-impersonation
-    # path the `triggering_user_id` guard in `auto_start` exists to close.
+    # This endpoint records a human edit even when the client also supplies task metadata.
     user_id = request.user.id
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
@@ -6618,6 +6657,9 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
             reviewer_edit=edit,
+            implementation_authorization=None
+            if is_sandbox_origin_request(request)
+            else ImplementationAuthorization(mode="user", user_id=user_id),
             reevaluate_autostart=edit.action not in {"remove", "confirm"}
             and any(
                 not prior_index.get(user_uuid=entry["user_uuid"], github_login=entry["github_login"])
@@ -6901,9 +6943,7 @@ def remove_suggested_reviewer(
     The read, the filter and the write sit in one transaction behind the report lock, so a reviewer
     added between them is not dropped, and not recorded as removed by the person stepping off.
 
-    `reevaluate_autostart=False`: the new row is attributed to the caller, and auto-start runs an
-    implementation task as the user a reviewers edit is attributed to. Stepping off a report must
-    never start work, least of all under the credentials of the person who just declined it.
+    Stepping off grants no permission to start implementation, including on deferred retries.
     """
     removal_note = _scout_readable_removal_note(
         team=team, user=user, scoped_team_ids=scoped_team_ids, note=removal_note
@@ -6946,6 +6986,8 @@ def remove_suggested_reviewer(
             for entry in prior
             if not _reviewer_entry_names(entry, user_uuid=str(user.uuid), github_login=github_login)
         ]
+        if len(kept) == len(prior):
+            return False
         new_artefact = SignalReportArtefact.append_status(
             team_id=team.id,
             report_id=str(report_id),
@@ -6956,8 +6998,6 @@ def remove_suggested_reviewer(
             reviewer_edit=ReviewerEdit(action="remove"),
             reevaluate_autostart=False,
         )
-        if len(kept) == len(prior):
-            return False
         new_content = SuggestedReviewers.model_validate_json(new_artefact.content).model_dump(mode="json")
         default_owner_labels = _default_owner_labels(prior)
         removed_default_owner = any(entry.get("is_default_owner") for entry in prior if entry not in kept)
@@ -7599,6 +7639,9 @@ class SignalReportArtefactViewSet(
                         if attribution.kind == "user" and reviewer_outcome == "selected"
                         else None,
                         claim_id=str(claim_id) if claim_id else None,
+                        implementation_authorization=None
+                        if is_sandbox_origin_request(request)
+                        else ImplementationAuthorization(mode="user", user_id=request.user.id),
                     )
                     if artefact.id != previous:
                         self._schedule_suggested_reviewer_telemetry(

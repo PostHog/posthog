@@ -369,7 +369,6 @@ jobs:
                         - 'products/ai_observability/shared/**'
                         - 'packages/llm-normalizer/src/normalizer/recipe/default_recipes/**'
                         - 'products/canvas/packages/canvas_builder/**'
-                        - bin/build-schema-latest-versions.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -479,7 +478,6 @@ jobs:
                         # The personhog gRPC stubs that posthog/personhog_client imports
                         - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
-                        - bin/build-schema-latest-versions.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -605,6 +603,14 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
+                        # The generated-file and registry checks read these files, and the backend
+                        # filter matches none of them.
+                        - 'docker/kafka/topics.txt'
+                        - 'frontend/public/admin-console/**'
+                        - 'frontend/public/message-preferences.css'
+                        - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
+                        - 'products/aeo/mcp/tools.yaml'
+                        - 'products/ai_observability/fixtures/sample_traces/**'
                         # repo-checks fails a test file that a pull request leaves with no team owner,
                         # Jest included, and no other filter matches a new frontend test. The filter
                         # reports a moved file as added. Keep in step with runner_for_path in

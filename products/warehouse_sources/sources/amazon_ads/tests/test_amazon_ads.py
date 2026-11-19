@@ -15,7 +15,8 @@ from products.warehouse_sources.sources.amazon_ads.amazon_ads import (
     LWA_REJECTED_MESSAGE,
     LWA_TOKEN_URL,
     PROFILES_DENIED_MESSAGE,
-    REPORT_POLL_MAX_ATTEMPTS,
+    REPORT_POLL_BUDGET_SECONDS,
+    REPORT_POLL_INTERVAL_SECONDS,
     UNAVAILABLE_MESSAGE,
     AmazonAdsReportError,
     AmazonAdsResumeConfig,
@@ -392,7 +393,7 @@ class TestReportRows:
         )
         assert isinstance(result.raised, AmazonAdsRetryableError)
         polls = [path for path in result.paths if path.startswith("/reporting/reports/")]
-        assert len(polls) == REPORT_POLL_MAX_ATTEMPTS
+        assert len(polls) == REPORT_POLL_BUDGET_SECONDS // REPORT_POLL_INTERVAL_SECONDS + 1
 
     def test_download_url_outside_amazon_is_rejected(self) -> None:
         result = self._run(

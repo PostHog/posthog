@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError, connection
+from django.http import QueryDict
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -90,7 +91,7 @@ from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
 from products.signals.backend.report_repository import INBOX_REPOSITORY_REASON
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
-from products.signals.backend.serializers import ReportMetricListSerializer
+from products.signals.backend.serializers import ReportMetricListSerializer, SignalReportFilterQuerySerializer
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -170,6 +171,24 @@ class TestSignalReportStateRequest(SimpleTestCase):
         assert serializer.is_valid() == valid
         if not valid:
             assert "dismissal_reason" in serializer.errors
+
+
+class TestSignalReportFilterQueryTags(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("normalizes_and_dedupes", ["Billing", "On Call", "on_call"], ["billing", "on-call"]),
+            ("splits_a_comma_separated_value", ["billing,on-call"], ["billing", "on-call"]),
+        ]
+    )
+    def test_tags_normalize_to_slugs(self, _name: str, raw: list[str], expected: list[str]) -> None:
+        serializer = SignalReportFilterQuerySerializer(data=QueryDict(urlencode([("tags", t) for t in raw])))
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["tags"] == expected
+
+    def test_tags_with_nothing_left_after_normalization_are_rejected(self) -> None:
+        serializer = SignalReportFilterQuerySerializer(data=QueryDict("tags=---"))
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
 
 
 class TestReportListClientClassification(SimpleTestCase):
@@ -2842,19 +2861,28 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand([("live_filters", False), ("cached_columns", True)])
     def test_section_counts_match_the_count_only_list_requests(self, _name: str, cached: bool) -> None:
-        with_pr = self._create_report(title="Ready with a PR")
+        with_pr = self._create_report(title="Ready with a PR", tags=["billing"])
         self._create_assignment(with_pr, pr_url="https://github.com/org/repo/pull/42")
-        self._create_report(title="Ready without a PR")
-        excluded = self._create_report(title="Excluded")
-        merged = self._create_report(title="Merged", status=SignalReport.Status.RESOLVED)
+        self._create_report(title="Ready without a PR", tags=["billing"])
+        untagged_with_pr = self._create_report(title="Ready with a PR and no tag")
+        self._create_assignment(untagged_with_pr, pr_url="https://github.com/org/repo/pull/44")
+        self._create_report(title="Ready without a PR or a tag")
+        excluded = self._create_report(title="Excluded", tags=["billing"])
+        merged = self._create_report(title="Merged", status=SignalReport.Status.RESOLVED, tags=["billing"])
         self._create_assignment(merged, pr_url="https://github.com/org/repo/pull/43")
-        self._create_report(title="Needs input", status=SignalReport.Status.PENDING_INPUT)
+        self._create_report(title="Needs input", status=SignalReport.Status.PENDING_INPUT, tags=["billing"])
 
         with patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached):
-            response = self.client.get(f"{self._list_url()}section_counts/?exclude={excluded.id}")
+            response = self.client.get(f"{self._list_url()}section_counts/?exclude={excluded.id}&tags=billing")
             list_counts = {
                 name: self.client.get(
-                    self._list_url(status="ready", has_implementation_pr=has_pr, exclude=excluded.id, count_only="true")
+                    self._list_url(
+                        status="ready",
+                        has_implementation_pr=has_pr,
+                        exclude=excluded.id,
+                        tags="billing",
+                        count_only="true",
+                    )
                 ).json()["count"]
                 for name, has_pr in (("pull_requests", "true"), ("reports", "false"))
             }
@@ -3083,6 +3111,29 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["report"]["id"] == str(report.id)
+
+    def test_tags_filter_keeps_reports_with_any_of_the_tags(self) -> None:
+        billing = self._create_report(title="Billing", tags=["billing", "api"])
+        on_call = self._create_report(title="On call", tags=["on-call"])
+        other = self._create_report(title="Other tag", tags=["web"])
+        untagged = self._create_report(title="Untagged")
+
+        filtered = self.client.get(self._list_url(tags="Billing,On Call"))
+        counted = self.client.get(self._list_url(tags="Billing,On Call", count_only="true"))
+        unfiltered = self.client.get(self._list_url())
+
+        assert filtered.status_code == status.HTTP_200_OK
+        assert {row["id"]: row["tags"] for row in filtered.json()["results"]} == {
+            str(billing.id): ["billing", "api"],
+            str(on_call.id): ["on-call"],
+        }
+        assert counted.json()["count"] == 2
+        assert {row["id"] for row in unfiltered.json()["results"]} == {
+            str(billing.id),
+            str(on_call.id),
+            str(other.id),
+            str(untagged.id),
+        }
 
     def test_list_excludes_suppressed_by_default(self):
         ready = self._create_report(status=SignalReport.Status.READY)
@@ -4962,6 +5013,19 @@ class TestSignalReportMergeAPI(APIBaseTest):
             str(survivor.id),
         )
         assert kwargs["write_path"] == ReportLinkWritePath.MERGE
+
+
+class TestReportTagOptionsAPI(APIBaseTest):
+    def test_returns_this_teams_tags_most_used_first(self) -> None:
+        SignalReport.objects.create(team=self.team, tags=["billing", "on-call"])
+        SignalReport.objects.create(team=self.team, tags=["on-call"])
+        other_team = Team.objects.create(organization=self.organization)
+        SignalReport.objects.create(team=other_team, tags=["other-team-tag"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/tag_options/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"tags": ["on-call", "billing"]}
 
 
 class TestAvailableReviewersAPI(APIBaseTest):

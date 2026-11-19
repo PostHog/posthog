@@ -154,6 +154,7 @@ export function GlobalShortcuts(): null {
         keybind: [keyBinds.hesoyam],
         intent: 'Easter egg',
         hidden: true,
+        matchInEditable: true,
         interaction: 'function',
         callback: async () => {
             if (hesoyamInFlight.current) {

@@ -893,6 +893,7 @@ const inboxReportsList = (): ToolBase<
                 source_product: params.source_product,
                 status: params.status,
                 suggested_reviewers: params.suggested_reviewers,
+                tags: params.tags,
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
                 unclaimed: params.unclaimed,
@@ -909,6 +910,7 @@ const inboxReportsList = (): ToolBase<
                     'title',
                     'summary',
                     'metrics',
+                    'tags',
                     'status',
                     'priority',
                     'actionability',
@@ -2927,6 +2929,9 @@ const scoutScratchpadRemember = (): ToolBase<
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
         }
+        if (params.if_updated_at !== undefined) {
+            body['if_updated_at'] = params.if_updated_at
+        }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -4023,6 +4028,9 @@ const signalsScoutScratchpadRemember = (): ToolBase<
         }
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
+        }
+        if (params.if_updated_at !== undefined) {
+            body['if_updated_at'] = params.if_updated_at
         }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
