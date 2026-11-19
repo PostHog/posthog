@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'crypto'
 import supertest from 'supertest'
-import type { Application, Request, Response } from 'ultimate-express'
+import express from 'ultimate-express'
+import type { Application, NextFunction, Request, Response } from 'ultimate-express'
 import { brotliCompressSync, deflateSync, gzipSync } from 'zlib'
 
 import { setupExpressApp } from '~/common/api/router'
@@ -44,6 +45,43 @@ describe('setupExpressApp JSON body limit', () => {
 
         expect(res.status).toEqual(413)
         expect(res.body).toEqual({ status: 'error', error: 'Request entity too large' })
+    })
+
+    it.each([
+        ['an oversized body', false],
+        ['an oversized body that fails its check', true],
+    ] as const)('answers %s read from a buffered upload with one 413, and keeps serving', async (_case, failsCheck) => {
+        const readBodyAfterUpload = (_req: Request, _res: Response, next: NextFunction): void => {
+            setTimeout(next, 200)
+        }
+        const bufferedApp = setupExpressApp({})
+        bufferedApp.post(
+            '/buffered',
+            readBodyAfterUpload,
+            express.json({ limit: '1kb', type: 'application/x-buffered+json' }),
+            (_req: Request, res: Response) => {
+                res.status(200).json({ ok: true })
+            }
+        )
+        bufferedApp.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+            res.status(err?.type === 'encoding.malformed' ? 400 : 413).json({ error: String(err?.message) })
+        })
+        const bufferedServer = bufferedApp.listen(0, () => {})
+        const body = gzipSync(JSON.stringify({ data: randomBytes(3 * 1024 * 1024).toString('base64') }))
+        if (failsCheck) {
+            body[body.length - 1] ^= 0xff
+        }
+        try {
+            const upload = supertest(bufferedApp)
+                .post('/buffered')
+                .set({ 'Content-Type': 'application/x-buffered+json', 'Content-Encoding': 'gzip' })
+            upload.write(body)
+            const oversized = await upload
+            const next = await supertest(bufferedApp).post('/buffered').send({ data: 'x' })
+            expect({ oversized: oversized.status, next: next.status }).toEqual({ oversized: 413, next: 200 })
+        } finally {
+            bufferedServer.close()
+        }
     })
 
     it('refuses a write to a read-only prefix before parsing its body', async () => {
