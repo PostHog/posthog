@@ -545,6 +545,31 @@
             "readOnlyHint": true
         }
     },
+    "organization-privacy-facts-get": {
+        "title": "Get organization privacy facts",
+        "description": "Answer \"where is our data stored?\" and other privacy, residency, DPA, BAA and retention questions with this organization's own facts: its cloud region (US or EU), plan, DPA and BAA status, events and recording retention, IP discarding and AI data processing settings. Each section returns `status`. When it is not `ok`, relay its `message`: `needs_admin` means the user should ask an organization admin or owner to check it, `missing_scope` names the scope their key or OAuth token lacks. PostHog-wide facts (subprocessors, hosting, security) are not in the response: open the links in `sources` and cite them. Answer subprocessor questions with the subprocessors link, not a list. A null `dpa` means no DPA was generated in the app, not that the organization has none. `plan_entitlements` limits are raw values with no unit in the API, so quote them only alongside the retention docs in `sources`.",
+        "category": "Organization & project management",
+        "feature": "workspace",
+        "summary": "The organization's region, plan, DPA and BAA status, and retention settings, with links to PostHog's privacy pages.",
+        "required_scopes": ["project:read"],
+        "search_keywords": [
+            "privacy",
+            "data residency",
+            "data region",
+            "where is our data stored",
+            "subprocessors",
+            "DPA",
+            "BAA",
+            "GDPR",
+            "retention"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "organizations-get": {
         "description": "Fetches the organizations that the user has access to, with their id, name, and membership level. Use this to discover organizations — including ones other than the active organization — and to resolve an organization name to the id you pass to `switch-organization`.",
         "category": "Organization & project management",
