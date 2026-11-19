@@ -52,11 +52,8 @@ impl Language {
     /// Get the message to show to the user upon completion of the command (e.g. the next steps)
     fn next_steps_text(&self, output_path: &str, sdk: Option<Sdk>) -> String {
         let go_install = match sdk {
-            Some(Sdk::Go(go @ GoSdk::V2)) => format!("go get {}", go.import_path()),
-            _ => format!(
-                "go get {}\n   > On posthog-go 2.x, pull with `--sdk posthog-go-v2` instead.",
-                GoSdk::V1.import_path()
-            ),
+            Some(Sdk::Go(go)) => go.install_step(),
+            Some(Sdk::TypeScript(_)) | None => GoSdk::V1.install_step(),
         };
         match self {
             Language::TypeScript => format!(
@@ -181,6 +178,17 @@ impl GoSdk {
         match self {
             GoSdk::V1 => "github.com/posthog/posthog-go",
             GoSdk::V2 => "github.com/posthog/posthog-go/v2",
+        }
+    }
+
+    /// The install step shown after a pull.
+    fn install_step(&self) -> String {
+        match self {
+            GoSdk::V1 => format!(
+                "go get {}\n   > On posthog-go 2.x, pull with `--sdk posthog-go-v2` instead.",
+                self.import_path()
+            ),
+            GoSdk::V2 => format!("go get {}", self.import_path()),
         }
     }
 }
