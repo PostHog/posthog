@@ -57,7 +57,9 @@ A copy that creates a flag in another project counts every dependency as added, 
 
 A dependency the write adds must be a flag the caller can read, judged in the write team's organization.
 Otherwise the write fails with the same error as a dependency on a flag that does not exist.
-A stored dependency, and a dependency of a dependency, that the caller cannot read is skipped without an error, so it reveals nothing about that flag and does not block the write.
+A stored dependency, and a dependency of a dependency, that the caller cannot read skips the active and format checks, so it reveals nothing about that flag and does not block the write.
+The cycle walk still follows that flag's dependencies, and any flag reached only through it also skips those checks.
+A cycle through a flag the caller cannot read fails with a message that names no flag.
 When a runtime change touches a stored dependency the caller cannot read, the write fails with the same error as a dependency on a flag that does not exist, so the error does not reveal its runtime.
 A runtime change ignores an active dependent the caller cannot read, so the write reveals neither its runtime nor its existence.
 

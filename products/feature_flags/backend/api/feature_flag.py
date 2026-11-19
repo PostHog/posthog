@@ -2921,38 +2921,60 @@ class FeatureFlagSerializer(
             return
 
         # Only the dependencies this write adds must be readable. A stored dependency, or a dependency of a
-        # dependency, that the caller cannot read must not block an edit the caller is allowed to make.
+        # dependency, that the caller cannot read must not fail the active or format checks of an edit the
+        # caller is allowed to make. The cycle walk still follows such a flag, so a cycle through it is refused.
         stored_filters = (self.instance.filters if self.instance is not None else None) or {}
         added_ids = set(flag_dependency_ids(filters)) - set(flag_dependency_ids(stored_filters))
+        project_flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"])
+        unchecked_keys: set[str] = set()
+
+        def unchecked_dependency_keys(flag_filters: dict, checked_keys: set[str]) -> set[str]:
+            dependency_ids = set(flag_dependency_ids(flag_filters))
+            if len(dependency_ids) == len(checked_keys):
+                return set()
+            keys = set(
+                project_flags.filter(id__in=dependency_ids).exclude(key__in=checked_keys).values_list("key", flat=True)
+            )
+            unchecked_keys.update(keys)
+            return keys
+
         flag_dependencies = self._extract_flag_dependencies(filters, added_ids=added_ids)
-        if not flag_dependencies:
+        hidden_dependencies = unchecked_dependency_keys(filters, flag_dependencies)
+        if not flag_dependencies and not hidden_dependencies:
             return
 
         # Check for self-reference
         if current_flag_key in flag_dependencies:
             raise serializers.ValidationError(f"Feature flag '{current_flag_key}' cannot depend on itself")
 
-        # Check for cycles using DFS
-        def has_cycle(flag_key, path):
+        # A flag that is hidden, or that is reached only through a hidden flag, skips the active and format
+        # checks because their messages would name it or reveal the hidden flag's dependencies.
+        def has_cycle(flag_key, path, checked):
             if flag_key in path:
                 cycle_path = [*path[path.index(flag_key) :], flag_key]
+                if unchecked_keys.intersection(cycle_path):
+                    raise serializers.ValidationError(
+                        "Circular dependency detected through a flag you don't have access to. "
+                        "Remove this dependency to continue."
+                    )
                 cycle_display = " → ".join(cycle_path)
                 raise serializers.ValidationError(f"Circular dependency detected: {cycle_display}")
 
             try:
-                flag = FeatureFlag.objects.get(
-                    key=flag_key,
-                    team__project_id=self.context["project_id"],
-                )
-                flag_deps = self._extract_flag_dependencies(flag.filters or {})
-                for dep_key in flag_deps:
-                    has_cycle(dep_key, [*path, flag_key])
+                flag = project_flags.get(key=flag_key)
             except FeatureFlag.DoesNotExist:
                 return  # Non-existent flags have no dependencies
+            flag_filters = flag.filters or {}
+            checked_deps = self._extract_flag_dependencies(flag_filters) if checked else set()
+            for dep_key in checked_deps:
+                has_cycle(dep_key, [*path, flag_key], checked=True)
+            for dep_key in unchecked_dependency_keys(flag_filters, checked_deps):
+                has_cycle(dep_key, [*path, flag_key], checked=False)
 
-        # Check each dependency for cycles
         for dep_flag_key in flag_dependencies:
-            has_cycle(dep_flag_key, [current_flag_key])
+            has_cycle(dep_flag_key, [current_flag_key], checked=True)
+        for dep_flag_key in hidden_dependencies:
+            has_cycle(dep_flag_key, [current_flag_key], checked=False)
 
     def _free_key_held_by_soft_deleted_flags(self, key: str, exclude_pk: int | None = None) -> None:
         # The (team, key) unique constraint spans soft-deleted rows, so we must

@@ -232,8 +232,11 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-    def test_runtime_change_over_unreadable_stored_dependency_looks_like_a_missing_flag(self) -> None:
-        hidden = self._hidden_flag_as_member("hidden_client_dependency", "client")
+    @parameterized.expand([("mismatched", "client"), ("compatible", "all")])
+    def test_runtime_change_over_unreadable_stored_dependency_looks_like_a_missing_flag(
+        self, _name: str, hidden_runtime: str
+    ) -> None:
+        hidden = self._hidden_flag_as_member("hidden_client_dependency", hidden_runtime)
         dependent = self._flag("dependent", "client", filters=_depends_on(hidden.id))
 
         response = self._patch(dependent, {"evaluation_runtime": "server"})
@@ -256,13 +259,26 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
 
     def test_runtime_change_ignores_a_dependent_the_caller_cannot_read(self) -> None:
         dependent = self._hidden_flag_as_member("hidden_dependent", "server")
-        dependent.filters = _depends_on(self._flag("target", "client").id)
+        dependent.filters = _depends_on(self._flag("target", "all").id)
         dependent.save()
         target = FeatureFlag.objects.get(key="target", team=self.team)
 
-        response = self._patch(target, {"evaluation_runtime": "server"})
+        response = self._patch(target, {"evaluation_runtime": "client"})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_cycle_through_an_unreadable_flag_is_rejected_without_naming_it(self) -> None:
+        hidden = self._hidden_flag_as_member("hidden_cycle_flag", "all")
+        target = self._flag("target", "all")
+        hidden.filters = _depends_on(target.id)
+        hidden.save()
+        middle = self._flag("readable_middle", "all", filters=_depends_on(hidden.id))
+
+        response = self._patch(target, {"filters": _depends_on(middle.id)})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"].startswith("Circular dependency detected")
+        assert "hidden_cycle_flag" not in str(response.json())
 
     def test_readable_dependency_shows_its_runtime_to_a_member(self) -> None:
         from posthog.models.organization import OrganizationMembership
