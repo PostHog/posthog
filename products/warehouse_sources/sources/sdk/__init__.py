@@ -138,12 +138,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fil
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
+    NETWORK_ERRORS,
+    RetryableHTTPError,
+    is_retryable_status,
     make_tracked_adapter,
     make_tracked_session,
+    parse_retry_after,
+    raise_for_retryable_status,
+    raise_for_status_redacted,
     request_deadline,
     retry_with_deadline,
     stop_at_request_deadline,
     suspend_adapter_retries,
+    vendor_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
@@ -156,6 +163,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import (
     redact_literal_values,
+    safe_url,
     scrub_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
@@ -470,6 +478,7 @@ __all__ = [
     "MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP",
     "MAX_EXCEL_FILE_BYTES",
     "MetaAdsIntegration",
+    "NETWORK_ERRORS",
     "NOT_A_DATABRICKS_HOST_MESSAGE",
     "NOT_DETECTABLE",
     "NO_RETRY",
@@ -508,6 +517,7 @@ __all__ = [
     "ResumableSource",
     "ResumableSourceManager",
     "ResumeHook",
+    "RetryableHTTPError",
     "RowFilterColumn",
     "S3_EXAMPLE_URL",
     "SCHEMA_RESOURCE_ID_METADATA_KEY",
@@ -601,6 +611,7 @@ __all__ = [
     "is_cloud",
     "is_databricks_workspace_host",
     "is_format_inferable",
+    "is_retryable_status",
     "is_team_allowlisted_for_internal_hosts",
     "is_transient_egress_proxy_error",
     "is_url_allowed",
@@ -624,9 +635,12 @@ __all__ = [
     "parse_datetime_value",
     "parse_gcs_url",
     "parse_r2_url",
+    "parse_retry_after",
     "parse_s3_url",
     "pinned_connect_host",
     "probe_status_message",
+    "raise_for_retryable_status",
+    "raise_for_status_redacted",
     "rank_incremental_fields",
     "reach_safe_point",
     "redact_literal_values",
@@ -645,6 +659,7 @@ __all__ = [
     "rest_api_resources",
     "retry_with_deadline",
     "run_with_deadline",
+    "safe_url",
     "salesforce_refresh_access_token",
     "schema_for_resource",
     "scrub_url",
@@ -668,4 +683,5 @@ __all__ = [
     "update_sync_type_config_keys",
     "url_field",
     "validate_via_probe",
+    "vendor_retry",
 ]
