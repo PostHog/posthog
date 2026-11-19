@@ -15,6 +15,7 @@ from posthog.ph_client import (
     PH_US_API_KEY,
     PH_US_HOST,
     SYNC_SEND_MAX_RETRIES,
+    SYNC_SEND_TIMEOUT_SECONDS,
     ScopedCapture,
     default_before_send,
     get_client,
@@ -41,19 +42,28 @@ class TestSyncSendAttempts(SimpleTestCase):
         [
             (
                 "client_built_with_the_shared_setting",
-                lambda: posthoganalytics.Posthog(PH_US_API_KEY, sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES),
+                lambda: posthoganalytics.Posthog(
+                    PH_US_API_KEY,
+                    sync_mode=True,
+                    max_retries=SYNC_SEND_MAX_RETRIES,
+                    timeout=SYNC_SEND_TIMEOUT_SECONDS,
+                ),
             ),
             ("ai_observability_usage_report_client", get_ai_observability_usage_report_client),
         ]
     )
     @responses.activate
-    def test_a_failed_sync_send_is_attempted_once(self, _name: str, build_client: Any) -> None:
+    def test_a_failed_sync_send_is_retried_once_on_the_short_timeout(self, _name: str, build_client: Any) -> None:
         responses.post(f"{PH_US_HOST}/i/v1/analytics/events", status=503, json={"error": "unavailable"})
 
-        event_uuid = build_client().capture("usage report sent", distinct_id="org-1")
+        with patch("posthoganalytics.capture_send.time.sleep"):
+            event_uuid = build_client().capture("usage report sent", distinct_id="org-1")
 
         self.assertIsNone(event_uuid)
-        self.assertEqual(len(responses.calls), 1)
+        self.assertEqual(
+            [call.request.req_kwargs["timeout"] for call in responses.calls],
+            [SYNC_SEND_TIMEOUT_SECONDS, SYNC_SEND_TIMEOUT_SECONDS],
+        )
 
 
 class TestPrivateScoutCapture(SimpleTestCase):
