@@ -397,7 +397,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             expect(metricNames(results)).not.toContain('billable_invocation')
             expect(deliveryStatuses(queued[0].id)).toEqual([
                 ...(scheduledAt ? [{ status: 'scheduled', reason: '' }] : []),
-                { status: 'sent', reason: '' },
+                { status: 'sent', reason: 'untracked' },
             ])
             await waitForExpect(() =>
                 expect(capturedAnalytics).toEqual([
@@ -545,7 +545,12 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             0,
             { status: 'failed', reason: 'ses_rejected' },
         ],
-        ['SES throttles the first attempt', () => world.ses.replyNext(SES_THROTTLE), 1, { status: 'sent', reason: '' }],
+        [
+            'SES throttles the first attempt',
+            () => world.ses.replyNext(SES_THROTTLE),
+            1,
+            { status: 'sent', reason: 'untracked' },
+        ],
         [
             'SES throttles every attempt',
             () => world.ses.replyAlways(SES_THROTTLE),
@@ -805,7 +810,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(queued).toHaveLength(1)
 
         await deliver()
-        expect(deliveryStatuses(sent.body.invocation_id)).toEqual([{ status: 'sent', reason: '' }])
+        expect(deliveryStatuses(sent.body.invocation_id)).toEqual([{ status: 'sent', reason: 'untracked' }])
     })
 
     it('replays a keyed own-sender send with cc when the retry names the sandbox sender', async () => {
