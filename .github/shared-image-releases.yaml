@@ -152,6 +152,7 @@ filters:
         # (models, facade, scheduling, tasks) and the data_warehouse facade.
         - 'products/warehouse_sources/backend/**'
         - 'products/warehouse_sources/sources/**'
+        - 'packages/typed-config/**'
         - 'products/data_warehouse/backend/**'
         - 'posthog/warehouse/**'
         - Dockerfile
@@ -168,6 +169,7 @@ filters:
         - 'products/customer_analytics/backend/**'
         - 'products/warehouse_sources/backend/**'
         - 'products/warehouse_sources/sources/**'
+        - 'packages/typed-config/**'
         - 'products/data_modeling/backend/**'
         - 'posthog/llm/**'
         - 'products/data_warehouse/backend/**'
@@ -512,6 +514,7 @@ filters:
         - 'products/warehouse_sources/backend/logic/**'
         - products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py
         - 'products/warehouse_sources/backend/temporal/data_imports/sources/common/**'
+        - 'packages/typed-config/**'
         - 'products/warehouse_sources/backend/temporal/data_imports/sources/*/*.py'
         - products/batch_exports/backend/facade/destinations/__init__.py
         - products/batch_exports/backend/facade/destinations/bigquery.py
