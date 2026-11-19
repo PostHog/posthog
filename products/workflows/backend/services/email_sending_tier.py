@@ -16,7 +16,7 @@ from posthog.ph_client import ScopedCapture
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier_audit import (
-    TIER_EVENTS_PER_FLUSH,
+    drain_tier_events_after_chunk,
     log_email_sending_tier_change,
 )
 from products.workflows.backend.utils.email_sending_tiers import (
@@ -516,8 +516,8 @@ def recompute_email_sending_tiers(
         ):
             decisions.append(decision)
             written += 1
-            if capture is not None and written % TIER_EVENTS_PER_FLUSH == 0:
-                capture.flush()
+            if capture is not None:
+                drain_tier_events_after_chunk(capture, written)
     return decisions
 
 

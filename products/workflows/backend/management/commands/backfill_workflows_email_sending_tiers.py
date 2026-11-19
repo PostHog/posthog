@@ -26,7 +26,7 @@ from products.workflows.backend.services.email_sending_tier import (
 )
 from products.workflows.backend.services.email_sending_tier_audit import (
     EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE,
-    TIER_EVENTS_PER_FLUSH,
+    drain_tier_events_after_chunk,
     log_email_sending_tier_change,
 )
 from products.workflows.backend.utils.email_sending_tiers import (
@@ -188,8 +188,7 @@ class Command(BaseCommand):
                 trigger=trigger,
                 capture=capture,
             )
-            if written % TIER_EVENTS_PER_FLUSH == 0:
-                capture.flush()
+            drain_tier_events_after_chunk(capture, written)
         return written
 
     def _current_tiers(self, team_ids: Iterable[int]) -> dict[int, int]:

@@ -1,16 +1,28 @@
-from contextlib import nullcontext
+import re
+import gzip
+import json
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
+from io import StringIO
+from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+import responses
 from parameterized import parameterized
+from requests import PreparedRequest
 
 from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team import Team
+from posthog.ph_client import E2E_TESTING_API_KEY, PH_US_API_KEY, ScopedCapture, get_client
 
 from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
     Command as BackfillCommand,
@@ -52,6 +64,7 @@ TIER_SETTINGS = {
 }
 
 BACKFILL_MODULE = "products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers"
+TIER_MODULE = "products.workflows.backend.services.email_sending_tier"
 
 
 def history(
@@ -78,6 +91,55 @@ def clean_days(count: int, sent_per_day: int, *, days_ago: int = 0) -> dict[str,
     # bar. Absolute dates would drift out of every window as wall-clock time moves past them.
     today = timezone.now().date()
     return {(today - timedelta(days=offset + days_ago)).strftime("%Y-%m-%d"): sent_per_day for offset in range(count)}
+
+
+class AnalyticsReceiver:
+    def __init__(self, *, stalled: bool) -> None:
+        self.events: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+        self.ingesting = threading.Event()
+        if not stalled:
+            self.ingesting.set()
+
+    def batch(self, request: PreparedRequest) -> tuple[int, dict[str, str], str]:
+        self.ingesting.wait(timeout=10)
+        body = request.body or b""
+        if request.headers.get("Content-Encoding") == "gzip":
+            body = gzip.decompress(body if isinstance(body, bytes) else body.encode())
+        payload = json.loads(body)
+        with self._lock:
+            self.events.extend({**event, "api_key": payload["api_key"]} for event in payload["batch"])
+        return 200, {}, "{}"
+
+
+@contextmanager
+def receiving_analytics(receiver: AnalyticsReceiver, *, queue_size: int = 10_000) -> Iterator[None]:
+    # A stalled receiver ingests only while the client waits on it, the worst case of slow ingestion:
+    # events reach it only if the code drains the queue before the queue overflows.
+    def client_that_sends(region: str = "US", **kwargs: Any) -> Any:
+        client = get_client(region, disabled=False, flush_at=1, max_queue_size=queue_size, **kwargs)
+        flush, shutdown = client.flush, client.shutdown
+
+        def drained_flush(*args: Any, **flush_kwargs: Any) -> None:
+            receiver.ingesting.set()
+            try:
+                flush(*args, **flush_kwargs)
+            finally:
+                receiver.ingesting.clear()
+
+        def drained_shutdown() -> None:
+            receiver.ingesting.set()
+            shutdown()
+
+        client.flush, client.shutdown = drained_flush, drained_shutdown
+        return client
+
+    with (
+        responses.RequestsMock(assert_all_requests_are_fired=False) as http,
+        patch("posthog.ph_client.get_client", side_effect=client_that_sends),
+    ):
+        http.add_callback(responses.POST, re.compile(r"https://[^/]+/batch/?"), callback=receiver.batch)
+        yield
 
 
 @override_settings(**TIER_SETTINGS)
@@ -417,36 +479,17 @@ class TestRecomputeEmailSendingTiers(BaseTest):
                 return_value=SendingHistoryWindows(window=histories, recent=histories),
             ),
             patch("posthog.event_usage.posthoganalytics.capture") as global_capture,
-            patch(
-                "products.workflows.backend.tasks.email_sending_tiers.ph_scoped_capture",
-                return_value=nullcontext(scoped_capture := MagicMock()),
-            ),
-            patch("products.workflows.backend.services.email_sending_tier.TIER_EVENTS_PER_FLUSH", 1),
         ):
             if by_staff:
                 recompute_email_sending_tier_for_team(self.team.id, user_id=self.user.pk)
             else:
                 recompute_workflows_email_sending_tiers()
 
-        tier_events = {
-            name: [
-                call.kwargs for call in mock.call_args_list if call.kwargs["event"] == EMAIL_SENDING_TIER_CHANGED_EVENT
-            ]
-            for name, mock in (("global", global_capture), ("scoped", scoped_capture))
-        }
-        [event] = tier_events["global" if by_staff else "scoped"]
-        assert tier_events["scoped" if by_staff else "global"] == []
-        assert event["distinct_id"] == str(self.team.uuid)
-        assert event["groups"] == groups(team=self.team)
-        assert scoped_capture.flush.call_count == (0 if by_staff else 1)
-        assert event["properties"] == {
-            "previous_tier": 0,
-            "new_tier": 1,
-            "reason": "clean_and_used",
-            "changed_by": "staff" if by_staff else "system",
-            "pinned": False,
-            "pin_changed": False,
-        }
+        assert [
+            (call.kwargs["distinct_id"], call.kwargs["properties"]["changed_by"])
+            for call in global_capture.call_args_list
+            if call.kwargs["event"] == EMAIL_SENDING_TIER_CHANGED_EVENT
+        ] == ([(str(self.team.uuid), "staff")] if by_staff else [])
         config = TeamWorkflowsConfig.objects.get(team=self.team)
         assert config.email_sending_tier == 1
         assert config.email_sending_tier_updated_at is not None
@@ -501,6 +544,75 @@ class TestRecomputeEmailSendingTiers(BaseTest):
 
 
 @override_settings(**TIER_SETTINGS)
+class TestTierChangeEventDelivery(BaseTest):
+    def _suspended_teams(self, count: int) -> list[Team]:
+        teams = [self.team, *(Team.objects.create(organization=self.organization) for _ in range(count - 1))]
+        for team in teams:
+            TeamWorkflowsConfig.objects.update_or_create(
+                team=team, defaults={"email_sending_tier": 3, "email_sending_suspended_at": timezone.now()}
+            )
+        return teams
+
+    def _run(self, entry_point: str, teams: list[Team]) -> None:
+        if entry_point == "sweep":
+            with patch(
+                f"{TIER_MODULE}.build_sending_history_windows",
+                return_value=SendingHistoryWindows(window={}, recent={}),
+            ):
+                recompute_workflows_email_sending_tiers()
+        else:
+            with patch(f"{BACKFILL_MODULE}.build_sending_histories", return_value={}):
+                team_args = [arg for team in teams for arg in ("--team-id", str(team.id))]
+                call_command("backfill_workflows_email_sending_tiers", "--apply", *team_args, stdout=StringIO())
+
+    @parameterized.expand(
+        [
+            ("sweep_us", "sweep", "US", PH_US_API_KEY, "system"),
+            ("sweep_e2e", "sweep", "E2E", E2E_TESTING_API_KEY, "system"),
+            ("backfill_us", "backfill", "US", PH_US_API_KEY, "backfill"),
+            ("backfill_e2e", "backfill", "E2E", E2E_TESTING_API_KEY, "backfill"),
+        ]
+    )
+    def test_tier_event_reaches_the_deployments_analytics_project(
+        self, _name: str, entry_point: str, deployment: str, api_key: str, changed_by: str
+    ) -> None:
+        [team] = self._suspended_teams(1)
+        receiver = AnalyticsReceiver(stalled=False)
+
+        with override_settings(CLOUD_DEPLOYMENT=deployment, E2E_TESTING=deployment == "E2E"):
+            with receiving_analytics(receiver):
+                self._run(entry_point, [team])
+
+        assert [
+            (event["api_key"], event["event"], event["distinct_id"], event["properties"]["region"])
+            for event in receiver.events
+        ] == [(api_key, EMAIL_SENDING_TIER_CHANGED_EVENT, str(team.uuid), deployment)]
+        properties = receiver.events[0]["properties"]
+        assert properties["$groups"] == groups(team=team)
+        assert {key: properties[key] for key in ("previous_tier", "new_tier", "reason", "changed_by")} == {
+            "previous_tier": 3,
+            "new_tier": 0,
+            "reason": "staff_suspension",
+            "changed_by": changed_by,
+        }
+        assert TeamWorkflowsConfig.objects.get(team=team).email_sending_tier == 0
+
+    @parameterized.expand([("sweep",), ("backfill",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_run_larger_than_the_queue_delivers_every_tier_event(self, entry_point: str) -> None:
+        teams = self._suspended_teams(5)
+        receiver = AnalyticsReceiver(stalled=True)
+
+        with (
+            patch("products.workflows.backend.services.email_sending_tier_audit.TIER_EVENTS_PER_FLUSH", 2),
+            receiving_analytics(receiver, queue_size=2),
+        ):
+            self._run(entry_point, teams)
+
+        assert sorted(event["distinct_id"] for event in receiver.events) == sorted(str(team.uuid) for team in teams)
+
+
+@override_settings(**TIER_SETTINGS)
 class TestBackfillEmailSendingTiers(BaseTest):
     def test_suspended_team_is_not_promoted_despite_qualifying_history(self) -> None:
         used = clean_days(5, TIER_DAILY_CAPS[3])
@@ -532,16 +644,8 @@ class TestBackfillEmailSendingTiers(BaseTest):
             team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": pinned}
         )
         decision = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=4, reason="clean_and_used")
-        capture = MagicMock()
-        with patch(f"{BACKFILL_MODULE}.TIER_EVENTS_PER_FLUSH", 1):
-            assert BackfillCommand()._apply([decision], capture) == (0 if pinned else 1)
-        assert capture.flush.call_count == (0 if pinned else 1)
+        assert BackfillCommand()._apply([decision], ScopedCapture(None)) == (0 if pinned else 1)
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
-        assert [
-            call.kwargs["properties"]["changed_by"]
-            for call in capture.call_args_list
-            if call.kwargs["event"] == EMAIL_SENDING_TIER_CHANGED_EVENT
-        ] == ([] if pinned else ["backfill"])
 
         entries = ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         assert [(entry.detail or {})["trigger"]["job_type"] for entry in entries] == (
