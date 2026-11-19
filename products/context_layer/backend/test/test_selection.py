@@ -13,6 +13,7 @@ from django.test import SimpleTestCase, override_settings
 
 import httpx
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -36,13 +37,13 @@ from products.context_layer.backend.selection import (
     MAX_SOURCE_TEXT,
     Candidate,
     ContextSelector,
+    FlagDecision,
     SelectionDenied,
     SelectionInput,
     SelectionUnavailable,
     bounded_request,
     prepare_context_selection,
-    selection_mode,
-    selection_model,
+    selection_flag,
 )
 from products.tasks.backend.models import Task, TaskRun
 
@@ -57,6 +58,10 @@ SLACK_PROMPT = (
     "</slack_thread_context>\n\n"
     "why did this happen?"
 )
+
+
+def flag_result(value: str | bool, payload: object = None) -> FeatureFlagResult | None:
+    return FeatureFlagResult.from_value_and_payload("phai-context-selection", value, payload)
 
 
 def task_run() -> TaskRun:
@@ -81,12 +86,9 @@ class TestSelection(SimpleTestCase):
             "Bearer fake-sandbox-token",
         )
         self.flag = self.enterContext(
-            patch("products.context_layer.backend.selection.get_feature_flag_or_none", return_value="treatment")
-        )
-        self.payload = self.enterContext(
             patch(
-                "products.context_layer.backend.selection.posthoganalytics.get_feature_flag_payload",
-                return_value={"model": "test/decision-model"},
+                "products.context_layer.backend.selection.posthoganalytics.get_feature_flag_result",
+                return_value=flag_result("treatment"),
             )
         )
         self.client_factory = self.enterContext(
@@ -324,7 +326,7 @@ class TestSelection(SimpleTestCase):
     def test_variants_control_retrieval_injection_and_call_metadata(
         self, mode: str, admitted: bool, inject: bool
     ) -> None:
-        self.flag.return_value = mode
+        self.flag.return_value = flag_result(mode, {"model": "test/decision-model"})
         self.selector.admit = Mock(return_value=admitted)
         result = self.selector.prepare(time.monotonic() + 60)
         selects = mode in ("shadow", "treatment")
@@ -340,34 +342,36 @@ class TestSelection(SimpleTestCase):
             self.assertEqual(labels["selection_id"], result.selection_id)
             self.assertEqual(labels["mode"], mode)
             self.assertEqual(labels["runtime_version"], "unknown")
-            self.assertEqual(self.client_factory.call_args.kwargs["model"], "test/decision-model")
+            self.assertEqual(self.selector.model, "test/decision-model")
         else:
             self.client_factory.assert_not_called()
 
     @parameterized.expand(
         [
-            ("object", {"model": "posthog/hogference/jeeves-0.1"}, "posthog/hogference/jeeves-0.1"),
-            ("json_text", '{"model": "posthog/hogference/jeeves-0.1"}', "posthog/hogference/jeeves-0.1"),
-            ("no_payload", None, "openai/gpt-6-luna"),
-            ("no_model_key", {"other": 1}, "openai/gpt-6-luna"),
-            ("model_not_text", {"model": 5}, "openai/gpt-6-luna"),
-            ("not_json", "{", "openai/gpt-6-luna"),
-            ("flag_service_down", RuntimeError("down"), "openai/gpt-6-luna"),
+            ("object", {"model": "posthog/hogference/jeeves-0.1"}, "shadow", "posthog/hogference/jeeves-0.1"),
+            ("json_text", '{"model": "posthog/hogference/jeeves-0.1"}', "shadow", "posthog/hogference/jeeves-0.1"),
+            ("no_payload", None, "shadow", "openai/gpt-6-luna"),
+            ("no_model_key", {"other": 1}, "shadow", "openai/gpt-6-luna"),
+            ("model_not_text", {"model": 5}, "shadow", "openai/gpt-6-luna"),
+            ("not_json", "{", "shadow", "openai/gpt-6-luna"),
+            ("flag_service_down", RuntimeError("down"), "disabled", "openai/gpt-6-luna"),
         ]
     )
-    def test_flag_payload_picks_the_decision_model(self, name: str, payload: object, expected: str) -> None:
+    def test_one_flag_evaluation_gives_the_mode_and_the_decision_model(
+        self, name: str, payload: object, mode: str, model: str
+    ) -> None:
         if isinstance(payload, Exception):
-            self.payload.side_effect = payload
+            self.flag.side_effect = payload
         else:
-            self.payload.return_value = payload
-        self.assertEqual(selection_model(self.run_record, self.selector.actor), expected)
-        self.assertEqual(self.payload.call_args.kwargs["person_properties"]["email"], self.selector.actor.email)
+            self.flag.return_value = flag_result("shadow", payload)
+        self.assertEqual(selection_flag(self.run_record, self.selector.actor), FlagDecision(mode=mode, model=model))
+        self.assertEqual(self.flag.call_count, 1)
 
     @parameterized.expand([("pilot@example.com", "shadow"), ("other@example.com", "disabled")])
     def test_email_targeting_uses_current_actor(self, email: str, expected: str) -> None:
         self.run_record.task.created_by = User(id=6, email="creator@example.com")
         self.selector.actor.email = email
-        self.flag.side_effect = lambda *args, **kwargs: (
+        self.flag.side_effect = lambda *args, **kwargs: flag_result(
             "shadow" if kwargs.get("person_properties", {}).get("email") == "pilot@example.com" else False
         )
 
@@ -381,7 +385,7 @@ class TestSelection(SimpleTestCase):
 
     @parameterized.expand([("shadow", False), ("shadow", None), ("treatment", False), ("treatment", None)])
     def test_ai_consent_required_before_retrieval_and_model_calls(self, mode: str, consent: bool | None) -> None:
-        self.flag.return_value = mode
+        self.flag.return_value = flag_result(mode)
         self.run_record.team.organization.is_ai_data_processing_approved = consent
         result = self.selector.prepare(time.monotonic() + 60)
         self.assertEqual(result.context, "")
@@ -400,9 +404,9 @@ class TestSelection(SimpleTestCase):
     def test_runtime_eligibility(self, name, runtime, adapter, expected) -> None:
         self.run_record.task.runtime = runtime
         self.run_record.state = {"runtime_adapter": adapter} if adapter else {}
-        self.assertEqual(selection_mode(self.run_record, self.selector.actor), expected)
+        self.assertEqual(selection_flag(self.run_record, self.selector.actor).mode, expected)
         self.run_record.environment = TaskRun.Environment.LOCAL
-        self.assertEqual(selection_mode(self.run_record, self.selector.actor), "disabled")
+        self.assertEqual(selection_flag(self.run_record, self.selector.actor).mode, "disabled")
         self.assertEqual(self.selector.actor.is_staff, False)
         if expected == "treatment":
             self.assertEqual(self.flag.call_args.args[1], str(self.run_record.task_id))
@@ -664,10 +668,11 @@ class TestSelectionGateway(SimpleTestCase):
                 },
             ),
         ) as post:
+            selector.model = "test/decision-model"
             self.assertEqual(selector.gate(time.monotonic() + 60), 0.9)
         self.assertIn("ai-gateway.example.com", post.call_args.args[0])
         self.assertEqual(post.call_args.kwargs["json"]["state"], {"user_request": "request", "history": "history"})
-        self.assertEqual(post.call_args.kwargs["json"]["model"], "openai/gpt-6-luna")
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "test/decision-model")
         headers = str(post.call_args.kwargs["headers"])
         for value in (selector.selection_id, "task_run_id", "message_id", "mode", "config_version", "runtime_version"):
             self.assertIn(value, headers)

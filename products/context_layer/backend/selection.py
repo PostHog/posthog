@@ -7,7 +7,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextvars import copy_context
 from dataclasses import asdict, replace
 from threading import BoundedSemaphore
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
@@ -25,7 +25,6 @@ from posthog.llm.system_one import JsonValue, NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
-from posthog.ph_client import get_feature_flag_or_none
 
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import Task, TaskRun
@@ -169,40 +168,46 @@ def bounded_request[T](team_id: int, operation: Callable[[float], T]) -> T:
         raise SelectionUnavailable() from error
 
 
-def selection_mode(run: TaskRun, actor: User) -> str:
+@frozen
+class FlagDecision:
+    mode: str = "disabled"
+    model: str = DEFAULT_DECISION_MODEL
+
+
+def selection_flag(run: TaskRun, actor: User) -> FlagDecision:
     if (
         run.task.runtime != Task.Runtime.ACP
         or (run.state or {}).get("runtime_adapter", "claude") not in ("claude", "codex")
         or run.environment != TaskRun.Environment.CLOUD
         or run.task.origin_product not in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.SLACK)
     ):
-        return "disabled"
-    value = get_feature_flag_or_none(SELECTION_FLAG, str(run.task_id), **flag_targeting(run, actor))
-    return str(value) if value in ("shadow", "control", "treatment") else "disabled"
-
-
-def flag_targeting(run: TaskRun, actor: User) -> dict[str, Any]:
-    return {
-        "person_properties": {"email": actor.email, "is_staff": actor.is_staff},
-        "groups": {"organization": str(run.team.organization_id), "project": str(run.team_id)},
-        "group_properties": {
-            "organization": {"id": str(run.team.organization_id)},
-            "project": {"id": str(run.team_id)},
-        },
-        "send_feature_flag_events": False,
-    }
-
-
-def selection_model(run: TaskRun, actor: User) -> str:
+        return FlagDecision()
     try:
-        payload = posthoganalytics.get_feature_flag_payload(
-            SELECTION_FLAG, str(run.task_id), **flag_targeting(run, actor)
+        result = posthoganalytics.get_feature_flag_result(
+            SELECTION_FLAG,
+            str(run.task_id),
+            person_properties={"email": actor.email, "is_staff": actor.is_staff},
+            groups={"organization": str(run.team.organization_id), "project": str(run.team_id)},
+            group_properties={
+                "organization": {"id": str(run.team.organization_id)},
+                "project": {"id": str(run.team_id)},
+            },
+            send_feature_flag_events=False,
         )
-        if isinstance(payload, str):
-            payload = json.loads(payload)
     except Exception:
-        logger.warning("context_selection_model_payload_unreadable", exc_info=True)
-        return DEFAULT_DECISION_MODEL
+        logger.warning("context_selection_flag_unavailable", exc_info=True)
+        return FlagDecision()
+    if result is None or result.variant not in ("shadow", "control", "treatment"):
+        return FlagDecision()
+    return FlagDecision(mode=result.variant, model=payload_model(result.payload))
+
+
+def payload_model(payload: object) -> str:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            return DEFAULT_DECISION_MODEL
     model = payload.get("model") if isinstance(payload, dict) else None
     return model if isinstance(model, str) and 0 < len(model) <= 128 else DEFAULT_DECISION_MODEL
 
@@ -551,7 +556,8 @@ class ContextSelector:
         self.deadline = deadline
         try:
             time_remaining(deadline)
-            self.mode = selection_mode(self.run, self.actor)
+            decision = selection_flag(self.run, self.actor)
+            self.mode, self.model = decision.mode, decision.model
             if self.mode == "disabled":
                 return PreparedContext()
             if not self.selection.prompt.strip():
@@ -562,7 +568,6 @@ class ContextSelector:
                 return self.finish("ai_consent_required")
             if not self.admit():
                 return self.finish("rate_limited")
-            self.model = selection_model(self.run, self.actor)
             return self.select(deadline)
         except Exception as error:
             error_type = type(error).__name__
