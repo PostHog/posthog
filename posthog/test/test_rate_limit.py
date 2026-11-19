@@ -1393,19 +1393,20 @@ class TestReserveUnits(BaseTest):
                 shared.delete_pattern("*")
 
     @contextmanager
-    def _stalled_redis(self) -> Iterator[tuple[str, list[bytes]]]:
-        reads: list[bytes] = []
+    def _stalled_redis(self) -> Iterator[tuple[str, list[list[bytes]]]]:
+        reads: list[list[bytes]] = []
         listener = socket.create_server(("127.0.0.1", 0))
         listener.settimeout(0.05)
         stopped = threading.Event()
 
         def answer(connection: socket.socket) -> None:
-            with connection:
-                while data := connection.recv(65536):
-                    if b"GET" in data:
-                        reads.append(data)
+            with connection, connection.makefile("rb") as stream:
+                while header := stream.readline():
+                    command = [stream.read(int(stream.readline()[1:]) + 2)[:-2] for _ in range(int(header[1:]))]
+                    if command[0].upper() == b"GET":
+                        reads.append(command)
                     else:
-                        connection.sendall(b"+OK\r\n" * data.count(b"*"))
+                        connection.sendall(b"+OK\r\n")
 
         def serve() -> None:
             while not stopped.is_set():
@@ -1428,7 +1429,7 @@ class TestReserveUnits(BaseTest):
         reader_only = self._lagging_reader_caches(
             primary_location=self._lagging_reader_caches()["default"]["LOCATION"][1]
         )
-        failing_primary: AbstractContextManager[tuple[str, list[bytes]]] = (
+        failing_primary: AbstractContextManager[tuple[str, list[list[bytes]]]] = (
             nullcontext(("redis://127.0.0.1:1/0", [])) if failure == "unreachable" else self._stalled_redis()
         )
         with (
