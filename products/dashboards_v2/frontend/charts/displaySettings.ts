@@ -1,4 +1,5 @@
 import type { MetricsDisplaySettings, MetricsDisplayType, MetricsReducer } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import type { Panel } from '../spec'
 
@@ -26,6 +27,17 @@ function displayTypeOf(panel: Panel): MetricsDisplayType {
         default:
             return options.style === 'bars' ? 'bar' : options.area ? 'area' : 'line'
     }
+}
+
+export function sqlDisplayOf(panel: Panel): ChartDisplayType {
+    const options = panel.viz.options ?? {}
+    if (panel.viz.type === 'pie') {
+        return options.donut === false ? ChartDisplayType.ActionsPie : ChartDisplayType.ActionsDonut
+    }
+    if (panel.viz.type === 'bar' || options.style === 'bars') {
+        return options.stack ? ChartDisplayType.ActionsStackedBar : ChartDisplayType.ActionsBar
+    }
+    return options.area ? ChartDisplayType.ActionsAreaGraph : ChartDisplayType.ActionsLineGraph
 }
 
 export function metricsDisplayOf(panel: Panel): MetricsDisplaySettings {

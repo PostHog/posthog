@@ -1,23 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'
+import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
+import { getAutoBoxPlotSettings } from '~/queries/nodes/DataVisualization/Components/Charts/sqlBoxPlotAdapter'
+import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { SqlPieGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlPieGraph'
+import type { ChartSettings } from '~/queries/schema/schema-general'
 
 import { HeatmapPanel } from 'products/metrics/frontend/panels/HeatmapPanel'
+import { MetricsPanel } from 'products/metrics/frontend/panels/MetricsPanel'
 
-import { BoxPlotChart } from '../charts/BoxPlotChart'
-import { CategoryBarChart } from '../charts/CategoryBarChart'
-import { CategoryPieChart } from '../charts/CategoryPieChart'
 import { chartType } from '../charts/chartTypes'
-import { unitOf } from '../charts/displaySettings'
+import { metricsDisplayOf, sqlDisplayOf, unitOf } from '../charts/displaySettings'
 import { FlameGraphChart } from '../charts/FlameGraphChart'
-import { FlowsChart } from '../charts/FlowsChart'
 import { FunnelStepsChart } from '../charts/FunnelStepsChart'
 import { LogsViz } from '../charts/LogsViz'
-import { MetricsStyleChart } from '../charts/MetricsStyleChart'
 import type { PanelData } from '../charts/panelData'
-import { TextPanel } from '../charts/TextPanel'
+import { PathsFlowChart } from '../charts/PathsFlowChart'
+import { RetentionChart } from '../charts/RetentionChart'
 import { TracesViz } from '../charts/TracesViz'
-import { TrendsStyleChart } from '../charts/TrendsStyleChart'
 import { logsOptionsOf, tracesOptionsOf } from '../charts/viewerProps'
 import type { DashboardV2PanelApi } from '../generated/api.schemas'
 import type { Panel } from '../spec'
@@ -25,11 +28,15 @@ import { DashboardV2PanelMessage } from './DashboardV2PanelMessage'
 import { DashboardV2PanelSkeleton } from './DashboardV2PanelSkeleton'
 import { useElementSize } from './useElementSize'
 
+const NO_CHART_SETTINGS: ChartSettings = {}
+const FILL = 'relative flex h-full min-h-0 w-full flex-col'
+// The SQL charts paint their own surface colour. Inside a card the card is the surface, so clear it.
+const SQL_FILL = `${FILL} [--color-bg-surface-primary:transparent]`
+
 export interface DashboardV2PanelChartProps {
     panel: DashboardV2PanelApi
     data: PanelData | null
     error?: string | null
-    timezone?: string
     onEditPanel?: (edit: (panel: Panel) => Panel) => void
 }
 
@@ -38,41 +45,78 @@ interface PanelChartContentProps {
     data: PanelData
     width: number
     height: number
-    timezone?: string
     onEditPanel: (edit: (panel: Panel) => Panel) => void
 }
 
-function PanelChartContent({ panel, data, width, height, timezone, onEditPanel }: PanelChartContentProps): JSX.Element {
+function PanelChartContent({ panel, data, width, height, onEditPanel }: PanelChartContentProps): JSX.Element {
     const type = panel.viz.type
+    const boxPlotSettings = useMemo<ChartSettings>(
+        () => (data.kind === 'rows' ? { boxPlot: getAutoBoxPlotSettings(data.columns) } : NO_CHART_SETTINGS),
+        [data]
+    )
 
-    if (data.kind === 'trends' && type === 'timeseries') {
-        return <TrendsStyleChart panel={panel} results={data.results} timezone={timezone} />
+    if (data.kind === 'axes' && (type === 'timeseries' || type === 'bar')) {
+        return (
+            <div className={SQL_FILL}>
+                <SqlChart
+                    xData={data.xData}
+                    yData={data.yData}
+                    visualizationType={sqlDisplayOf(panel)}
+                    chartSettings={NO_CHART_SETTINGS}
+                />
+            </div>
+        )
+    }
+    if (data.kind === 'axes' && type === 'pie') {
+        return (
+            <div className={SQL_FILL}>
+                <SqlPieGraph
+                    xData={data.xData}
+                    yData={data.yData}
+                    visualizationType={sqlDisplayOf(panel)}
+                    chartSettings={NO_CHART_SETTINGS}
+                />
+            </div>
+        )
+    }
+    if (data.kind === 'rows' && type === 'boxplot') {
+        return (
+            <div className={SQL_FILL}>
+                <SqlBoxPlot
+                    rows={data.rows}
+                    columns={data.columns}
+                    chartSettings={boxPlotSettings}
+                    analyticsKey="dashboard-v2-panel"
+                />
+            </div>
+        )
     }
     if (data.kind === 'series' && (type === 'timeseries' || type === 'stat' || type === 'gauge' || type === 'table')) {
-        return <MetricsStyleChart panel={panel} series={data.series} />
+        return (
+            <div className={FILL}>
+                <MetricsPanel
+                    series={data.series}
+                    display={metricsDisplayOf(panel)}
+                    fallbackName={panel.title || 'Value'}
+                />
+            </div>
+        )
     }
     if (data.kind === 'histogram' && type === 'heatmap') {
         return (
-            <div className="relative flex h-full min-h-0 w-full flex-col">
+            <div className={FILL}>
                 <HeatmapPanel response={data.histogram} unit={unitOf(panel)} />
             </div>
         )
     }
-    if (data.kind === 'categories' && type === 'bar') {
-        return panel.viz.options?.funnel ? (
-            <FunnelStepsChart panel={panel} categories={data.categories} />
-        ) : (
-            <CategoryBarChart panel={panel} categories={data.categories} />
-        )
+    if (data.kind === 'funnel' && type === 'bar') {
+        return <FunnelStepsChart steps={data.steps} />
     }
-    if (data.kind === 'categories' && type === 'pie') {
-        return <CategoryPieChart panel={panel} categories={data.categories} />
+    if (data.kind === 'retention' && type === 'retention') {
+        return <RetentionChart cohorts={data.cohorts} />
     }
-    if (data.kind === 'flows' && type === 'sankey') {
-        return <FlowsChart flows={data.flows} />
-    }
-    if (data.kind === 'boxes' && type === 'boxplot') {
-        return <BoxPlotChart panel={panel} labels={data.labels} boxes={data.boxes} />
+    if (data.kind === 'paths' && type === 'sankey') {
+        return <PathsFlowChart links={data.links} />
     }
     if (data.kind === 'flame' && type === 'flamegraph') {
         return <FlameGraphChart roots={data.roots} height={height} />
@@ -109,13 +153,7 @@ function PanelChartContent({ panel, data, width, height, timezone, onEditPanel }
     )
 }
 
-export function DashboardV2PanelChart({
-    panel,
-    data,
-    error,
-    timezone,
-    onEditPanel,
-}: DashboardV2PanelChartProps): JSX.Element {
+export function DashboardV2PanelChart({ panel, data, error, onEditPanel }: DashboardV2PanelChartProps): JSX.Element {
     const { ref, width, height } = useElementSize<HTMLDivElement>()
     const [viewed, setViewed] = useState(panel as Panel)
     useEffect(() => setViewed(panel as Panel), [panel])
@@ -131,7 +169,11 @@ export function DashboardV2PanelChart({
     }
     if (!type.needsData) {
         const markdown = panel.viz.options?.markdown
-        return <TextPanel markdown={typeof markdown === 'string' ? markdown : ''} />
+        return (
+            <div className="h-full overflow-auto">
+                <LemonMarkdown>{typeof markdown === 'string' ? markdown : ''}</LemonMarkdown>
+            </div>
+        )
     }
     if (error) {
         return <DashboardV2PanelMessage title="Couldn't load this chart" detail={error} />
@@ -149,7 +191,6 @@ export function DashboardV2PanelChart({
                         data={data}
                         width={width}
                         height={height}
-                        timezone={timezone}
                         onEditPanel={onEditPanel ?? setViewed}
                     />
                 </ErrorBoundary>

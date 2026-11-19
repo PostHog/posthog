@@ -1,10 +1,12 @@
 import type { FlameNode } from '@posthog/quill-charts'
 
+import type { Column } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import type { PathsLink } from '~/queries/schema/schema-general'
+
 import type { MetricsChartSeries } from 'products/metrics/frontend/components/metricsSeries'
-import type { TrendsResultLike } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
 import type { DataFrame } from '../charts/frame'
-import type { PanelCategory, PanelData } from '../charts/panelData'
+import type { PanelData, PanelFunnelStep } from '../charts/panelData'
 import type { DashboardV2PanelApi } from '../generated/api.schemas'
 
 interface TimeRange {
@@ -92,27 +94,60 @@ function metricSeries(names: string[], range: TimeRange, random: () => number, s
     }))
 }
 
-function trendsResults(names: string[], range: TimeRange, random: () => number, scale: number): TrendsResultLike[] {
+function column(name: string, type: 'DATETIME' | 'STRING' | 'FLOAT', dataIndex: number): Column {
+    return { name, label: name, type: { name: type, isNumerical: type === 'FLOAT' }, dataIndex }
+}
+
+function timeAxes(names: string[], range: TimeRange, random: () => number, scale: number): PanelData {
     const times = timesIn(range)
-    const days = times.map((time) => new Date(time).toISOString())
-    return names.map((name, index) => ({ id: index, label: name, data: wave(times, random, scale, index + 1), days }))
+    return {
+        kind: 'axes',
+        xData: { column: column('time', 'DATETIME', 0), data: times.map((time) => new Date(time).toISOString()) },
+        yData: names.map((name, index) => ({
+            column: column(name, 'FLOAT', index + 1),
+            data: wave(times, random, scale, index + 1),
+        })),
+    }
 }
 
-function categories(labels: string[], random: () => number, scale: number): PanelCategory[] {
-    return labels.map((label, index) => ({
-        label,
-        value: rounded((scale * (0.4 + 0.6 * random())) / (index + 1), scale),
-    }))
+function categoryAxes(random: () => number, scale: number): PanelData {
+    return {
+        kind: 'axes',
+        xData: { column: column('browser', 'STRING', 0), data: CATEGORIES },
+        yData: [
+            {
+                column: column('value', 'FLOAT', 1),
+                data: CATEGORIES.map((_, index) => rounded((scale * (0.4 + 0.6 * random())) / (index + 1), scale)),
+            },
+        ],
+    }
 }
 
-function funnelSteps(random: () => number): PanelCategory[] {
-    let value = 1000
-    return FUNNEL_STEPS.map((label, index) => {
+function funnelSteps(random: () => number): PanelFunnelStep[] {
+    let count = 1000
+    return FUNNEL_STEPS.map((name, index) => {
         if (index > 0) {
-            value = Math.round(value * (0.55 + 0.35 * random()))
+            count = Math.round(count * (0.55 + 0.35 * random()))
         }
-        return { label, value }
+        return { name, count }
     })
+}
+
+function retentionCohorts(range: TimeRange, random: () => number): PanelData {
+    const weeks = 6
+    const weekMs = 604_800_000
+    return {
+        kind: 'retention',
+        cohorts: Array.from({ length: weeks }, (_, cohort) => {
+            const size = Math.round(400 + 400 * random())
+            return {
+                date: new Date(range.to - (weeks - cohort) * weekMs).toISOString(),
+                values: Array.from({ length: weeks - cohort }, (__, period) => ({
+                    count: period === 0 ? size : Math.round((size * (0.55 + 0.1 * random())) / Math.sqrt(period)),
+                })),
+            }
+        }),
+    }
 }
 
 function histogram(range: TimeRange, random: () => number): PanelData {
@@ -133,38 +168,46 @@ function histogram(range: TimeRange, random: () => number): PanelData {
     }
 }
 
-function flows(random: () => number): PanelData {
-    const links: [string, string][] = [
-        ['Home', 'Pricing'],
-        ['Home', 'Docs'],
-        ['Home', 'Sign up'],
-        ['Pricing', 'Sign up'],
-        ['Docs', 'Sign up'],
-        ['Sign up', 'Onboarding'],
-        ['Onboarding', 'First event'],
+function paths(random: () => number): PanelData {
+    const steps: [string, string][] = [
+        ['1_Home', '2_Pricing'],
+        ['1_Home', '2_Docs'],
+        ['1_Home', '2_Sign up'],
+        ['2_Pricing', '3_Sign up'],
+        ['2_Docs', '3_Sign up'],
+        ['2_Sign up', '3_Onboarding'],
+        ['3_Sign up', '4_Onboarding'],
+        ['3_Onboarding', '4_First event'],
+        ['4_Onboarding', '5_First event'],
     ]
-    return {
-        kind: 'flows',
-        flows: links.map(([source, target]) => ({ source, target, value: Math.round(100 + 400 * random()) })),
-    }
+    const links: PathsLink[] = steps.map(([source, target]) => ({
+        source,
+        target,
+        value: Math.round(100 + 400 * random()),
+        average_conversion_time: Math.round(30_000 + 120_000 * random()),
+    }))
+    return { kind: 'paths', links }
 }
 
-function boxes(range: TimeRange, random: () => number): PanelData {
+function boxRows(range: TimeRange, random: () => number): PanelData {
     const days = 7
     const step = (range.to - range.from) / days
-    const medians = Array.from({ length: days }, () => 200 + 200 * random())
+    const names = ['day', 'min', 'p25', 'median', 'mean', 'p75', 'max']
     return {
-        kind: 'boxes',
-        labels: medians.map((_, index) => new Date(Math.round(range.from + index * step)).toISOString()),
-        boxes: medians.map((median, index) => ({
-            day: new Date(Math.round(range.from + index * step)).toISOString(),
-            min: Math.round(median * 0.3),
-            p25: Math.round(median * 0.7),
-            median: Math.round(median),
-            mean: Math.round(median * 1.05),
-            p75: Math.round(median * 1.4),
-            max: Math.round(median * 2.2),
-        })),
+        kind: 'rows',
+        columns: names.map((name, index) => column(name, index === 0 ? 'STRING' : 'FLOAT', index)),
+        rows: Array.from({ length: days }, (_, index) => {
+            const median = 200 + 200 * random()
+            return [
+                new Date(Math.round(range.from + index * step)).toISOString().slice(0, 10),
+                Math.round(median * 0.3),
+                Math.round(median * 0.7),
+                Math.round(median),
+                Math.round(median * 1.05),
+                Math.round(median * 1.4),
+                Math.round(median * 2.2),
+            ]
+        }),
     }
 }
 
@@ -305,12 +348,12 @@ function traceFrames(range: TimeRange, random: () => number): DataFrame[] {
 export function sampleData(id: string, panel: DashboardV2PanelApi, range: TimeRange): PanelData | null {
     const random = seededRandom(`${id}:${panel.viz.type}`)
     const scale = scaleFor(panel.fieldConfig?.unit)
-    const fromEvents = (panel.targets ?? []).find((target) => !target.hide)?.language === 'insight'
+    const language = (panel.targets ?? []).find((target) => !target.hide)?.language
     switch (panel.viz.type) {
         case 'timeseries':
-            return fromEvents && panel.viz.options?.style !== 'bars'
-                ? { kind: 'trends', results: trendsResults(seriesNames(panel), range, random, scale) }
-                : { kind: 'series', series: metricSeries(seriesNames(panel), range, random, scale) }
+            return language === 'promql'
+                ? { kind: 'series', series: metricSeries(seriesNames(panel), range, random, scale) }
+                : timeAxes(seriesNames(panel), range, random, scale)
         case 'stat':
         case 'gauge':
             return { kind: 'series', series: metricSeries([panel.title || 'Value'], range, random, scale) }
@@ -320,14 +363,16 @@ export function sampleData(id: string, panel: DashboardV2PanelApi, range: TimeRa
             return histogram(range, random)
         case 'bar':
             return panel.viz.options?.funnel
-                ? { kind: 'categories', categories: funnelSteps(random) }
-                : { kind: 'categories', categories: categories(CATEGORIES, random, scale) }
+                ? { kind: 'funnel', steps: funnelSteps(random) }
+                : categoryAxes(random, scale)
         case 'pie':
-            return { kind: 'categories', categories: categories(CATEGORIES, random, scale) }
+            return categoryAxes(random, scale)
+        case 'retention':
+            return retentionCohorts(range, random)
         case 'sankey':
-            return flows(random)
+            return paths(random)
         case 'boxplot':
-            return boxes(range, random)
+            return boxRows(range, random)
         case 'flamegraph':
             return flame(random)
         case 'logs':

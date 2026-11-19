@@ -1,55 +1,37 @@
 import { useMemo } from 'react'
 
-import { FunnelChart, ValueLabels } from '@posthog/quill-charts'
+import { BarChart } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { compactNumber } from 'lib/utils/numbers'
+import { getSeriesColor } from 'lib/colors'
 
-import type { Panel } from '../spec'
+import {
+    buildFunnelStepsBarConfig,
+    buildSingleSeriesFunnelStepsBars,
+} from 'products/product_analytics/frontend/insights/funnels/shared/funnelStepsBarShared'
+
 import { EmptyData } from './EmptyData'
-import type { PanelCategory } from './panelData'
+import type { PanelFunnelStep } from './panelData'
 
-const percent = (value: number): string => `${parseFloat(value.toFixed(1))}%`
+const CONFIG = buildFunnelStepsBarConfig({ maxCategoryLabelWidth: 120, tooltipPlacement: 'cursor' })
 
-export function FunnelStepsChart({ panel, categories }: { panel: Panel; categories: PanelCategory[] }): JSX.Element {
+export function FunnelStepsChart({ steps }: { steps: PanelFunnelStep[] }): JSX.Element {
     const theme = useChartTheme()
-    const steps = useMemo(() => categories.map((category) => category.label), [categories])
-    const first = categories[0]?.value ?? 0
-    const series = useMemo(
-        () => [
-            {
-                key: 'funnel',
-                label: panel.title || 'Conversion',
-                data: categories.map((category) => (first > 0 ? (category.value / first) * 100 : 0)),
-            },
-        ],
-        [categories, first, panel.title]
+    const { series, labels, rows } = useMemo(
+        () => buildSingleSeriesFunnelStepsBars(steps, { color: getSeriesColor(0) }),
+        [steps]
+    )
+    const config = useMemo(
+        () => ({ ...CONFIG, xTickFormatter: (_value: string | number, index: number) => rows[index]?.name ?? '' }),
+        [rows]
     )
 
-    if (!categories.length) {
+    if (!steps.length) {
         return <EmptyData />
     }
     return (
-        <div className="relative flex h-full min-h-0 w-full flex-col">
-            <FunnelChart
-                className="min-h-0 flex-1"
-                theme={theme}
-                steps={steps}
-                series={series}
-                config={{ legend: { show: false }, stepFooterAlign: 'center' }}
-                stepFooter={(index: number) => (
-                    <div className="truncate px-1 pt-1 text-center text-xs leading-tight">
-                        <div className="truncate font-medium" title={steps[index]}>
-                            {steps[index]}
-                        </div>
-                        <div className="text-muted-foreground tabular-nums">
-                            {compactNumber(categories[index]?.value ?? 0)}
-                        </div>
-                    </div>
-                )}
-            >
-                <ValueLabels valueFormatter={percent} />
-            </FunnelChart>
+        <div className="relative flex h-full min-h-0 w-full flex-col" data-attr="dashboard-v2-funnel-chart">
+            <BarChart series={series} labels={labels} theme={theme} config={config} />
         </div>
     )
 }

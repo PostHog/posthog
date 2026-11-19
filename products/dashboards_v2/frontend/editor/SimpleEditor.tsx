@@ -9,6 +9,7 @@ import {
     IconFunnels,
     IconGraph,
     IconPieChart,
+    IconRetention,
     IconStack,
     IconTrends,
 } from '@posthog/icons'
@@ -39,6 +40,7 @@ import {
     liftBuilder,
     newInsight,
     newPanel,
+    newPanelFor,
     setTargetBuilder,
     switchKind,
     withSource,
@@ -332,6 +334,13 @@ const KINDS: Kind[] = [
         hint: 'Where people drop off between steps',
         icon: IconFunnels,
         make: funnelPanel,
+    },
+    {
+        key: 'retention',
+        label: 'Retention',
+        hint: 'Who comes back, week by week',
+        icon: IconRetention,
+        make: () => newPanelFor('retention'),
     },
     {
         key: 'top',

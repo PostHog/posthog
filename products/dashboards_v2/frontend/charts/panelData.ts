@@ -1,29 +1,25 @@
-import type { BoxPlotDatum, FlameNode } from '@posthog/quill-charts'
+import type { FlameNode } from '@posthog/quill-charts'
 
-import type { MetricsHistogramQueryResponse } from '~/queries/schema/schema-general'
+import type { AxisSeries, Column } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import type { MetricsHistogramQueryResponse, PathsLink } from '~/queries/schema/schema-general'
 
 import type { MetricsChartSeries } from 'products/metrics/frontend/components/metricsSeries'
-import type { TrendsResultLike } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
+import type { RetentionCohortLike } from 'products/product_analytics/frontend/insights/retention/shared/retentionChartTransforms'
 
 import type { DataFrame } from './frame'
 
-export interface PanelCategory {
-    label: string
-    value: number
-}
-
-export interface PanelFlow {
-    source: string
-    target: string
-    value: number
+export interface PanelFunnelStep {
+    name: string
+    count: number
 }
 
 export type PanelData =
+    | { kind: 'axes'; xData: AxisSeries<string>; yData: AxisSeries<number | null>[] }
+    | { kind: 'rows'; columns: Column[]; rows: unknown[][] }
     | { kind: 'series'; series: MetricsChartSeries[] }
-    | { kind: 'trends'; results: TrendsResultLike[] }
-    | { kind: 'categories'; categories: PanelCategory[] }
     | { kind: 'histogram'; histogram: MetricsHistogramQueryResponse }
-    | { kind: 'flows'; flows: PanelFlow[] }
-    | { kind: 'boxes'; labels: string[]; boxes: BoxPlotDatum[] }
+    | { kind: 'funnel'; steps: PanelFunnelStep[] }
+    | { kind: 'retention'; cohorts: RetentionCohortLike[] }
+    | { kind: 'paths'; links: PathsLink[] }
     | { kind: 'flame'; roots: FlameNode[] }
     | { kind: 'frames'; frames: DataFrame[] }

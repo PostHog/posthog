@@ -18,6 +18,12 @@ export const CHART_TYPES: ChartType[] = [
     { type: 'table', label: 'Table', description: 'One row per series, with its value', needsData: true },
     { type: 'gauge', label: 'Gauge', description: 'A value against its minimum and maximum', needsData: true },
     { type: 'heatmap', label: 'Heatmap', description: 'How a distribution changes over time', needsData: true },
+    {
+        type: 'retention',
+        label: 'Retention',
+        description: 'How many people come back, period by period',
+        needsData: true,
+    },
     { type: 'sankey', label: 'Flows', description: 'Paths between steps as ribbons', needsData: true },
     { type: 'boxplot', label: 'Box plot', description: 'The spread of values per day', needsData: true },
     {

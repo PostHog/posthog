@@ -34,7 +34,6 @@ interface DashboardV2SamplePanelProps {
 }
 
 export function DashboardV2SamplePanel({ id, panel, onEditPanel }: DashboardV2SamplePanelProps): JSX.Element {
-    const { spec } = useValues(dashboardV2Logic)
     const { openPanelId, draft } = useValues(panelEditorLogic)
     const { openPanel, duplicatePanel, confirmRemovePanel } = useActions(panelEditorLogic)
     const editable = useContext(DashboardV2EditablePanelsContext)
@@ -53,7 +52,6 @@ export function DashboardV2SamplePanel({ id, panel, onEditPanel }: DashboardV2Sa
             panel={shown}
             data={data}
             sample
-            timezone={spec?.timezone ?? undefined}
             onEditPanel={onEditPanel}
             onView={editable ? () => openPanel(id, 'view') : undefined}
             onEdit={editable ? () => openPanel(id, 'edit') : undefined}
