@@ -6,6 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -28,6 +29,8 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.product_analytics.backend.facade.contracts import ClosedSeriesValues
@@ -187,6 +190,22 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert json.dumps(precomputed) == json.dumps(live)
 
+    def test_verified_read_after_settling_rebuild_finds_nothing_stale(self) -> None:
+        self._seed()
+        query = _query()
+        with time_machine.travel("2024-01-15T00:02:00Z", tick=False):
+            closed_series_values(TrendsQueryRunner(team=self.team, query=query), run_inserts=True)
+        _create_event(team=self.team, event="signed_up", distinct_id="p1", timestamp="2024-01-14T23:59:30Z")
+        flush_persons_and_events()
+
+        with time_machine.travel("2024-01-15T01:30:00Z", tick=False):
+            closed = closed_series_values(TrendsQueryRunner(team=self.team, query=query), run_inserts=True, verify=True)
+
+        assert isinstance(closed, ClosedSeriesValues)
+        assert closed.freshly_built
+        assert closed.verification is not None and closed.verification.stale_days == 0
+        assert closed.values[datetime(2024, 1, 14)] == 5
+
     def _ready_jobs(self) -> dict[str, str]:
         return {
             f"{job.time_range_start:%m-%d}..{job.time_range_end:%m-%d}": str(job.id)
@@ -202,10 +221,11 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("late_event_rebuilds_its_window", "UTC", "pro", ["01-08..01-11"], 1, 2),
-            ("late_unmatched_event_rebuilds_its_window", "UTC", "free", ["01-08..01-11"], 1, 1),
-            ("no_late_event_rebuilds_nothing", "UTC", None, [], 0, 1),
-            ("no_late_event_off_utc_rebuilds_nothing", "America/Los_Angeles", None, [], 0, 0),
+            ("late_event_rebuilds_its_window", "UTC", "late_pro", ["01-08..01-11"], 1, 2),
+            ("late_unmatched_event_rebuilds_its_window", "UTC", "late_free", ["01-08..01-11"], 1, 1),
+            ("removed_event_rebuilds_its_window", "UTC", "removed", ["01-08..01-11"], 1, 0),
+            ("no_change_rebuilds_nothing", "UTC", None, [], 0, 1),
+            ("no_change_off_utc_rebuilds_nothing", "America/Los_Angeles", None, [], 0, 0),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
@@ -213,7 +233,7 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         self,
         _name: str,
         timezone: str,
-        late_plan: str | None,
+        jan_9_change: str | None,
         rebuilt_windows: list[str],
         stale_days: int,
         jan_9_value: int,
@@ -222,13 +242,22 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed()
         self._closed(verify=False)
         jobs_before = self._ready_jobs()
-        if late_plan is not None:
+        if jan_9_change == "removed":
+            events_table = (
+                EVENTS_JSON_DATA_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_DATA_TABLE()
+            )
+            sync_execute(
+                f"ALTER TABLE {events_table} DELETE WHERE team_id = %(team_id)s AND toDate(timestamp) = '2024-01-09' "
+                "SETTINGS mutations_sync = 2",
+                {"team_id": self.team.pk},
+            )
+        elif jan_9_change is not None:
             _create_event(
                 team=self.team,
                 event="signed_up",
                 distinct_id="p1",
                 timestamp="2024-01-09T10:00:00Z",
-                properties={"plan": late_plan},
+                properties={"plan": jan_9_change.removeprefix("late_")},
             )
             flush_persons_and_events()
 
