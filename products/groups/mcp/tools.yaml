@@ -5,7 +5,7 @@ url_prefix: /groups
 ui_apps: {}
 tools:
     groups-list:
-        operation: projects_groups_list
+        operation: groups_list
         enabled: true
         scopes:
             - group:read
@@ -18,7 +18,7 @@ tools:
             List groups for a group type. Call groups-types-list first to find valid group type indices. You can filter by
             a partial group key or search term, and use the cursor from the next URL to fetch another page.
     groups-find:
-        operation: projects_groups_find_retrieve
+        operation: groups_find_retrieve
         enabled: true
         scopes:
             - group:read
@@ -34,7 +34,7 @@ tools:
             Find a group by its exact group type index and key. Call groups-types-list first to find valid group type
             indices. This lookup does not create a CRM notebook.
     groups-create:
-        operation: projects_groups_create
+        operation: groups_create
         enabled: true
         scopes:
             - group:write
@@ -48,7 +48,7 @@ tools:
             groups-types-list first to find valid group type indices. A group with the same key and type cannot already
             exist.
     groups-update-property:
-        operation: projects_groups_update_property_create
+        operation: groups_update_property_create
         enabled: true
         scopes:
             - group:write
@@ -61,7 +61,7 @@ tools:
             Set or replace one property on an existing group. Provide the exact group type index and key, plus the
             property name and a non-null JSON value. This overwrites that property if it already exists.
     groups-delete-property:
-        operation: projects_groups_delete_property_create
+        operation: groups_delete_property_create
         rename_params:
             $unset: property_name
         enabled: true
@@ -76,7 +76,7 @@ tools:
             Permanently remove one property from an existing group. Provide the exact group type index, group key, and
             property name. This cannot be undone through this operation.
     groups-types-list:
-        operation: projects_groups_types_list
+        operation: groups_types_list
         enabled: true
         scopes:
             - group:read
@@ -90,7 +90,7 @@ tools:
             List this project's group types, their indices, and display names. Use the returned index with group
             operations.
     groups-types-update-metadata:
-        operation: projects_groups_types_update_metadata_for_agents_partial_update
+        operation: groups_types_update_metadata_for_agents_partial_update
         enabled: false
         disabled_reason: Enable once the update_metadata_for_agents route is serving in production, so the tool does not reach clients before its endpoint.
         scopes:
