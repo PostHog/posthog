@@ -16,7 +16,8 @@ import { InsightAsScene } from 'products/product_analytics/frontend/insights/ins
 import { InsightSkeleton } from 'products/product_analytics/frontend/insights/insightScene/InsightSkeleton'
 
 export function InsightScene(): JSX.Element {
-    const { insightId, insight, insightLoading, insightMode, dashboardId } = useValues(insightSceneLogic)
+    const { insightId, insight, insightLoading, insightMode, dashboardId, reloadingForDashboardEdit } =
+        useValues(insightSceneLogic)
 
     useAttachedContext(
         insight?.short_id && insight?.query
@@ -41,9 +42,7 @@ export function InsightScene(): JSX.Element {
         }
     }, [insightId, insight?.query, insightMode, dashboardId])
 
-    // Editing from a dashboard reloads the stored insight over the tile's filtered copy, and the
-    // reload would overwrite any edit made before it lands
-    if (insightLoading && insightMode === ItemMode.Edit && dashboardId != null) {
+    if (reloadingForDashboardEdit) {
         return <InsightSkeleton />
     }
 

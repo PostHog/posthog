@@ -832,6 +832,19 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
     return mappedIconType
 }
 
+const hasFilterValues = (filters: object | null | undefined): boolean =>
+    isObject(filters) &&
+    Object.values(filters).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
+
+const appliedFilterOverridesExist = (
+    filtersOverride: DashboardFilter | null | undefined,
+    tileFiltersOverride: TileFilters | null | undefined
+): boolean => {
+    // `explicitDate` only qualifies the tile's date range, so on its own it filters nothing
+    const { ignoreDashboardFilters, explicitDate: _explicitDate, ...tileFilters } = tileFiltersOverride ?? {}
+    return (!ignoreDashboardFilters && hasFilterValues(filtersOverride)) || hasFilterValues(tileFilters)
+}
+
 export const getOverrideWarningPropsForButton = (
     query: Node | null | undefined,
     filtersOverride: DashboardFilter | null | undefined,
@@ -846,13 +859,8 @@ export const getOverrideWarningPropsForButton = (
         : isNodeWithSource(query) && isHogQLQuery(query.source)
           ? query.source
           : null
-    const hasFilterValues = (filters: object | null | undefined): boolean =>
-        isObject(filters) &&
-        Object.values(filters).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
-    // `explicitDate` only qualifies the tile's date range, so on its own it filters nothing
-    const { ignoreDashboardFilters, explicitDate: _explicitDate, ...tileFilters } = tileFiltersOverride ?? {}
     const filterOverridesExist =
-        ((!ignoreDashboardFilters && hasFilterValues(filtersOverride)) || hasFilterValues(tileFilters)) &&
+        appliedFilterOverridesExist(filtersOverride, tileFiltersOverride) &&
         (!hogQLSource || queryUsesFiltersPlaceholder(hogQLSource.query))
     const variableOverridesExist =
         isObject(variablesOverride) &&

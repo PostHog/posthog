@@ -90,6 +90,16 @@ function normalizeItemId(itemId: string | undefined): number | null {
     return Number(itemId) || null
 }
 
+// A dashboard tile shares the editor's logic key, and its query carries the dashboard's filters.
+// Editing that query would save the filters into the insight.
+function editsDashboardTileLogic(insightMode: ItemMode, props: InsightLogicProps): boolean {
+    return (
+        insightMode === ItemMode.Edit &&
+        props.dashboardId != null &&
+        !!insightLogic.findMounted(props)?.props.cachedInsight
+    )
+}
+
 // Hand-built links skip `urls.insightNew()`, and this scene cannot edit a new SQL query
 function newInsightUrlOutsideScene(q: unknown, dashboard: unknown, tileGroup: unknown): string | null {
     const query = typeof q === 'string' ? parseDraftQueryFromURL(q) : (q as Node | undefined)
@@ -177,6 +187,7 @@ export interface insightSceneLogicValues {
     itemId: number | null
     maxContext: MaxContextInput[]
     projectTreeRef: ProjectTreeRef
+    reloadingForDashboardEdit: boolean
     sceneSource: InsightSceneSource | null
     sidePanelContext: SidePanelSceneContext | null
     tileFiltersOverride: TileFilters | null
@@ -279,6 +290,11 @@ export interface insightSceneLogicMeta {
         ) => ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>) | undefined
         insightData: (arg: Record<string, any> | null | undefined) => Record<string, any> | null | undefined
         insightLoading: (arg: boolean) => boolean
+        reloadingForDashboardEdit: (
+            insightLoading: boolean,
+            insightMode: ItemMode,
+            dashboardId: DashboardType['id'] | null
+        ) => boolean
         insightSelector: (
             insightLogicRef: {
                 logic: BuiltLogic<insightLogicType>
@@ -534,6 +550,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             ],
             (insightLoading: boolean): boolean => insightLoading,
         ],
+        // The reload replaces the tile's filtered copy, and would overwrite any edit made before it lands
+        reloadingForDashboardEdit: [
+            (s) => [s.insightLoading, s.insightMode, s.dashboardId],
+            (insightLoading: boolean, insightMode: ItemMode, dashboardId: DashboardType['id'] | null): boolean =>
+                insightLoading && insightMode === ItemMode.Edit && dashboardId != null,
+        ],
         insightSelector: [
             (s) => [s.insightLogicRef],
             (
@@ -759,12 +781,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
                     }
-                    // A dashboard tile shares this key, and its query carries the dashboard's filters.
-                    // Editing that query would save the filters into the insight.
-                    const reusesDashboardTileLogic =
-                        values.insightMode === ItemMode.Edit &&
-                        insightProps.dashboardId != null &&
-                        !!insightLogic.findMounted(insightProps)?.props.cachedInsight
+                    const reusesDashboardTileLogic = editsDashboardTileLogic(values.insightMode, insightProps)
 
                     const logic = insightLogic.build(insightProps)
                     const unmount = logic.mount()
