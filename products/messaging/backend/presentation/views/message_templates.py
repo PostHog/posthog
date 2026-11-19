@@ -1,5 +1,6 @@
 import re
 import time
+import codecs
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
@@ -669,13 +670,18 @@ class _JsonObject(dict):
 
 class SendBodyJSONParser(JSONParser):
     # Python's JSON reader keeps only the last value of a repeated key, which can be an earlier send time than the
-    # one before it. This parser keeps every value, so ScheduledAtField can refuse the body.
+    # one before it. A body with a top-level `scheduled_at` is parsed again keeping every value, so ScheduledAtField
+    # can refuse it. Only that pass holds every member of an object, so a send without a time costs what it did.
     def parse(self, stream: Any, media_type: str | None = None, parser_context: Mapping[str, Any] | None = None) -> Any:
         encoding = get_encoding(parser_context or {})
         try:
-            # A stream reader drops a character cut off at the end of the body, so the body is decoded whole.
-            text = stream.read().decode(encoding)
+            # `final=True` refuses a character cut off at the end, which DRF's stream reader drops.
+            text = codecs.getincrementaldecoder(encoding)().decode(stream.read(), final=True)
             parse_constant = drf_json.strict_constant if self.strict else None
+            data = drf_json.loads(text, parse_constant=parse_constant)
+            if not (isinstance(data, dict) and "scheduled_at" in data):
+                return data
+            del data
             return drf_json.loads(text, parse_constant=parse_constant, object_pairs_hook=_JsonObject.from_pairs)
         except ValueError as exc:
             raise ParseError(f"JSON parse error - {exc}")

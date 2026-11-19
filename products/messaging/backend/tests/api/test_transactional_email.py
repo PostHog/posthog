@@ -54,6 +54,9 @@ TWO_FILES = [{"sha256": CSV, "filename": "a.csv"}, {"sha256": NOTES, "filename":
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
 SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
+VALID_CODE_SEND_BODY = json.dumps(
+    {"to": "user@example.com", "distinct_id": "user-1", "template_key": "welcome", "subject": "Hi", "html": "<p>Hi</p>"}
+)
 
 
 @frozen
@@ -2280,19 +2283,21 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_cut_off_body", '{"to": "user@example.com", "template_key": '),
-            ("bytes_that_are_not_utf_8", b'{"to": "user@example.com", "template_key": "\xff"}'),
+            ("a_cut_off_body", '{"to": "user@example.com", "template_key": ', "application/json"),
+            ("bytes_that_are_not_utf_8", b'{"to": "user@example.com", "template_key": "\xff"}', "application/json"),
+            ("a_send_cut_off_inside_a_character", VALID_CODE_SEND_BODY.encode() + b"\xe2\x82", "application/json"),
             (
-                "a_send_cut_off_inside_a_character",
-                b'{"to": "user@example.com", "distinct_id": "user-1", "template_key": "welcome", "subject": "Hi", "html": "<p>Hi</p>"}\xe2\x82',
+                "utf_16_with_no_byte_order_mark",
+                VALID_CODE_SEND_BODY.encode("utf-16-le"),
+                "application/json; charset=utf-16",
             ),
         ]
     )
-    def test_a_send_refuses_a_body_that_is_not_json(self, mock_post, _flag, _capture, _name, body: str | bytes):
+    def test_a_send_refuses_a_body_that_is_not_json(
+        self, mock_post, _flag, _capture, _name, body: str | bytes, content_type: str
+    ):
         with FakeCdpApi().serving(mock_post) as cdp:
-            response = self._psak_client(["hog_flow:write"]).post(
-                self.send_email_url, body, content_type="application/json"
-            )
+            response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, content_type=content_type)
 
         assert (response.status_code, response.json().get("code")) == (status.HTTP_400_BAD_REQUEST, "parse_error")
         assert cdp.received == []
