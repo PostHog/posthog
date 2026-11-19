@@ -475,6 +475,7 @@ def _coarsen_sparse_series(
     interval_minutes: int,
     deadline: float,
     slot_rows: dict[_SeriesKey, _SeriesRows],
+    user: User | None = None,
 ) -> list[BandSeries]:
     """Move each series that is too sparse at the requested grain up the ladder
     to the first rung where it is dense enough, or to the top rung.
@@ -513,6 +514,7 @@ def _coarsen_sparse_series(
             rung,
             series_keys=list(pending),
             max_execution_seconds=remaining,
+            user=user,
         )
         still_failing: dict[_SeriesKey, BandSeries] = {}
         for key, fallback in pending.items():
@@ -648,6 +650,7 @@ def run_series_bands(
         interval_minutes,
         deadline,
         slot_rows,
+        user=user,
     )
     series = [
         replace(
