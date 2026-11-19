@@ -24,12 +24,12 @@ tools:
             integrations to send through (list them with the integrations tools, kinds firebase and apns). Optional
             fields are link (where a tap takes the person, sent to the app as the "link" data key), image (an image URL)
             and data (string values the app's code reads). Use {{ variables.name }} for values each send passes in
-            message_data. The template can't read person properties. Then share the template's _posthogUrl with the
-            user.
+            message_data. The template can't read person properties. Set sensitive to true for login codes or reset
+            links, so PostHog keeps no copy of what each notification contained. Then share the template's _posthogUrl
+            with the user.
         exclude_params:
             - content.email
             - draft_content
-            - sensitive
             - type
         inject_body:
             type: push
@@ -89,7 +89,8 @@ tools:
             the template's ID, the person's distinct_id, and message_data with a value for each {{ variables.* }} the
             template uses. A person with no registered device gets nothing: the send still succeeds and shows as skipped
             in the template's Sends tab. Sending takes two calls: prepare checks only the arguments and returns a
-            message for the user, and execute sends it only after the user replies with the literal word 'confirm'. Each
+            message for the user, and execute sends it only after the user replies with the literal word 'confirm'. The
+            message doesn't show message_data, so show the user its values with the message before they confirm. Each
             execute call sends a notification, so never repeat one that succeeded. A 503 means PostHog did not confirm
             the send and it may still go out: do not try again on your own, tell the user.
         feature_flag: workflows-transactional-push-api
