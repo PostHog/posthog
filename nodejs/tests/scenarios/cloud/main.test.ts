@@ -40,6 +40,13 @@ const sha256 = (text: string): string => createHash('sha256').update(text).diges
 const minutes = (from: number, to: number, max: number, avg: number): ReaderMinute[] =>
     Array.from({ length: to - from + 1 }, (_, i) => ({ minute: from + i, max, avg }))
 
+const IDLE_THEN_PROMOTED = [
+    ...minutes(-3, -2, 1, 1),
+    ...minutes(-1, -1, 2, 1.6),
+    ...minutes(0, 0, 4, 2.4),
+    ...minutes(1, 2, 8, 6),
+]
+
 describe('cloud controller', () => {
     let dir: string
     let now: Date
@@ -184,7 +191,12 @@ describe('cloud controller', () => {
 
         await expect(main(['run', profilePath(), 'cyclotron-scale'], controller)).resolves.toBe(0)
 
-        expect(published()).toMatchObject({ card_id: 'cyclotron-scale', status: 'passed', t0_at: null })
+        expect(published()).toMatchObject({
+            card_id: 'cyclotron-scale',
+            status: 'passed',
+            t0_at: null,
+            reader_acu_at_t0: null,
+        })
         expect(parseJSON(cloud.objects.get(`runs/${leasedRunId()}/manifest.json`)!)).toMatchObject({
             card: 'cyclotron-scale',
         })
@@ -231,7 +243,13 @@ describe('cloud controller', () => {
         }
         expect(schedulesFor(runId)).toEqual(['at(2026-03-02T16:00:00)', 'at(2026-03-02T17:00:00)'])
         const manifest = parseJSON(cloud.objects.get(`runs/${runId}/manifest.json`)!)
-        expect(manifest).toMatchObject({ runId, owner: OWNER, commit: COMMIT, expiresAt: '2026-03-02T16:00:00.000Z' })
+        expect(manifest).toMatchObject({
+            runId,
+            owner: OWNER,
+            commit: COMMIT,
+            expiresAt: '2026-03-02T16:00:00.000Z',
+            readerIdleMaxAcu: PROFILE.readerAcu.idleMax,
+        })
         expect(cloud.objects.get(`runs/${runId}/input/manifest.json`)).toEqual(
             cloud.objects.get(`runs/${runId}/manifest.json`)
         )
@@ -950,8 +968,8 @@ describe('cloud controller', () => {
 
     it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void, string, string]>([
         [
-            'a T0 minute above 1 ACU alone',
-            { readerAcu: [...minutes(-3, -1, 1, 1), ...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)] },
+            'an idle reader under the idle limit and a T0 minute above it',
+            { readerAcu: IDLE_THEN_PROMOTED },
             () => undefined,
             'passed',
             '',
@@ -959,23 +977,18 @@ describe('cloud controller', () => {
         [
             'a minute after T0 whose maximum CloudWatch left out',
             {
-                readerAcu: [
-                    ...minutes(-3, -1, 1, 1),
-                    ...minutes(0, 0, 2.5, 1.4),
-                    ...minutes(1, 2, 8, 6),
-                    { minute: 3, avg: 9 },
-                ],
+                readerAcu: [...IDLE_THEN_PROMOTED, { minute: 3, avg: 9 }],
             },
             () => undefined,
             'passed',
             '',
         ],
         [
-            'a complete minute before T0 above 1 ACU',
+            'a complete minute before T0 above the idle limit',
             {
                 readerAcu: [
                     ...minutes(-3, -3, 1, 1),
-                    ...minutes(-2, -2, 1.5, 1.2),
+                    ...minutes(-2, -2, 3, 2.6),
                     ...minutes(-1, -1, 1, 1),
                     ...minutes(0, 0, 2.5, 1.4),
                     ...minutes(1, 2, 8, 6),
@@ -983,14 +996,14 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above 1 ACU before T0',
+            'reader above its 2.5 ACU idle limit before T0',
         ],
         [
-            'a minute before T0 above 1 ACU whose average CloudWatch left out',
+            'a minute before T0 above the idle limit whose average CloudWatch left out',
             {
                 readerAcu: [
                     ...minutes(-3, -3, 1, 1),
-                    { minute: -2, max: 1.5 },
+                    { minute: -2, max: 3 },
                     ...minutes(-1, -1, 1, 1),
                     ...minutes(0, 0, 2.5, 1.4),
                     ...minutes(1, 2, 8, 6),
@@ -998,14 +1011,14 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above 1 ACU before T0',
+            'reader above its 2.5 ACU idle limit before T0',
         ],
         [
-            'a minute before T0 above 1 ACU whose maximum CloudWatch left out',
+            'a minute before T0 above the idle limit whose maximum CloudWatch left out',
             {
                 readerAcu: [
                     ...minutes(-3, -3, 1, 1),
-                    { minute: -2, avg: 1.5 },
+                    { minute: -2, avg: 3 },
                     ...minutes(-1, -1, 1, 1),
                     ...minutes(0, 0, 2.5, 1.4),
                     ...minutes(1, 2, 8, 6),
@@ -1013,7 +1026,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above 1 ACU before T0',
+            'reader above its 2.5 ACU idle limit before T0',
         ],
         [
             'a series that ends before T0',
@@ -1037,7 +1050,7 @@ describe('cloud controller', () => {
             'could not read the reader capacity',
         ],
         [
-            'a reader above 1 ACU while the failover waits for its offset',
+            'a reader above the idle limit while the failover waits for its offset',
             {
                 readerAcu: [
                     ...minutes(-12, -11, 1, 1),
@@ -1049,7 +1062,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above 1 ACU before T0',
+            'reader above its 2.5 ACU idle limit before T0',
         ],
         [
             'a failover entry without the instant of its request',
@@ -1096,14 +1109,32 @@ describe('cloud controller', () => {
         expect(published().status_reason).toContain(reason)
         if (status === 'passed') {
             expect(published()).toMatchObject({
-                acu_pre_t0_max: 1,
-                acu_t0_minute_max: 2.5,
+                acu_pre_t0_max: 2,
+                acu_t0_minute_max: 4,
                 acu_peak: 8,
                 acu_seconds_to_peak: 60,
+                reader_acu_at_t0: 2,
             })
             const t0 = Date.parse(String(published().t0_at))
             expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
+            expect(out).toContain(`The reader sat at 2 ACU in the minute before T0 (${published().t0_at}).`)
         }
+    })
+
+    it('loads a cloud profile without readerAcu.idleMax and judges its failover run invalid, naming the field', async () => {
+        const { controller } = prepare({
+            profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
+            cloud: { readerAcu: IDLE_THEN_PROMOTED },
+            env: api.credentials,
+        })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
+
+        expect(parseJSON(cloud.objects.get(`runs/${leasedRunId()}/input/manifest.json`)!)).not.toHaveProperty(
+            'readerIdleMaxAcu'
+        )
+        expect(published()).toMatchObject({ status: 'invalid', reader_acu_at_t0: 2 })
+        expect(published().status_reason).toContain('the cloud profile sets no readerAcu.idleMax')
     })
 
     it('publishes the receipt, the cost estimate and the fingerprint beside the runner measurements', async () => {

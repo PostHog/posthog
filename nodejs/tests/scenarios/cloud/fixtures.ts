@@ -21,7 +21,7 @@ export const PROFILE = {
     },
     engineVersion: '16.4',
     writerClass: 'db.r8g.2xlarge',
-    readerAcu: { min: 1, max: 32 },
+    readerAcu: { min: 1, max: 32, idleMax: 2.5 },
     host: {
         class: 'm7i.8xlarge',
         imageParameter: '/test/ubuntu/ami-id',

@@ -6,6 +6,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import type { ValveTimelineEntry } from '../valves/valves'
 import { Aws, AwsError } from './aws'
+import { PROFILE } from './fixtures'
 import type { RunManifest } from './lease'
 
 type Schedule = { expression: string; target: { Arn: string; RoleArn: string; Input: string } }
@@ -257,7 +258,18 @@ export class FakeCloud implements Aws {
             }))
         )
         const expiresAt = new Date(this.options.now().getTime() + RUN_LEASE_MS).toISOString()
-        return { cluster, writer, reader, manifest: { runId, account: this.account, expiresAt, stackName: cluster } }
+        return {
+            cluster,
+            writer,
+            reader,
+            manifest: {
+                runId,
+                account: this.account,
+                expiresAt,
+                stackName: cluster,
+                readerIdleMaxAcu: PROFILE.readerAcu.idleMax,
+            },
+        }
     }
 
     writerOf(clusterId: string): string | undefined {

@@ -101,10 +101,16 @@ describe('pg.failover', () => {
             /with writer .*-reader, not .*-writer writing beside/,
         ],
         [
-            'a reader at 2 ACU in its last five minutes',
-            { liveReaderAcu: { maxima: [1, 1, 2, 1, 1] } },
+            'a reader above the idle limit in its last five minutes',
+            { liveReaderAcu: { maxima: [1, 1, 3, 1, 1] } },
             () => undefined,
-            /was above 1 ACU in its last 5 minutes: 2 at /,
+            /was above its 2.5 ACU idle limit in its last 5 minutes: 3 at /,
+        ],
+        [
+            'a run manifest without the reader idle limit',
+            {},
+            (run) => delete run.manifest.readerIdleMaxAcu,
+            /names no idle limit for .*-reader, so set readerAcu\.idleMax in the cloud profile/,
         ],
         [
             'a reader with fewer than five capacity minutes',
@@ -132,23 +138,30 @@ describe('pg.failover', () => {
         expect(run.cloud.promotions).toEqual([])
     })
 
-    it('promotes the reader, observes each recovery stage, then fails back to the original writer', async () => {
-        const run = runOf()
+    it.each([
+        ['at its minimum', [1, 1, 1, 1, 1]],
+        ['idle above its minimum, under the idle limit', [2, 2, 2, 2, 2]],
+        ['at the idle limit', [2, 2.5, 2, 2, 2]],
+    ])(
+        'promotes a reader %s, observes each recovery stage, then fails back to the original writer',
+        async (_story, maxima) => {
+            const run = runOf({ liveReaderAcu: { maxima } })
 
-        const actuation = await failOverOn(run)
-        await expect(actuation.observed()).resolves.toBe(true)
-        expect(run.cloud.writerOf(run.cluster)).toBe(run.reader)
-        await actuation.release()
+            const actuation = await failOverOn(run)
+            await expect(actuation.observed()).resolves.toBe(true)
+            expect(run.cloud.writerOf(run.cluster)).toBe(run.reader)
+            await actuation.release()
 
-        expect(run.cloud.writerOf(run.cluster)).toBe(run.writer)
-        expect(run.cloud.promotions.map(({ to }) => to)).toEqual([run.reader, run.writer])
-        expect(actuation.journal()).toEqual({
-            intentAt: expect.any(String),
-            observations: OBSERVED,
-            releaseIntentAt: expect.any(String),
-            releaseObservations: OBSERVED,
-        })
-    })
+            expect(run.cloud.writerOf(run.cluster)).toBe(run.writer)
+            expect(run.cloud.promotions.map(({ to }) => to)).toEqual([run.reader, run.writer])
+            expect(actuation.journal()).toEqual({
+                intentAt: expect.any(String),
+                observations: OBSERVED,
+                releaseIntentAt: expect.any(String),
+                releaseObservations: OBSERVED,
+            })
+        }
+    )
 
     it('counts no probe commit that still lands on the old writer', async () => {
         const run = runOf()

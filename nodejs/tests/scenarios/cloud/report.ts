@@ -22,7 +22,6 @@ type Capacity = { minutes: Minute[]; gaps: number[] }
 
 const ENVIRONMENT_KIND = 'run-host'
 const TARGET = 'cloud'
-const MIN_ACU = 1
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DEVIATIONS = [
@@ -129,7 +128,9 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
     return { minutes, gaps }
 }
 
-function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<string, number | null>; reason?: string } {
+type Judged = { scalars: Record<string, number | null>; readerAtT0: number | null; reason?: string }
+
+function judgeCapacity({ minutes }: Capacity, t0: number, idleMax: number | undefined): Judged {
     const t0Minute = minuteOf(t0)
     const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
     const before = maxima.filter(({ at }) => at < t0Minute)
@@ -144,16 +145,28 @@ function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<str
         acu_peak: peak?.max ?? null,
         acu_seconds_to_peak: peak ? (peak.at - t0Minute) / 1000 : null,
     }
+    const readerAtT0 = before.find(({ at }) => at === t0Minute - MINUTE_MS)?.max ?? null
     if (before.length === 0) {
-        return { scalars, reason: 'no reader capacity before T0' }
+        return { scalars, readerAtT0, reason: 'no reader capacity before T0' }
     }
     if (after.length === 0) {
-        return { scalars, reason: 'no measured reader maximum from T0 on' }
+        return { scalars, readerAtT0, reason: 'no measured reader maximum from T0 on' }
     }
-    const above = minutes.filter(({ at, max, avg }) => at < t0Minute && (max ?? avg ?? 0) > MIN_ACU)
+    if (idleMax === undefined) {
+        return {
+            scalars,
+            readerAtT0,
+            reason: 'the cloud profile sets no readerAcu.idleMax, so the reader was not judged',
+        }
+    }
+    const above = minutes.filter(({ at, max, avg }) => at < t0Minute && (max ?? avg ?? 0) > idleMax)
     return above.length === 0
-        ? { scalars }
-        : { scalars, reason: `reader above 1 ACU before T0 (${above.map(({ at }) => iso(at)).join(', ')})` }
+        ? { scalars, readerAtT0 }
+        : {
+              scalars,
+              readerAtT0,
+              reason: `reader above its ${idleMax} ACU idle limit before T0 (${above.map(({ at }) => iso(at)).join(', ')})`,
+          }
 }
 
 function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undefined): [string, number][] {
@@ -229,10 +242,11 @@ export async function report(
             host ? [Date.parse(host.event.started_at), Date.parse(host.event.ended_at)] : []
         )
     )
-    const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0)) : undefined
+    const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu.idleMax) : undefined
     if (judged?.reason) {
         reasons.push(judged.reason)
     }
+    const readerAtT0 = judged?.readerAtT0 ?? null
     const leftovers = await receiptsOf(evidence, manifest).then(
         (receipts) => {
             const last = receipts.at(-1)
@@ -257,6 +271,7 @@ export async function report(
         adapters: ADAPTERS,
         ...host?.event,
         ...environment,
+        reader_acu_at_t0: readerAtT0,
         run_id: runId,
         origin: 'cloud-manual',
         target: TARGET,
@@ -276,6 +291,13 @@ export async function report(
         cost_estimate_excluded: EXCLUDED,
     }
     const key = keyOf(runId, 'scorecard.json')
+    if (t0) {
+        controller.print(
+            readerAtT0 === null
+                ? `CloudWatch has no reader capacity for the minute before T0 (${t0}).`
+                : `The reader sat at ${readerAtT0} ACU in the minute before T0 (${t0}).`
+        )
+    }
     controller.print(`Cost estimate, excluding ${EXCLUDED.join(', ')}:`)
     costItems.forEach((item) => controller.print(`  ${item}`))
     const kept = await evidence.put(key, JSON.stringify(properties)).then(

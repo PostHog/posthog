@@ -260,9 +260,9 @@ describe('valves', () => {
         ],
         [
             'records no intent for a failover its preconditions refused',
-            { liveReaderAcu: { maxima: [1, 1, 2, 1, 1] } },
+            { liveReaderAcu: { maxima: [1, 1, 3, 1, 1] } },
             true,
-            { error: expect.stringMatching(/^pg\.failover refused: .* was above 1 ACU/) },
+            { error: expect.stringMatching(/^pg\.failover refused: .* was above its 2.5 ACU idle limit/) },
         ],
         ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
     ])('%s', async (_story, options, onRunHost, recorded) => {

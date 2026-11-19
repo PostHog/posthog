@@ -45,7 +45,6 @@ export const FAILOVER_RELEASE_WITHIN_MS = 2 * OBSERVE_WITHIN_MS
 const MINUTE_MS = 60_000
 const CAPACITY_MINUTES = 5
 const CAPACITY_FRESH_WITHIN_MS = 3 * MINUTE_MS
-const IDLE_ACU = 1
 const IDENTITY_TIMEOUT_MS = 2000
 const OBSERVATIONS: ObservationName[] = ['cluster_writer', 'sql_writer', 'first_probe_commit']
 // A 5xx code means the service may have started the promotion before it failed, so its outcome is unknown.
@@ -370,6 +369,9 @@ export async function failOver({
     }
 
     async function requireIdleReader(): Promise<void> {
+        const idleMax =
+            manifest.readerIdleMaxAcu ??
+            refuse(`the run manifest names no idle limit for ${reader}, so set readerAcu.idleMax in the cloud profile`)
         const startedAt = Date.now()
         const until = startedAt - (startedAt % MINUTE_MS)
         const query = {
@@ -418,10 +420,10 @@ export async function failOver({
         if (Date.now() - newestEnd > CAPACITY_FRESH_WITHIN_MS) {
             refuse(`${reader}'s newest capacity minute ended ${Math.floor((Date.now() - newestEnd) / 1000)}s ago`)
         }
-        const busy = minutes.filter(({ max }) => max > IDLE_ACU)
+        const busy = minutes.filter(({ max }) => max > idleMax)
         if (busy.length > 0) {
             refuse(
-                `${reader} was above ${IDLE_ACU} ACU in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, max }) => `${max} at ${new Date(at).toISOString()}`).join(', ')}`
+                `${reader} was above its ${idleMax} ACU idle limit in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, max }) => `${max} at ${new Date(at).toISOString()}`).join(', ')}`
             )
         }
     }
