@@ -229,11 +229,6 @@
         "params": [],
         "scope": "project"
     },
-    "analyticsProductHome": {
-        "template": "/analytics/product-analytics",
-        "params": [],
-        "scope": "project"
-    },
     "analyticsSpaces": {
         "template": "/analytics/collections",
         "params": [],
@@ -347,6 +342,16 @@
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeLibraries": {
+        "template": "/business-knowledge/libraries",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeLibrary": {
+        "template": "/business-knowledge/libraries/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "businessKnowledgePlayground": {

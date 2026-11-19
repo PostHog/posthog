@@ -92,13 +92,29 @@ then
 fi
 
 # Catch deterministic CI failures before this push burns a CI matrix.
-# Advisories never block; HOGLI_PREFLIGHT_DISABLED=1 makes it a no-op; no hogli → skip.
+# Advisories never block; HOGLI_PREFLIGHT_DISABLED=1 makes it a no-op.
+# Git run outside the dev environment has no hogli on PATH, so fall back to this
+# checkout's bin/hogli, which finds the checkout's venv itself. With neither, say
+# the check was skipped, so the push does not look checked.
+hogli_cmd=''
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
 if command -v hogli >/dev/null 2>&1
 then
-    HOGLI_GIT_HOOK=pre-push hogli ci:preflight --strict || {
+    hogli_cmd=hogli
+elif [ -x "$repo_root/bin/hogli" ] \
+    && { [ -d "$repo_root/.flox/cache/venv" ] || [ -d "$repo_root/.venv" ] || [ -d "$repo_root/env" ]; }
+then
+    hogli_cmd="$repo_root/bin/hogli"
+fi
+if [ -n "$hogli_cmd" ]
+then
+    HOGLI_GIT_HOOK=pre-push "$hogli_cmd" ci:preflight --strict || {
         echo "pre-push: ci:preflight found failures — run 'hogli ci:preflight --fix', resolve, and push again."
         exit 1
     }
+else
+    echo "pre-push: ci:preflight SKIPPED — hogli is not on PATH and this checkout has no Python environment."
+    echo "pre-push: activate the dev environment (flox activate) and run 'hogli ci:preflight --strict' before relying on CI."
 fi
 
 exit 0

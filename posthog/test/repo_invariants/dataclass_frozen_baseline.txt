@@ -195,7 +195,6 @@
 1 products/tasks/backend/temporal/process_task/activities/track_workflow_event.py
 1 products/tasks/backend/temporal/process_task/activities/update_task_run_status.py
 1 products/tasks/backend/temporal/slack_relay/activities.py
-1 products/tasks/backend/temporal/task_management/activities/ensure_execute_sandbox_started.py
 1 products/tasks/backend/tests/agent_log_fixtures.py
 1 products/warehouse_sources/backend/models/ssh_tunnel.py
 1 products/warehouse_sources/backend/temporal/data_imports/cdc/workflows.py
@@ -444,7 +443,6 @@
 2 products/batch_exports/backend/temporal/destinations/s3_batch_export.py
 2 products/batch_exports/backend/temporal/pipeline/types.py
 2 products/batch_exports/backend/tests/temporal/pipeline/test_entrypoint.py
-2 products/cohorts/backend/parity/classifier.py
 2 products/cohorts/backend/parity/eligibility.py
 2 products/data_modeling/backend/logic/freshness.py
 2 products/demo/backend/logic/matrix/models.py
@@ -486,10 +484,7 @@
 2 products/tasks/backend/temporal/create_snapshot/activities/create_sandbox.py
 2 products/tasks/backend/temporal/create_snapshot/activities/get_snapshot_context.py
 2 products/tasks/backend/temporal/create_snapshot/workflow.py
-2 products/tasks/backend/temporal/execute_sandbox/activities/reap_orphaned_sandbox.py
-2 products/tasks/backend/temporal/execute_sandbox/activities/sandbox_state.py
 2 products/tasks/backend/temporal/process_task/activities/cleanup_sandbox.py
-2 products/tasks/backend/temporal/process_task/activities/create_sandbox_from_snapshot.py
 2 products/tasks/backend/temporal/process_task/activities/execute_task_in_sandbox.py
 2 products/tasks/backend/temporal/process_task/activities/get_pr_context.py
 2 products/tasks/backend/temporal/process_task/activities/get_sandbox_for_repository.py
@@ -556,7 +551,6 @@
 3 products/tasks/backend/facade/api.py
 3 products/tasks/backend/logic/stream/event_ingest.py
 3 products/tasks/backend/temporal/build_image/activities.py
-3 products/tasks/backend/temporal/process_task/activities/send_permission_response_to_sandbox.py
 3 products/warehouse_sources/backend/temporal/data_imports/cdc/activities.py
 2 products/warehouse_sources/sources/klaviyo/settings.py
 3 products/warehouse_sources/backend/temporal/data_imports/sources/stripe/stripe.py
@@ -582,7 +576,6 @@
 4 products/signals/backend/temporal/buffer.py
 4 products/tasks/backend/temporal/process_task/activities/start_agent_server.py
 4 products/tasks/backend/temporal/process_task/workflow.py
-4 products/tasks/backend/temporal/task_management/activities/pending_followups.py
 4 products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py
 5 posthog/api/proxy_record_diagnostics.py
 5 posthog/api/services/llm_prompt.py
@@ -596,21 +589,18 @@
 5 products/customer_analytics/backend/temporal/calendar_sync.py
 5 products/managed_warehouse/backend/temporal/ducklake_copy_data_modeling_workflow.py
 5 products/notebooks/backend/kernel_runtime.py
-5 products/tasks/backend/temporal/execute_sandbox/workflow.py
 6 ee/vercel/integration.py
 6 posthog/dags/deletes.py
 6 posthog/hogql/base.py
 6 posthog/hogql/scripts/build_grammar_strategies.py
 6 posthog/local_bootstrap/config.py
 5 products/slack_app/backend/temporal/types.py
-6 posthog/temporal/ai/sync_vectors.py
 6 posthog/temporal/salesforce_enrichment/stripe_workflow.py
 6 products/batch_exports/backend/temporal/destinations/redshift_batch_export.py
 6 products/conversations/backend/temporal/zendesk_import/activities.py
 6 products/managed_warehouse/backend/temporal/ducklake_copy_data_imports_workflow.py
 6 products/marketing_analytics/backend/services/attribution_health.py
 6 products/marketing_analytics/backend/services/mapping_suggester.py
-6 products/tasks/backend/temporal/task_management/workflow.py
 7 posthog/session_recordings/synthetic_playlists.py
 5 products/experiments/backend/temporal/timeseries/models.py
 7 products/batch_exports/backend/temporal/monitoring.py

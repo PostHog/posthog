@@ -197,7 +197,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             alert,
             legacy_configuration_id=None,
             owner=PlatformAlertOwner.PLATFORM,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
             created_by=self.user,
             source_config={
                 "insight_id": alert.insight_id,
@@ -455,7 +454,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 enabled=enabled,
                 legacy_configuration_id=None,
                 owner=PlatformAlertOwner.PLATFORM,
-                destinations_owner=PlatformAlertOwner.PLATFORM,
                 source_config={
                     "insight_id": alert.insight_id,
                     SOURCE_CONDITION_KEY: {

@@ -4412,8 +4412,6 @@ describe('CDP API', () => {
                 await hub.personRepository.createPerson(
                     DateTime.now(),
                     {},
-                    {},
-                    {},
                     team.id,
                     null,
                     true,

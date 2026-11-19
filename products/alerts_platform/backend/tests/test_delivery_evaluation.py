@@ -76,6 +76,8 @@ from products.cdp.backend.facade.models import HogFunction
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
 _EVENTS = "products.alerts_platform.backend.logic.platform_alert_events"
+# Stands in for a kind registered with no HogFunction destinations, such as metrics.
+_KIND_KEEPS_PLATFORM_DESTINATIONS = f"{_MODULE}.source_configs.keeps_platform_destinations"
 _LEGACY_MODULE = "products.alerts_platform.backend.delivery.legacy_webhook"
 _WEBHOOK_URL_MODULE = "products.alerts_platform.backend.delivery.webhook_url"
 FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
@@ -497,7 +499,6 @@ class TestDeliverEvaluation(APIBaseTest):
             name="API errors",
             source_kind=SourceKind.LOGS,
             check_interval_minutes=5,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
         )
         both = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
         create_alert_destinations(
@@ -518,7 +519,10 @@ class TestDeliverEvaluation(APIBaseTest):
         def project_members(*, team_id: int, configuration_id: UUID) -> list[str]:
             return ["b@example.com", "a@example.com", "b@example.com"]
 
-        with patch.dict(recipients._recipients, {SourceKind.LOGS: project_members}):
+        with (
+            patch.dict(recipients._recipients, {SourceKind.LOGS: project_members}),
+            patch(_KIND_KEEPS_PLATFORM_DESTINATIONS, return_value=True),
+        ):
             self._run(
                 _announcement(_transition(kind)),
                 {FIRING_EVENT: hog_function, RESOLVED_EVENT: hog_function, OPENED_EVENT: hog_function},
@@ -782,7 +786,6 @@ class TestDeliverEvaluation(APIBaseTest):
             name="API errors",
             source_kind=SourceKind.LOGS,
             check_interval_minutes=5,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
         )
         create_alert_destinations(
             team_id=self.team.id,
@@ -1000,10 +1003,15 @@ class TestDeliveryPath(APIBaseTest):
         assert sorted(channel for channel, _ in RecordingTransport.sends) == native_channels
         assert (outcome.emitted_transitions, outcome.emitted_events) == (emitted, emitted)
 
-    def test_an_alert_whose_destinations_the_platform_keeps_emits_for_its_hog_functions(self) -> None:
-        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(
-            destinations_owner=PlatformAlertOwner.PLATFORM
-        )
+    @parameterized.expand(
+        [
+            ("a_stock_row", (), ["C-native"]),
+            ("a_row_copying_a_live_hog_function", HOG_FUNCTION_SLACK.hog_function_ids, []),
+        ]
+    )
+    def test_an_alert_whose_destinations_the_platform_keeps_emits_for_its_hog_functions(
+        self, _name: str, legacy_hog_function_ids: tuple[UUID, ...], native_channels: list[str]
+    ) -> None:
         create_alert_destinations(
             team_id=self.team.id,
             configuration_id=self.configuration.id,
@@ -1011,16 +1019,24 @@ class TestDeliveryPath(APIBaseTest):
                 NewAlertDestination(
                     data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-native"}),
                     event_kinds=(AlertEventKind.FIRING, AlertEventKind.RESOLVED),
+                    legacy_hog_function_ids=legacy_hog_function_ids,
                 ),
             ),
         )
 
+        def live_ids(*, team_id: int, hog_function_ids: Any) -> frozenset[UUID]:
+            return frozenset(hog_function_ids)
+
         # The lookup lists no HogFunction, as for one built from a custom template, and the event still goes out.
         # A failing chooser would also emit, so the native send shows the path choice is never read here.
-        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._fails, groups=[SUBSCRIBER])
+        with (
+            patch(_KIND_KEEPS_PLATFORM_DESTINATIONS, return_value=True),
+            patch.object(destinations_registry, "_live_lookup", live_ids),
+        ):
+            self._run(_announcement(_transition(AlertEventKind.FIRING)), self._fails, groups=[SUBSCRIBER])
 
         assert len(self.emitted) == 1
-        assert [channel for channel, _ in RecordingTransport.sends] == ["C-native"]
+        assert [channel for channel, _ in RecordingTransport.sends] == native_channels
 
     @parameterized.expand(
         [

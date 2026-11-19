@@ -1,0 +1,7 @@
+version: 1
+owners: []
+rules:
+    - match: ['/codeEditorLogic.tsx', '/codeEditorLogic.test.ts']
+      owners: team-data-stack
+    - match: ['/hogqlParser.ts', '/hogqlParser.test.ts']
+      owners: team-data-stack

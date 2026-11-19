@@ -1,9 +1,5 @@
 import type { Contribution } from "@posthog/di/contribution";
-import {
-  type Adapter,
-  CLAUDE_OWN_SUBSCRIPTION_FLAG,
-  CODEX_OWN_SUBSCRIPTION_FLAG,
-} from "@posthog/shared";
+import { type Adapter, CLAUDE_OWN_SUBSCRIPTION_FLAG } from "@posthog/shared";
 import {
   registerSubscriptionAtBoot,
   type SubscriptionStatus,
@@ -22,12 +18,12 @@ const log = logger.scope("app-boot");
 
 const SUBSCRIPTION_BOOT: {
   adapter: Adapter;
-  flag: string;
+  flag: string | null;
   fetchStatus: () => Promise<SubscriptionStatus>;
 }[] = [
   {
     adapter: "codex",
-    flag: CODEX_OWN_SUBSCRIPTION_FLAG,
+    flag: null,
     fetchStatus: () => trpcClient.agent.codexSubscriptionStatus.query(),
   },
   {
@@ -65,7 +61,9 @@ export class AnalyticsBootContribution implements Contribution {
           await registerSubscriptionAtBoot(
             adapter,
             fetchStatus,
-            posthogFeatureFlags.isEnabled(flag) || import.meta.env.DEV,
+            flag === null ||
+              posthogFeatureFlags.isEnabled(flag) ||
+              import.meta.env.DEV,
           );
         } catch (error) {
           log.warn(
