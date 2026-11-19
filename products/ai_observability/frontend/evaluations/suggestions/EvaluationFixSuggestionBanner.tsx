@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -8,27 +8,26 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EvalFixProblemEnumApi } from '../../generated/api.schemas'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
-import { llmEvaluationLogic } from '../llmEvaluationLogic'
+import type { LLMEvaluationLogicProps } from '../llmEvaluationLogic'
 import { evaluationFixSuggestionLogic } from './evaluationFixSuggestionLogic'
 
 export interface EvaluationFixSuggestionBannerProps {
     suggestionId: string
-    evaluationId: string
+    evaluationLogicProps: LLMEvaluationLogicProps
     userAccessLevel: AccessControlLevel | undefined
     hasUnsavedChanges: boolean
 }
 
 export function EvaluationFixSuggestionBanner({
     suggestionId,
-    evaluationId,
+    evaluationLogicProps,
     userAccessLevel,
     hasUnsavedChanges,
 }: EvaluationFixSuggestionBannerProps): JSX.Element | null {
-    const logic = evaluationFixSuggestionLogic({ suggestionId, evaluationId })
+    const logic = evaluationFixSuggestionLogic({ suggestionId, evaluationId: evaluationLogicProps.evaluationId })
     const { openFix, applying } = useValues(logic)
     const { applyFix } = useActions(logic)
-    const { props } = useMountedLogic(llmEvaluationLogic)
-    const { volume } = useValues(evaluationVolumeLogic(props))
+    const { volume } = useValues(evaluationVolumeLogic(evaluationLogicProps))
 
     if (!openFix) {
         return null

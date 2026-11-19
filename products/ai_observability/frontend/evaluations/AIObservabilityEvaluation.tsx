@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { LemonBanner, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
@@ -70,6 +70,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         numericBoundsRequired,
         usesDecisionModel,
     } = useValues(llmEvaluationLogic)
+    const { props: evaluationLogicProps } = useMountedLogic(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { isConfigDirty: reportConfigDirty } = useValues(
         evaluationReportLogic({ evaluationId: isNewEvaluation || !evaluation?.id ? 'new' : evaluation.id })
@@ -232,7 +233,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
             {typeof searchParams.suggestion === 'string' && (
                 <EvaluationFixSuggestionBanner
                     suggestionId={searchParams.suggestion}
-                    evaluationId={evaluation.id}
+                    evaluationLogicProps={evaluationLogicProps}
                     userAccessLevel={evaluation.user_access_level ?? undefined}
                     hasUnsavedChanges={unsaved}
                 />

@@ -234,7 +234,7 @@ export const FixReviewBanner: Story = {
     render: () => (
         <EvaluationFixSuggestionBanner
             suggestionId={FIX_FILTER.id}
-            evaluationId="evaluation-refunds"
+            evaluationLogicProps={{ evaluationId: 'evaluation-refunds' }}
             userAccessLevel={AccessControlLevel.Editor}
             hasUnsavedChanges={false}
         />
