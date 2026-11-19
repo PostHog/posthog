@@ -95,6 +95,13 @@ from the setup screen; filtered lists keep their filters and results table.
 Dataset setup appears only when there are no active or archived datasets, so projects with only archived
 datasets can still browse and restore them from the list.
 
+Hosted datasets default to 100 per project, including archived datasets until they expire. Each dataset can hold
+2,000 items, including archived items. Each item can have 40 retained versions, and all datasets in a project
+share 25,000 retained item versions. Creating, editing, archiving, or restoring an item can add a version.
+Retention frees slots when it deletes version rows. An item payload can contain up to 406,666 bytes of compact
+UTF-8 JSON across its input, expected output, source output, and metadata. JSONL exports have a separate 250 MB limit,
+so a dataset with large items can exceed the size of a single export.
+
 Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
 These views use the full name when the short name is blank. Editing or clearing a short name updates existing
 experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
@@ -503,6 +510,8 @@ Experiment lifecycle events include dataset source, run source, status, and expe
 Dataset source is classified as `posthog` for hosted revisions, `external` for a supplied external source, or `unknown` when omitted; the original source string is never captured.
 Dataset and experiment usage events exclude input, output, reasoning, metadata values, and resource names.
 Rejected requests, unchanged item updates, and exact ingestion retries emit no success event.
+Quota rejections emit `llma dataset limit reached`. Its `resource`, `current_count`, and `limit` properties
+identify the count or byte limit that blocked the write. Project groups identify affected projects.
 Dataset and experiment reporting failures are logged without failing successful API operations.
 
 Frontend controls use `data-attr` for autocapture action matching.

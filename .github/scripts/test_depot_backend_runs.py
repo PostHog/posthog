@@ -217,6 +217,51 @@ def test_find_trusts_only_push_runs_on_master(monkeypatch: pytest.MonkeyPatch, s
     assert [workflow["run_id"] for workflow in workflows] == found
 
 
+SCHEDULED_RUNS_BY_CREATED_AT = {
+    "full-on-time": "2026-11-18T18:23:53Z",
+    "core-only": "2026-11-18T19:23:40Z",
+    "full-started-late": "2026-11-18T22:05:00Z",
+    "core-only-before-midnight": "2026-11-18T23:24:00Z",
+    "full-after-midnight": "2026-11-19T00:23:30Z",
+}
+
+
+def scheduled_runs_response(*args: str, **kwargs: object) -> str:
+    if args[:2] == ("workflow", "list"):
+        return json.dumps(
+            [
+                {"workflow_id": run_id, "run_id": run_id, "sha": "abc", "status": "finished", "created_at": created_at}
+                for run_id, created_at in SCHEDULED_RUNS_BY_CREATED_AT.items()
+            ]
+        )
+    if args[:2] == ("artifacts", "list"):
+        return json.dumps(
+            {
+                "artifacts": [
+                    {"artifact_id": str(i), "name": f"timing_data-Core-{i}", "created_at": "x"} for i in range(40)
+                ]
+            }
+        )
+    return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": "finished"}]})
+
+
+@pytest.mark.parametrize(
+    "matrix,expected",
+    [
+        ("full", ["full-after-midnight", "full-started-late", "full-on-time"]),
+        ("core-only", ["core-only-before-midnight", "core-only"]),
+    ],
+)
+def test_scheduled_reads_keep_only_the_runs_of_one_cron(
+    monkeypatch: pytest.MonkeyPatch, matrix: str, expected: list[str]
+) -> None:
+    monkeypatch.setattr(script, "depot", scheduled_runs_response)
+
+    assert [run["id"] for run in script.gate_runs("schedule", 12, matrix)] == expected
+    found = script.find("timing_data-", 38, 5, 36500, trigger="schedule", statuses=["finished"], matrix=matrix)
+    assert [workflow["run_id"] for workflow in found] == expected
+
+
 def test_commits_on_master_trusts_only_comparisons_of_the_commit_asked_about(monkeypatch: pytest.MonkeyPatch) -> None:
     unknown_sha = "c" * 40
     comparisons: dict[str, dict[str, Any]] = {

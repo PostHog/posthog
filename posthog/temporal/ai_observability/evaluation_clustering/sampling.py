@@ -102,12 +102,19 @@ def _parse_iso(ts: str) -> datetime:
 
 
 def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResult:
+    from products.ai_observability.backend.facade.clustering_runtime import require_current_job
+
     try:
-        team = Team.objects.get(id=inputs.team_id)
+        team = Team.objects.get(
+            id=inputs.team_id, clustering_config__enabled=True, organization__is_ai_data_processing_approved=True
+        )
     except Team.DoesNotExist:
-        logger.info("Team not found, skipping eval sampler run", team_id=inputs.team_id, job_id=inputs.job_id)
+        logger.info(
+            "Team not eligible for clustering, skipping eval sampler", team_id=inputs.team_id, job_id=inputs.job_id
+        )
         return SamplerActivityResult(team_id=inputs.team_id, job_id=inputs.job_id, sampled=0, embedded=0)
 
+    job_scope = require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     window_start = _parse_iso(inputs.window_start)
     window_end = _parse_iso(inputs.window_end)
 
@@ -174,6 +181,8 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
     # note on AI_OBSERVABILITY_EVALUATION_RENDERING.
     rendering = AI_OBSERVABILITY_EVALUATION_RENDERING
     metadata = {AI_OBSERVABILITY_EVALUATION_JOB_ID_METADATA_KEY: inputs.job_id}
+    if job_scope:
+        metadata["job_scope"] = job_scope
     # Use the small (1536-dim) model — see AI_OBSERVABILITY_EVALUATION_EMBEDDING_MODEL in constants.py.
     # The lazy import keeps EmbeddingModelName out of the module top-level (avoids pulling
     # posthog.schema into the workflow-side graph via the activity module).
@@ -194,6 +203,7 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
 
     embedded = 0
     for row in rows:
+        require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
         event_uuid = row[0]
         eval_id = row[5]
         content = _compose_evaluation_text(
@@ -211,6 +221,8 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
         document_id = (
             f"{event_uuid or str(uuid4())}{AI_OBSERVABILITY_EVALUATION_DOCUMENT_ID_JOB_DELIMITER}{inputs.job_id}"
         )
+        if job_scope:
+            document_id += f"::{job_scope}"
         embedder.embed_document(
             content=content,
             document_id=document_id,

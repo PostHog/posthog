@@ -22,6 +22,16 @@ def _discussion(repo: str, repo_type: str, num: int) -> dict[str, Any]:
     return {"num": num, "repo": {"name": repo, "type": repo_type}, "createdAt": "2024-01-01T00:00:00.000Z"}
 
 
+def _commit(sha: str) -> dict[str, Any]:
+    return {
+        "id": sha,
+        "title": f"commit {sha}",
+        "message": "",
+        "authors": [{"user": "alice"}],
+        "date": "2024-01-01T00:00:00.000Z",
+    }
+
+
 class TestBuildInitialParams:
     @parameterized.expand(
         [("models", "author"), ("datasets", "author"), ("spaces", "author"), ("collections", "owner")]
@@ -128,6 +138,82 @@ class TestDiscussions:
         assert ("/api/models/acme/m1/discussions", "1") in sent
         assert ("/api/models/acme/m1/discussions", "2") not in sent
         assert ("/api/datasets/acme/d1/discussions", "1") not in sent
+
+
+class TestCommits:
+    def test_fans_out_over_every_repo_kind_and_tags_rows_with_their_repo(self) -> None:
+        page2 = "https://huggingface.co/api/models/acme/m1/commits/main?p=1&limit=1000"
+        routes = {
+            "/api/models": [ScriptedResponse(json=[{"id": "acme/m1"}, {"id": "acme/gone"}])],
+            "/api/datasets": [ScriptedResponse(json=[])],
+            "/api/spaces": [ScriptedResponse(json=[{"id": "acme/s1"}])],
+            "/api/models/acme/m1/commits/main": [
+                ScriptedResponse(json=[_commit("c2"), _commit("c1")], headers={"Link": f'<{page2}>; rel="next"'}),
+                ScriptedResponse(json=[_commit("c0")]),
+            ],
+            # A repo deleted between the listing and its commits fetch.
+            "/api/models/acme/gone/commits/main": [ScriptedResponse(json={"error": "not found"}, status=404)],
+            "/api/spaces/acme/s1/commits/main": [ScriptedResponse(json=[_commit("c1")])],
+        }
+
+        result = _driver().run("commits", route(routes))
+
+        assert result.raised is None
+        assert [(row["repo_type"], row["repo_name"], row["id"]) for row in result.rows] == [
+            ("model", "acme/m1", "c2"),
+            ("model", "acme/m1", "c1"),
+            ("model", "acme/m1", "c0"),
+            ("space", "acme/s1", "c1"),
+        ]
+        assert not any(key.startswith("_repos_") for row in result.rows for key in row)
+        commit_requests = [request for request in result.requests if "/commits/" in request.path]
+        assert [request.param("p") for request in commit_requests if request.path.endswith("m1/commits/main")] == [
+            None,
+            "1",
+        ]
+        assert {request.param("limit") for request in commit_requests} == {"1000"}
+        assert result.response is not None
+        assert result.response.primary_keys == ["repo_type", "repo_name", "id"]
+
+
+class TestOrganizationMembers:
+    @parameterized.expand(
+        [
+            (
+                "organization_walks_cursor_pages",
+                [
+                    ScriptedResponse(
+                        json=[{"_id": "u1", "user": "alice"}],
+                        headers={
+                            "Link": '<https://huggingface.co/api/organizations/acme/members?cursor=u1&limit=1000>; rel="next"'
+                        },
+                    ),
+                    ScriptedResponse(json=[{"_id": "u2", "user": "bob"}]),
+                ],
+                [None, "u1"],
+                ["u1", "u2"],
+            ),
+            (
+                "user_namespace_answers_404",
+                [ScriptedResponse(json={"error": "Sorry, we can't find the page you are looking for."}, status=404)],
+                [None],
+                [],
+            ),
+        ]
+    )
+    def test_members(
+        self,
+        _name: str,
+        responses: list[ScriptedResponse],
+        expected_cursors: list[str | None],
+        expected_ids: list[str],
+    ) -> None:
+        result = _driver().run("organization_members", responses)
+
+        assert result.raised is None
+        assert result.paths == ["/api/organizations/acme/members"] * len(responses)
+        assert result.params("cursor") == expected_cursors
+        assert [row["_id"] for row in result.rows] == expected_ids
 
 
 class TestRetries:

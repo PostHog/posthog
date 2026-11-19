@@ -16,6 +16,8 @@ class PaginationType(Enum):
     # The RBAC group and role endpoints are entity lists, but page with the same opaque
     # `page`/`next_page` token the reports use instead of an `after_id` cursor.
     PAGE_TOKEN = "page_token"
+    # A single object, not a list: `/organizations/me`.
+    SINGLE = "single"
 
 
 class AnalyticsWindowKind(Enum):
@@ -193,6 +195,15 @@ RBAC_GROUPS_PATH = "/v1/organizations/rbac_groups"
 RBAC_ROLES_PATH = "/v1/organizations/rbac_roles"
 
 ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
+    # The organization the key belongs to, as one row. It carries no timestamp, so the table is not
+    # partitioned.
+    "organization": AnthropicEndpointConfig(
+        name="organization",
+        path="/v1/organizations/me",
+        pagination=PaginationType.SINGLE,
+        primary_keys=["id"],
+        data_selector="$",
+    ),
     "users": AnthropicEndpointConfig(
         name="users",
         path="/v1/organizations/users",
@@ -435,6 +446,39 @@ ANTHROPIC_ENDPOINTS: dict[str, AnthropicEndpointConfig] = {
     "analytics_skill_usage": AnthropicEndpointConfig(
         name="analytics_skill_usage",
         path="/v1/organizations/analytics/skills",
+        pagination=PaginationType.PAGE,
+        primary_keys=["id"],
+        partition_key="date",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("date")],
+        analytics_window=AnalyticsWindowKind.DATE,
+        analytics_lag_days=ANALYTICS_ENGAGEMENT_LAG_DAYS,
+        limit=ANALYTICS_PAGE_SIZE,
+        default_incremental_lookback_seconds=_ANALYTICS_ENGAGEMENT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS,
+        should_sync_default=False,
+    ),
+    # Per-project chat activity (one row per (day, project)) and the artifact-creation cube (one row
+    # per (day, artifact type, shared flag)). Both answer for one `date`, like the breakdowns above.
+    # No `group_by` is requested, so the artifact cube comes back whole in one response.
+    "analytics_chat_project_usage": AnthropicEndpointConfig(
+        name="analytics_chat_project_usage",
+        path="/v1/organizations/analytics/apps/chat/projects",
+        pagination=PaginationType.PAGE,
+        primary_keys=["id"],
+        partition_key="date",
+        supports_incremental=True,
+        incremental_fields=[_datetime_incremental_field("date")],
+        analytics_window=AnalyticsWindowKind.DATE,
+        analytics_lag_days=ANALYTICS_ENGAGEMENT_LAG_DAYS,
+        limit=ANALYTICS_PAGE_SIZE,
+        default_incremental_lookback_seconds=_ANALYTICS_ENGAGEMENT_LOOKBACK_SECONDS,
+        access_family=AccessFamily.ANALYTICS,
+        should_sync_default=False,
+    ),
+    "analytics_artifact_activity": AnthropicEndpointConfig(
+        name="analytics_artifact_activity",
+        path="/v1/organizations/analytics/artifacts",
         pagination=PaginationType.PAGE,
         primary_keys=["id"],
         partition_key="date",
