@@ -1114,6 +1114,41 @@ This scout has write access to {listing} in this project. So where your skill bo
 - **Say what you changed.** Name each object you created, updated, or deleted in your close-out summary, with a link, and in the finding or report the change belongs to. A change nobody can find is a change nobody can undo."""
 
 
+# Keyed by `ReportTaskActionKind` value. A kind with no line here renders no section, so a newly
+# grantable kind needs its line before a scout is told it holds it.
+_REPORT_ACTION_EFFECTS = {
+    "make_it_green": "fixes failing CI and merge conflicts on the report's open pull request, and stops without merging it",
+}
+
+
+def _report_actions_section(report_actions: Sequence[str]) -> str:
+    """Compose the report actions section, or empty for a run that holds no report action.
+
+    A run with no grant must not see this section, so its prompt stays byte-identical to the
+    prompt before the grant existed.
+    """
+    granted = [kind for kind in report_actions if kind in _REPORT_ACTION_EFFECTS]
+    if not granted:
+        return ""
+    listing = "\n".join(f"- `{kind}`: {_REPORT_ACTION_EFFECTS[kind]}." for kind in granted)
+    return f"""# Report actions
+
+This run can start these report actions with `inbox-report-actions-run`. Each one starts a separate agent run on the report, and that run acts as the person your runs act as.
+{listing}
+
+- **Only when your skill body asks for it.** The grant is what you MAY start, not a chore. A run that starts no action is the normal outcome.
+- **Only on a report you tend.** That is a report you emitted or edited, or one your skill body hands to you. Leave every other report to a person.
+- **Only when the list shows it.** Call `inbox-report-actions-list` on the report first. Start the action only when it comes back with `available: true`.
+- **Send the action alone.** Do not send a `message`. The endpoint refuses a scout's own message.
+- **Never merge.** A person merges. You cannot start `get_it_merged`, and the run you start never merges.
+- **One run per pull request.** A 409 `report_action_run_active` means a run already works on that pull request. Follow it, and do not start another.
+- **A daily cap applies across all your runs.** A 429 `report_action_scout_daily_cap` means you used today's allowance.
+- **A refusal is an outcome, not a retry.** Read the error code, and do not try the action again in this run. Hand the work to a person: add an `append_note` to the report with `edit_report`, or, if you cannot edit the report, say it in your close-out summary.
+- **Say what you started.** Name each action in your close-out summary, with the report and the `task_url` the call returned.
+
+If `inbox-report-actions-run` is not in your tool catalog, this run cannot start an action. Hand the work to a person the same way."""
+
+
 def _structured_output_section(schema: dict | None) -> str:
     """Compose the structured-output section, or empty when the config carries no schema.
 
@@ -1726,6 +1761,7 @@ def build_run_prompt(
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
     write_scopes: Sequence[str] | None = None,
+    report_actions: Sequence[str] | None = None,
     tool_allowlist_narrowed: bool = False,
     project_has_governed_metrics: bool = False,
     activity_summary_search_available: bool = False,
@@ -1935,6 +1971,7 @@ def build_run_prompt(
             _activity_summary_search_section(activity_summary_search_available) if report_channel else "",
             _external_mcp_servers_paragraph(mcp_server_names) if mcp_server_names else "",
             write_access_section,
+            _report_actions_section(report_actions or []),
             _NARROWED_TOOLS_SECTION if tool_allowlist_narrowed else "",
             checkout_section,
             structured_output_section,
