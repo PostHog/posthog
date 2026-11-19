@@ -3615,13 +3615,11 @@ GRANTABLE_REPORT_ACTIONS: list[str] = sorted(kind.value for kind in SCOUT_GRANTA
 
 _REPORT_ACTIONS_HELP = (
     "Report actions this scout may start on inbox reports, from "
-    f"{', '.join(f'`{kind}`' for kind in GRANTABLE_REPORT_ACTIONS)}. Empty by default, and then every "
-    "request the scout makes to start one is refused. Only actions with a fixed request are grantable, and "
-    "a scout cannot send its own message with one. `get_it_merged` can never be granted: a person merges. "
-    "Each action starts an agent run with the full access of the person the scout's runs act as, so only "
-    "that person can add an action. A project admin can remove one. A scoped API key must carry "
-    "`inbox:write` and `task:write`. A dry run (`emit=false`) never holds the grant. Applies from the "
-    "scout's next run."
+    f"{', '.join(f'`{kind}`' for kind in GRANTABLE_REPORT_ACTIONS)}. Empty by default, so every start is "
+    "refused. A scout cannot send its own message with an action. Each action starts an agent run with "
+    "the full access of the person the scout's runs act as, so only that person can add one. A project "
+    "admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds "
+    "the grant. Applies from the scout's next run."
 )
 
 
@@ -3652,7 +3650,7 @@ def _max_report_actions_per_day_field(*, read_only: bool = False) -> serializers
         min_value=0,
         max_value=MAX_SCOUT_REPORT_ACTIONS_PER_DAY,
         help_text=(
-            "How many report actions this scout may start in a rolling 24 hours, across all its runs. "
+            "Report actions this scout may start per rolling 24 hours, across all its runs. "
             f"Defaults to {DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY}. Only the person the scout's runs act as can "
             "raise it. A project admin can lower it."
         ),
