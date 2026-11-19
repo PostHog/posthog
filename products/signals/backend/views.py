@@ -173,7 +173,7 @@ from products.signals.backend.personal_ranking.list_sort import (
     personal_list_order,
     personal_ranking_status,
 )
-from products.signals.backend.personal_ranking.serve import serve_personal_ranking
+from products.signals.backend.personal_ranking.serve import serve_personal_ranking, start_inbox_load_build
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.spend import ReportSpendSerializer
@@ -1667,7 +1667,7 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "nullable": True,
             "description": (
                 "Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first "
-                "page only, and never starts a build. Null on later pages and when personal ranking is off for you."
+                "page only. Null on later pages and when personal ranking is off for you."
             ),
             "properties": {
                 "state": {
@@ -1703,8 +1703,16 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
                     "nullable": True,
                     "description": "Why the build kept the default order, when state is fallback. Else null.",
                 },
+                "building": {
+                    "type": "boolean",
+                    "description": (
+                        "True when no ranking is stored and a build of yours is queued or running. The web and "
+                        "desktop inbox start that build on the first page of sort=recommended or sort=personal, "
+                        "unless the request passes ordering or scope=teammate. Else false."
+                    ),
+                },
             },
-            "required": ["state", "size", "age_minutes", "checked_age_minutes", "fallback_reason"],
+            "required": ["state", "size", "age_minutes", "checked_age_minutes", "fallback_reason", "building"],
         }
         paginated["properties"]["count_is_capped"] = {
             "type": "boolean",
@@ -2306,6 +2314,7 @@ class SignalReportViewSet(
         excluded = request.validated_query_data["exclude"]
         if excluded:
             queryset = queryset.exclude(id__in=excluded)
+        queryset = self._apply_signal_report_tags_filter(queryset, request.validated_query_data["tags"])
         has_pr = self._implementation_pr_report_filter()
         counts = queryset.order_by().aggregate(
             pull_requests=Count("id", filter=has_pr),
@@ -2615,6 +2624,15 @@ class SignalReportViewSet(
         if not search:
             return queryset
         return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+
+    @staticmethod
+    def _apply_signal_report_tags_filter(queryset, tags: list[str]):
+        # Any-of, like the scout fleet's tag filter. `&&` runs as a row filter on the team's
+        # already-scoped reports rather than through a GIN index, which every report write would
+        # have to maintain.
+        if not tags:
+            return queryset
+        return queryset.filter(tags__overlap=tags)
 
     def _datetime_query_param(self, name: str) -> datetime | None:
         raw = self.request.query_params.get(name)
@@ -3217,7 +3235,20 @@ class SignalReportViewSet(
         ):
             return None
         status = personal_ranking_status(self.team, user, timezone.now())
-        return dataclasses.asdict(status) if status is not None else None
+        if status is None:
+            return None
+        building = (
+            status.state == "none" and self._starts_inbox_load_build() and start_inbox_load_build(self.team, user)
+        )
+        return {**dataclasses.asdict(status), "building": building}
+
+    def _starts_inbox_load_build(self) -> bool:
+        """Whether this first page is the caller's own Recommended or Personal inbox, loaded by a person in the app."""
+        return (
+            self._ranked_inbox_sort
+            and self.request.query_params.get("scope") != "teammate"
+            and classify_report_list_client(self.request.headers.get("user-agent")) in {"web", "desktop"}
+        )
 
     def _personal_ranking_owner(self, user: User) -> User | None:
         """Whose stored ranking the ranked sorts read: the teammate `scope=teammate` names, else the caller."""
@@ -3727,6 +3758,7 @@ class SignalReportViewSet(
             queryset = self.filter_queryset(self.get_queryset())
             if excluded:
                 queryset = queryset.exclude(id__in=excluded)
+            queryset = self._apply_signal_report_tags_filter(queryset, request.validated_query_data["tags"])
             if count_only:
                 total_count = queryset.count()
             else:

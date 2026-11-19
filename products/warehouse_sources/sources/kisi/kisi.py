@@ -40,6 +40,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceInputs,
     SourceResponse,
+    format_datetime,
     frozen,
     interruptible_wait,
     make_tracked_session,
@@ -202,14 +203,10 @@ def kisi_source(
     )
 
 
-def _format_timestamp(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _create_event_set(session: Any, auth: APIKeyAuth, start: datetime, end: datetime) -> dict[str, Any]:
     response = session.post(
         f"{BASE_URL}/event_sets",
-        json={"event_set": {"interval": f"{_format_timestamp(start)}/{_format_timestamp(end)}"}},
+        json={"event_set": {"interval": f"{format_datetime(start)}/{format_datetime(end)}"}},
         auth=auth,
         headers=HEADERS,
         timeout=REQUEST_TIMEOUT,
@@ -274,8 +271,8 @@ def get_events(
     def stage(start: datetime, end: datetime, set_id: int | None, next_cursor: str | None, rows: int) -> None:
         manager.save_state(
             KisiResumeConfig(
-                events_window_start=_format_timestamp(start),
-                events_window_end=_format_timestamp(end),
+                events_window_start=format_datetime(start),
+                events_window_end=format_datetime(end),
                 event_set_id=set_id,
                 events_cursor=next_cursor,
                 events_written=rows,

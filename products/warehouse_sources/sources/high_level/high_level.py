@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     parse_datetime_value,
     probe_status_message,
@@ -59,10 +60,6 @@ class HighLevelRequest:
     json: Optional[dict[str, Any]]
 
 
-def _format_timestamp(value: datetime) -> str:
-    return value.strftime("%Y-%m-%dT%H:%M:%S.") + f"{value.microsecond // 1000:03d}Z"
-
-
 def _location_params(config: HighLevelEndpointConfig, location_id: str) -> dict[str, Any]:
     if config.location_param == LocationParam.QUERY:
         return {"locationId": location_id}
@@ -81,7 +78,9 @@ def _contacts_body(location_id: str, page_size: int, start: Optional[datetime]) 
         "fastPagination": True,
     }
     if start is not None:
-        body["filters"] = [{"field": "dateUpdated", "operator": "range", "value": {"gte": _format_timestamp(start)}}]
+        body["filters"] = [
+            {"field": "dateUpdated", "operator": "range", "value": {"gte": format_datetime(start, "iso_z_millis")}}
+        ]
     return body
 
 
@@ -111,7 +110,7 @@ def build_request(
         params["limit"] = size
 
     if config.incremental_filter == IncrementalFilter.START_DATE_TIMESTAMP and start is not None:
-        params["startDate"] = _format_timestamp(start)
+        params["startDate"] = format_datetime(start, "iso_z_millis")
     elif config.incremental_filter == IncrementalFilter.START_AT_DAY:
         today = datetime.now(UTC).date()
         params["startAt"] = start.date().isoformat() if start is not None else SUBMISSIONS_EARLIEST_DATE
