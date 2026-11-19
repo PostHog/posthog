@@ -3,7 +3,7 @@ from typing import Any
 
 from django.db import connection, transaction
 
-from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PropertyGroupFilterValue, PropertyOperator
+from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PropertyGroupFilterValue
 
 from posthog.hogql.errors import BaseHogQLError
 
@@ -203,6 +203,14 @@ def _normalize_and_compile(team_id: int, filters: dict) -> _CompiledRuleFilters:
         raise IssueTagRuleFiltersError(
             f"A tag rule's bytecode cannot exceed {MAX_SEVERITY_RULE_BYTECODE_OPS} operations."
         )
+    # The VM rejects a regex or LIKE pattern above this length on every event, and the tagger then never applies the
+    # tag. The compiler adds wildcards to contains, starts with and ends with values, so check the compiled strings
+    # instead of the filter values.
+    if any(isinstance(item, str) and len(item) > MAX_REGEX_PATTERN_LENGTH for item in bytecode):
+        raise IssueTagRuleFiltersError(
+            f"A filter value is too long for a tag rule to run. Use a value under {MAX_REGEX_PATTERN_LENGTH - 2} "
+            "characters."
+        )
     return _CompiledRuleFilters(filters=normalized, bytecode=bytecode)
 
 
@@ -236,11 +244,6 @@ def _normalized_group(group: PropertyGroupFilterValue, *, nested: bool = False) 
         elif not value.key.strip():
             # The compiler reads an empty key as the whole properties object, which the access check cannot see.
             raise IssueTagRuleFiltersError("Each tag rule filter needs a property name.")
-        elif value.operator in (PropertyOperator.REGEX, PropertyOperator.NOT_REGEX) and any(
-            isinstance(pattern, str) and len(pattern) > MAX_REGEX_PATTERN_LENGTH
-            for pattern in (value.value if isinstance(value.value, list) else [value.value])
-        ):
-            raise IssueTagRuleFiltersError(f"A regex filter cannot exceed {MAX_REGEX_PATTERN_LENGTH} characters.")
         else:
             values.append(value.model_dump(mode="json", exclude_none=True))
     return {"type": group.type.value, "values": values}

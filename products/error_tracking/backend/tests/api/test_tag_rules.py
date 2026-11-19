@@ -95,6 +95,11 @@ class TestIssueTagRuleAPI(APIBaseTest):
             ("empty_filter_beside_an_event_filter", {"type": "OR", "values": [{}, ENTERPRISE_PLAN]}),
             ("date_operator_with_a_number", _event_filter("plan", 5, operator="is_date_exact")),
             ("regex_over_the_vm_limit", _event_filter("plan", "a" * (MAX_REGEX_PATTERN_LENGTH + 1), operator="regex")),
+            # The compiler wraps a contains value in two wildcards, which puts this pattern one over the limit.
+            (
+                "contains_over_the_vm_limit",
+                _event_filter("plan", "a" * (MAX_REGEX_PATTERN_LENGTH - 1), operator="icontains"),
+            ),
             ("three_levels_of_groups", {"type": "AND", "values": [ENTERPRISE_PLAN]}),
         ]
     )
