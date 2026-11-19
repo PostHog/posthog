@@ -1,3 +1,4 @@
+import Ajv from 'ajv'
 import { afterEach, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { z } from 'zod'
 
@@ -14,7 +15,7 @@ vi.mock('@/resources', () => ({
 import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
-import { ToolCatalog } from '@/hono/tool-catalog'
+import { ToolCatalog, toMcpInputSchema } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
@@ -325,6 +326,33 @@ describe('ToolExecutor', () => {
     })
 
     describe('handleToolsList', () => {
+        it('compacts property filter unions in the advertised trends schema', async () => {
+            const state = makeToolExecutorState([{ name: 'query-trends' }])
+            const { tools } = await executor.handleToolsList(state)
+            const original = toMcpInputSchema(GENERATED_TOOL_MAP['query-trends']!().schema)
+            const advertised = tools.find((tool) => tool.name === 'query-trends')!.inputSchema
+            const originalFilter = original.properties!.properties
+            const advertisedFilter = advertised.properties!.properties
+
+            expect(JSON.stringify(advertisedFilter).length).toBeLessThan(JSON.stringify(originalFilter).length)
+
+            const ajv = new Ajv({ strict: false })
+            const validate = ajv.compile(advertisedFilter as object)
+            const validateOriginal = ajv.compile(originalFilter as object)
+            const filters = [
+                { type: 'event', key: '$browser', operator: 'exact', value: ['Chrome'] },
+                { type: 'person', key: 'age', operator: 'gt', value: 18 },
+                { type: 'group', key: 'name', operator: 'icontains', value: 'example', group_type_index: 0 },
+                { type: 'element', key: 'tag_name', operator: 'is_set' },
+                { type: 'group', key: 'name', operator: 'is_set' },
+                { type: 'event', key: '$browser', operator: 'gt', value: ['Chrome'] },
+                { type: 'person', operator: 'is_set' },
+            ]
+            expect(filters.map((filter) => validate([filter]))).toEqual(
+                filters.map((filter) => validateOriginal([filter]))
+            )
+        })
+
         it('returns filtered tools matching the state allTools', async () => {
             const allEntries = catalog.getPreBuiltEntries()
             const subset = allEntries.slice(0, 3)

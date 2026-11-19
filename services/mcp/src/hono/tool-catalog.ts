@@ -2,6 +2,7 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { toJsonSchemaCompat } from '@modelcontextprotocol/sdk/server/zod-json-schema-compat.js'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
+import { compactPropertyFilterSchema } from '@/hono/property-filter-schema'
 import { hasScopes } from '@/lib/api'
 import { mergeToolFactories } from '@/tools/mergeToolFactories'
 import {
@@ -217,7 +218,7 @@ export class ToolCatalog {
 
             let jsonSchema: McpTool['inputSchema']
             try {
-                jsonSchema = toMcpInputSchema(preBuilt.build().schema)
+                jsonSchema = compactPropertyFilterSchema(toMcpInputSchema(preBuilt.build().schema))
             } catch {
                 jsonSchema = EMPTY_OBJECT_JSON_SCHEMA
             }
