@@ -124,20 +124,31 @@ describe('KafkaProducerRegistryBuilder', () => {
         ).rejects.toThrow('connection refused')
     })
 
-    it('registerLazy builds while its broker is down, fails produces, and connects on a later one', async () => {
-        const produce = jest.fn().mockResolvedValue(undefined)
-        jest.mocked(KafkaProducerWrapper.createWithConfig)
-            .mockRejectedValueOnce(new Error('broker transport failure'))
-            .mockRejectedValueOnce(new Error('broker transport failure'))
-            .mockResolvedValue({ produce } as unknown as KafkaProducerWrapper)
-        const config = { BROKER_LIST: 'msk:9094', LINGER_MS: '5' }
-        const message = { topic: 't', value: Buffer.from('v'), key: null }
+    it('registerLazy builds while its broker is down, fails produces until connected, then produces', async () => {
+        jest.useFakeTimers()
+        try {
+            const produce = jest.fn().mockResolvedValue(undefined)
+            jest.mocked(KafkaProducerWrapper.createWithConfig)
+                .mockRejectedValueOnce(new Error('broker transport failure'))
+                .mockResolvedValue({ produce } as unknown as KafkaProducerWrapper)
+            const config = { BROKER_LIST: 'msk:9094', LINGER_MS: '5' }
+            const message = { topic: 't', value: Buffer.from('v'), key: null }
 
-        const registry = await new KafkaProducerRegistryBuilder(undefined).registerLazy('MSK', configMap).build(config)
+            const registry = await new KafkaProducerRegistryBuilder(undefined)
+                .registerLazy('MSK', configMap)
+                .build(config)
+            const msk = registry.getProducer('MSK')
 
-        await expect(registry.getProducer('MSK').produce(message)).rejects.toThrow('broker transport failure')
-        await registry.getProducer('MSK').produce(message)
-        expect(produce).toHaveBeenCalledWith(message)
+            await expect(msk.produce(message)).rejects.toThrow('not connected yet')
+            await jest.advanceTimersByTimeAsync(5_000)
+            await expect(msk.produce(message)).rejects.toThrow('not connected yet')
+            await jest.advanceTimersByTimeAsync(0)
+            await msk.produce(message)
+            expect(produce).toHaveBeenCalledTimes(1)
+            expect(produce).toHaveBeenCalledWith(message)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('buildBlackhole connects to no broker, and its producers discard messages and pass the checks', async () => {

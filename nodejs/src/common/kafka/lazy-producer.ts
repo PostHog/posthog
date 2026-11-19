@@ -1,42 +1,73 @@
 import { KafkaProducer, ProducerMessage, TopicMessage } from './producer'
 
-// Connects on first use and again after a failed connect, so a cluster that is down at startup fails the produces
-// that pick it rather than the boot of every pod that registers it.
+const RETRY_AFTER_FAILURE_MS = 5_000
+
+// Connects in the background and fails produces until connected, so a cluster that is down fails the produces that
+// pick it rather than the boot of every pod that registers it. A produce never waits on a connect: a message held
+// past its caller's deadline could land after the caller already answered that it failed.
 export class LazyKafkaProducer implements KafkaProducer {
+    private connected?: KafkaProducer
     private connecting?: Promise<KafkaProducer>
+    private failedAt = 0
+    private closed = false
 
     constructor(private connect: () => Promise<KafkaProducer>) {
-        this.producer().catch(() => undefined)
+        void this.startConnect()
     }
 
-    private producer(): Promise<KafkaProducer> {
-        this.connecting ??= this.connect().catch((error) => {
-            this.connecting = undefined
-            throw error
-        })
-        return this.connecting
+    private startConnect(): Promise<KafkaProducer> | undefined {
+        if (this.closed || this.connecting || Date.now() - this.failedAt < RETRY_AFTER_FAILURE_MS) {
+            return this.connecting
+        }
+        const connecting = this.connect().then(
+            (producer) => {
+                if (this.closed) {
+                    void producer.disconnect().catch(() => undefined)
+                } else {
+                    this.connected = producer
+                }
+                return producer
+            },
+            (error) => {
+                this.failedAt = Date.now()
+                this.connecting = undefined
+                throw error
+            }
+        )
+        connecting.catch(() => undefined)
+        this.connecting = connecting
+        return connecting
+    }
+
+    private ready(): KafkaProducer {
+        if (this.connected) {
+            return this.connected
+        }
+        void this.startConnect()
+        throw new Error('Kafka producer is not connected yet')
     }
 
     async produce(message: ProducerMessage): Promise<void> {
-        return (await this.producer()).produce(message)
+        return this.ready().produce(message)
     }
 
     async queueMessages(topicMessages: TopicMessage | TopicMessage[]): Promise<void> {
-        return (await this.producer()).queueMessages(topicMessages)
+        return this.ready().queueMessages(topicMessages)
     }
 
     async checkConnection(timeoutMs?: number): Promise<void> {
-        return (await this.producer()).checkConnection(timeoutMs)
+        return (this.connected ?? (await this.startConnect()) ?? this.ready()).checkConnection(timeoutMs)
     }
 
     async checkTopicExists(topic: string, timeoutMs?: number): Promise<void> {
-        return (await this.producer()).checkTopicExists(topic, timeoutMs)
+        return (this.connected ?? (await this.startConnect()) ?? this.ready()).checkTopicExists(topic, timeoutMs)
     }
 
     async disconnect(): Promise<void> {
-        const connecting = this.connecting
+        this.closed = true
+        const connected = this.connected
+        this.connected = undefined
         this.connecting = undefined
-        const producer = await connecting?.catch(() => undefined)
-        await producer?.disconnect()
+        await connected?.disconnect()
     }
 }
