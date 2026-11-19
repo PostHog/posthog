@@ -1432,7 +1432,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
                 format="json",
                 HTTP_X_POSTHOG_CLIENT="mcp",
                 HTTP_X_POSTHOG_MCP_CLIENT_NAME="test-agent",
-                **({"HTTP_X_POSTHOG_TASK_ID": str(task.id)} if task else {}),
+                headers={"X-PostHog-Task-Id": str(task.id)} if task else {},
             )
 
         assert automatic_edit.status_code == status.HTTP_201_CREATED, automatic_edit.json()

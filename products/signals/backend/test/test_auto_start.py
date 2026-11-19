@@ -617,7 +617,7 @@ def test_autostart_requires_system_provenance_for_reviewers_without_a_user(
         )
 
     assert list(
-        Task.objects.filter(team=team).exclude(id=task.id if task else None).values_list("created_by_id", flat=True)
+        Task.objects.filter(team=team).exclude(id__in=[task.id] if task else []).values_list("created_by_id", flat=True)
     ) == ([reviewer.id] if actor_kind == "system" else [])
 
 
