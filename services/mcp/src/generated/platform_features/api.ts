@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 24 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -20,6 +20,10 @@ export const createBodyMemberNoticeOneMessageMax = 1000
 export const createBodyMemberNoticeOneActionOneLabelMax = 40
 
 export const createBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const createBodyIpRestrictionsItemMax = 64
+
+export const createBodyIpRestrictionsMax = 100
 
 export const CreateBody = () => zod.object({
     name: zod.string().max(createBodyNameMax).describe('Name of the organization.'),
@@ -95,6 +99,15 @@ export const CreateBody = () => zod.object({
         .string()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(createBodyIpRestrictionsItemMax))
+        .max(createBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const RetrieveParams = () => zod.object({
