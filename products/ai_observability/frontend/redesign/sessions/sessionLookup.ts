@@ -25,7 +25,6 @@ export function sessionTimestampHint(raw: string | null): string | null {
     return hint.isAfter(latest) || hint.isBefore(dayjs(0)) ? null : hint.toISOString()
 }
 
-/** Reads one session by id, for a link with no list row to read it from. */
 export function readSession(
     sessionId: string,
     rawTimestamp: string | null
