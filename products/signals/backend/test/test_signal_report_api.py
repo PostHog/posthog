@@ -1772,6 +1772,13 @@ class TestSignalReportListAPI(APIBaseTest):
         )
         follow_up = self._create_report(title="Still failing after the fix")
         research_grouped_into(str(closed_attempt.id), follow_up)
+        closed_into_suppressed, suppressed_attempt = ended(
+            SignalReport.Status.CLOSED, title="Follow-up was dismissed", aggregation=MonitoringAggregation.FAILED
+        )
+        research_grouped_into(
+            str(suppressed_attempt.id),
+            self._create_report(status=SignalReport.Status.SUPPRESSED, title="Dismissed follow-up"),
+        )
         research_grouped_into(str(uuid.uuid4()), self._create_report(title="Earlier period's follow-up"))
         ended(
             SignalReport.Status.RESOLVED, title="Ended weeks ago", aggregation=MonitoringAggregation.PASSED, days_ago=15
@@ -1791,6 +1798,7 @@ class TestSignalReportListAPI(APIBaseTest):
             unverified.id: "resolved_unverified",
             manual.id: "resolved_manually",
             closed.id: "closed",
+            closed_into_suppressed.id: "closed",
         }
         assert set(rows) == {str(report_id) for report_id in expected_kinds}
         outcomes = {report_id: rows[str(report_id)]["monitoring_outcome"] for report_id in expected_kinds}
@@ -1801,6 +1809,7 @@ class TestSignalReportListAPI(APIBaseTest):
             "status": "ready",
         }
         assert outcomes[passed.id]["follow_up"] is None
+        assert outcomes[closed_into_suppressed.id]["follow_up"] is None
         assert [(c["check_id"], c["state"]) for c in rows[str(passed.id)]["monitoring_summary"]["checks"]] == [
             (str(check.id), "passed")
         ]

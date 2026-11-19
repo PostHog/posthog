@@ -409,7 +409,7 @@ def monitoring_outcomes(reports: Sequence[SignalReport], *, team_id: int) -> dic
     follow_ups = {
         str(report.id): MonitoringFollowUp(report_id=report.id, title=report.title, status=report.status)
         for report in SignalReport.objects.filter(team_id=team_id, id__in=follow_up_ids.values())
-        .exclude(status=SignalReport.Status.DELETED)
+        .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
         .only("id", "title", "status")
     }
     outcomes: dict[str, ReportMonitoringOutcome] = {}
