@@ -14,6 +14,15 @@ def has_personal_github(user_id: int) -> bool:
     return UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB).exists()
 
 
+def has_usable_personal_github(user_id: int) -> bool:
+    """The same check the task flow uses before it runs, so onboarding and tasks agree on an expired token."""
+    from products.tasks.backend.facade.api import (
+        user_has_usable_personal_github,  # noqa: PLC0415 — keeps the tasks stack off the slack import path
+    )
+
+    return user_has_usable_personal_github(user_id)
+
+
 def has_ai_approval(team_id: int) -> bool:
     org_approved = (
         Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
