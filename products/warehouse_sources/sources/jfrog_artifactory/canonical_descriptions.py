@@ -140,14 +140,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "release_bundles": {
-        "description": "One version of a Release Bundle v1 in Artifactory, as source (created here) or target (distributed here).",
-        "docs_url": "https://docs.jfrog.com/artifactory/reference/getallbundles",
+        "description": "One version of a Release Bundle v1 in Artifactory, as a source bundle (created here) or a target bundle (distributed here). Queried via AQL over the releases domain.",
+        "docs_url": "https://docs.jfrog.com/artifactory/docs/aql-entities-fields-reference",
         "columns": {
-            "bundle_type": "Whether the bundle is a source bundle (created on this Artifactory) or a target bundle (received through distribution).",
             "name": "Name of the release bundle.",
             "version": "Version of the release bundle.",
-            "created": "Time at which the release bundle version was created.",
+            "type": "Type of the release bundle: source or target.",
             "status": "Status of the release bundle version.",
+            "created": "Date when the release bundle version was created.",
+            "storing_repo": "Repository that stores the release bundle.",
         },
     },
     "xray_licenses": {

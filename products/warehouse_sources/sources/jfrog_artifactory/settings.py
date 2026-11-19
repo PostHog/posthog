@@ -10,9 +10,6 @@ AQL_PAGE_SIZE = 1000
 # Xray's v1 violations API defaults to 25 rows per page and doesn't document a maximum.
 XRAY_PAGE_SIZE = 100
 
-# Get All Bundles returns only one bundle type per call and defaults to "target", so request both.
-RELEASE_BUNDLE_TYPES = ("source", "target")
-
 
 def _datetime_incremental_fields(*names: str) -> list[IncrementalField]:
     return [
@@ -34,9 +31,8 @@ class JfrogArtifactoryEndpointConfig:
     # endpoints page the primary domain the same way, then fetch related-domain fields (stats,
     # modules, promotions) for each chunk of that page in a second, unpaginated query, because AQL
     # ignores .sort()/.offset()/.limit() once .include() names a related domain. "xray" is the
-    # Xray v1 violations search. "release_bundles" reads the Release Bundles v1 listing once per
-    # bundle type and emits one row per bundle version.
-    kind: Literal["rest", "aql", "aql_related", "xray", "release_bundles"]
+    # Xray v1 violations search.
+    kind: Literal["rest", "aql", "aql_related", "xray"]
     # REST only: the API a path is relative to, /artifactory/api or /xray/api.
     service: Literal["artifactory", "xray"] = "artifactory"
     # REST only: path under the service API, e.g. "/repositories".
@@ -252,11 +248,14 @@ JFROG_ARTIFACTORY_ENDPOINTS: dict[str, JfrogArtifactoryEndpointConfig] = {
     ),
     "release_bundles": JfrogArtifactoryEndpointConfig(
         name="release_bundles",
-        kind="release_bundles",
-        path="/release/bundles",
-        partition_key="created",
-        primary_keys=["bundle_type", "name", "version"],
-        # Release Bundles v1 need Artifactory Enterprise+.
+        kind="aql",
+        # Paged AQL, not the v1 REST listing, which returns every version of every bundle in one body.
+        # AQL on this domain needs an admin user; release bundles need Artifactory Enterprise+.
+        aql_domain="releases",
+        aql_fields=("name", "version", "type", "status", "created", "storing_repo"),
+        default_incremental_field="created",
+        # A source bundle and its distributed target copy can share a name and version.
+        primary_keys=["name", "version", "type"],
         should_sync_default=False,
     ),
     "xray_licenses": JfrogArtifactoryEndpointConfig(

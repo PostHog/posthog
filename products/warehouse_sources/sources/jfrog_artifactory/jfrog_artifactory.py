@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -13,7 +13,6 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 from products.warehouse_sources.sources.jfrog_artifactory.settings import (
     AQL_PAGE_SIZE,
     JFROG_ARTIFACTORY_ENDPOINTS,
-    RELEASE_BUNDLE_TYPES,
     XRAY_PAGE_SIZE,
     JfrogArtifactoryEndpointConfig,
 )
@@ -305,19 +304,6 @@ def _post_xray(
     return _request(session, "POST", _xray_url(base_url, path), headers, logger, data=json.dumps(body))
 
 
-def flatten_release_bundles(data: Any, bundle_type: str) -> list[dict[str, Any]]:
-    """Turn ``{"bundles": {"<name>": [{"version", "created", "status"}, ...]}}`` into one row per version."""
-    bundles = data.get("bundles") if isinstance(data, dict) else None
-    if not isinstance(bundles, dict):
-        return []
-    return [
-        {**version, "name": name, "bundle_type": bundle_type}
-        for name, versions in bundles.items()
-        for version in versions or []
-        if isinstance(version, dict)
-    ]
-
-
 def _strip_domain_prefix(item: dict[str, Any], domain: str) -> dict[str, Any]:
     # Builds-domain results have historically been keyed as "build.name"/"build.created" (the
     # documented legacy output) while items-domain results use bare field names. Normalize to bare
@@ -565,16 +551,6 @@ def get_rows(
         rows = (data.get(config.response_key) or []) if config.response_key else data
         if rows:
             yield rows
-        return
-
-    if config.kind == "release_bundles":
-        for bundle_type in RELEASE_BUNDLE_TYPES:
-            url = f"{_api_url(base_url, config.path)}?{urlencode({'type': bundle_type})}"
-            rows = flatten_release_bundles(_get_json(session, url, access_token, logger), bundle_type)
-            if rows:
-                yield rows
-            else:
-                resumable_source_manager.safe_point()
         return
 
     if config.kind == "xray":

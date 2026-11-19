@@ -20,7 +20,6 @@ from products.warehouse_sources.sources.jfrog_artifactory.jfrog_artifactory impo
     build_related_aql_query,
     build_xray_violations_request,
     flatten_related,
-    flatten_release_bundles,
     get_rows,
     jfrog_artifactory_source,
     normalize_base_url,
@@ -97,6 +96,12 @@ class TestStripDomainPrefix:
             ("prefixed_builds", {"build.name": "b", "build.number": "1"}, "builds", {"name": "b", "number": "1"}),
             ("bare_builds", {"name": "b", "number": "1"}, "builds", {"name": "b", "number": "1"}),
             ("bare_items", {"repo": "r", "path": "p", "name": "n"}, "items", {"repo": "r", "path": "p", "name": "n"}),
+            (
+                "prefixed_releases",
+                {"release.name": "web-app", "release.version": "1.0.0", "release.type": "source"},
+                "releases",
+                {"name": "web-app", "version": "1.0.0", "type": "source"},
+            ),
         ]
     )
     def test_strip(self, _name: str, item: dict, domain: str, expected: dict) -> None:
@@ -502,71 +507,6 @@ class TestGetRowsRest:
                 },
                 [{"name": "MIT", "full_name": "MIT License", "category": "Permissive", "isCustom": False}],
             ),
-            (
-                "release_bundles_both_types",
-                "release_bundles",
-                {
-                    "https://acme.jfrog.io/artifactory/api/release/bundles?type=source": {
-                        "bundles": {
-                            "web-app": [
-                                {"version": "1.0.0", "created": "2026-02-01T10:00:00.000Z", "status": "SIGNED"},
-                                {"version": "1.1.0", "created": "2026-03-01T10:00:00.000Z", "status": "OPEN"},
-                            ]
-                        }
-                    },
-                    "https://acme.jfrog.io/artifactory/api/release/bundles?type=target": {
-                        "bundles": {
-                            "web-app": [
-                                {"version": "1.0.0", "created": "2026-02-02T10:00:00.000Z", "status": "COMPLETE"}
-                            ]
-                        }
-                    },
-                },
-                [
-                    {
-                        "version": "1.0.0",
-                        "created": "2026-02-01T10:00:00.000Z",
-                        "status": "SIGNED",
-                        "name": "web-app",
-                        "bundle_type": "source",
-                    },
-                    {
-                        "version": "1.1.0",
-                        "created": "2026-03-01T10:00:00.000Z",
-                        "status": "OPEN",
-                        "name": "web-app",
-                        "bundle_type": "source",
-                    },
-                    {
-                        "version": "1.0.0",
-                        "created": "2026-02-02T10:00:00.000Z",
-                        "status": "COMPLETE",
-                        "name": "web-app",
-                        "bundle_type": "target",
-                    },
-                ],
-            ),
-            (
-                "release_bundles_empty_source_side",
-                "release_bundles",
-                {
-                    "https://acme.jfrog.io/artifactory/api/release/bundles?type=source": {"bundles": {}},
-                    "https://acme.jfrog.io/artifactory/api/release/bundles?type=target": {
-                        "bundles": {
-                            "cli": [{"version": "2", "created": "2026-04-01T00:00:00.000Z", "status": "COMPLETE"}]
-                        }
-                    },
-                },
-                [
-                    {
-                        "version": "2",
-                        "created": "2026-04-01T00:00:00.000Z",
-                        "status": "COMPLETE",
-                        "name": "cli",
-                        "bundle_type": "target",
-                    }
-                ],
-            ),
         ]
     )
     def test_reads_rows_from_service_url(
@@ -587,20 +527,6 @@ class TestGetRowsRest:
 
         assert rows == expected
         assert requested == list(responses)
-
-
-class TestFlattenReleaseBundles:
-    @parameterized.expand(
-        [
-            ("missing_bundles_key", {}),
-            ("null_bundles", {"bundles": None}),
-            ("not_an_object", []),
-            ("null_versions", {"bundles": {"web-app": None}}),
-            ("non_object_versions", {"bundles": {"web-app": ["1.0.0"]}}),
-        ]
-    )
-    def test_malformed_payload_yields_no_rows(self, _name: str, data: Any) -> None:
-        assert flatten_release_bundles(data, "target") == []
 
 
 class TestSourceResponse:
@@ -684,7 +610,7 @@ class TestProbeEndpoint:
     @parameterized.expand(
         [
             ("xray_licenses", "https://acme.jfrog.io/xray/api/v1/licensesNames"),
-            ("release_bundles", "https://acme.jfrog.io/artifactory/api/release/bundles"),
+            ("repositories", "https://acme.jfrog.io/artifactory/api/repositories"),
         ]
     )
     def test_rest_probe_gets_endpoint_on_its_service(self, endpoint: str, expected_url: str) -> None:
