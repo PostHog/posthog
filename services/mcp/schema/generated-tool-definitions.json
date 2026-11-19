@@ -15975,7 +15975,7 @@
         "feature_flag": "workflows-bulk-suppressions-mcp"
     },
     "suppressions-remove": {
-        "description": "Remove up to 100 addresses from the project's suppression list, so workflows can email them again. Remove only the addresses the user asked for. Sending to an address that bounced or reported spam can hurt the project's sender reputation, so check the source with suppressions-list first and tell the user what it was. An address that reported spam is removed only with confirm_complaints set to true; without it, the call removes nothing and returns 400. The response lists the removed addresses and the ones that were not on the list. Repeating a call is safe.",
+        "description": "Remove up to 100 addresses from the project's suppression list, so workflows can email them again. Remove only the addresses the user asked for. Sending to an address that bounced or reported spam can hurt the project's sender reputation, so check the source with suppressions-list first and tell the user what it was. Before you remove more than one address, show the user the addresses you will remove, with their sources, and remove them only after the user confirms that list. An address that reported spam is removed only with confirm_complaints set to true; without it, the call removes nothing and returns 400. The response lists the removed addresses and the ones that were not on the list. Repeating a call is safe.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "Remove email addresses from the suppression list",
