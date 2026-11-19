@@ -1,4 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -605,6 +608,37 @@ describe('hogFlowOutputMappingLogic', () => {
 
                 await expectLogic(logic).toMatchValues({
                     selectedAction: node.data,
+                })
+            })
+        })
+
+        describe('runOutputTest', () => {
+            it('reports the test email a run of the step sent', async () => {
+                const email = {
+                    ...makeActionNode('email').data,
+                    type: 'function_email',
+                    config: { inputs: {} },
+                } as HogFlowAction
+                const node = { ...makeActionNode('email'), data: email }
+                jest.spyOn(api.hogFlows, 'createTestInvocation').mockResolvedValue({
+                    status: 'success',
+                    logs: [],
+                    nextActionId: null,
+                    execResult: {},
+                    emailSendResult: { status: 'accepted' },
+                } as any)
+                const capture = jest.spyOn(posthog, 'capture')
+                await expectLogic(wfLogic).toFinishAllListeners()
+                wfLogic.actions.setWorkflowValues({ actions: [email] })
+                editorLogic.actions.setNodesRaw([node])
+                editorLogic.actions.setSelectedNodeId('email')
+
+                await expectLogic(logic, () => logic.actions.runOutputTest()).toFinishAllListeners()
+
+                expect(logic.values.testError).toBeNull()
+                expect(capture).toHaveBeenCalledWith('workflows test email sent', {
+                    step_type: 'function_email',
+                    sender_kind: 'own_domain',
                 })
             })
         })

@@ -135,8 +135,23 @@ class TestWorkflowEmailSandbox(APIBaseTest):
             "adoption_enabled": True,
         }
 
-    @parameterized.expand([("status", "get", True), ("provision", "post", False)])
-    def test_only_the_status_reports_the_flag_exposure(self, action: str, method: str, reported: bool) -> None:
+    @parameterized.expand(
+        [
+            ("status", "status", "get", False, True),
+            ("status_with_a_verified_own_sender", "status", "get", True, False),
+            ("provision", "provision", "post", False, False),
+        ]
+    )
+    def test_only_the_status_reports_the_flag_exposure(
+        self, _name: str, action: str, method: str, own_sender: bool, reported: bool
+    ) -> None:
+        if own_sender:
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id="mail.example.com",
+                config={"domain": "mail.example.com", "provider": "ses", "verified": True},
+            )
         with _flag(True) as feature_enabled:
             response = getattr(self.client, method)(self._url(action))
 

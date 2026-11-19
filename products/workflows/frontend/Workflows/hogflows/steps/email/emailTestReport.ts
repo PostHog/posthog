@@ -5,7 +5,7 @@ import type { HogflowTestResult } from '../types'
 import { isEmailStep } from './emailStepVariants'
 import { sandboxTestOutcome } from './sandboxTestResult'
 
-export type EmailSenderKind = 'sandbox' | 'own_domain'
+type EmailSenderKind = 'sandbox' | 'own_domain'
 
 export function reportEmailTest(workflow: HogFlow, actionId: string | null, result: HogflowTestResult): void {
     const action = workflow.actions?.find((candidate) => candidate.id === actionId)

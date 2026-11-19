@@ -395,7 +395,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {},
                 {"X-PostHog-Integration": "symfony-mailer/7.3.0"},
                 202,
-                {"client": "symfony-mailer", "source": "api"},
+                {"client": "symfony-mailer", "source": "api", "sender_kind": "own_domain"},
             ),
             (
                 "refused_send",
@@ -1314,7 +1314,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert json.loads(mock_post.call_args.kwargs["data"])["send"]["from"] == {"integrationId": sandbox.id}
         queued = {"message_id": pipeline_body["invocation_id"], "replayed": pipeline_body.get("replayed", False)}
         reported = capture.call_args.kwargs["properties"]
-        assert reported["sender_kind"] == ("sandbox" if warned else "own_domain")
+        assert reported["sender_kind"] == "sandbox"
         if not warned:
             assert response.json() == queued
             assert "warning_codes" not in reported
