@@ -630,7 +630,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = () => zod
     .describe('Body of the `materialize` action: which cadence to enable materialization at.')
 
 /**
- * Rename this model and update the models that read it, in one change.
+ * Rename this model and update the models that read it and the joins that name it, in one change.
  *
  * Every reference to the old name becomes the new name, and keeps its `models.` prefix if it had one.
  * The update does not change what those models compute, so none of them is rebuilt. Nothing is renamed
@@ -657,7 +657,9 @@ export const WarehouseSavedQueriesRenameCreateBody = () => zod
     .describe('Body of the `rename` action.')
 
 /**
- * Show what renaming this model changes in the models that read it. Changes nothing.
+ * Show what renaming this model changes in the models that read it and the joins that name it.
+ *
+ * Changes nothing.
  */
 export const WarehouseSavedQueriesRenamePlanCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),

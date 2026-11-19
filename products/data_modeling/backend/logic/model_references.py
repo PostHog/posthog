@@ -1,5 +1,6 @@
 import re
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator
+from contextlib import contextmanager
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database, models_namespace_chain
@@ -79,21 +80,29 @@ class _ModelReferenceFinder(TraversingVisitor):
         ctes = node.ctes
         names: set[str] = set()
         self.cte_scopes.append(names)
+        try:
+            with self._table_scope():
+                for cte in (ctes or {}).values():
+                    if cte.recursive:
+                        names.add(cte.name)
+                    self.visit(cte)
+                    names.add(cte.name)
+                node.ctes = None
+                try:
+                    super().visit_select_query(node)
+                finally:
+                    node.ctes = ctes
+        finally:
+            self.cte_scopes.pop()
+
+    @contextmanager
+    def _table_scope(self) -> Iterator[None]:
+        """The tables read inside, and the qualifiers that bind to them, which are matched on leaving."""
         self.table_scopes.append({})
         self.qualified_fields.append([])
         try:
-            for cte in (ctes or {}).values():
-                if cte.recursive:
-                    names.add(cte.name)
-                self.visit(cte)
-                names.add(cte.name)
-            node.ctes = None
-            try:
-                super().visit_select_query(node)
-            finally:
-                node.ctes = ctes
+            yield
         finally:
-            self.cte_scopes.pop()
             scope = self.table_scopes.pop()
             fields = self.qualified_fields.pop()
         for field in fields:
@@ -133,19 +142,23 @@ class _ModelReferenceFinder(TraversingVisitor):
         self.visit(node.next_join)
 
     def visit_pivot_expr(self, node: ast.PivotExpr) -> None:
-        self._pivot_source(node.table)
-        for expr in [*node.aggregates, *node.columns, *(node.group_by or [])]:
-            self.visit(expr)
+        with self._table_scope():
+            self._pivot_source(node.table)
+            for expr in [*node.aggregates, *node.columns, *(node.group_by or [])]:
+                self.visit(expr)
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr) -> None:
-        self._pivot_source(node.table)
-        for column in node.columns:
-            self.visit(column)
+        with self._table_scope():
+            self._pivot_source(node.table)
+            for column in node.columns:
+                self.visit(column)
 
     def _pivot_source(self, table: ast.Expr) -> None:
-        # The resolver reads a bare PIVOT or UNPIVOT source as a table, in a scope of its own.
-        if isinstance(table, ast.Field):
-            self._table_reference(table)
+        # The resolver reads a PIVOT or UNPIVOT source, and the fields that name it, in a scope of its own.
+        if isinstance(table, ast.JoinExpr):
+            self.visit_join_expr(table)
+        elif isinstance(table, ast.Field):
+            self.visit_join_expr(ast.JoinExpr(table=table))
         else:
             self.visit(table)
 
@@ -246,3 +259,35 @@ def rename_model_references(query: str, spellings: Collection[Chain], new_chain:
         return qualified if chain[0] == MODELS_ROOT else new_chain
 
     return _rewrite(query, target_for)
+
+
+def reads_model(query: str, spellings: Collection[Chain]) -> bool:
+    """Whether the query names the model that answers to `spellings`. False when it does not parse."""
+    try:
+        select = parse_select(query)
+    except BaseHogQLError:
+        return False
+    finder = _ModelReferenceFinder(lambda chain: [] if chain in spellings else None)
+    finder.visit(select)
+    return bool(finder.references)
+
+
+class _CteNameCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_cte(self, node: ast.CTE) -> None:
+        self.names.add(node.name)
+        super().visit_cte(node)
+
+
+def cte_names(query: str) -> set[str]:
+    """The names of every CTE the query defines, at any depth. Empty when it does not parse."""
+    try:
+        select = parse_select(query)
+    except BaseHogQLError:
+        return set()
+    collector = _CteNameCollector()
+    collector.visit(select)
+    return collector.names

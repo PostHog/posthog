@@ -2041,7 +2041,7 @@ export const getWarehouseSavedQueriesRenameCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Rename this model and update the models that read it, in one change.
+ * Rename this model and update the models that read it and the joins that name it, in one change.
  *
  * Every reference to the old name becomes the new name, and keeps its `models.` prefix if it had one.
  * The update does not change what those models compute, so none of them is rebuilt. Nothing is renamed
@@ -2066,7 +2066,9 @@ export const getWarehouseSavedQueriesRenamePlanCreateUrl = (projectId: string, i
 }
 
 /**
- * Show what renaming this model changes in the models that read it. Changes nothing.
+ * Show what renaming this model changes in the models that read it and the joins that name it.
+ *
+ * Changes nothing.
  */
 export const warehouseSavedQueriesRenamePlanCreate = async (
     projectId: string,
