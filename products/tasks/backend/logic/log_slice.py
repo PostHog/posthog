@@ -4,6 +4,7 @@ import hashlib
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from datetime import datetime
+from typing import TypeVar
 
 from posthog.dataclasses import frozen
 
@@ -14,6 +15,8 @@ TAIL_TURN_SLACK_FACTOR = 4
 START_READ_MAX_BYTES = 8 * 1024 * 1024
 PAGE_MAX_BYTES = 16 * 1024 * 1024
 JSON_PAGE_ENVELOPE_BYTES = 2
+
+T = TypeVar("T")
 
 STATE_METHODS = frozenset({"_posthog/run_started", "_posthog/sdk_session", "session/new"})
 STATE_SESSION_UPDATES = frozenset({"current_mode_update", "available_commands_update"})
@@ -167,15 +170,15 @@ def _line_matches(line: str, log_filter: TaskRunLogFilter) -> bool:
     return entry is not None and _entry_matches(entry, log_filter)
 
 
-def _page_length(sizes: Iterable[int], max_bytes: int) -> int:
-    length = 0
+def _within_bytes(items: Iterable[T], size: Callable[[T], int], max_bytes: int) -> list[T]:
+    taken: list[T] = []
     total = 0
-    for size in sizes:
-        total += size
-        if length > 0 and total > max_bytes:
+    for item in items:
+        total += size(item)
+        if taken and total > max_bytes:
             break
-        length += 1
-    return length
+        taken.append(item)
+    return taken
 
 
 def _is_user_entry(line: str) -> bool:
@@ -397,15 +400,16 @@ class _Chain:
             for local in range(last - 1, -1, -1):
                 yield start + local, entries[local]
 
-    def lines(self, begin: int, end: int) -> list[str]:
-        lines: list[str] = []
+    def lines_forward(self, begin: int, end: int) -> Iterator[str]:
         for part_index, part in enumerate(self._parts):
             start = self.starts[part_index]
             stop = start + part.summary.count
             if stop <= begin or start >= end:
                 continue
-            lines += self._entries(part_index)[max(begin - start, 0) : min(end, stop) - start]
-        return lines
+            yield from self._entries(part_index)[max(begin - start, 0) : min(end, stop) - start]
+
+    def lines(self, begin: int, end: int) -> list[str]:
+        return list(self.lines_forward(begin, end))
 
     def size_after_part_of(self, index: int) -> int:
         """The byte size of the parts that start after the part that holds ``index``."""
@@ -587,11 +591,15 @@ def slice_log_parts_from(
     )
 
 
-def _page(window: list[str], *, offset: int, count: int, limit: int | None, max_bytes: int) -> TaskRunLogPageDTO:
-    if limit is not None:
+def _page(
+    lines: Iterable[str], *, offset: int, count: int, limit: int | None, origin: str, max_bytes: int
+) -> TaskRunLogPageDTO:
+    if limit is None:
+        window = list(lines)
+    else:
         assert limit > 0
-        window = window[: _page_length((len(line.encode()) + 1 for line in window), max_bytes)]
-    return TaskRunLogPageDTO(content=_join(window), offset=offset, count=count)
+        window = _within_bytes(lines, lambda line: len(line.encode()) + 1, max_bytes)
+    return TaskRunLogPageDTO(content=_join(window), offset=offset, count=count, origin=origin)
 
 
 def page_log_entries(
@@ -600,6 +608,7 @@ def page_log_entries(
     start: int,
     limit: int | None,
     log_filter: TaskRunLogFilter,
+    origin: str,
     max_bytes: int = PAGE_MAX_BYTES,
 ) -> TaskRunLogPageDTO:
     assert start >= 0
@@ -609,17 +618,26 @@ def page_log_entries(
         matching = [line for line in entries if _line_matches(line, log_filter)]
     offset = min(start, len(matching))
     end = len(matching) if limit is None else offset + limit
-    return _page(matching[offset:end], offset=offset, count=len(matching), limit=limit, max_bytes=max_bytes)
+    return _page(
+        matching[offset:end], offset=offset, count=len(matching), limit=limit, origin=origin, max_bytes=max_bytes
+    )
 
 
 def page_log_parts(
-    parts: Sequence[LogPart], *, start: int, limit: int | None, max_bytes: int = PAGE_MAX_BYTES
+    parts: Sequence[LogPart], *, start: int, limit: int | None, origin: str, max_bytes: int = PAGE_MAX_BYTES
 ) -> TaskRunLogPageDTO:
     assert start >= 0
     chain = _Chain(parts)
     offset = min(start, chain.count)
     end = chain.count if limit is None else offset + limit
-    return _page(chain.lines(offset, end), offset=offset, count=chain.count, limit=limit, max_bytes=max_bytes)
+    return _page(
+        chain.lines_forward(offset, end),
+        offset=offset,
+        count=chain.count,
+        limit=limit,
+        origin=origin,
+        max_bytes=max_bytes,
+    )
 
 
 def page_log_objects(
@@ -627,12 +645,12 @@ def page_log_objects(
 ) -> TaskRunLogObjectPageDTO:
     entries = [entry for line in log_entries(content) if (entry := _entry_object(line)) is not None]
     matching = [entry for entry in entries if _entry_matches(entry, log_filter)]
-    window = matching[offset : offset + limit]
-    length = _page_length(
-        (len(json.dumps(entry)) + JSON_PAGE_ENVELOPE_BYTES for entry in window),
+    page = _within_bytes(
+        matching[offset : offset + limit],
+        lambda entry: len(json.dumps(entry)) + JSON_PAGE_ENVELOPE_BYTES,
         max_bytes - JSON_PAGE_ENVELOPE_BYTES,
     )
-    return TaskRunLogObjectPageDTO(entries=window[:length], total_count=len(entries), matching_count=len(matching))
+    return TaskRunLogObjectPageDTO(entries=page, total_count=len(entries), matching_count=len(matching))
 
 
 def slice_log_tail(content: str, tail_bytes: int, before: int | None = None) -> LogSlice:

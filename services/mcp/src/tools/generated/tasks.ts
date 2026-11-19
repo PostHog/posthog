@@ -790,12 +790,15 @@ const TasksRunsSessionLogsRetrieveSchema = () => {
     )
 }
 
-const tasksRunsSessionLogsRetrieve = (): ToolBase<ReturnType<typeof TasksRunsSessionLogsRetrieveSchema>, unknown> => ({
+const tasksRunsSessionLogsRetrieve = (): ToolBase<
+    ReturnType<typeof TasksRunsSessionLogsRetrieveSchema>,
+    Schemas.TaskRunLogPageResponse
+> => ({
     name: 'tasks-runs-session-logs-retrieve',
     schema: TasksRunsSessionLogsRetrieveSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRunsSessionLogsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.TaskRunLogPageResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/log_entries/`,
             query: {

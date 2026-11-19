@@ -37,10 +37,13 @@ def is_sandbox_run_request(
     )
 
 
-def may_read_task_run_context(*, request: Request, team_id: int, task_id: str, run_id: str | None) -> bool:
+def may_read_task_run_context(
+    *, request: Request, team_id: int, task_id: str, run_id: str | None, include_chain: bool = False
+) -> bool:
     return access.may_read_task_run_context(
         team_id=team_id,
         task_id=task_id,
         run_id=run_id,
         reader=analytics_context_reader(request=request, team_id=team_id),
+        include_chain=include_chain,
     )

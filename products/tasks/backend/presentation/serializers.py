@@ -3856,6 +3856,17 @@ class TaskRunLogsQuerySerializer(TaskRunLogFilterQuerySerializer):
         return attrs
 
 
+class TaskRunLogPageResponseSerializer(serializers.Serializer):
+    entries = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="The log entries of the page, oldest first. An entry that is not valid JSON is unparseable_line.",
+    )
+    offset = serializers.IntegerField(help_text="The index of the first returned entry.")
+    count = serializers.IntegerField(
+        help_text="The number of entries in the log, counting only the matching entries when a filter is given."
+    )
+
+
 class StreamReadTokenQuerySerializer(serializers.Serializer):
     """Query parameters for requesting a task run stream read token"""
 

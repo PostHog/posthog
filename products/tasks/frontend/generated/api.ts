@@ -111,6 +111,7 @@ import type {
     TaskRunLivingArtifactOpenResponseApi,
     TaskRunLivingArtifactResponseApi,
     TaskRunLivingArtifactsResponseApi,
+    TaskRunLogPageResponseApi,
     TaskRunPostHogReferencesRequestApi,
     TaskRunPostHogReferencesResponseApi,
     TaskRunRelayMessageRequestApi,
@@ -145,6 +146,7 @@ import type {
     TasksRunsListParams,
     TasksRunsLivingArtifactsVersionContentParams,
     TasksRunsLogEntriesRetrieveParams,
+    TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
     TasksRunsStreamTokenRetrieveParams,
     TasksSearchRetrieveParams,
@@ -2053,7 +2055,7 @@ export const getTasksRunsLogEntriesRetrieveUrl = (
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run. For a live presence-gated run, the request marks the stream as watched before it reads the log, so events after the snapshot reach the live stream. A read with limit, after, event_types, exclude_types or output=json does not mark it. Pass tail_bytes to read only the latest turns first, add before to page back through older turns, or add start to read every entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses with different origins do not match. With tail_bytes, a Pi run returns its full log without the X-Log headers. Without tail_bytes, pass start and limit to read the log in pages of entries, and after, event_types or exclude_types to read only the matching entries. The type of an entry is the sessionUpdate of a session/update notification, or else its notification method. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does not use.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run. For a live presence-gated run, the request marks the stream as watched before it reads the log, so events after the snapshot reach the live stream. A read with limit, after, event_types, exclude_types or output=json does not mark it. Pass tail_bytes to read only the latest turns first, add before to page back through older turns, or add start to read every entry after the ones a client holds. X-Log-Origin names the first run of the chain: indexes from responses with different origins do not match. With tail_bytes, a Pi run returns its full log without the X-Log headers. Without tail_bytes, pass start and limit to read the log in pages of entries, and after, event_types or exclude_types to read only the matching entries. The type of an entry is the sessionUpdate of a session/update notification, or else its notification method. Pass output=json to read a page as a JSON object. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does not use.
  * @summary Get task run log entries
  */
 export const tasksRunsLogEntriesRetrieve = async (
@@ -2062,8 +2064,8 @@ export const tasksRunsLogEntriesRetrieve = async (
     id: string,
     params?: TasksRunsLogEntriesRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTasksRunsLogEntriesRetrieveUrl(projectId, taskId, id, params), {
+): Promise<TaskRunLogPageResponseApi> => {
+    return apiMutator<TaskRunLogPageResponseApi>(getTasksRunsLogEntriesRetrieveUrl(projectId, taskId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -2129,6 +2131,44 @@ export const tasksRunsResumeInCloudCreate = async (
     return apiMutator<TaskRunDetailDTOApi>(getTasksRunsResumeInCloudCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getTasksRunsSessionLogsRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/`
+}
+
+/**
+ * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
+ * @summary Get filtered task run session logs
+ */
+export const tasksRunsSessionLogsRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsSessionLogsRetrieveUrl(projectId, taskId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

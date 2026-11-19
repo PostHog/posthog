@@ -123374,6 +123374,17 @@ export namespace Schemas {
       artifacts: TaskRunLivingArtifactResponse[];
     }
 
+    export type TaskRunLogPageResponseEntriesItem = { [key: string]: unknown };
+
+    export interface TaskRunLogPageResponse {
+      /** The log entries of the page, oldest first. An entry that is not valid JSON is unparseable_line. */
+      entries: TaskRunLogPageResponseEntriesItem[];
+      /** The index of the first returned entry. */
+      offset: number;
+      /** The number of entries in the log, counting only the matching entries when a filter is given. */
+      count: number;
+    }
+
     export interface TaskRunPostHogReference {
       /**
          * Fallback display name for the referenced object.

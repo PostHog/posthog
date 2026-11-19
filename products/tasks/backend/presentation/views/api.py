@@ -206,6 +206,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactOpenResponseSerializer,
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
+    TaskRunLogPageResponseSerializer,
     TaskRunLogsOutput,
     TaskRunLogsQuerySerializer,
     TaskRunLogsView,
@@ -401,12 +402,14 @@ TASK_RUN_LOGS_DESCRIPTION = (
     "with different origins do not match. With tail_bytes, a Pi run returns its full log without the X-Log "
     "headers. Without tail_bytes, pass start and limit to read the log in pages of entries, and after, "
     "event_types or exclude_types to read only the matching entries. The type of an entry is the sessionUpdate "
-    "of a session/update notification, or else its notification method. Pass view=thread to drop the duplicate "
-    "tool response copy that a rendered conversation does not use."
+    "of a session/update notification, or else its notification method. Pass output=json to read a page as a "
+    "JSON object. Pass view=thread to drop the duplicate tool response copy that a rendered conversation does "
+    "not use."
 )
 TASK_RUN_LOGS_RESPONSES: dict[int, ResponseDeclaration] = {
     200: OpenApiResponse(
-        description="Log content as JSONL, or with output=json a JSON object with entries, offset and count"
+        response=TaskRunLogPageResponseSerializer,
+        description="Log content as JSONL, or with output=json a JSON object with entries, offset and count",
     ),
     404: OpenApiResponse(description="Task run not found"),
 }
@@ -420,7 +423,7 @@ def _log_types(types: str | None) -> frozenset[str]:
 
 def _log_entry_objects(content: str) -> list[object]:
     entries: list[object] = []
-    for line in content.splitlines():
+    for line in content.split("\n"):
         if line.strip():
             try:
                 entries.append(json.loads(line))
@@ -2366,6 +2369,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "artifacts_preview",
     )
     _VISIBILITY_ONLY_ACTIONS = ("analyze",)
+    _LOG_READ_ACTIONS = ("logs", "log_entries", "session_logs", "stream")
 
     def _one_shot_analysis_response(self, task_id: str) -> Response | None:
         """Refuse to add runs to a server-created analysis task; see the facade reader."""
@@ -2421,7 +2425,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             run_id=run_id,
             include_resume_sources=is_read_only,
         ) and not run_context.may_read_task_run_context(
-            request=self.request, team_id=self.team_id, task_id=task_id, run_id=run_id
+            request=self.request,
+            team_id=self.team_id,
+            task_id=task_id,
+            run_id=run_id,
+            include_chain=self.action in self._LOG_READ_ACTIONS,
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
         if (
@@ -3759,7 +3767,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
                 log_content = log_page.content if log_page else None
                 if log_page is not None:
-                    log_headers = {"X-Log-Offset": str(log_page.offset), "X-Log-Count": str(log_page.count)}
+                    log_headers = {
+                        "X-Log-Offset": str(log_page.offset),
+                        "X-Log-Count": str(log_page.count),
+                        "X-Log-Origin": log_page.origin,
+                    }
             else:
                 log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
         if log_content is None:
@@ -4377,7 +4389,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Get filtered task run session logs",
         description="Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.",
-        deprecated=True,
     )
     @action(
         detail=True,

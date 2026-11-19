@@ -12533,7 +12533,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual((response["X-Log-Offset"], response["X-Log-Count"]), expected_headers)
-        self.assertEqual(response["Access-Control-Expose-Headers"], "X-Log-Offset, X-Log-Count")
+        self.assertEqual(response["X-Log-Origin"], str(ancestor.id))
+        self.assertEqual(response["Access-Control-Expose-Headers"], "X-Log-Offset, X-Log-Count, X-Log-Origin")
         self.assertEqual(response.content.decode("utf-8").splitlines(), [lines[index] for index in expected_indexes])
 
     @patch("posthog.storage.object_storage.read")
@@ -12604,6 +12605,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 -1,
                 "?start=1&limit=2",
                 [(None, None, "earlier"), ("pi_run_started", "target", None)],
+            ),
+            (
+                "page_of_a_lone_run_keeps_its_marker",
+                "other",
+                -1,
+                "?start=0&limit=2",
+                [("pi_run_started", "target", None), (None, None, "target")],
             ),
         ]
     )
@@ -13598,6 +13606,49 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         assert "analytics_query_context" not in detail.json()["latest_run"]["state"]
         if route == "session_logs":
             assert detail.json()["latest_run"]["task_summary"] == "Protected metric findings"
+
+    @parameterized.expand(
+        [
+            ("pi_session_log_entries", True, "log_entries/?start=0"),
+            ("pi_session_logs", True, "logs/"),
+            ("pi_session_session_logs", True, "session_logs/"),
+            ("resume_chain_log_entries", False, "log_entries/"),
+            ("resume_chain_session_logs", False, "session_logs/"),
+        ]
+    )
+    def test_log_reads_check_the_analytics_context_of_every_run_in_the_chain(
+        self, _name: str, pi_session: bool, route: str
+    ) -> None:
+        protected = {"analytics_query_context": [TASK_ANALYTICS_QUERY]}
+        if pi_session:
+            task = self.create_task(runtime=Task.Runtime.PI)
+            session = TaskSession.create_for_task(task)
+            TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                active_task_session=session,
+                state=protected,
+                created_at=django_timezone.now() - timedelta(hours=1),
+            )
+            run = TaskRun.objects.create(task=task, team=self.team, active_task_session=session)
+        else:
+            task = self.create_task()
+            ancestor = TaskRun.objects.create(task=task, team=self.team, state=protected)
+            run = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(ancestor.id)})
+        raw_key = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="Log reader", user=self.user, secure_value=hash_key_value(raw_key), scopes=["task:read"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{route}"
+
+        denied = self.client.get(url)
+        key.scopes = ["task:read", "query:read", "event_definition:read"]
+        key.save(update_fields=["scopes"])
+        allowed = self.client.get(url)
+
+        self.assertEqual((denied.status_code, allowed.status_code), (status.HTTP_403_FORBIDDEN, status.HTTP_200_OK))
 
     def test_failure_detail_of_a_protected_run_stays_hidden_once_a_newer_run_exists(self) -> None:
         task = self.create_task()

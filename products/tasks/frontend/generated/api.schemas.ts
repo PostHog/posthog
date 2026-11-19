@@ -4221,6 +4221,17 @@ export interface ConnectionTokenResponseApi {
     token: string
 }
 
+export type TaskRunLogPageResponseApiEntriesItem = { [key: string]: unknown }
+
+export interface TaskRunLogPageResponseApi {
+    /** The log entries of the page, oldest first. An entry that is not valid JSON is unparseable_line. */
+    entries: TaskRunLogPageResponseApiEntriesItem[]
+    /** The index of the first returned entry. */
+    offset: number
+    /** The number of entries in the log, counting only the matching entries when a filter is given. */
+    count: number
+}
+
 export interface TaskRunRelayMessageRequestApi {
     /**
      * Joined message body. Used when text_parts is absent.
@@ -6263,6 +6274,34 @@ export const TasksRunsLogEntriesRetrieveView = {
     Full: 'full',
     Thread: 'thread',
 } as const
+
+export type TasksRunsSessionLogsRetrieveParams = {
+    /**
+     * Only return events after this ISO8601 timestamp
+     */
+    after?: string
+    /**
+     * Comma-separated list of event types to include
+     * @minLength 1
+     */
+    event_types?: string
+    /**
+     * Comma-separated list of event types to exclude
+     * @minLength 1
+     */
+    exclude_types?: string
+    /**
+     * Maximum number of entries to return (default 1000, max 5000)
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number
+    /**
+     * Zero-based offset into the filtered log entries
+     * @minimum 0
+     */
+    offset?: number
+}
 
 export type TasksRunsStreamRetrieveParams = {
     /**
