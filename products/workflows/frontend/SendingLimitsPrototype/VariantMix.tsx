@@ -33,11 +33,20 @@ export function VariantMix({ surface, state, domainProfile, setDomainProfile }: 
         return <VariantCBroadcast surface={surface} state={state} />
     }
 
-    // The same pick as D: only a new sender can be on hold, later states assume a domain that was not.
-    const picked = DOMAIN_CHECKS[domainProfile]
-    const check = state.key === 'new' || picked.band !== 'Hold' ? picked : DOMAIN_CHECKS.starter
-    const checkedOn = state.key === 'new' ? 'just now' : 'Dec 3'
+    // Only a new sender takes the picked domain. The later states' fake history starts at 1,000 a day,
+    // which is the Starter band.
+    const isNew = state.key === 'new'
+    const check = isNew ? DOMAIN_CHECKS[domainProfile] : DOMAIN_CHECKS.starter
+    const checkedOn = isNew ? 'just now' : 'Dec 3'
     const start = check.startPerDay
+    const shown: SendingState =
+        isNew && start !== null
+            ? {
+                  ...state,
+                  allowancePerDay: start,
+                  moves: [{ ...state.moves[0], to: start, reason: check.verdict.split('. ')[0] + '.' }],
+              }
+            : state
     return (
         <ActionListShell
             renderKey={`Mix-${state.key}-${domainProfile}`}
@@ -49,8 +58,7 @@ export function VariantMix({ surface, state, domainProfile, setDomainProfile }: 
                         <DomainCheckCard check={check} checkedOn={checkedOn} />
                     ) : (
                         <WarmUpCard
-                            state={state}
-                            perDayOverride={state.key === 'new' ? start : Math.max(state.allowancePerDay, start)}
+                            state={shown}
                             startedFrom={
                                 <>
                                     Started at {humanFriendlyNumber(start)} a day, set by{' '}

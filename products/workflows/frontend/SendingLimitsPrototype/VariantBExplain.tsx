@@ -117,14 +117,13 @@ function RateRow({ label, rate, limit }: { label: string; rate: number; limit: n
 
 interface WarmUpCardProps {
     state: SendingState
-    // The mix variant passes the start the domain check or paid plan set.
-    perDayOverride?: number
+    // The mix variant names what set the start: the domain check or the paid plan.
     startedFrom?: ReactNode
 }
 
-export function WarmUpCard({ state, perDayOverride, startedFrom }: WarmUpCardProps): JSX.Element {
+export function WarmUpCard({ state, startedFrom }: WarmUpCardProps): JSX.Element {
     const status = STATUS[state.key]
-    const perDay = perDayOverride ?? state.allowancePerDay
+    const perDay = state.allowancePerDay
     return (
         <div
             className="border rounded p-4 bg-surface-primary flex flex-col gap-4"
