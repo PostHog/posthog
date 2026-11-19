@@ -109,6 +109,12 @@ describe('renderEmailPreview', () => {
         ).toBe('Hi A&B &amp; co')
     })
 
+    it('strips html without hanging on an unclosed tag', () => {
+        expect(renderEmailPreviewText("{{ 'a<' | strip_html }} {{ '<b>bold</b>' | strip_html }}", person)).toBe(
+            'a< bold'
+        )
+    })
+
     it('falls back to the template rather than throwing on a broken tag', () => {
         expect(renderEmailPreview('{% for %}', person)).toBe('{% for %}')
     })
