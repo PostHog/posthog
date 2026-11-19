@@ -112,6 +112,11 @@ class ResolveArgs:
 
 
 @frozen
+class RecreateArgs:
+    pass
+
+
+@frozen
 class AssignArgs:
     pass
 
@@ -321,6 +326,14 @@ DOCS = CommandDeclaration(
     access=ResourceAccess(resource="task", level="editor"),
     pull_request_states=("merged",),
 )
+RECREATE = CommandDeclaration(
+    verb="recreate",
+    summary="Re-create this approved fork pull request on a branch in this repository, so CI runs on it.",
+    args=RecreateArgs,
+    dispatches_to="PostHog Review",
+    access=ResourceAccess(resource="code_review", level="editor"),
+    allows_forks=True,
+)
 # Answered by dispatch itself: it needs no PostHog account, project or pull request state.
 HELP = CommandDeclaration(
     verb=HELP_VERB,
@@ -331,7 +344,16 @@ HELP = CommandDeclaration(
     subject_kinds=get_args(SubjectKind),
 )
 
-COMMAND_DECLARATIONS: tuple[CommandDeclaration[Any], ...] = (REVIEW, STAMP, QA, DOCS, LOOP, RESOLVE, ASSIGN)
+COMMAND_DECLARATIONS: tuple[CommandDeclaration[Any], ...] = (
+    REVIEW,
+    STAMP,
+    RECREATE,
+    QA,
+    DOCS,
+    LOOP,
+    RESOLVE,
+    ASSIGN,
+)
 
 
 def _canonical_verbs(declarations: tuple[CommandDeclaration[Any], ...]) -> Mapping[str, str]:

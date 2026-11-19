@@ -1,0 +1,431 @@
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any, Literal
+
+import requests
+import structlog
+
+from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
+
+from products.review_hog.backend.facade.contracts import ForkRecreationOutcome
+
+logger = structlog.get_logger(__name__)
+
+WRITE_PERMISSIONS = frozenset({"admin", "maintain", "write"})
+VERDICT_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "DISMISSED"})
+MERGE_QUEUE_LABEL = "trunk-merge-queue-submit"
+FORK_PR_MARKER = "<!-- fork-pr: {number} @{login} -->"
+RECREATED_MARKER = "<!-- fork-pr-recreated -->"
+PROTECTED_PATH_PREFIXES = (".github/workflows/",)
+MAX_COMPARE_FILES = 300
+GRAPHQL_PATHS_PER_QUERY = 100
+_SOURCE = "review_hog_fork_recreation"
+_CALL_ERRORS = (GitHubIntegrationError, GitHubRateLimitError, requests.RequestException)
+
+
+class RecreationRefused(Exception):
+    pass
+
+
+class RecreationFailed(Exception):
+    pass
+
+
+@frozen
+class Approval:
+    login: str
+    commit_sha: str
+
+
+@frozen
+class Contributor:
+    login: str
+    user_id: int
+    name: str
+
+    @property
+    def noreply_email(self) -> str:
+        return f"{self.user_id}+{self.login}@users.noreply.github.com"
+
+
+@frozen
+class ChangedFile:
+    path: str
+    status: Literal["added", "modified", "removed", "renamed", "copied", "changed", "unchanged"]
+    previous_path: str | None = None
+
+
+@frozen
+class TreeEntry:
+    path: str
+    mode: str
+    type: Literal["blob", "commit"]
+    sha: str | None
+
+
+def latest_approvals(reviews: Sequence[Mapping[str, Any]]) -> list[Approval]:
+    latest: dict[int, Mapping[str, Any]] = {}
+    for review in reviews:
+        user = review.get("user") or {}
+        if review.get("state") in VERDICT_STATES and isinstance(user.get("id"), int):
+            latest[user["id"]] = review
+    approvals = [
+        Approval(login=review["user"]["login"], commit_sha=review["commit_id"])
+        for review in latest.values()
+        if review["state"] == "APPROVED" and isinstance(review.get("commit_id"), str)
+    ]
+    return list(reversed(approvals))
+
+
+def co_author_trailers(contributor: Contributor, commits: Iterable[Mapping[str, Any]]) -> list[str]:
+    trailers = [f"Co-authored-by: {contributor.name} <{contributor.noreply_email}>"]
+    seen = {contributor.noreply_email.lower()}
+    for commit in commits:
+        if len(commit.get("parents") or []) > 1:
+            continue
+        author = (commit.get("commit") or {}).get("author") or {}
+        login = (commit.get("author") or {}).get("login")
+        email = author.get("email")
+        if not isinstance(email, str) or (isinstance(login, str) and login.lower() == contributor.login.lower()):
+            continue
+        if email.lower() in seen:
+            continue
+        seen.add(email.lower())
+        trailers.append(f"Co-authored-by: {author.get('name') or email} <{email}>")
+    return trailers
+
+
+def changed_files(files: Sequence[Mapping[str, Any]]) -> list[ChangedFile]:
+    return [
+        ChangedFile(path=file["filename"], status=file["status"], previous_path=file.get("previous_filename"))
+        for file in files
+    ]
+
+
+def touched_paths(files: Sequence[ChangedFile]) -> list[str]:
+    paths = [file.path for file in files]
+    paths += [file.previous_path for file in files if file.previous_path]
+    return list(dict.fromkeys(paths))
+
+
+def protected_paths(paths: Iterable[str]) -> list[str]:
+    return [path for path in paths if path.startswith(PROTECTED_PATH_PREFIXES)]
+
+
+def tree_entries(files: Sequence[ChangedFile], head_entries: Mapping[str, TreeEntry]) -> list[TreeEntry]:
+    entries: list[TreeEntry] = []
+    for file in files:
+        if file.status == "renamed" and file.previous_path:
+            entries.append(TreeEntry(path=file.previous_path, mode="100644", type="blob", sha=None))
+        if file.status == "removed":
+            entries.append(TreeEntry(path=file.path, mode="100644", type="blob", sha=None))
+            continue
+        entry = head_entries.get(file.path)
+        if entry is None:
+            raise RecreationFailed(f"The approved commit has no entry for {file.path}")
+        entries.append(entry)
+    return entries
+
+
+def _octal_mode(mode: int) -> str:
+    return format(mode, "o").rjust(6, "0")
+
+
+def _parent(path: str) -> str:
+    return path.rpartition("/")[0]
+
+
+def _graphql_string(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+class ForkRecreation:
+    def __init__(self, github: GitHubIntegration, repository: str, pr_number: int) -> None:
+        self._github = github
+        self._repository = repository
+        self._owner, self._name = repository.split("/", 1)
+        self._pr_number = pr_number
+
+    def run(self) -> ForkRecreationOutcome:
+        fork_pr = self._get(
+            f"/repos/{self._repository}/pulls/{self._pr_number}", "/repos/{owner}/{repo}/pulls/{pull_number}"
+        )
+        default_branch = fork_pr["base"]["repo"]["default_branch"]
+        self._refuse_unless_recreatable(fork_pr, default_branch)
+
+        approval = self._approval()
+        branch = f"fork-pr/{self._pr_number}"
+        if self._ref_exists(branch):
+            raise RecreationRefused(
+                f"The branch `{branch}` already exists, so this pull request was already re-created. Delete the branch to re-create it."
+            )
+
+        base_sha = self._get(
+            f"/repos/{self._repository}/git/ref/heads/{default_branch}", "/repos/{owner}/{repo}/git/ref/{ref}"
+        )["object"]["sha"]
+        base_tree_sha = self._get(
+            f"/repos/{self._repository}/git/commits/{base_sha}", "/repos/{owner}/{repo}/git/commits/{commit_sha}"
+        )["tree"]["sha"]
+        comparison = self._get(
+            f"/repos/{self._repository}/compare/{base_sha}...{approval.commit_sha}",
+            "/repos/{owner}/{repo}/compare/{basehead}",
+        )
+        files = changed_files(comparison.get("files") or [])
+        if not files:
+            raise RecreationRefused(
+                "The approved commit changes nothing on the default branch. It may already have landed."
+            )
+        if len(files) >= MAX_COMPARE_FILES:
+            raise RecreationRefused(
+                f"The approved commit changes {MAX_COMPARE_FILES} files or more, more than GitHub lists. Re-create it by hand."
+            )
+        paths = touched_paths(files)
+        blocked = protected_paths(paths)
+        if blocked:
+            raise RecreationRefused("The approved commit changes CI workflows. Re-create it by hand.")
+
+        merge_base_sha = comparison["merge_base_commit"]["sha"]
+        conflicts = self._paths_changed_since(merge_base_sha, base_sha, paths)
+        if conflicts:
+            raise RecreationRefused(
+                f"{len(conflicts)} changed files also changed on the default branch since the fork branched. "
+                "Ask the contributor to merge the default branch into their branch, approve the new commit, then comment again."
+            )
+
+        head_entries = self._entries_at(approval.commit_sha, [file.path for file in files if file.status != "removed"])
+        contributor = self._contributor(fork_pr["user"]["login"])
+        tree_sha = self._post(
+            f"/repos/{self._repository}/git/trees",
+            "/repos/{owner}/{repo}/git/trees",
+            {
+                "base_tree": base_tree_sha,
+                "tree": [
+                    {"path": entry.path, "mode": entry.mode, "type": entry.type, "sha": entry.sha}
+                    for entry in tree_entries(files, head_entries)
+                ],
+            },
+        )["sha"]
+        trailers = co_author_trailers(contributor, comparison.get("commits") or [])
+        message = "\n".join(
+            [
+                f"{fork_pr['title']} (#{self._pr_number})",
+                "",
+                f"Re-created from #{self._pr_number} at {approval.commit_sha}.",
+                "",
+                *trailers,
+            ]
+        )
+        commit_sha = self._post(
+            f"/repos/{self._repository}/git/commits",
+            "/repos/{owner}/{repo}/git/commits",
+            {"message": message, "tree": tree_sha, "parents": [base_sha]},
+        )["sha"]
+        self._post(
+            f"/repos/{self._repository}/git/refs",
+            "/repos/{owner}/{repo}/git/refs",
+            {"ref": f"refs/heads/{branch}", "sha": commit_sha},
+        )
+
+        try:
+            new_pr = self._post(
+                f"/repos/{self._repository}/pulls",
+                "/repos/{owner}/{repo}/pulls",
+                {
+                    "title": fork_pr["title"],
+                    "head": branch,
+                    "base": default_branch,
+                    "body": self._body(fork_pr, approval, contributor, trailers),
+                    "maintainer_can_modify": True,
+                },
+            )
+        except RecreationFailed:
+            self._delete_branch(branch)
+            raise
+
+        try:
+            self._finish(new_pr["number"], approval, contributor, fork_pr["head"]["sha"])
+        except RecreationFailed:
+            logger.warning("fork_recreation_handover_failed", repository=self._repository, exc_info=True)
+        return ForkRecreationOutcome(
+            created=True, message="", pull_request_number=new_pr["number"], pull_request_url=new_pr["html_url"]
+        )
+
+    def _refuse_unless_recreatable(self, fork_pr: Mapping[str, Any], default_branch: str) -> None:
+        head_repo = (fork_pr.get("head") or {}).get("repo") or {}
+        if head_repo.get("full_name", "").lower() == self._repository.lower():
+            raise RecreationRefused("This pull request is already on a branch in this repository.")
+        if fork_pr.get("state") != "open":
+            raise RecreationRefused("This pull request is closed.")
+        if fork_pr["base"]["ref"] != default_branch:
+            raise RecreationRefused("Only pull requests into the default branch can be re-created.")
+
+    def _approval(self) -> Approval:
+        try:
+            reviews = self._github.get_pull_request_reviews(self._repository, self._pr_number)
+            for approval in latest_approvals(reviews):
+                if self._github.get_collaborator_permission(self._repository, approval.login) in WRITE_PERMISSIONS:
+                    return approval
+        except _CALL_ERRORS as error:
+            raise RecreationFailed("GitHub did not answer the review or permission lookup") from error
+        raise RecreationRefused(
+            "No one with write access has approved this pull request. Approve the commit you reviewed, then comment again."
+        )
+
+    def _contributor(self, login: str) -> Contributor:
+        user = self._get(f"/users/{login}", "/users/{username}")
+        return Contributor(login=user["login"], user_id=user["id"], name=user.get("name") or user["login"])
+
+    def _ref_exists(self, branch: str) -> bool:
+        response = self._request(
+            "GET", f"/repos/{self._repository}/git/ref/heads/{branch}", "/repos/{owner}/{repo}/git/ref/{ref}"
+        )
+        if response.status_code == 404:
+            return False
+        if response.status_code != 200:
+            raise RecreationFailed(f"GitHub answered {response.status_code} reading the branch")
+        return True
+
+    def _paths_changed_since(self, merge_base_sha: str, base_sha: str, paths: Sequence[str]) -> list[str]:
+        changed: list[str] = []
+        for start in range(0, len(paths), GRAPHQL_PATHS_PER_QUERY):
+            chunk = paths[start : start + GRAPHQL_PATHS_PER_QUERY]
+            fields = []
+            for index, path in enumerate(chunk):
+                fields.append(f"b{index}: object(expression: {_graphql_string(f'{merge_base_sha}:{path}')}) {{ oid }}")
+                fields.append(f"h{index}: object(expression: {_graphql_string(f'{base_sha}:{path}')}) {{ oid }}")
+            repository = self._graphql(fields)
+            for index, path in enumerate(chunk):
+                before = (repository.get(f"b{index}") or {}).get("oid")
+                after = (repository.get(f"h{index}") or {}).get("oid")
+                if before != after:
+                    changed.append(path)
+        return changed
+
+    def _entries_at(self, commit_sha: str, paths: Sequence[str]) -> dict[str, TreeEntry]:
+        directories = list(dict.fromkeys(_parent(path) for path in paths))
+        entries: dict[str, TreeEntry] = {}
+        for start in range(0, len(directories), GRAPHQL_PATHS_PER_QUERY):
+            chunk = directories[start : start + GRAPHQL_PATHS_PER_QUERY]
+            fields = [
+                f"d{index}: object(expression: {_graphql_string(f'{commit_sha}:{directory}')}) "
+                "{ ... on Tree { entries { name mode oid type } } }"
+                for index, directory in enumerate(chunk)
+            ]
+            repository = self._graphql(fields)
+            for index, directory in enumerate(chunk):
+                for entry in (repository.get(f"d{index}") or {}).get("entries") or []:
+                    path = f"{directory}/{entry['name']}" if directory else entry["name"]
+                    if entry["type"] in ("blob", "commit"):
+                        entries[path] = TreeEntry(
+                            path=path, mode=_octal_mode(entry["mode"]), type=entry["type"], sha=entry["oid"]
+                        )
+        return entries
+
+    def _body(
+        self, fork_pr: Mapping[str, Any], approval: Approval, contributor: Contributor, trailers: Sequence[str]
+    ) -> str:
+        description = fork_pr.get("body") or "_No description._"
+        quoted = "\n".join(f"> {line}" for line in description.splitlines())
+        return "\n".join(
+            [
+                FORK_PR_MARKER.format(number=self._pr_number, login=contributor.login),
+                RECREATED_MARKER,
+                "## Problem",
+                "",
+                f"Contributed by @{contributor.login} in #{self._pr_number}, which cannot get the checks it needs because CI does not run fork code.",
+                "",
+                "## Changes",
+                "",
+                f"The fork pull request squashed at {approval.commit_sha}, the commit @{approval.login} approved.",
+                "",
+                "<details><summary>Original description</summary>",
+                "",
+                quoted,
+                "",
+                "</details>",
+                "",
+                *trailers,
+            ]
+        )
+
+    def _finish(self, new_pr_number: int, approval: Approval, contributor: Contributor, fork_head_sha: str) -> None:
+        label = self._request(
+            "GET", f"/repos/{self._repository}/labels/{MERGE_QUEUE_LABEL}", "/repos/{owner}/{repo}/labels/{name}"
+        )
+        if label.status_code == 200:
+            self._github.add_pull_request_labels(self._repository, new_pr_number, [MERGE_QUEUE_LABEL])
+        self._github.request_pull_request_reviews(self._repository, new_pr_number, [approval.login])
+        left_out = (
+            f" Commits pushed after {approval.commit_sha[:7]} are not included."
+            if fork_head_sha != approval.commit_sha
+            else ""
+        )
+        self._github.comment_on_pull_request(
+            self._repository,
+            self._pr_number,
+            f"{RECREATED_MARKER}\nThank you @{contributor.login}! CI doesn't run code from forks, "
+            f"so this change continues in #{new_pr_number}, with you as co-author.{left_out}",
+        )
+        self._github.close_pull_request(self._repository, self._pr_number)
+
+    def _delete_branch(self, branch: str) -> None:
+        try:
+            self._request(
+                "DELETE", f"/repos/{self._repository}/git/refs/heads/{branch}", "/repos/{owner}/{repo}/git/refs/{ref}"
+            )
+        except RecreationFailed:
+            logger.warning("fork_recreation_branch_cleanup_failed", repository=self._repository, branch=branch)
+
+    def _graphql(self, fields: Sequence[str]) -> Mapping[str, Any]:
+        query = (
+            f"query {{ repository(owner: {_graphql_string(self._owner)}, name: {_graphql_string(self._name)}) "
+            f"{{ {' '.join(fields)} }} }}"
+        )
+        data = self._post("/graphql", "/graphql", {"query": query}, expected=200)
+        if data.get("errors") or not isinstance((data.get("data") or {}).get("repository"), dict):
+            raise RecreationFailed("GitHub's GraphQL API returned errors")
+        return data["data"]["repository"]
+
+    def _get(self, path: str, endpoint: str) -> dict[str, Any]:
+        response = self._request("GET", path, endpoint)
+        if response.status_code != 200:
+            raise RecreationFailed(f"GitHub answered {response.status_code} to GET {endpoint}")
+        return response.json()
+
+    def _post(self, path: str, endpoint: str, body: Mapping[str, Any], *, expected: int = 201) -> dict[str, Any]:
+        response = self._request("POST", path, endpoint, body)
+        if response.status_code != expected:
+            raise RecreationFailed(f"GitHub answered {response.status_code} to POST {endpoint}")
+        return response.json()
+
+    def _request(
+        self, method: str, path: str, endpoint: str, body: Mapping[str, Any] | None = None
+    ) -> requests.Response:
+        try:
+            return self._github.api_request(method, path, endpoint=endpoint, json_body=body)
+        except _CALL_ERRORS as error:
+            raise RecreationFailed(f"GitHub did not answer {method} {endpoint}") from error
+
+
+def recreate_fork_pull_request(
+    *, team_id: int, installation_id: str, repository: str, pr_number: int
+) -> ForkRecreationOutcome:
+    rows = IntegrationManager.github.oauth.list_by_external_id(installation_id, team_ids=[team_id])
+    if not rows:
+        return ForkRecreationOutcome(
+            created=False, message="PostHog Review can't reach this repository's GitHub installation."
+        )
+    github = GitHubIntegration(min(rows, key=lambda row: row.id), source=_SOURCE, priority=Priority.NORMAL)
+    try:
+        return ForkRecreation(github, repository, pr_number).run()
+    except RecreationRefused as refusal:
+        return ForkRecreationOutcome(created=False, message=str(refusal))
+    except RecreationFailed:
+        logger.warning("fork_recreation_failed", repository=repository, pr_number=pr_number, exc_info=True)
+        return ForkRecreationOutcome(
+            created=False,
+            message="GitHub refused a step of the re-creation, so no pull request was opened. Try again later.",
+        )

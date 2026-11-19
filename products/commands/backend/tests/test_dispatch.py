@@ -50,6 +50,7 @@ from products.commands.backend.receivers import on_review_finished
 from products.commands.backend.tasks.tasks import deliver_follow_up, run_slack_command
 from products.error_tracking.backend.facade.api import get_issue
 from products.error_tracking.backend.facade.testing import create_issue, create_issue_fingerprint
+from products.review_hog.backend.facade.contracts import ForkRecreationOutcome
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
@@ -70,6 +71,7 @@ CREATE_TASK = "products.commands.backend.logic.handlers.tasks_facade.create_and_
 USAGE_LIMITED = "products.commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
 REQUEST_PR_REVIEW = "products.commands.backend.logic.handlers.review_hog_facade.request_pr_review"
 OWNING_TEAM_ID = "products.commands.backend.logic.handlers.review_hog_github.owning_team_id"
+RECREATE_FORK_PR = "products.commands.backend.logic.handlers.review_hog_fork_recreation.recreate_fork_pull_request"
 CLAIM_CACHE = "products.commands.backend.logic.admission.cache"
 CONSUME_BUDGET = "products.commands.backend.logic.admission.consume"
 RUN_COMMENT_COMMAND = "products.commands.backend.tasks.tasks.run_comment_command.delay"
@@ -522,6 +524,43 @@ class TestDispatchCommentCommand(BaseTest):
         else:
             assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
             assert request_pr_review.call_args.kwargs["team_id"] == self.team.id
+
+    @parameterized.expand(
+        [
+            (
+                "created",
+                ForkRecreationOutcome(created=True, message="", pull_request_number=12),
+                "accepted",
+                "Re-created as #12.",
+            ),
+            (
+                "refused",
+                ForkRecreationOutcome(created=False, message="This pull request is closed."),
+                "refused",
+                "This pull request is closed.",
+            ),
+        ]
+    )
+    def test_recreate_runs_on_a_fork_pull_request(
+        self, _name: str, result: ForkRecreationOutcome, expected_outcome: str, expected_reply: str
+    ) -> None:
+        self._link_github_login()
+        github = FakeGitHub(pull_request=_pull_request(is_fork=True))
+
+        with (
+            patch(OWNING_TEAM_ID, return_value=self.team.id),
+            patch(RECREATE_FORK_PR, return_value=result) as recreate,
+        ):
+            outcome = dispatch_comment_command(self._request(verb="recreate"), github=github)
+
+        assert outcome == expected_outcome
+        assert github.replies[-1].endswith(expected_reply)
+        assert recreate.call_args.kwargs == {
+            "team_id": self.team.id,
+            "installation_id": INSTALLATION_ID,
+            "repository": REPOSITORY,
+            "pr_number": 7,
+        }
 
     @parameterized.expand(
         [

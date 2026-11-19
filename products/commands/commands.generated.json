@@ -90,6 +90,21 @@
             "usage": "@posthog qa [<focus>]"
         },
         {
+            "verb": "recreate",
+            "aliases": [],
+            "summary": "Re-create this approved fork pull request on a branch in this repository, so CI runs on it.",
+            "dispatches_to": "PostHog Review",
+            "options": [],
+            "text": null,
+            "subject_kinds": ["pull_request"],
+            "refuses_forks": false,
+            "access": {
+                "resource": "code_review",
+                "level": "editor"
+            },
+            "usage": "@posthog recreate"
+        },
+        {
             "verb": "resolve",
             "aliases": [],
             "summary": "Mark this error tracking issue as resolved.",
