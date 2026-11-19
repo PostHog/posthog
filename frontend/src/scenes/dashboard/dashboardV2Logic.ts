@@ -381,11 +381,13 @@ export async function loadScrolledInTiles<T extends InsightTile>(
     waiting.push(...tiles.filter((tile) => !waiting.some((other) => other.id === tile.id)))
     await breakpoint(SCROLL_IN_BATCH_MS)
     cache.scrolledInTiles = []
-    if (!usesBoardStream(placement, waiting.length)) {
+    // The stream only sees aborts that happen after it starts, so a refresh cancelled during the debounce skips it.
+    const aborted = refresh.signal.aborted
+    if (aborted || !usesBoardStream(placement, waiting.length)) {
         return {
             settledTileIds: new Set(),
             leftTiles: waiting,
-            aborted: false,
+            aborted,
             fallback: { eventProperties: {} },
             refreshEventProperties: {},
         }

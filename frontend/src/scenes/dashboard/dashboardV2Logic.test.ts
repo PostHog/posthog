@@ -478,6 +478,22 @@ describe('dashboardV2Logic', () => {
             expect(refreshInsight.mock.calls.map((call) => call[9])).toEqual([1, 1])
         })
 
+        it('a scrolled-in batch cancelled during its debounce starts no stream', async () => {
+            setDashboardV2(true)
+            logic = dashboardLogic({ id: 21 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            boardStream.mockClear()
+
+            await expectLogic(logic, () => {
+                v2Logic().actions.setTileInView(tiles[12].id, true)
+                v2Logic().actions.setTileInView(tiles[13].id, true)
+                logic.actions.cancelDashboardRefresh()
+            }).toFinishAllListeners()
+
+            expect(boardStream).not.toHaveBeenCalled()
+        })
+
         it('without dashboard-v2, the dashboard GET carries every tile result', async () => {
             setDashboardV2(false)
             const dashboardGets: URLSearchParams[] = []
