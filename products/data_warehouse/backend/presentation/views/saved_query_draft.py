@@ -1,13 +1,14 @@
 import uuid
 
-from rest_framework import pagination, serializers, viewsets
+from rest_framework import serializers, viewsets
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft
 
 
-class DataWarehouseSavedQueryDraftPagination(pagination.LimitOffsetPagination):
+class DataWarehouseSavedQueryDraftPagination(BoundedLimitOffsetPagination):
     default_limit = 100
 
 

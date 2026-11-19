@@ -26,6 +26,7 @@ import { externalDataSourcesBulkUpdateSchemasPartialUpdate } from 'products/ware
 
 import {
     CampaignChannelTypes,
+    RECOMMENDED_SEARCH_PLATFORMS,
     SEARCH_PERFORMANCE_QUERY_KEY,
     SearchBreakdown,
     SearchChannel,
@@ -88,6 +89,7 @@ export interface searchPerformanceLogicValues extends Pick<
     detailSourceNotices: SearchSourceNotice[]
     detailSources: ExternalDataSource[]
     readySources: MarketingAnalyticsSearchSource[]
+    hasReadySourceInAnyBreakdown: boolean
     query: MarketingAnalyticsSearchQuery
 }
 
@@ -95,7 +97,7 @@ export interface searchPerformanceLogicActions
     extends
         Pick<
             marketingAnalyticsLogicActions,
-            'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
+            'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter'
         >,
         Pick<teamLogicActions, 'updateCurrentTeamSuccess'> {
     setWrapText: (wrapText: boolean) => { wrapText: boolean }
@@ -118,6 +120,8 @@ export interface searchPerformanceLogicActions
 
 export type searchPerformanceLogicType = MakeLogicType<searchPerformanceLogicValues, searchPerformanceLogicActions>
 
+const SEARCH_BREAKDOWNS: SearchBreakdown[] = ['keyword', 'search_term', 'page']
+
 export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     path(['products', 'marketingAnalytics', 'searchPerformanceLogic']),
     connect(() => ({
@@ -137,7 +141,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         ],
         actions: [
             marketingAnalyticsLogic,
-            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'setIntegrationFilter', 'setDates'],
+            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'setIntegrationFilter'],
             teamLogic,
             ['updateCurrentTeamSuccess'],
         ],
@@ -214,22 +218,14 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         missingSources: [
             (s) => [s.allSearchSources],
             (sources: ExternalDataSource[]): SearchPlatform[] =>
-                (['GoogleAds', 'GoogleSearchConsole'] as SearchPlatform[]).filter(
-                    (type) => !sources.some((source) => source.source_type === type)
-                ),
+                RECOMMENDED_SEARCH_PLATFORMS.filter((type) => !sources.some((source) => source.source_type === type)),
         ],
         hasActiveFilters: [
-            (s) => [s.querySearch, s.channel, s.integrationFilter, s.dateFilter, s.allSearchSources],
-            (search, channel, filter, dates, sources: ExternalDataSource[]): boolean => {
+            (s) => [s.querySearch, s.channel, s.integrationFilter, s.allSearchSources],
+            (search, channel, filter, sources: ExternalDataSource[]): boolean => {
                 const ids = filter.integrationSourceIds ?? []
                 const allSourcesSelected = sources.length > 0 && sources.every((source) => ids.includes(source.id))
-                return (
-                    !!search.trim() ||
-                    channel !== 'all' ||
-                    (ids.length > 0 && !allSourcesSelected) ||
-                    dates.dateFrom !== '-7d' ||
-                    !!dates.dateTo
-                )
+                return !!search.trim() || channel !== 'all' || (ids.length > 0 && !allSourcesSelected)
             },
         ],
         hasSearchConsole: [
@@ -283,6 +279,13 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                     return querySource ? [querySource] : []
                 }),
         ],
+        hasReadySourceInAnyBreakdown: [
+            (s) => [s.sources],
+            (sources: ExternalDataSource[]): boolean =>
+                sources.some((source) =>
+                    SEARCH_BREAKDOWNS.some((breakdown) => !!searchPerformanceSource(source, breakdown))
+                ),
+        ],
         hasPaidSources: [
             (s) => [s.readySources],
             (sources: MarketingAnalyticsSearchSource[]): boolean =>
@@ -293,8 +296,9 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS],
         ],
         includeSearchConversionGoals: [
-            (s) => [s.searchConversionsEnabled, s.includeConversionGoals],
-            (enabled, includeConversionGoals): boolean => enabled && includeConversionGoals,
+            (s) => [s.searchConversionsEnabled, s.includeConversionGoals, s.conversion_goals],
+            (enabled, includeConversionGoals, conversionGoals: ConversionGoalFilter[]): boolean =>
+                enabled && includeConversionGoals && conversionGoals.length > 0,
         ],
         conversionsDisabledReason: [
             (s) => [
@@ -318,7 +322,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                     return 'Reported conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
                 }
                 return conversionGoals.length > 0
-                    ? 'Turn on "Include conversion goals" to see PostHog conversions for organic landing pages.'
+                    ? 'Turn on "Include conversion goals" in Options to see PostHog conversions for organic landing pages.'
                     : 'Configure a conversion goal in marketing analytics settings to see PostHog conversions for organic landing pages.'
             },
         ],
@@ -415,7 +419,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             actions.setQuerySearch('')
             actions.setChannel('all')
             actions.setIntegrationFilter({ ...values.integrationFilter, integrationSourceIds: [] })
-            actions.setDates('-7d', null)
         },
         setBreakdown: ({ breakdown }) => {
             if (breakdown === 'search_term') {

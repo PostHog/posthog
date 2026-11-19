@@ -5,6 +5,7 @@ import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
 
+import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import {
     FunnelsQuery,
     GoalLine,
@@ -20,7 +21,6 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 export type PoeModeTypes = HogQLQueryModifiers['personsOnEventsMode'] | null

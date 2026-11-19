@@ -1,6 +1,8 @@
+use crate::config::TeamIdCollection;
 use crate::team::request_blocklist::{self, BlockReason, BlockedHosts, BlockedIps};
 use common_types::{TeamId, TeamIdentifier};
 use rust_decimal::Decimal;
+use serde::de::{value, IntoDeserializer};
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, Uuid};
 use std::net::IpAddr;
@@ -22,6 +24,39 @@ impl PropertyMatchingVersion {
 impl Default for PropertyMatchingVersion {
     fn default() -> Self {
         Self::LEGACY
+    }
+}
+
+/// The team's level in Django's `cohort_realtime_team_access` table, with the strings of
+/// `RealtimeCohortLevel` in `products/cohorts/backend/models/team_access.py`. A team without a
+/// row is `Off`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RealtimeCohortLevel {
+    #[default]
+    Off,
+    Processing,
+    Serving,
+    /// A level Django writes that this build does not know. It does not serve, so a new level
+    /// never fails a team read.
+    #[serde(other)]
+    Unrecognized,
+}
+
+impl RealtimeCohortLevel {
+    fn serves(self) -> bool {
+        match self {
+            Self::Serving => true,
+            Self::Off | Self::Processing | Self::Unrecognized => false,
+        }
+    }
+}
+
+/// Parses with the serde names, so the Postgres read and the cache read accept the same strings.
+impl From<String> for RealtimeCohortLevel {
+    fn from(level: String) -> Self {
+        let level: value::StringDeserializer<value::Error> = level.into_deserializer();
+        Self::deserialize(level).expect("the catch-all variant accepts every string")
     }
 }
 
@@ -88,9 +123,20 @@ pub struct Team {
     #[serde(default)]
     #[sqlx(try_from = "Vec<String>")]
     pub flags_blocked_ips: BlockedIps,
+    // Sourced from the cohorts product's team access row. Cache entries written before this field
+    // existed read `Off`, which leaves the team to REALTIME_COHORT_EVALUATION_TEAM_IDS.
+    #[serde(default)]
+    #[sqlx(try_from = "String")]
+    pub realtime_cohort_level: RealtimeCohortLevel,
 }
 
 impl Team {
+    /// Whether the team's realtime cohorts may read membership from the behavioral cohorts DB:
+    /// the rollout list names the team, or its team access row is at `serving`.
+    pub fn evaluates_realtime_cohorts(&self, rollout: &TeamIdCollection) -> bool {
+        rollout.includes_team(self.id) || self.realtime_cohort_level.serves()
+    }
+
     /// The reason this team's request blocklist refuses a caller with this host and these
     /// client IPs, or `None` when the caller is allowed.
     pub fn request_block_reason(
@@ -142,6 +188,7 @@ impl TeamIdentifier for Team {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn test_minimal_flag_called_events_defaults_false_on_legacy_cache_blob() {
@@ -167,6 +214,60 @@ mod tests {
             team.request_block_reason(Some("example.com"), ["203.0.113.7".parse().unwrap()]),
             None
         );
+        assert_eq!(team.realtime_cohort_level, RealtimeCohortLevel::Off);
+    }
+
+    #[rstest]
+    #[case("off", RealtimeCohortLevel::Off)]
+    #[case("processing", RealtimeCohortLevel::Processing)]
+    #[case("serving", RealtimeCohortLevel::Serving)]
+    #[case("beta", RealtimeCohortLevel::Unrecognized)]
+    fn test_realtime_cohort_level_reads_django_levels_and_unknown_ones(
+        #[case] level: &str,
+        #[case] expected: RealtimeCohortLevel,
+    ) {
+        let cached = serde_json::json!({
+            "id": 1,
+            "name": "test team",
+            "api_token": "test_token",
+            "uuid": Uuid::new_v4().to_string(),
+            "realtime_cohort_level": level,
+        });
+
+        let team: Team = serde_json::from_value(cached).expect("cache blob must deserialize");
+        let reserialized: Team =
+            serde_json::from_value(serde_json::to_value(&team).unwrap()).unwrap();
+
+        assert_eq!(team.realtime_cohort_level, expected);
+        assert_eq!(reserialized.realtime_cohort_level, expected);
+        assert_eq!(RealtimeCohortLevel::from(level.to_string()), expected);
+    }
+
+    #[rstest]
+    #[case::listed_without_a_row(TeamIdCollection::TeamIds(vec![1]), RealtimeCohortLevel::Off, true)]
+    #[case::unlisted_at_serving(TeamIdCollection::None, RealtimeCohortLevel::Serving, true)]
+    #[case::unlisted_at_processing(
+        TeamIdCollection::TeamIds(vec![2]),
+        RealtimeCohortLevel::Processing,
+        false
+    )]
+    #[case::unlisted_at_an_unknown_level(
+        TeamIdCollection::None,
+        RealtimeCohortLevel::Unrecognized,
+        false
+    )]
+    fn test_realtime_cohorts_follow_the_rollout_list_or_a_serving_row(
+        #[case] rollout: TeamIdCollection,
+        #[case] level: RealtimeCohortLevel,
+        #[case] expected: bool,
+    ) {
+        let team = Team {
+            id: 1,
+            realtime_cohort_level: level,
+            ..Default::default()
+        };
+
+        assert_eq!(team.evaluates_realtime_cohorts(&rollout), expected);
     }
 
     #[test]

@@ -29,8 +29,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
+    _DEAD_CONNECTION_ERROR,
+    _DEADLOCK_VICTIM_ERROR,
     _SSH_HANDSHAKE_EOF_ERROR,
     _TABLE_NOT_FOUND_ERROR,
+    _TRANSIENT_CONNECTION_ERROR,
     MSSQL_METADATA_TIMEOUT_ERROR,
     MSSQL_ROW_READ_TIMEOUT_ERROR,
     MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
@@ -81,6 +84,15 @@ _TEMPDB_ALLOCATION_FAILED_EXHAUSTED_MESSAGE = (
     "autogrowth settings. This sync is still enabled and will run again on its next schedule."
 )
 
+# SQL Server error 1222 — the same transient, customer-side lock contention `get_retryable_errors`
+# in mssql.py treats as retryable during a sync. `validate_credentials` doesn't go through that
+# classification, so without a mapping here it falls through to `capture_exception` as noise.
+_LOCK_TIMEOUT_VALIDATION_ERROR = (
+    "SQL Server is waiting on a lock held by another session on your database, and the wait timed "
+    "out (SQL Server error 1222). This is usually temporary — wait for the other session to finish, "
+    "then try again."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
@@ -95,6 +107,13 @@ MSSQLErrors = {
     # matches (and leaves unmapped there since the cause varies). Map it here too so a credential
     # check that hits it names the likely causes instead of falling through to `capture_exception`.
     "Adaptive Server connection failed": _CONNECTION_DROPPED_ERROR,
+    # pymssql raises this as an `InterfaceError`, not an `OperationalError`, when the login itself
+    # succeeded but the driver's post-connect `SET` batch then fails outright (`db_sqlexec` returns
+    # FAIL in `_mssql.pyx`) — the same mid-handshake drop class as "Adaptive Server connection
+    # failed" above, just surfacing one step later. Unlike that entry, a sync hitting this is kept
+    # retryable (see `get_retryable_errors` below) rather than disabled outright.
+    "Could not set connection properties": _CONNECTION_DROPPED_ERROR,
+    "Lock request time out period exceeded": _LOCK_TIMEOUT_VALIDATION_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()
@@ -153,7 +172,22 @@ class MSSQLSource(
             # 20017 case above — the driver's own retry loop tried to reuse a connection that
             # died between opening and the query running — just surfaced through a different
             # internal code path. A fresh connection from the next Temporal retry resolves it.
-            "Not connected to any MS SQL server",
+            # Also matched by `_is_transient_connection_error` so schema discovery (and
+            # `validate_credentials`, which shares it) retries in-process instead of surfacing
+            # this as captured error-tracking noise.
+            _DEAD_CONNECTION_ERROR,
+            # DB-Lib error 20047, the same DBPROCESS-death class raised directly (see
+            # `_is_transient_connection_error` in mssql.py): the TDS connection died mid-stream
+            # during the row read itself, past the point `retry_on_transient_connection_error`
+            # covers (that helper only wraps schema discovery). A fresh connection from the next
+            # Temporal retry resolves it.
+            _TRANSIENT_CONNECTION_ERROR,
+            # pymssql's `connect()` wraps this as an `InterfaceError` when the login itself
+            # succeeded but the driver's post-connect `SET` batch then fails outright
+            # (`db_sqlexec` returns FAIL in `_mssql.pyx`) — the same connection-death class as
+            # "Not connected to any MS SQL server" above, just surfacing one step earlier in the
+            # handshake. A fresh connection from the next Temporal retry resolves it.
+            "Could not set connection properties",
             # SQL Server error 1222. A metadata statement waited longer than the `SET LOCK_TIMEOUT`
             # that `MSSQLImplementation.connect` sets, because another session held a lock on the
             # catalog or on the table. The lock belongs to the customer's own workload and goes
@@ -164,6 +198,13 @@ class MSSQLSource(
             # checkpoint where the read has one, can succeed.
             MSSQL_ROW_READ_TIMEOUT_ERROR,
             _TEMPDB_ALLOCATION_FAILED_ERROR,
+            # SQL Server error 1205. `retry_on_deadlock` already reruns the dispatching query
+            # in-process, but a deadlock chosen mid-stream — while `cursor.fetchmany` is pulling
+            # later batches of an already-executing read — can't be retried the same way: the
+            # cursor's result set is gone, and re-running the query would re-yield rows already
+            # handed to the pipeline. That case surfaces here instead, and a fresh attempt from
+            # the next Temporal retry (or checkpoint, where the read supports one) recovers it.
+            _DEADLOCK_VICTIM_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -405,7 +446,7 @@ class MSSQLSource(
     def validate_credentials(
         self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        from pymssql import OperationalError
+        from pymssql import InterfaceError, OperationalError
 
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -425,7 +466,11 @@ class MSSQLSource(
             # The host policy refused the host, or its lookup never answered. Both carry their own
             # user-facing wording and neither is a PostHog defect, so they are not captured.
             return False, str(e)
-        except OperationalError as e:
+        except (OperationalError, InterfaceError) as e:
+            # pymssql's own `connect()` wraps a driver-level connect failure (e.g. "Could not set
+            # connection properties") as `InterfaceError` rather than `OperationalError`, so both
+            # need the same `MSSQLErrors` lookup rather than just one falling through to
+            # `capture_exception` below as unclassified noise.
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in MSSQLErrors.items():
                 if key in error_msg:

@@ -7,16 +7,15 @@ export interface WorkflowRun {
     workflowId?: number | null
     /** What started the run: 'push', 'pull_request', 'schedule'. Null when unknown. */
     event?: string | null
-    /** Null while the run hasn't reported a finish — queued or in progress. */
+    /** Null while the run has not reported a finish. */
     conclusion: string | null
     startedAt: string | null
     finishedAt: string | null
     /** The sync's last update of the run. Absent where the source doesn't carry it. */
     updatedAt?: string | null
     durationSeconds: number | null
-    /** GitHub Actions run id — links straight to the run page when present. */
     runId: number | null
-    /** Re-run attempt (1 for the first); null when unknown (lifecycle events don't carry it). */
+    /** 1 for the first attempt. Null when unknown, because lifecycle events don't carry it. */
     runAttempt: number | null
 }
 
@@ -29,7 +28,7 @@ export function isPassingConclusion(conclusion: string): boolean {
     return PASSING_CONCLUSIONS.has(conclusion)
 }
 
-/** A decisive failure that turns a run red. Non-verdict outcomes and unknown values stay neutral. */
+/** Non-verdict outcomes and unknown values stay neutral. */
 export function isDecisiveFailure(conclusion: string | null): boolean {
     return conclusion != null && DECISIVE_FAILURE_CONCLUSIONS.has(conclusion)
 }
@@ -54,10 +53,7 @@ function unfinishedKey(event: PRLifecycleEventApi, workflow: string): string {
     return `${event.ci_engine ?? ''}:${event.run_id ?? ''}:${workflow}`
 }
 
-/**
- * Pairs ci_started / ci_finished events into per-workflow runs with durations, FIFO by workflow name.
- * A finish without a matching start (events outside the window) still yields a row.
- */
+/** Pairs events FIFO by workflow name. A finish without a matching start (events outside the window) still yields a row. */
 export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
     const runs: WorkflowRun[] = []
     const unfinishedByWorkflow = new Map<string, WorkflowRun[]>()

@@ -21,7 +21,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
-import { DashboardTileIdOrNew, DashboardType } from '~/types'
+import { DashboardTileIdOrNew, DashboardType, NewDashboardTile } from '~/types'
 
 import {
     DEFAULT_IMAGE_TILE_POSITION,
@@ -60,11 +60,13 @@ export function ImageTileModal({
     onClose,
     dashboard,
     imageTileId,
+    onCreateTile,
 }: {
     isOpen: boolean
     onClose: () => void
     dashboard: DashboardType
     imageTileId: DashboardTileIdOrNew
+    onCreateTile?: (tile: NewDashboardTile) => void
 }): JSX.Element {
     const isNewTile = imageTileId === null
     const modalLogicProps: TextCardModalProps = {
@@ -72,6 +74,7 @@ export function ImageTileModal({
         textTileId: imageTileId,
         onClose,
         tileType: 'image',
+        onCreateTile,
     }
     const modalLogic = textCardModalLogic(modalLogicProps)
     const { objectStorageAvailable } = useValues(preflightLogic)
@@ -87,7 +90,7 @@ export function ImageTileModal({
     const [isDragging, setIsDragging] = useState(false)
     const [previewPosition, setPreviewPosition] = useState<ImageTilePosition | null>(null)
     const [uploadComplete, setUploadComplete] = useState(false)
-    const image = getImageOnlyTextCardImage(textCardConverter, textTile.body)
+    const image = getImageOnlyTextCardImage(textTile.body)
     const previewImage = image && previewPosition ? { ...image, position: previewPosition } : image
     imageRef.current = image
 

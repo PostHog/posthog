@@ -162,6 +162,8 @@ export function KnowledgeSourceScene(): JSX.Element {
                                     loading={!sourceDocumentsLoaded}
                                     rowKey={(row) => row.id}
                                     tableLayout="fixed"
+                                    // Keep columns readable when the side panel narrows the scene; scroll horizontally instead
+                                    tableStyle={{ minWidth: '44rem' }}
                                     nouns={['page', 'pages']}
                                     pagination={{ pageSize: 20 }}
                                     emptyState={
@@ -173,7 +175,6 @@ export function KnowledgeSourceScene(): JSX.Element {
                                         {
                                             title: 'URL',
                                             key: 'url',
-                                            width: '55%',
                                             render: (_, row) =>
                                                 row.url ? (
                                                     <Link
@@ -191,7 +192,7 @@ export function KnowledgeSourceScene(): JSX.Element {
                                         {
                                             title: 'Title',
                                             key: 'title',
-                                            width: '30%',
+                                            width: '35%',
                                             render: (_, row) => (
                                                 <span
                                                     className="block max-w-full truncate"
@@ -204,7 +205,8 @@ export function KnowledgeSourceScene(): JSX.Element {
                                         {
                                             title: 'Content check',
                                             key: 'safety_verdict',
-                                            width: '15%',
+                                            // Fixed so the header never truncates; URL takes the remaining space
+                                            width: '9rem',
                                             render: (_, row) => safetyTag(row.safety_verdict),
                                         },
                                     ]}

@@ -20,8 +20,11 @@ import { openCreateScorerVersionDialog } from './openCreateScorerVersionDialog'
 import { QuillAIObservabilityScorerActions } from './QuillAIObservabilityScorerActions'
 import { ScoreDefinitionForm } from './ScoreDefinitionForm'
 import { formatKindLabel } from './scoreDefinitionModalUtils'
+import { ScorerDependents } from './ScorerDependents'
 import { ScorerLogicProps, scorerLogic } from './scorerLogic'
 import { ScorersScene } from './ScorersScene'
+import { ScorerSummary } from './ScorerSummary'
+import { ScorerVersionHistory } from './ScorerVersionHistory'
 
 export const scene: SceneExport<ScorerLogicProps> = {
     component: AIObservabilityScorerScene,
@@ -36,10 +39,9 @@ export const scene: SceneExport<ScorerLogicProps> = {
     }),
 }
 
-export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element {
-    const logic = scorerLogic(props)
+export function AIObservabilityScorerScene(): JSX.Element {
     const { definition, definitionLoading, draft, isNew, hasChanges, willCreateVersion, saving, error, loadError } =
-        useValues(logic)
+        useValues(scorerLogic)
     const {
         loadDefinition,
         save,
@@ -49,7 +51,7 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
         updateOptionLabel,
         addOption,
         removeOption,
-    } = useActions(logic)
+    } = useActions(scorerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const editDisabledReason = getAccessControlDisabledReason(
@@ -96,7 +98,7 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
                     </h2>
                 </nav>
                 {todayRailNav ? (
-                    <QuillAIObservabilityScorerActions {...props} />
+                    <QuillAIObservabilityScorerActions />
                 ) : (
                     <div className="flex flex-wrap items-center gap-2">
                         {!isNew && definition && (
@@ -170,78 +172,91 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
                     </div>
                 )}
             </div>
-            <form
-                id="scorer-form"
-                className="max-w-3xl w-full space-y-6 pb-8"
-                onSubmit={(event) => {
-                    event.preventDefault()
-                    save()
-                }}
-            >
-                {!isNew && definition && (
-                    <div className="flex flex-wrap gap-2 items-center justify-between border-b pb-4">
-                        <div className="flex items-center flex-wrap gap-2">
-                            <LemonTag>{formatKindLabel(definition.kind)}</LemonTag>
-                            <span className="text-muted text-sm">{`Version ${definition.current_version}`}</span>
-                            {definition.archived && <LemonTag type="muted">Archived</LemonTag>}
-                            {definition.current_version_id && (
-                                <CopyToClipboardInline
-                                    explicitValue={definition.current_version_id}
-                                    description="Scorer version ID"
+            <div className="grid grid-cols-1 gap-6 items-start @min-[44rem]/main-content:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] max-w-7xl">
+                <form
+                    id="scorer-form"
+                    className="min-w-0 w-full space-y-4 pb-8"
+                    onSubmit={(event) => {
+                        event.preventDefault()
+                        save()
+                    }}
+                >
+                    {!isNew && definition && (
+                        <div className="flex flex-wrap gap-2 items-center justify-between border-b pb-4">
+                            <div className="flex items-center flex-wrap gap-2">
+                                <LemonTag>{formatKindLabel(definition.kind)}</LemonTag>
+                                {definition.calculation === 'composite' && <LemonTag type="info">Composite</LemonTag>}
+                                <span className="text-muted text-sm">{`Version ${definition.current_version}`}</span>
+                                <ScorerVersionHistory definition={definition} />
+                                {definition.archived && <LemonTag type="muted">Archived</LemonTag>}
+                                {definition.current_version_id && (
+                                    <CopyToClipboardInline
+                                        explicitValue={definition.current_version_id}
+                                        description="Scorer version ID"
+                                    >
+                                        <span className="text-xs">Copy version ID</span>
+                                    </CopyToClipboardInline>
+                                )}
+                            </div>
+                            {showHistory && (
+                                <LemonButton
+                                    to={urls.aiObservabilityOfflineScorerHistory(definition.id)}
+                                    type="tertiary"
+                                    size="xsmall"
+                                    disabledReason={saving ? 'Saving scorer' : undefined}
+                                    data-attr="scorer-offline-history"
                                 >
-                                    <span className="text-xs">Copy version ID</span>
-                                </CopyToClipboardInline>
+                                    Offline evals history
+                                </LemonButton>
                             )}
                         </div>
-                        {showHistory && (
-                            <LemonButton
-                                to={urls.aiObservabilityOfflineScorerHistory(definition.id)}
-                                type="secondary"
-                                size="small"
-                                disabledReason={saving ? 'Saving scorer' : undefined}
-                                data-attr="scorer-offline-history"
-                            >
-                                Offline evals history
-                            </LemonButton>
-                        )}
-                    </div>
-                )}
-                {error && (
-                    <LemonBanner
-                        type="error"
-                        action={
-                            isNew
-                                ? undefined
-                                : {
-                                      children: 'Reload scorer',
-                                      onClick: () =>
-                                          LemonDialog.open({
-                                              title: 'Discard unsaved changes?',
-                                              content: 'Reloading replaces this form with the latest saved scorer.',
-                                              primaryButton: { children: 'Reload scorer', onClick: loadDefinition },
-                                              secondaryButton: { children: 'Keep editing' },
-                                          }),
-                                  }
-                        }
-                    >
-                        {error}
-                    </LemonBanner>
-                )}
-                {willCreateVersion && definition && (
-                    <LemonBanner type="info">
-                        {`Saving these scoring rules creates version ${definition.current_version + 1}. Existing reviews and experiments keep their original configuration.`}
-                    </LemonBanner>
-                )}
-                <ScoreDefinitionForm
-                    draft={draft}
-                    isNew={isNew}
-                    disabled={saving || !!editDisabledReason}
-                    setDraftField={setDraftField}
-                    updateOptionLabel={updateOptionLabel}
-                    addOption={addOption}
-                    removeOption={removeOption}
-                />
-            </form>
+                    )}
+                    {error && (
+                        <LemonBanner
+                            type="error"
+                            action={
+                                isNew
+                                    ? undefined
+                                    : {
+                                          children: 'Reload scorer',
+                                          onClick: () =>
+                                              LemonDialog.open({
+                                                  title: 'Discard unsaved changes?',
+                                                  content: 'Reloading replaces this form with the latest saved scorer.',
+                                                  primaryButton: { children: 'Reload scorer', onClick: loadDefinition },
+                                                  secondaryButton: { children: 'Keep editing' },
+                                              }),
+                                      }
+                            }
+                        >
+                            {error}
+                        </LemonBanner>
+                    )}
+                    {willCreateVersion && definition && (
+                        <LemonBanner type="info">
+                            {`Saving these scoring rules creates version ${definition.current_version + 1}. Existing reviews and experiments keep their original configuration.`}
+                        </LemonBanner>
+                    )}
+                    {!isNew && definition && definition.dependent_composite_count > 0 && (
+                        <ScorerDependents definitionId={definition.id} count={definition.dependent_composite_count} />
+                    )}
+                    <ScoreDefinitionForm
+                        draft={draft}
+                        isNew={isNew}
+                        disabled={saving || !!editDisabledReason}
+                        setDraftField={setDraftField}
+                        updateOptionLabel={updateOptionLabel}
+                        addOption={addOption}
+                        removeOption={removeOption}
+                    />
+                </form>
+                <aside
+                    className="min-w-0 @min-[44rem]/main-content:sticky @min-[44rem]/main-content:top-4"
+                    aria-label="Scorer preview"
+                >
+                    <ScorerSummary draft={draft} />
+                </aside>
+            </div>
         </ScorersScene>
     )
 }

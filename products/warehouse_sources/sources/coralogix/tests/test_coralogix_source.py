@@ -1,0 +1,41 @@
+from parameterized import parameterized
+
+from products.warehouse_sources.sources.coralogix._config import CoralogixSourceConfig
+from products.warehouse_sources.sources.coralogix.source import CoralogixSource
+from products.warehouse_sources.sources.sdk import SourceFieldSelectConfig
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+
+
+def _config(
+    api_key: str = "test-key", domain: str = "eu2.coralogix.com", tier: str = "frequent_search"
+) -> CoralogixSourceConfig:
+    return CoralogixSourceConfig.from_dict({"api_key": api_key, "domain": domain, "tier": tier})
+
+
+class TestCoralogixSource:
+    def test_domain_options_match_the_transport_allowlist(self) -> None:
+        # The transport rejects domains outside CORALOGIX_DOMAINS, so an option added to the
+        # form without extending the allowlist would break that region at sync time (and an
+        # allowlist entry without an option would be unreachable).
+        from products.warehouse_sources.sources.coralogix.settings import CORALOGIX_DOMAINS
+
+        domain_field = CoralogixSource().get_source_config.fields[0]
+        assert isinstance(domain_field, SourceFieldSelectConfig)
+        assert {option.value for option in domain_field.options} == CORALOGIX_DOMAINS
+
+    def test_domain_is_a_connection_host_field(self) -> None:
+        # `domain` picks the cluster the stored API key is sent to, so retargeting it must force
+        # the editor to re-enter the key.
+        assert CoralogixSource().connection_host_fields == ["domain"]
+
+    @parameterized.expand([("valid", True), ("invalid", False)])
+    def test_validate_credentials(self, _name: str, probe_result: bool) -> None:
+        status = 200 if probe_result else 403
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            valid, error = CoralogixSource().validate_credentials(_config("key-1", "coralogix.us"), team_id=1)
+
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].url == "https://api.coralogix.us/api/v1/dataprime/query"
+        assert network.requests_log[0].headers["authorization"] == "Bearer key-1"
+        assert valid is probe_result
+        assert (error is None) is probe_result

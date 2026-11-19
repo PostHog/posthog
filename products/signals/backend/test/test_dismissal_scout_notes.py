@@ -17,7 +17,7 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.signals.backend.artefact_schemas import Dismissal
@@ -282,7 +282,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert self._dismissal_notes_on(report) == ["context the scout should have"]
 
     @time_machine.travel(_REFUND_NOW, tick=False)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key != "self-driving-ubp")
     def test_refund_feedback_reaches_the_authoring_scout(self, _flag) -> None:
         self._create_scout_skill()
         report = self._create_report()
@@ -305,7 +305,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert "pr_incorrect" in note.content
 
     @time_machine.travel(_REFUND_NOW, tick=False)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key != "self-driving-ubp")
     def test_a_repeat_refund_does_not_forward_a_second_time(self, _flag) -> None:
         self._create_scout_skill()
         report = self._create_report()
@@ -323,7 +323,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert len(self._notes()) == 1
 
     @time_machine.travel(_REFUND_NOW, tick=False)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key != "self-driving-ubp")
     def test_refund_without_a_note_forwards_nothing(self, _flag) -> None:
         self._create_scout_skill()
         report = self._create_report()
@@ -339,7 +339,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert self._dismissal_notes_on(report) == [None]
 
     @time_machine.travel(_REFUND_NOW, tick=False)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key != "self-driving-ubp")
     def test_no_note_when_a_refund_leaves_a_merged_pr_report_resolved(self, _flag) -> None:
         self._create_scout_skill()
         report = self._create_report()

@@ -241,7 +241,7 @@ class TestGetModel:
 
 class TestGetAvailableModels:
     def test_returns_all_chat_models_from_configured_providers(self):
-        models = get_available_models("llm_gateway")
+        models = get_available_models("django")
         model_ids = {m.id for m in models}
         assert "gpt-4o" in model_ids
         assert "claude-sonnet-4-5" in model_ids
@@ -251,12 +251,12 @@ class TestGetAvailableModels:
         assert "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct" not in model_ids
 
     def test_excludes_embedding_models(self):
-        models = get_available_models("llm_gateway")
+        models = get_available_models("django")
         model_ids = {m.id for m in models}
         assert "text-embedding-ada-002" not in model_ids
 
     def test_returns_model_info_objects(self):
-        models = get_available_models("llm_gateway")
+        models = get_available_models("django")
         assert all(isinstance(m, ModelInfo) for m in models)
 
     @pytest.mark.parametrize("alias", COST_ALIASES)
@@ -265,7 +265,7 @@ class TestGetAvailableModels:
             MOCK_COST_DATA,
             {alias: {"litellm_provider": "openai", "max_input_tokens": 128000, "mode": "chat"}},
         ):
-            model_ids = {model.id for model in get_available_models("llm_gateway")}
+            model_ids = {model.id for model in get_available_models("django")}
 
         assert alias not in model_ids
 
@@ -276,7 +276,7 @@ class TestProviderFiltering:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(openai=True, anthropic=False),
         ):
-            models = get_available_models("llm_gateway")
+            models = get_available_models("django")
             providers = {m.provider for m in models}
             assert providers == {"openai"}
             model_ids = {m.id for m in models}
@@ -288,7 +288,7 @@ class TestProviderFiltering:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(openai=False, anthropic=False),
         ):
-            models = get_available_models("llm_gateway")
+            models = get_available_models("django")
             assert len(models) == 0
 
     def test_returns_multiple_providers_when_configured(self):
@@ -296,7 +296,7 @@ class TestProviderFiltering:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(openai=True, anthropic=True),
         ):
-            models = get_available_models("llm_gateway")
+            models = get_available_models("django")
             providers = {m.provider for m in models}
             assert providers == {"openai", "anthropic"}
 
@@ -322,7 +322,7 @@ class TestProviderFiltering:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(**provider_kwargs),
         ):
-            models = get_available_models("llm_gateway")
+            models = get_available_models("django")
             providers = {m.provider for m in models}
             assert providers == {expected_provider}
             model_ids = {m.id for m in models}
@@ -333,7 +333,7 @@ class TestProviderFiltering:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(openai=True, anthropic=True, openrouter=True, fireworks=True),
         ):
-            models = get_available_models("llm_gateway")
+            models = get_available_models("django")
             providers = {m.provider for m in models}
             assert providers == {"openai", "anthropic", "openrouter", "fireworks_ai"}
 
@@ -350,7 +350,7 @@ class TestCloudflareModelAdvertising:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(cloudflare=True),
         ):
-            models = get_available_models("llm_gateway")
+            models = get_available_models("django")
             cf = [m for m in models if m.id.startswith("@cf/")]
             assert {m.id for m in cf} == set(CLOUDFLARE_ALLOWED_MODELS)
             assert all(m.provider == "cloudflare" for m in cf)
@@ -360,13 +360,13 @@ class TestCloudflareModelAdvertising:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(cloudflare=False),
         ):
-            assert self._cf_ids("llm_gateway") == set()
+            assert self._cf_ids("django") == set()
 
     def test_cf_requires_both_key_and_account_id(self):
         settings = create_mock_settings(cloudflare=True)
         settings.cloudflare_account_id = None
         with patch("llm_gateway.services.model_registry.get_settings", return_value=settings):
-            assert self._cf_ids("llm_gateway") == set()
+            assert self._cf_ids("django") == set()
 
     def test_cf_models_filtered_by_product_allowlist(self):
         # posthog_code's allowlist includes @cf/zai-org/glm-5.2 but not the other CF model(s).
@@ -383,7 +383,7 @@ class TestCloudflareModelAdvertising:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(cloudflare=False, modal=True),
         ):
-            assert self._cf_ids("llm_gateway") == {"@cf/zai-org/glm-5.2"}
+            assert self._cf_ids("django") == {"@cf/zai-org/glm-5.2"}
 
 
 class TestBasetenModelAdvertising:
@@ -402,7 +402,7 @@ class TestBasetenModelAdvertising:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(baseten=True),
         ):
-            for product in ("review_hog", "posthog_code", "llm_gateway", "slack_app"):
+            for product in ("review_hog", "posthog_code", "django", "slack_app"):
                 assert is_model_available(model_id, product) is (product in allowed_products)
             for product in allowed_products:
                 model = next(
@@ -450,9 +450,9 @@ class TestIsModelAvailable:
     @pytest.mark.parametrize(
         "model_id,product,expected",
         [
-            ("gpt-4o", "llm_gateway", True),
+            ("gpt-4o", "django", True),
             ("gpt-4o", "posthog_code", False),
-            ("o1", "llm_gateway", True),
+            ("o1", "django", True),
             ("o1", "posthog_code", False),
             ("claude-opus-4-6", "posthog_code", True),
             ("gpt-5.3-codex", "posthog_code", True),
@@ -462,9 +462,9 @@ class TestIsModelAvailable:
             ("claude-sonnet-4-5", "posthog_code", True),
             ("claude-haiku-4-5", "posthog_code", True),
             # New providers not configured by default
-            ("openrouter/anthropic/claude-3.5-sonnet", "llm_gateway", False),
-            ("fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct", "llm_gateway", False),
-            ("unknown-model", "llm_gateway", False),
+            ("openrouter/anthropic/claude-3.5-sonnet", "django", False),
+            ("fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct", "django", False),
+            ("unknown-model", "django", False),
             # Legacy aliases still work
             ("gpt-4o", "twig", False),
             ("claude-opus-4-6", "twig", True),
@@ -479,13 +479,13 @@ class TestIsModelAvailable:
         "model_id,product,cloudflare,modal,expected",
         [
             # CF creds present + model priced/allowed -> available.
-            ("@cf/zai-org/glm-5.2", "llm_gateway", True, False, True),
+            ("@cf/zai-org/glm-5.2", "django", True, False, True),
             # Same model, but no backend configured -> the runtime gate refuses it.
-            ("@cf/zai-org/glm-5.2", "llm_gateway", False, False, False),
+            ("@cf/zai-org/glm-5.2", "django", False, False, False),
             # No CF creds, but Modal serves GLM -> still available.
-            ("@cf/zai-org/glm-5.2", "llm_gateway", False, True, True),
+            ("@cf/zai-org/glm-5.2", "django", False, True, True),
             # Modal alone can't serve models without a Modal-served equivalent.
-            ("@cf/moonshotai/kimi-k2.6", "llm_gateway", False, True, False),
+            ("@cf/moonshotai/kimi-k2.6", "django", False, True, False),
             # CF configured but the product allowlist excludes this CF model -> unavailable.
             ("@cf/moonshotai/kimi-k2.6", "posthog_code", True, False, False),
             # CF configured and the product allowlist includes it -> available.
@@ -509,5 +509,5 @@ class TestIsModelAvailable:
                 "llm_gateway.services.model_registry.get_settings",
                 return_value=create_mock_settings(openai=False, anthropic=True),
             ):
-                assert is_model_available("gpt-4o", "llm_gateway") is False
-                assert is_model_available("claude-sonnet-4-5", "llm_gateway") is True
+                assert is_model_available("gpt-4o", "django") is False
+                assert is_model_available("claude-sonnet-4-5", "django") is True

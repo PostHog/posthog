@@ -4,7 +4,7 @@ import React, { useCallback, useRef, useState } from 'react'
 
 import { IconImage, IconMarkdownFilled } from '@posthog/icons'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { TextContent } from 'lib/components/Cards/TextCard/TextContent'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

@@ -25,13 +25,8 @@ import { urls } from 'scenes/urls'
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
-import {
-    isDataTableNode,
-    isDataVisualizationNode,
-    isEventsQuery,
-    isHogQLQuery,
-    isInsightVizNode,
-} from '~/queries/utils'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
+import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, ExporterFormat, InsightLogicProps, InsightModel } from '~/types'
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'

@@ -10,7 +10,6 @@ from posthog.temporal.health_checks.models import HealthCheckResult
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -90,7 +89,7 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
         for source_pk, schemas in schemas_by_source.items():
             source = sources[source_pk]
             try:
-                source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+                source_impl = SourceRegistry.get_source(source.source_type)
             except Exception:
                 continue
             if not isinstance(source_impl, WebhookSource):

@@ -1,4 +1,8 @@
-from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflow, investigate_anomaly_activity
+from posthog.temporal.ai.anomaly_investigation import (
+    AnomalyInvestigationWorkflow,
+    investigate_anomaly_activity,
+    record_investigation_deliveries_started_activity,
+)
 from posthog.temporal.ai.chat_agent import (
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
@@ -16,17 +20,9 @@ from .llm_traces_summaries.summarize_traces import (
     SummarizeLLMTracesWorkflow,
     summarize_llm_traces_activity,
 )
-from .sync_vectors import (
-    SyncVectorsInputs,
-    SyncVectorsWorkflow,
-    batch_embed_and_sync_actions,
-    batch_summarize_actions,
-    get_approximate_actions_count,
-)
 
 AI_WORKFLOWS = [
     ConversationMirrorWorkflow,
-    SyncVectorsWorkflow,
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,
     ResearchAgentWorkflow,
@@ -36,19 +32,16 @@ AI_WORKFLOWS = [
 ]
 
 AI_ACTIVITIES = [
-    get_approximate_actions_count,
-    batch_summarize_actions,
-    batch_embed_and_sync_actions,
     process_conversation_activity,
     process_chat_agent_activity,
     mirror_conversation_to_task_activity,
     process_research_agent_activity,
     summarize_llm_traces_activity,
     investigate_anomaly_activity,
+    record_investigation_deliveries_started_activity,
     *CHECKPOINT_COMPACTION_ACTIVITIES,
 ]
 
 __all__ = [
-    "SyncVectorsInputs",
     "SummarizeLLMTracesInputs",
 ]

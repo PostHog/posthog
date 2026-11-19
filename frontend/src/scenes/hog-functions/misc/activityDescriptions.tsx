@@ -275,6 +275,19 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         }
     }
 
+    if (logItem.activity == 'tested') {
+        const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
+
+        return {
+            summary: activityLogSummary(logItem, `Tested the ${objectNoun} with real requests`, functionName),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> tested the {objectNoun} with real requests: {functionName}
+                </>
+            ),
+        }
+    }
+
     const draftActivities: Record<string, string> = {
         draft_updated: 'staged changes for review on',
         published: 'published the staged changes to',

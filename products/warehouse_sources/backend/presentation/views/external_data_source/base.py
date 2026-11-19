@@ -8,7 +8,7 @@ assembled viewset provides at runtime.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -29,7 +29,6 @@ from products.data_warehouse.backend.facade.api import (
     delete_discover_schemas_schedule,
     delete_external_data_schedule,
     ensure_cdc_slot_cleanup_schedule,
-    is_cdc_enabled_for_team,
     is_cdc_extraction_schedule_paused,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -52,7 +51,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_primary_key_columns,
     purge_buffer_prefix,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import SourceKey
 
 logger = structlog.get_logger(__name__)
 
@@ -79,7 +78,6 @@ __all__ = [
     "ensure_cdc_slot_cleanup_schedule",
     "ensure_person_join",
     "get_primary_key_columns",
-    "is_cdc_enabled_for_team",
     "is_cdc_extraction_schedule_paused",
     "logger",
     "purge_buffer_prefix",
@@ -91,6 +89,7 @@ __all__ = [
 
 
 if TYPE_CHECKING:
+    from . import credential_store
 
     class ExternalDataSourceViewSetBase(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
         """The assembled viewset as each mixin sees it. Cross-mixin methods are declared here
@@ -107,6 +106,7 @@ if TYPE_CHECKING:
             source_id: str,
             source_schemas: list[SourceSchema],
             permission_errors: Mapping[str, str | None] | None = None,
+            only_tables: Collection[str] | None = None,
         ) -> dict | None: ...
 
         def _setup_cdc_resources(
@@ -116,10 +116,14 @@ if TYPE_CHECKING:
         def _validate_source_config_and_credentials(
             self,
             source: AnySource,
-            source_type_model: ExternalDataSourceType,
+            source_type_model: SourceKey,
             payload: dict,
             access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
         ) -> tuple[Response | None, Config | None]: ...
+
+        def _resolve_stored_credential(
+            self, source_type: str, payload: dict
+        ) -> credential_store.ResolvedStoredCredential: ...
 
         def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response: ...
 

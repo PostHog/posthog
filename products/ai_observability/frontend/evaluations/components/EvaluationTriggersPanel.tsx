@@ -1,51 +1,75 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
+import { QuickFilterKey, applyQuickFilter, internalUserFilters, quickFilterApplied } from './evaluationQuickFilters'
 import { EvaluationTriggers } from './EvaluationTriggers'
 
-/** The condition sets an evaluation runs on, with how they combine and a few examples. */
+const QUICK_FILTERS: { key: QuickFilterKey; label: string }[] = [
+    { key: 'internal', label: 'Exclude internal users' },
+    { key: 'errors', label: 'Only errors' },
+    { key: 'expensive', label: 'Only calls over $0.01' },
+    { key: 'sample', label: 'Sample 10%' },
+]
+
 export function EvaluationTriggersPanel(): JSX.Element | null {
     const { evaluation } = useValues(llmEvaluationLogic)
+    const { setTriggerConditions } = useActions(llmEvaluationLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     if (!evaluation) {
         return null
     }
-    const hasFilters = evaluation.conditions.some((condition) => (condition.properties ?? []).length > 0)
+    const testAccountFilters = currentTeam?.test_account_filters ?? []
+    const usableInternalFilters = internalUserFilters(testAccountFilters).length
+    const disabledReason = (key: QuickFilterKey): string | undefined => {
+        // A generation judge skips errored generations without grading them. Trace and session judges grade the
+        // whole transcript, errors included, so the filter stays useful there.
+        if (key === 'errors' && evaluation.evaluation_type === 'llm_judge' && evaluation.target === 'generation') {
+            return 'The LLM judge skips generations with errors, so this would leave it nothing to grade.'
+        }
+        if (quickFilterApplied(key, evaluation.conditions, testAccountFilters)) {
+            return 'Already added'
+        }
+        if (key === 'internal' && usableInternalFilters === 0) {
+            return 'Add internal and test user filters in project settings first.'
+        }
+        return undefined
+    }
+    const tooltip = (key: QuickFilterKey): string | undefined =>
+        key === 'internal' && usableInternalFilters < testAccountFilters.length
+            ? "Cohort and group filters from project settings can't be used here, so they're left out."
+            : undefined
+
     return (
-        <div>
-            <p className="text-muted text-sm mb-4">
-                The evaluation runs on generations that match any one of these condition sets. Within a set, all filters
-                must match, and sampling decides how many of the matching generations get evaluated.
-                {evaluation.target === 'trace' && (
-                    <>
-                        {' '}
-                        Conditions match individual generations. The whole trace is evaluated once any of its
-                        generations matches, and sampling applies per trace.
-                    </>
-                )}
-            </p>
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+                <h4 className="mb-0 text-sm font-semibold">Choose the traffic</h4>
+                <LemonMenu
+                    items={QUICK_FILTERS.map(({ key, label }) => ({
+                        label,
+                        onClick: () =>
+                            setTriggerConditions(applyQuickFilter(key, evaluation.conditions, testAccountFilters)),
+                        disabledReason: disabledReason(key),
+                        tooltip: tooltip(key),
+                        'data-attr': `llma-evaluation-quick-filter-${key}`,
+                    }))}
+                >
+                    <LemonButton type="tertiary" size="xsmall" sideIcon={<IconChevronDown />}>
+                        <span className="text-xs font-normal text-secondary">Quick filters</span>
+                    </LemonButton>
+                </LemonMenu>
+            </div>
             <EvaluationTriggers />
-            {/* Examples help before the first filter. Once someone filters, they only take room. */}
-            {!hasFilters && (
-                <div className="bg-bg-light border rounded p-3 text-sm mt-6">
-                    <h4 className="font-semibold mb-2">Examples:</h4>
-                    <ul className="space-y-1 text-muted list-disc list-inside">
-                        <li>
-                            <strong>10% of all generations:</strong> Set 10% sampling with no filter conditions
-                        </li>
-                        <li>
-                            <strong>5% of one model's generations:</strong> Set 5% sampling with $ai_model containing
-                            your model's name
-                        </li>
-                        <li>
-                            <strong>Exclude internal users:</strong> Set 100% sampling with person property is_internal
-                            ≠ true
-                        </li>
-                        <li>
-                            <strong>High-cost generations:</strong> Set 100% sampling with $ai_total_cost_usd &gt; 0.01
-                        </li>
-                    </ul>
-                </div>
+            {evaluation.target !== 'generation' && (
+                <p className="mb-0 text-xs text-secondary">
+                    A {evaluation.target} matches when one of its generations does.
+                </p>
             )}
         </div>
     )

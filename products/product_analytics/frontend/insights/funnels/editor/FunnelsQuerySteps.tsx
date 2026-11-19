@@ -9,8 +9,8 @@ import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionF
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { isInsightQueryNode } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isInsightQueryNode } from '~/queries/utils'
 import { EditorFilterProps, InsightType } from '~/types'
 
 import { getInsightPropertyFilterGroupTypes } from 'products/product_analytics/frontend/insights/editor/propertyTaxonomicGroupTypes'

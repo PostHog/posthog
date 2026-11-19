@@ -41,6 +41,8 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
      *  would share the same kea instance and the second mount's `dates`/`ticks` would
      *  overwrite the first. */
     kind?: string
+    // Charts without an insight query, like SQL charts, pass the scope in. Unset reads it from the insight.
+    annotationsScope?: AnnotationScope | null
 }
 
 /** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
@@ -183,7 +185,8 @@ export interface annotationsOverlayLogicMeta {
             savedInsight: Partial<InsightModel<Node<Record<string, any>>>>,
             properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined,
             breakdownFilter: BreakdownFilter | null | undefined,
-            annotationsScope: AnnotationScope | null | undefined
+            annotationsScope: AnnotationScope | null | undefined,
+            arg: AnnotationScope | null | undefined
         ) => DatedAnnotationType[]
         groupedAnnotations: (
             relevantAnnotations: DatedAnnotationType[],
@@ -370,6 +373,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 s.properties,
                 s.breakdownFilter,
                 s.annotationsScope,
+                (_, props: AnnotationsOverlayLogicProps) => props.annotationsScope,
             ],
             (
                 annotations: AnnotationType[],
@@ -383,8 +387,10 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 >,
                 properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined,
                 breakdownFilter: BreakdownFilter | null | undefined,
-                annotationsScope: AnnotationScope | null | undefined
+                insightAnnotationsScope: AnnotationScope | null | undefined,
+                annotationsScopeOverride: AnnotationScope | null | undefined
             ) => {
+                const annotationsScope = annotationsScopeOverride ?? insightAnnotationsScope
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
                 // where 3 projects exceed this limit. To accommodate those, we should always make a request for the

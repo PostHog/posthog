@@ -1,10 +1,11 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconPlus, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -14,7 +15,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { registerHogQLFormattingProvider } from 'lib/monaco/hogQLFormattingProvider'
 import { cn } from 'lib/utils/css-classes'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { urls } from 'scenes/urls'
 
@@ -25,6 +28,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/VimrcModal'
 import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
+import { registerSqlTableHover } from 'products/data_warehouse/frontend/shared/sqlTableHover'
+import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { FixErrorButton } from './components/FixErrorButton'
@@ -67,6 +72,8 @@ interface QueryWindowProps {
     hideVariables?: boolean
     hideFilters?: boolean
     hideAiTools?: boolean
+    hideConnectionSelector?: boolean
+    captureQueryTelemetry?: boolean
     showOpenInSqlEditor?: boolean
     /** False removes the button that expands the schema panel. Defaults to true. */
     canExpandDatabaseTree?: boolean
@@ -93,11 +100,13 @@ export function QueryWindow({
     hideVariables,
     hideFilters,
     hideAiTools,
+    hideConnectionSelector,
+    captureQueryTelemetry,
     showOpenInSqlEditor,
     canExpandDatabaseTree = true,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
-    const logic = sqlEditorLogic({ tabId })
+    const logic = sqlEditorLogic({ tabId, captureQueryTelemetry })
 
     const {
         queryInput,
@@ -306,7 +315,20 @@ export function QueryWindow({
                                 cancelQueryLoading={cancelQueryLoading}
                             />
                         )}
-                        <CollapsedConnectionSelector tabId={tabId} mode={mode} />
+                        {!hideConnectionSelector && <CollapsedConnectionSelector tabId={tabId} mode={mode} />}
+                        {mode === SQLEditorMode.FullScene ? (
+                            <LemonButton
+                                icon={<IconPlus />}
+                                type="secondary"
+                                size="small"
+                                // An explicit empty query skips the recovery of this tab's unsaved working copy.
+                                to={combineUrl(urls.sqlEditor(), { open_query: '' }).url}
+                                targetBlank
+                                tooltip="Open a new SQL editor in a new browser tab"
+                                aria-label="Open a new SQL editor in a new browser tab"
+                                data-attr="sql-editor-new-browser-tab"
+                            />
+                        ) : null}
                         <LemonDivider vertical />
                         {!hideVariables ? (
                             <QueryVariablesMenu
@@ -325,6 +347,9 @@ export function QueryWindow({
                                     size="small"
                                     icon={<IconDatabase />}
                                     onClick={() => openMaterializationModal(editingView)}
+                                    disabledReason={
+                                        viewEngine(editingView).capabilities.materialize.reason ?? undefined
+                                    }
                                     data-attr="sql-editor-materialization-button"
                                 >
                                     Materialization
@@ -366,7 +391,7 @@ export function QueryWindow({
 
             {showQueryPanel ? (
                 <QueryPane
-                    originalValue={originalQueryInput ?? ''}
+                    originalValue={originalQueryInput ?? undefined}
                     queryInput={(suggestedQueryInput || queryInput) ?? ''}
                     sourceQuery={sourceQuery.source}
                     promptError={null}
@@ -391,11 +416,19 @@ export function QueryWindow({
                         indexUsage: true,
                         // Lets error checking resolve the host's placeholders instead of flagging them
                         globals: placeholderValues ?? undefined,
+                        captureQueryTelemetry,
                         onFixWithAI: (prompt) => fixIndexUsageWithAI(prompt),
                         onChange: (v) => {
                             setQueryInput(v ?? '')
                         },
                         onMount: (editor, monaco) => {
+                            registerHogQLFormattingProvider(monaco)
+                            registerSqlTableHover(monaco, editor, () => {
+                                const schema = databaseTableListLogic.findMounted()
+                                return schema?.values.connectionId === (logic.values.selectedSchemaConnectionId ?? null)
+                                    ? schema.values.allTablesMap
+                                    : {}
+                            })
                             onSetMonacoAndEditor(monaco, editor)
                         },
                         onPressCmdEnter: (value, selectionType) => {

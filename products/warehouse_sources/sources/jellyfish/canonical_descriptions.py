@@ -1,0 +1,191 @@
+"""Canonical descriptions for Jellyfish export endpoints.
+
+Sourced from the official Jellyfish-AI/jellyfish-mcp wrapper's tool documentation
+(https://github.com/Jellyfish-AI/jellyfish-mcp) — the full API reference lives behind the
+Jellyfish app login, so column-level coverage is limited to fields documented there. Keyed by the
+endpoint names in `settings.py` `JELLYFISH_ENDPOINTS`.
+"""
+
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+
+_WINDOW_COLUMNS = {
+    "window_start_date": "First day of the calendar-month window this row was exported for (added by PostHog).",
+    "window_end_date": "Last day of the calendar-month window this row was exported for (added by PostHog).",
+}
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "engineers": {
+        "description": "Active allocatable people tracked in Jellyfish, as returned by the people export.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            "id": "Unique Jellyfish identifier for the person.",
+        },
+    },
+    "teams": {
+        "description": "The Jellyfish team hierarchy (top-level teams and their children).",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            "id": "Unique Jellyfish identifier for the team.",
+            "name": "Display name of the team.",
+            "active": "Whether the team is currently active in Jellyfish.",
+            "hierarchy_level": "Depth of the team in the Jellyfish team hierarchy (1 = top level).",
+            "hierarchy_level_name": "Label of the team's hierarchy level as configured in Jellyfish.",
+        },
+    },
+    "work_categories": {
+        "description": "Work categories configured in Jellyfish for grouping delivery work.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            "slug": "Stable identifier for the work category, used to query its contents.",
+            "display_name": "Display name of the work category.",
+        },
+    },
+    "allocations_by_person": {
+        "description": "R&D allocation (FTE effort) per person for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "allocations_by_team": {
+        "description": "R&D allocation (FTE effort) per top-level team for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "allocations_by_investment_category": {
+        "description": "R&D allocation (FTE effort) per investment category for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "company_metrics": {
+        "description": "Company-wide engineering metrics (delivery and DORA-style measures) for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "unlinked_pull_requests": {
+        "description": "Pull requests Jellyfish could not link to an issue, for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "deliverables": {
+        "description": "Deliverables (epics/projects) in each Jellyfish work category, with delivery status and effort.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            "work_category_slug": "Slug of the work category this deliverable was exported from (added by PostHog).",
+            "name": "Display name of the deliverable.",
+            "source_issue_url": "URL of the source issue (e.g. Jira epic) backing the deliverable.",
+            "activity_status": "Delivery activity status of the deliverable (e.g. completed, in progress).",
+            "target_date": "Target completion date for the deliverable.",
+            "teams": "Teams contributing to the deliverable.",
+        },
+    },
+    "allocations_by_work_category": {
+        "description": "R&D allocation (FTE effort) per deliverable within each work category, for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "work_category_slug": "Slug of the work category this row was exported for (added by PostHog).",
+        },
+    },
+    "allocations_by_work_category_person": {
+        "description": "R&D allocation (FTE effort) per deliverable and person within each work category, for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "work_category_slug": "Slug of the work category this row was exported for (added by PostHog).",
+        },
+    },
+    "allocations_by_work_category_team": {
+        "description": "R&D allocation (FTE effort) per deliverable and top-level team within each work category, for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "work_category_slug": "Slug of the work category this row was exported for (added by PostHog).",
+        },
+    },
+    "person_metrics": {
+        "description": "Engineering metrics per engineer for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "person_id": "Jellyfish id of the engineer the metrics are for (added by PostHog when absent).",
+        },
+    },
+    "team_metrics": {
+        "description": "Engineering metrics per team, at every level of the team hierarchy, for each calendar-month window. Pull-request figures only include pull requests linked to an issue that resolves to the team.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "team_id": "Jellyfish id of the team the metrics are for (added by PostHog when absent).",
+        },
+    },
+    "deliverable_scope_and_effort_history": {
+        "description": "Weekly scope and allocated effort history for each deliverable.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            "deliverable_id": "Jellyfish id of the deliverable this history is for (added by PostHog when absent).",
+        },
+    },
+    "team_sprint_summary": {
+        "description": "Issue count and, when available, story points for each sprint of a team.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            "team_id": "Jellyfish id of the team this row was exported for (added by PostHog when absent).",
+        },
+    },
+    "allocations_by_investment_category_person": {
+        "description": "R&D allocation (FTE effort) per investment category and person for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "allocations_by_investment_category_team": {
+        "description": "R&D allocation (FTE effort) per investment category and top-level team for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "allocations_summary_by_investment_category": {
+        "description": "Total FTE amounts per investment category for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "allocations_summary_by_work_category": {
+        "description": "Total FTE amounts per deliverable within each work category for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "work_category_slug": "Slug of the work category this row was exported for (added by PostHog).",
+        },
+    },
+    "ai_company_adoption_analytics": {
+        "description": "Per-tool AI adoption analytics for the whole company (cohort counts and average usage percentage) for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "ai_company_impact_analytics": {
+        "description": "Per-tool AI impact analytics for the whole company (median issue and pull request cycle time, pull request throughput, AI adoption lines) for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {**_WINDOW_COLUMNS},
+    },
+    "ai_team_adoption_analytics": {
+        "description": "Per-tool AI adoption analytics per team (cohort counts and average usage percentage) for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "team_id": "Jellyfish id of the team this row was exported for (added by PostHog when absent).",
+        },
+    },
+    "ai_team_impact_analytics": {
+        "description": "Per-tool AI impact analytics per team (median issue and pull request cycle time, pull request throughput) for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "team_id": "Jellyfish id of the team this row was exported for (added by PostHog when absent).",
+        },
+    },
+    "ai_person_adoption": {
+        "description": "Per-tool AI adoption usage dates per engineer for each calendar-month window.",
+        "docs_url": "https://github.com/Jellyfish-AI/jellyfish-mcp",
+        "columns": {
+            **_WINDOW_COLUMNS,
+            "person_id": "Jellyfish id of the engineer this row was exported for (added by PostHog when absent).",
+        },
+    },
+}

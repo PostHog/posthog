@@ -71,6 +71,7 @@ The simulator demo flows do not run in CI. Run them locally before you merge a c
 - This workflow makes internal builds only. Store submission is owned by Mobile Release.
 - The build message is `<branch>@<commit>`, because EAS cannot read git when it uploads only this directory.
 - eas-cli is pinned in the workflow. Raise it on purpose, after reading its changelog.
+- For managed builds, EAS derives the Xcode scheme from the Expo project name. The production project name generates `PostHogApp`, which avoids the CocoaPods `PostHog` scheme. The native display labels keep the app name users see.
 - It needs a dedicated `MOBILE_BUILD_EXPO_TOKEN` secret only in the `mobile-build` environment. Store keys stay on EAS. See the protected environment setup in [RELEASING.md](RELEASING.md#one-time-hosted-release-setup).
 
 ## Mobile Release

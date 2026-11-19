@@ -2,30 +2,28 @@ import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 
 import { AddIntegrationButton } from 'products/marketing_analytics/frontend/components/AddIntegrationButton'
 
-import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { MarketingAnalyticsTab, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { ConversionGoalFilterButton } from './ConversionGoalFilterButton'
 import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
+import { MarketingAnalyticsOptionsMenu } from './MarketingAnalyticsOptionsMenu'
 
 export const MarketingAnalyticsFilters = ({
     tabs,
@@ -35,16 +33,10 @@ export const MarketingAnalyticsFilters = ({
     searchOnly?: boolean
 }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { compareFilter, dateFilter, shouldFilterTestAccounts, optionsOpen, isAdPerformance } =
-        useValues(marketingAnalyticsLogic)
-    const showSearch = isAdPerformance && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
-    const { currentTeamLoading } = useValues(teamLogic)
-    const { setCompareFilter, setDates, updateFilterTestAccounts, setOptionsOpen } = useActions(marketingAnalyticsLogic)
-    // The setting lives on the project, so flipping it changes what everyone sees.
-    const editRestrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-    })
+    const { compareFilter, dateFilter, optionsOpen, isPerformanceTab, activeTab } = useValues(marketingAnalyticsLogic)
+    const showMetricEditor = !searchOnly && activeTab !== MarketingAnalyticsTab.SEARCH_PERFORMANCE
+    const showSearch = isPerformanceTab && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
+    const { setCompareFilter, setDates, setOptionsOpen } = useActions(marketingAnalyticsLogic)
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -53,12 +45,6 @@ export const MarketingAnalyticsFilters = ({
                 className="[&>div]:flex-wrap [&>div>div]:max-w-full [&>div>div>div]:min-w-0 [&>div>div>div>div]:max-w-full"
                 left={
                     <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
-                        <DateFilter
-                            allowTimePrecision
-                            dateFrom={dateFilter.dateFrom}
-                            dateTo={dateFilter.dateTo}
-                            onChange={setDates}
-                        />
                         <Shortcut
                             name="MarketingAnalyticsRefresh"
                             keybind={[keyBinds.refresh]}
@@ -66,14 +52,22 @@ export const MarketingAnalyticsFilters = ({
                             interaction="click"
                             scope={Scene.MarketingAnalytics}
                         >
-                            <ReloadAll />
+                            <ReloadAll iconOnly />
                         </Shortcut>
+                        <DateFilter
+                            allowTimePrecision
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                            onChange={setDates}
+                        />
+                        <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
                         {!searchOnly && <ConversionGoalFilterButton />}
                         {(showSearch || searchOnly) && <IntegrationFilter />}
                     </div>
                 }
                 right={
                     <>
+                        {/* The bar lays these out right to left, so source order runs from the far right. */}
                         <Shortcut
                             name="MarketingAnalyticsAddIntegration"
                             keybind={[keyBinds.new]}
@@ -88,37 +82,10 @@ export const MarketingAnalyticsFilters = ({
                             onClickOutside={() => setOptionsOpen(false)}
                             placement="bottom-end"
                             overlay={
-                                // Ordered by how often they get touched, so the rarely-changed
-                                // project setting sits last.
-                                <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
-                                    <div>
-                                        <div className="text-muted mb-2 text-xs font-semibold uppercase">
-                                            Comparison
-                                        </div>
-                                        <CompareFilter
-                                            compareFilter={compareFilter}
-                                            updateCompareFilter={setCompareFilter}
-                                        />
-                                    </div>
-                                    {!showSearch && (
-                                        <div>
-                                            <div className="text-muted mb-2 text-xs font-semibold uppercase">
-                                                Integrations
-                                            </div>
-                                            <IntegrationFilter />
-                                        </div>
-                                    )}
-                                    <LemonDivider className="my-0" />
-                                    {/* Only the event side honors this: ad spend comes from the platforms. */}
-                                    <TestAccountFilterSwitch
-                                        fullWidth
-                                        checked={shouldFilterTestAccounts}
-                                        onChange={updateFilterTestAccounts}
-                                        disabledReason={
-                                            editRestrictionReason ?? (currentTeamLoading ? 'Saving…' : undefined)
-                                        }
-                                    />
-                                </div>
+                                <MarketingAnalyticsOptionsMenu
+                                    showMetricEditor={showMetricEditor}
+                                    showIntegrations={!showSearch}
+                                />
                             }
                         >
                             <LemonButton

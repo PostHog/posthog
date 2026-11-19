@@ -5,21 +5,17 @@ from posthog.models import Team, User
 from products.workflows.backend.facade.contracts import AudienceSuggestionsResult
 from products.workflows.backend.services.audience_suggestions import service
 from products.workflows.backend.services.audience_suggestions.service import (
-    FEATURE_FLAG_KEY,
     can_read_email,
     get_audience_suggestion,
     get_audience_suggestions,
-    is_enabled,
     needs_new_generation,
 )
 from products.workflows.backend.tasks.audience_suggestions import generate_audience_suggestions
 
 __all__ = [
-    "FEATURE_FLAG_KEY",
     "can_read_email",
     "get_audience_suggestion",
     "get_audience_suggestions",
-    "is_enabled",
     "needs_new_generation",
     "start_audience_suggestions",
 ]

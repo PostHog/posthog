@@ -4,7 +4,7 @@ description: >
   Configures and runs Depot remote container builds using `depot build` and `depot bake`.
   Use when building Docker images, creating Dockerfiles with Depot, pushing images to registries,
   building multi-platform/multi-arch images (linux/amd64, linux/arm64), debugging container build
-  failures, optimizing Dockerfile layer caching, using docker-bake.hcl or docker-compose builds,
+  failures, cancelling builds, configuring autoscaling, optimizing Dockerfile layer caching, using docker-bake.hcl or docker-compose builds,
   or migrating from `docker build` / `docker buildx build` to Depot. Also use when the user
   mentions depot build, depot bake, container builds, image builds, or asks about Depot's
   build cache, build parallelism, build autoscaling, or ephemeral registry.
@@ -98,6 +98,20 @@ depot build --project <project-id> -t repo/image:tag .
 | `--secret`         | Expose secrets (`id=name[,src=path]`)                                                                                   |
 | `--ssh`            | Expose SSH agent                                                                                                        |
 | `--output` / `-o`  | Custom output (`type=local,dest=path`)                                                                                  |
+
+## Cancel Container Builds
+
+Use `depot build cancel` only when cancellation is requested. Supply an organization API token through `--token` or `DEPOT_TOKEN`; project tokens, reader tokens, legacy login tokens, and CI OIDC credentials cannot cancel builds.
+
+```bash
+depot build cancel <build-id> <another-build-id>
+depot build cancel --all-running --project <project-id> --dry-run
+depot build cancel --all-running --project <project-id> --yes --output json
+```
+
+Choose explicit build IDs or `--all-running --project`, not both. Bulk selection requires an explicit project; `depot.json` and `DEPOT_PROJECT_ID` do not supply it. Preview bulk cancellation with `--dry-run`; use `--yes` only for authorized non-interactive cancellation. Selection excludes builds started afterward.
+
+Cancellation is asynchronous: success means the request was accepted, not that execution stopped. Finished builds are successful no-ops. JSON reports each build's outcome or error; any failed request makes the command fail.
 
 ## `depot bake` — Multi-Image Builds
 
@@ -220,6 +234,15 @@ Autoscaling is disabled by default, so Depot routes a project's builds for each 
 Each builder has an independent cache. Heavy autoscaling can reduce cache efficiency, so try a larger builder first when one build needs more CPU or memory. Autoscaling is available on all plans without an additional fee.
 
 One `depot bake` invocation counts as one build for autoscaling, regardless of its target count. Separate project IDs create separate build requests.
+
+Configure autoscaling from the CLI with an organization API token:
+
+```bash
+depot projects update <project-id> --max-concurrent-builds 3
+depot projects update <project-id> --disable-autoscaling
+```
+
+The positive limit applies per builder instance. The two update flags are mutually exclusive; omitting both preserves the current setting. `depot projects create <name> --max-concurrent-builds 3` enables autoscaling for a new project; creation without the flag leaves autoscaling disabled.
 
 ## Depot Registry
 

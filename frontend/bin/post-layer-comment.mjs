@@ -22,13 +22,45 @@ export function compareLayerReports(report, baseReport) {
 }
 
 // Edge and chain paths come from the PR's own build output, so a crafted file name could carry
-// a newline or an HTML comment delimiter and forge the CI report's own section markers.
+// a newline, an HTML comment delimiter or a backtick, and forge the CI report's markers or markdown.
 const sanitizeForReport = (text) =>
     text
         .replace(/[\r\n]/g, ' ')
+        .replace(/`/g, "'")
         .replace(/<!--/g, '< !--')
         .replace(/-->/g, '-- >')
 const shortName = (file) => sanitizeForReport(file.replace(/^frontend\/src\//, ''))
+const formatEdge = (edge) => `\`${edge.split(' -> ').map(shortName).join(' -> ')}\``
+
+function listEdges(lines, edges) {
+    lines.push(...edges.slice(0, MAX_LISTED).map((edge) => `- ${formatEdge(edge)}`))
+    if (edges.length > MAX_LISTED) {
+        lines.push(`- …and ${edges.length - MAX_LISTED} more.`)
+    }
+    lines.push('')
+}
+
+// A report from before that field existed has no verdict, so it renders as a comparison with the base only.
+function renderBaselineVerdict(lines, verdict) {
+    if (verdict.added.length) {
+        lines.push(
+            `❌ ${verdict.added.length} upward import(s) are not in \`layer-baseline.txt\`, so the layer check fails:`,
+            ''
+        )
+        listEdges(lines, verdict.added)
+        lines.push(
+            'Move the shared code down a layer, or load the higher layer with `lazyWithRetry()` or `retryImport(() => import(...))`.',
+            ''
+        )
+    }
+    if (verdict.fixed.length) {
+        lines.push(
+            `❌ ${verdict.fixed.length} fixed entry(ies) are still in \`layer-baseline.txt\`. Run \`hogli lint:frontend-layers --prune-baseline\` to drop them:`,
+            ''
+        )
+        listEdges(lines, verdict.fixed)
+    }
+}
 
 export function renderLayerSection(report, baseReport, graphUrl) {
     const { added, removed, layers } = compareLayerReports(report, baseReport)
@@ -45,13 +77,18 @@ export function renderLayerSection(report, baseReport, graphUrl) {
         ),
         '',
     ]
+    const verdict = report.baseline
+    const verdictFails = Boolean(verdict && (verdict.added.length || verdict.fixed.length))
+    if (verdictFails) {
+        renderBaselineVerdict(lines, verdict)
+    }
     if (!baseReport) {
         lines.push('ℹ️ No base report, so new and removed imports are not listed.', '')
     }
     for (const edge of added.slice(0, MAX_LISTED)) {
         const [from] = edge.split(' -> ')
         const chain = report.eagerChains?.[from]
-        lines.push(`🟡 New upward import: \`${edge.split(' -> ').map(shortName).join(' -> ')}\``)
+        lines.push(`🟡 New upward import: ${formatEdge(edge)}`)
         if (chain) {
             lines.push(
                 '',
@@ -85,6 +122,10 @@ export function renderLayerSection(report, baseReport, graphUrl) {
     lines.push(
         '<sub>Posted automatically by [check-layers](https://github.com/PostHog/posthog/blob/master/frontend/bin/check-layers.mjs)</sub>'
     )
+    if (verdictFails) {
+        const summary = `${verdict.added.length} import(s) not in the baseline, ${verdict.fixed.length} fixed baseline entry(ies)`
+        return { status: 'fail', summary, body: lines.join('\n') }
+    }
     // Without a base there is no comparison, so a new upward import must not read as a pass.
     if (!baseReport) {
         return { status: 'info', summary: 'no base comparison available', body: lines.join('\n') }

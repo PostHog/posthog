@@ -45,6 +45,7 @@ import {
 import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowBroadcastMoveBanner } from './WorkflowBroadcastMoveBanner'
+import { WorkflowEditorVisitTracker } from './WorkflowEditorVisitTracker'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
@@ -53,6 +54,7 @@ import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
+import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -245,11 +247,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     // A deep link to a tab the flag hides would leave LemonTabs with no active tab and a blank page.
     const activeTab = tabs.some((tab) => tab?.key === currentTab) ? currentTab : 'workflow'
+    const showsBuilder = !editTemplateId && (!isSavedWorkflow || activeTab === 'workflow')
+
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={workflowProps}>
+                {showsBuilder && <WorkflowEditorVisitTracker {...workflowProps} />}
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {isSavedWorkflow && <WorkflowViewOnlyBanner id={props.id!} />}
                 {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}
                 {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
                 {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}

@@ -19,8 +19,10 @@ export const AnnotationsListParams = () => zod.object({
         ),
 })
 
+export const annotationsListQueryLimitMax = 1000
+
 export const AnnotationsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(annotationsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
 })

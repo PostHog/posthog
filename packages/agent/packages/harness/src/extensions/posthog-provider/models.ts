@@ -40,6 +40,7 @@ const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 // mark `off` unsupported until the builtin catalog catches up.
 const THINKING_LEVEL_MAP_OVERRIDES: Record<string, ThinkingLevelMap> = {
   "claude-fable-5-1": { off: null, xhigh: "xhigh", max: "max" },
+  "claude-fable-5-2": { off: null, xhigh: "xhigh", max: "max" },
   "claude-opus-5-5": { off: null, xhigh: "xhigh", max: "max" },
   "claude-sonnet-5-5": { off: null, xhigh: "xhigh", max: "max" },
   "gpt-6.1-sol": {
@@ -328,10 +329,17 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     context_window: 128000,
     supports_vision: false,
   },
+  // Retired, and kept so a saved session pinned to it still restores.
   {
     id: "moonshotai/kimi-k3",
     owned_by: "modal",
     context_window: 262144,
+    supports_vision: false,
+  },
+  {
+    id: "moonshotai/kimi-k3.1-pro",
+    owned_by: "modal",
+    context_window: 1048576,
     supports_vision: false,
   },
   {

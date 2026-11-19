@@ -50,7 +50,6 @@ tools:
             `console_log_capture_enabled` (false means the project does not capture console logs) and `logs_expired`
             (true means the recording is older than the console log retention period).
         feature_flag: mcp-session-recording-console-logs
-        reads_ingested_data: events
     session-recording-delete:
         operation: session_recordings_destroy
         enabled: true
@@ -97,7 +96,6 @@ tools:
             session, or sample recent events for project-wide issues).
         ui_app: session-recording
         hooks: replay/sessionRecordingGetHooks
-        reads_ingested_data: events
         response:
             exclude:
                 - person.properties
@@ -193,4 +191,3 @@ wrappers:
             - response
             - modifiers
         url_prefix: /replay
-        reads_ingested_data: events

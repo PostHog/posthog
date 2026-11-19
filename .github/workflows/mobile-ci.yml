@@ -1,13 +1,13 @@
 name: Mobile CI
 
 # Typecheck, lint, unit tests and release metadata checks for the mobile app.
-# The app is its own pnpm workspace with its own lockfile, so this workflow never
-# installs the repo root workspace.
+# App checks install the standalone mobile workspace. The replay bundle check
+# installs only the two root workspace packages that produce the WebView player.
 #
 # "Mobile CI Pass" reports on every pull request so repository rules can require it.
 # PR housekeeping calls this workflow on each PR event. Change detection skips
-# validation when neither the app nor its imported API types changed. A trigger-level
-# paths filter would leave unrelated PRs waiting for a status that never arrives.
+# validation when the app, its imported API types, and its replay bundle inputs are unchanged.
+# A trigger-level paths filter would leave unrelated PRs waiting for a status that never arrives.
 
 on:
     workflow_call:
@@ -44,6 +44,7 @@ jobs:
             # trigger paths, and the release caller validates its exact commit.
             mobile: ${{ steps.filter.outputs.mobile || 'true' }}
             api_types: ${{ steps.filter.outputs.api_types || 'false' }}
+            replay_bundle: ${{ steps.filter.outputs.replay_bundle || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -68,8 +69,21 @@ jobs:
                           - '!products/mobile/**/*.md'
                           - '.github/workflows/mobile-ci.yml'
                       api_types:
+                          - 'products/posthog_ai/frontend/generated/api.schemas.ts'
                           - 'products/signals/frontend/generated/api.schemas.ts'
                           - 'products/error_tracking/frontend/generated/api.schemas.ts'
+                      replay_bundle:
+                          - 'common/replay-headless/**'
+                          - 'common/replay-shared/**'
+                          - 'products/mobile/src/features/replay/web/**'
+                          - 'patches/**'
+                          - 'package.json'
+                          - 'pnpm-lock.yaml'
+                          - 'pnpm-workspace.yaml'
+                          - '.nvmrc'
+                          - '.gitattributes'
+                          - '.github/actions/setup-pnpm/**'
+                          - '.github/workflows/mobile-ci.yml'
 
     check:
         name: Check mobile
@@ -94,6 +108,7 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: |
                       products/mobile
+                      products/posthog_ai/frontend/generated/api.schemas.ts
                       products/signals/frontend/generated/api.schemas.ts
                       products/error_tracking/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
@@ -174,9 +189,43 @@ jobs:
               if: env.MOBILE_RUN_FULL_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
               run: pnpm release:test
 
+    replay_bundle:
+        name: Check mobile replay bundle
+        needs: changes
+        if: needs.changes.outputs.replay_bundle == 'true'
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/actions/setup-pnpm
+                      .nvmrc
+                      common/replay-headless
+                      common/replay-shared
+                      package.json
+                      patches
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                      products/mobile/src/features/replay/web
+                  sparse-checkout-cone-mode: false
+
+            # Branches that predate the replay player still run the other mobile checks.
+            - name: Set up Node and pnpm
+              if: hashFiles('products/mobile/src/features/replay/web/playerHtml.ts', 'products/mobile/src/features/replay/web/phonePlayer.generated.replay') != ''
+              uses: ./.github/actions/setup-pnpm
+
+            - name: Verify generated WebView player
+              if: hashFiles('products/mobile/src/features/replay/web/playerHtml.ts', 'products/mobile/src/features/replay/web/phonePlayer.generated.replay') != ''
+              run: |
+                  pnpm --filter @posthog/replay-headless... install --frozen-lockfile --ignore-scripts
+                  pnpm --filter @posthog/replay-headless run build:phone --check
+
     mobile_checks:
         name: Mobile CI Pass
-        needs: [changes, check]
+        needs: [changes, check, replay_bundle]
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
@@ -189,7 +238,12 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" ]]; then
+                  if [[ "${{ needs.replay_bundle.result }}" != "success" && "${{ needs.replay_bundle.result }}" != "skipped" ]]; then
+                    echo "Mobile replay bundle verification failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" && "${{ needs.changes.outputs.replay_bundle }}" != "true" ]]; then
                     echo "Mobile checks were skipped (no relevant changes)"
                     exit 0
                   fi

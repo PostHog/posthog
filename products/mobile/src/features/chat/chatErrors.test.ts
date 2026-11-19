@@ -1,4 +1,5 @@
 import { ApiError, NotSignedInError } from '@/api/client'
+import { TransportError } from '@/api/transport'
 
 import { toChatError } from './chatErrors'
 import type { ChatError } from './types'
@@ -86,7 +87,8 @@ describe('chat error mapping', () => {
             new ApiError(502, { error: 'Failed to queue user message for task run' }),
             { kind: 'unavailable', message: "Your message didn't reach the agent. Try again in a moment." },
         ],
-        ['a dropped connection', new TypeError('Network request failed'), { kind: 'network' }],
+        ['a programming error', new TypeError('Network state is undefined'), { kind: 'unknown' }],
+        ['a dropped connection', new TransportError(), { kind: 'network' }],
         ['a signed-out session', new NotSignedInError(), { kind: 'auth' }],
     ])('%s', (_label, error, expected) => {
         expect(toChatError(error)).toMatchObject(expected)

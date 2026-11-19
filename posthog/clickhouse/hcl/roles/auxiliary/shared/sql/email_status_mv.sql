@@ -10,3 +10,4 @@ SELECT
   _offset,
   _partition
 FROM posthog.kafka_email_status
+WHERE status NOT IN ('opened', 'clicked')

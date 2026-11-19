@@ -1,5 +1,5 @@
 import math
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, cast
 
 from django.db import models
 
@@ -298,7 +298,9 @@ class InactivitySettleConfig(BaseModel):
 
 SettleConfig = Annotated[FixedWindowSettleConfig | InactivitySettleConfig, Field(discriminator="strategy")]
 
-_SETTLE_CONFIG_ADAPTER: TypeAdapter[FixedWindowSettleConfig | InactivitySettleConfig] = TypeAdapter(SettleConfig)
+_SETTLE_CONFIG_ADAPTER: TypeAdapter[FixedWindowSettleConfig | InactivitySettleConfig] = TypeAdapter(
+    cast(Any, SettleConfig)
+)
 
 
 class SessionFixedWindowSettleConfig(BaseModel):
@@ -346,7 +348,7 @@ SessionSettleConfig = Annotated[
 ]
 
 _SESSION_SETTLE_CONFIG_ADAPTER: TypeAdapter[SessionFixedWindowSettleConfig | SessionInactivitySettleConfig] = (
-    TypeAdapter(SessionSettleConfig)
+    TypeAdapter(cast(Any, SessionSettleConfig))
 )
 
 # Membership here is what makes a target an aggregate target. `validate_target_config` looks the

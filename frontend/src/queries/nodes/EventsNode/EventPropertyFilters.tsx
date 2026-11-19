@@ -5,6 +5,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { groupsModel } from '~/models/groupsModel'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import {
     EventsNode,
     EventsQuery,
@@ -13,7 +14,7 @@ import {
     SessionsQuery,
     TracesQuery,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isSessionAttributionExplorerQuery, isSessionsQuery } from '~/queries/utils'
+import { isSessionAttributionExplorerQuery, isSessionsQuery } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
 
 interface EventPropertyFiltersProps<

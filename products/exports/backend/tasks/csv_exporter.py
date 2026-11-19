@@ -1,4 +1,5 @@
 import os
+import re
 import csv
 import json
 import datetime
@@ -10,8 +11,9 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, NoReturn, Optional, Protocol
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
+from django.conf import settings
 from django.http import QueryDict
 
 import requests
@@ -24,7 +26,7 @@ from pydantic import BaseModel, ValidationError
 from requests.exceptions import HTTPError
 from rest_framework_csv.renderers import CSVRenderer
 
-from posthog.schema import QuerySchemaRoot
+from posthog.schema import FunnelVizType, NodeKind, QuerySchemaRoot, StepOrderValue
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from posthog.hogql.errors import TableAccessDeniedError
@@ -297,6 +299,63 @@ def _custom_name_column(
     return custom_name if isinstance(custom_name, str) and custom_name else None
 
 
+def _returns_funnel_steps(series_query: Optional[Mapping[str, Any]]) -> bool:
+    # Steps and flow funnels return one row per step. A trends funnel returns conversion over time instead.
+    if not series_query or series_query.get("kind") != NodeKind.FUNNELS_QUERY:
+        return False
+    viz_type = (series_query.get("funnelsFilter") or {}).get("funnelVizType")
+    return viz_type in (None, FunnelVizType.STEPS, FunnelVizType.FLOW)
+
+
+def _funnel_step_series(series_query: Optional[Mapping[str, Any]], step_index: int) -> Optional[Mapping[str, Any]]:
+    if not series_query or series_query.get("kind") != NodeKind.FUNNELS_QUERY:
+        return None
+    # An unordered funnel's step N counts people who completed any N of the series, so no single series matches it.
+    if (series_query.get("funnelsFilter") or {}).get("funnelOrderType") == StepOrderValue.UNORDERED:
+        return None
+    series = series_query.get("series")
+    if not isinstance(series, list) or not 0 <= step_index < len(series):
+        return None
+    node = series[step_index]
+    return node if isinstance(node, Mapping) else None
+
+
+def _funnel_step_action_id(node: Optional[Mapping[str, Any]]) -> str | int | None:
+    if node is None:
+        return None
+    kind = node.get("kind")
+    if kind == NodeKind.EVENTS_NODE:
+        return node.get("event")
+    if kind == NodeKind.ACTIONS_NODE:
+        return node.get("id")
+    if kind == NodeKind.FUNNELS_DATA_WAREHOUSE_NODE:
+        return node.get("table_name")
+    return None
+
+
+def _is_all_events_series(node: Optional[Mapping[str, Any]]) -> bool:
+    return node is not None and node.get("kind") == NodeKind.EVENTS_NODE and node.get("event") is None
+
+
+def _funnel_step_rows(
+    steps: list[Mapping[str, Any]], series_query: Optional[Mapping[str, Any]]
+) -> Iterator[dict[str, Any]]:
+    for position, step in enumerate(steps):
+        # A comparison funnel lists both periods in one list, and `order` restarts at 0 for each period.
+        order = step.get("order")
+        node = _funnel_step_series(series_query, order if isinstance(order, int) else position)
+        name = step.get("custom_name") or step.get("name")
+        action_id = _funnel_step_action_id(node)
+        yield {
+            "name": name or ("All events" if _is_all_events_series(node) else ""),
+            "breakdown_value": _format_breakdown_value(step.get("breakdown_value")),
+            "action_id": "" if action_id is None else action_id,
+            "count": step.get("count", ""),
+            "median_conversion_time (seconds)": step.get("median_conversion_time", ""),
+            "average_conversion_time (seconds)": step.get("average_conversion_time", ""),
+        }
+
+
 def _series_query(query: dict) -> dict:
     # The runner unwraps a visualization node and runs the upgraded query, which stamps `kind` on legacy series nodes.
     upgraded = upgrade(deepcopy(query))
@@ -349,21 +408,11 @@ def _convert_response_to_csv_data(
             # persons modal like
             yield from results[0].get("people")
             return
-        elif isinstance(first_result, list) or first_result.get("action_id"):
+        elif isinstance(first_result, list) or _returns_funnel_steps(series_query):
             multiple_items = results if isinstance(first_result, list) else [results]
             # FUNNELS LIKE
             for items in multiple_items:
-                yield from (
-                    {
-                        "name": x.get("custom_name") or x.get("action_id", ""),
-                        "breakdown_value": _format_breakdown_value(x.get("breakdown_value")),
-                        "action_id": x.get("action_id", ""),
-                        "count": x.get("count", ""),
-                        "median_conversion_time (seconds)": x.get("median_conversion_time", ""),
-                        "average_conversion_time (seconds)": x.get("average_conversion_time", ""),
-                    }
-                    for x in items
-                )
+                yield from _funnel_step_rows(items, series_query)
             return
         elif first_result.get("appearances") and first_result.get("person"):
             # RETENTION PERSONS LIKE
@@ -523,10 +572,21 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         datetime.timedelta(minutes=15),
         token_audience,
     )
+    team_id = exported_asset.team_id
+    project_id = exported_asset.team.project_id
     total = 0
     while total < CSV_EXPORT_LIMIT:
         try:
-            response = make_api_call(access_token, body, limit, method, next_url, path)
+            response = make_api_call(
+                access_token,
+                body,
+                limit,
+                method,
+                next_url,
+                path,
+                team_id=team_id,
+                project_id=project_id,
+            )
         except HTTPError as e:
             # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
             # mid-export, which surfaces as a 404 partway through pagination. Treat that as
@@ -782,6 +842,37 @@ def get_limit_param_key(path: str) -> str:
     return "breakdown_limit" if breakdown is not None else "limit"
 
 
+# Route prefixes the product sends for path-based exports, and the pagination links they return.
+# A prefix match: any GET under the export's own team is allowed, not a fixed set of endpoints.
+_TEAM_SCOPED_EXPORT_PATH = re.compile(r"^/api/(?P<kind>projects|environments)/(?P<id>[0-9]+)/")
+# The legacy cohort route carries no team id; the endpoint resolves the team itself.
+_UNSCOPED_EXPORT_PATHS = (re.compile(r"^/api/cohort/[0-9]+/persons/?$"),)
+
+
+def is_allowed_export_url(request_url: str, team_id: int, project_id: int) -> bool:
+    parsed = urlparse(request_url)
+    site_url = urlparse(settings.SITE_URL)
+    # Compared the way absolute_uri compares them, so host casing in a pagination link doesn't matter.
+    if (parsed.scheme, parsed.hostname, parsed.port) != (site_url.scheme, site_url.hostname, site_url.port):
+        return False
+
+    path = parsed.path
+    if any(segment in (".", "..") for segment in unquote(path).split("/")):
+        return False
+
+    site_path = site_url.path.rstrip("/")
+    if site_path:
+        if not path.startswith(f"{site_path}/"):
+            return False
+        path = path.removeprefix(site_path)
+
+    team_scoped = _TEAM_SCOPED_EXPORT_PATH.match(path)
+    if team_scoped:
+        allowed_ids = (team_id,) if team_scoped["kind"] == "environments" else (team_id, project_id)
+        return int(team_scoped["id"]) in allowed_ids
+    return any(pattern.match(path) for pattern in _UNSCOPED_EXPORT_PATHS)
+
+
 def make_api_call(
     access_token: str,
     body: Any,
@@ -789,8 +880,18 @@ def make_api_call(
     method: str,
     next_url: Optional[str],
     path: str,
+    team_id: int,
+    project_id: int,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
+    if not is_allowed_export_url(request_url, team_id, project_id):
+        logger.warning(
+            "csv_exporter.path_not_allowlisted",
+            team_id=team_id,
+            request_path=urlparse(request_url).path,
+            is_next_url=next_url is not None,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
     url = add_query_params(
         request_url,
         {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"},
@@ -801,7 +902,17 @@ def make_api_call(
         json=body,
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=60,
+        # The allowlist checked only this URL, and a redirect would take the request elsewhere.
+        allow_redirects=False,
     )
+    if 300 <= response.status_code < 400:
+        logger.warning(
+            "csv_exporter.redirect_refused",
+            team_id=team_id,
+            request_path=urlparse(request_url).path,
+            status_code=response.status_code,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
     response.raise_for_status()
     return response
 

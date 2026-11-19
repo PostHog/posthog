@@ -1,9 +1,8 @@
 # HogQL recipes over the GitHub warehouse tables
 
-These base subqueries mirror the product's curated builders
-(`products/engineering_analytics/backend/logic/views/`), so an insight built on them matches what the dashboard and MCP tools report.
-Replace every `github_*` table name (`github_pull_requests`, `github_workflow_runs`, `github_workflow_jobs`, `github_reviews`, `github_team_members`) with the team's real table name from `engineering-analytics-sources` (`prefix` + `github_<endpoint>`).
-The `engineering_analytics_*` views used below have fixed names — no prefix, no discovery.
+These base subqueries follow the product's own query builders, so an insight built on them matches the product's numbers.
+Replace every `github_*` table name with the real table name from `engineering-analytics-sources`.
+The `engineering_analytics_*` views have fixed names and need no replacement.
 
 ## The PR base
 
@@ -32,18 +31,23 @@ FROM (
         ifNull(JSONExtractString(user, 'login'), '') AS author_handle,
         splitByChar('/', ifNull(JSONExtractString(base, 'repo', 'full_name'), '')) AS repo_parts,
         JSONExtractString(head, 'sha') AS head_sha,
+        ifNull(JSONExtractString(head, 'ref'), '') AS head_branch,
         parseDateTimeBestEffort(created_at) AS created_at,
         parseDateTimeBestEffort(merged_at) AS merged_at,
         parseDateTimeBestEffort(closed_at) AS closed_at
     FROM github_pull_requests
 )
+WHERE NOT (startsWith(head_branch, 'trunk-merge/') OR startsWith(head_branch, 'gh-readonly-queue/'))
 ```
 
-The two-layer shape is required: the inner `SELECT` parses string timestamps and `ifNull`-unwraps Nullable JSON;
-the outer derives state, repo identity, and durations.
-Collapsing the layers hits ClickHouse's Array-inside-Nullable rejection and same-`SELECT` alias limits.
+Keep the two layers.
+The inner `SELECT` parses the string timestamps and unwraps the Nullable JSON.
+The outer `SELECT` derives state, repo, and duration from those columns.
 
-## The workflow-runs base
+The `WHERE` drops the temporary PRs a merge queue opens for its gate branches.
+The product also checks that the queue's bot opened the PR, so this filter is slightly wider.
+
+## The workflow runs base
 
 ```sql
 SELECT
@@ -55,6 +59,7 @@ SELECT
     run_started_at,
     run_attempt,
     pr_number,
+    (startsWith(head_branch, 'trunk-merge/') OR startsWith(head_branch, 'gh-readonly-queue/')) AS is_merge_queue,
     if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
     arrayElement(repo_parts, 1) AS repo_owner,
     arrayElement(repo_parts, 2) AS repo_name
@@ -62,11 +67,18 @@ FROM (
     SELECT
         name AS workflow_name,
         head_sha,
-        head_branch,
+        ifNull(head_branch, '') AS head_branch,
         status,
         conclusion,
         run_attempt,
-        JSONExtractInt(arrayElement(JSONExtractArrayRaw(ifNull(pull_requests, '[]')), 1), 'number') AS pr_number,
+        JSONExtractInt(
+            arrayFirst(
+                p -> JSONExtractInt(p, 'base', 'repo', 'id') > 0
+                    AND JSONExtractInt(p, 'base', 'repo', 'id') = ifNull(JSONExtractInt(repository, 'id'), 0),
+                JSONExtractArrayRaw(ifNull(pull_requests, '[]'))
+            ),
+            'number'
+        ) AS pr_number,
         splitByChar('/', ifNull(JSONExtractString(repository, 'full_name'), '')) AS repo_parts,
         parseDateTimeBestEffort(run_started_at) AS run_started_at,
         parseDateTimeBestEffort(updated_at) AS updated_at
@@ -74,10 +86,17 @@ FROM (
 )
 ```
 
-`pr_number` is the first entry of the run's `pull_requests` association, or `0` when there is none (fork PRs, pushes with no open PR); filter `pr_number > 0` before attributing runs to PRs.
-This association, not `head_sha`, is how the product links CI to a PR across all its pushes.
+`pr_number` is the first PR in the run's association whose base repo is the run's own repo.
+It is `0` when there is none, as for fork PRs and default-branch pushes.
+Filter `pr_number > 0` before you attribute runs to PRs.
 
-## Recipe: weekly open→merge time trend
+On a merge-queue gate run, the association names the queue's temporary PR.
+Filter `NOT is_merge_queue` for per-PR metrics.
+For a run's real PR on gate runs and default-branch pushes, use `pr_number` and `commit_pr_number` from `engineering_analytics_ci_job_history`.
+
+This table holds GitHub Actions runs only.
+
+## Weekly open to merge time
 
 ```sql
 WITH prs AS (<PR base>)
@@ -94,12 +113,13 @@ GROUP BY week
 ORDER BY week
 ```
 
-Report p50 and p95 side by side; they move independently. This is "open to merge", not cycle time.
+Show p50 and p95 together.
+Title it "open to merge", not "cycle time".
 
-## Recipe: weekly CI success rate and p95 duration per workflow
+## Weekly CI success rate and p95 duration per workflow
 
 ```sql
-WITH runs AS (<workflow-runs base>)
+WITH runs AS (<workflow runs base>)
 SELECT
     toStartOfWeek(run_started_at) AS week,
     workflow_name,
@@ -116,12 +136,11 @@ HAVING runs >= 5
 ORDER BY week, runs DESC
 ```
 
-The success rate counts `failure`, `timed_out`, `startup_failure`, and `stale` as failures.
-It excludes skipped, cancelled, neutral, and action-required runs because they did not reach a pass-or-fail verdict.
-The duration percentile uses successful runs because cancelled and failed runs end early.
-For a single-workflow tile, add `AND workflow_name = 'CI'` and drop the group.
+The rate counts `failure`, `timed_out`, `startup_failure`, and `stale` as failures.
+It excludes skipped, cancelled, neutral, and action-required runs, because none of them reached a verdict.
+The percentile uses successful runs, because failed and cancelled runs end early.
 
-## Recipe: PR throughput per week
+## PR throughput per week
 
 ```sql
 WITH prs AS (<PR base>)
@@ -137,13 +156,14 @@ GROUP BY week
 ORDER BY week
 ```
 
-## Recipe: open PRs with failing CI right now
+## Open PRs with failing CI now
 
-A PR's current CI status is the latest completed run per `(head_sha, workflow_name)`; this is the one place head SHA is the correct key:
+A PR's current CI status is the latest run per `(head_sha, workflow_name)`.
+This is the one place where the head SHA is the correct key.
 
 ```sql
 WITH prs AS (<PR base>),
-runs AS (<workflow-runs base>),
+runs AS (<workflow runs base>),
 ci AS (
     SELECT
         head_sha,
@@ -163,15 +183,17 @@ INNER JOIN ci ON prs.head_sha = ci.head_sha
 WHERE prs.state = 'open' AND ci.failing > 0
 ```
 
-Drafts and bots stay included here, matching the product's failing-CI card (`ci_cards` only excludes them from the stuck count); add `AND NOT prs.is_draft` only if the user explicitly wants non-draft PRs, and say the number then diverges from the dashboard.
-A `pending`-heavy result can be sync staleness, not real in-flight CI; treat pending as unsettled, never as failure.
+The product's failing-CI count includes drafts and bots, and so does this query.
+If the user wants drafts excluded, add `AND NOT prs.is_draft` and say the number then differs from the product.
 
-## Job-level recipes
+## Job durations and queue times
 
-Durations and queue times are honest SQL over `<prefix>github_workflow_jobs` (`started_at - created_at` is queue wait, `completed_at - started_at` is run time; all string timestamps, parse them).
-**Do not** recompute dollar cost from labels: the runner-tier price ladder lives in product code and drifts; query the `engineering_analytics_job_costs` view instead (below), which renders that model into SQL and is parity-tested against it.
+In `<prefix>github_workflow_jobs`, `started_at` minus `created_at` is the queue wait.
+`completed_at` minus `started_at` is the run time.
+All three are strings, so parse them first.
+For dollar cost, use the view below.
 
-## Recipe: weekly CI cost by workflow (job_costs view)
+## Weekly CI cost by workflow
 
 ```sql
 SELECT
@@ -180,20 +202,20 @@ SELECT
     round(sum(estimated_cost_usd), 2) AS estimated_cost_usd
 FROM engineering_analytics_job_costs
 WHERE created_at >= now() - INTERVAL 60 DAY
+  AND created_at_raw >= toString(toDate(now() - INTERVAL 61 DAY))
 GROUP BY week, workflow_name
 ORDER BY week, estimated_cost_usd DESC
 ```
 
-Grain is one row per job attempt, so `sum` is correct across retries.
-`estimated_cost_usd` is NULL (skipped by `sum`) for non-billable jobs (github-hosted, non-Linux, unclassifiable labels) and for jobs still running; disambiguate a NULL via `provider` (non-billable) vs `completed_at` (unsettled).
-Add `WHERE pr_number = <n>` for one PR's cost — it matches `engineering-analytics-pr-cost`, since the tool reads the same rendered cost SELECT.
-With several connected sources, filter `repo_owner` / `repo_name`.
+- The view has one row per job attempt, so `sum` is correct across retries.
+- `estimated_cost_usd` is null for a job that is not billable, has not finished, or is a re-listed copy of an earlier attempt. `sum` skips nulls.
+- Read `provider`, `completed_at`, and `is_rerun_copy` to tell those three cases apart.
+- The `created_at_raw` floor lets the scan skip old data. Keep the precise `created_at` bound next to it.
+- Add `AND pr_number = <n>` for one PR's cost.
+- `is_merge_queue` separates merge-queue spend.
+- With several connected repos, filter `repo_owner` and `repo_name`.
 
-## Review recipes
-
-In `<prefix>github_reviews`, pending drafts are dropped at sync; `state` is `APPROVED` / `CHANGES_REQUESTED` / `COMMENTED` / `DISMISSED`, and the injected `pr_number` joins to the PR base's `number`.
-
-Weekly time to first review:
+## Weekly time to first review
 
 ```sql
 WITH prs AS (<PR base>),
@@ -215,13 +237,16 @@ GROUP BY week
 ORDER BY week
 ```
 
-Name it "open to first review", not "time in review": this recipe reads the PR snapshot only, so draft time is fused in, same caveat as `open_to_merge_seconds` (ready-for-review timestamps live in `<prefix>github_issue_events`, when synced).
-The reviewer handle is `ifNull(JSONExtractString(user, 'login'), '')` when needed (e.g. to exclude self-reviews by comparing against `author_handle`) — but never build per-reviewer leaderboards.
+Title it "open to first review", because the figure includes draft time.
+The reviews table holds submitted reviews only.
+The reviewer's handle is `ifNull(JSONExtractString(user, 'login'), '')`, which lets you exclude self-reviews.
+Never build a ranking of reviewers.
 
-## Recipe: a team's weekly merge time (team_members table)
+## A team's weekly merge time
 
-`<prefix>github_team_members` maps PR authors to GitHub org teams (every column lands Nullable; drop empty logins — they would match deleted-account authors).
-Attribute PRs to a team with a membership **semi-join**, the shape the product's own team merge trend uses — a plain JOIN would double-count authors who belong to several teams:
+`<prefix>github_team_members` maps GitHub logins to org teams.
+Every column is Nullable.
+Filter PR authors with `IN`, because a plain join double-counts authors who belong to several teams.
 
 ```sql
 WITH prs AS (<PR base>),
@@ -243,10 +268,10 @@ GROUP BY week
 ORDER BY week
 ```
 
-Only team-level aggregates leave the query — no per-member figures, no cross-team rankings.
-Note the namespace: these are GitHub org team slugs, while the `engineering-analytics-team-ci-health` tool groups by the repo's ownership map (`products/*/product.yaml` + CODEOWNERS); a team whose slugs differ across the two won't line up between such insights and that tool.
+Return team aggregates only.
+Do not return per-member figures or rank teams against each other.
 
-## Recipe: distinct CI failures per day (ci_failures view)
+## Distinct CI failures per day
 
 ```sql
 SELECT
@@ -259,7 +284,7 @@ GROUP BY day
 ORDER BY day
 ```
 
-The view reads the Logs product, so its reach is bounded by the short logs retention — fine for a recent-window tile, wrong for long trends.
-Fingerprinting is pytest-only, and the data is failure-only (passing runs are absent), so report absolute counts, never rates.
-To chase a specific failure to a culprit, hand off to the `investigating-ci-failures` skill, which works from this view plus `engineering_analytics_ci_job_history`.
-When windowing `engineering_analytics_ci_job_history`, pair the precise `created_at >= …` filter with a coarse raw floor (`created_at_raw >= '<YYYY-MM-DD>'`, a day below the window) so the parquet scan can prune; a computed-column predicate alone forces a full scan.
+The view reads the Logs product, whose retention is short.
+Use it for a recent window, not for a long trend.
+It holds pytest failures only and no passing runs, so chart counts and never rates.
+To trace one failure to a culprit commit, use the `investigating-ci-failures` skill.

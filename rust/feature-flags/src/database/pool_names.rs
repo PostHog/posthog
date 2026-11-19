@@ -12,3 +12,11 @@ pub const PERSONS_WRITER: &str = "persons_writer";
 pub const NON_PERSONS_READER: &str = "non_persons_reader";
 pub const NON_PERSONS_WRITER: &str = "non_persons_writer";
 pub const BEHAVIORAL_COHORTS: &str = "behavioral_cohorts";
+
+pub const ALL: [&str; 5] = [
+    PERSONS_READER,
+    PERSONS_WRITER,
+    NON_PERSONS_READER,
+    NON_PERSONS_WRITER,
+    BEHAVIORAL_COHORTS,
+];

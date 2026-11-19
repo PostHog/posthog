@@ -9,10 +9,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { hogql } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
+import { isDataTableNode } from '~/queries/schema/node-guards'
 import { DataTableNode, VisualizationNode } from '~/queries/schema/schema-general'
 import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumn } from '~/queries/types'
-import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PersonDisplay, PersonIcon } from 'products/persons/frontend/components/PersonDisplay'

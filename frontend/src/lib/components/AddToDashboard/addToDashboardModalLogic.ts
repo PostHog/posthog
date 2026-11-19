@@ -55,33 +55,62 @@ export interface addToDashboardModalLogicActions {
         dashboardId: number | null
         insight: Partial<InsightModel<Node<Record<string, any>>>> | null
     } // eventUsageLogic
-    updateInsight: (
-        insightUpdate: Partial<InsightModel<Node<Record<string, any>>>>,
+    addInsightToDashboard: (
+        dashboardId: number,
         callback?: (() => void) | undefined
     ) => {
         callback: (() => void) | undefined
-        insightUpdate: Partial<InsightModel<Node<Record<string, any>>>>
+        dashboardId: number
     } // insightLogic
-    updateInsightFailure: (
+    addInsightToDashboardFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     } // insightLogic
-    updateInsightSuccess: (
-        insight: Partial<InsightModel<Node<Record<string, any>>>>,
+    addInsightToDashboardSuccess: (
+        insight: InsightModel<Node<Record<string, any>>>,
         payload?:
             | {
                   callback: (() => void) | undefined
-                  insightUpdate: Partial<InsightModel<Node<Record<string, any>>>>
+                  dashboardId: number
               }
             | undefined
     ) => {
-        insight: Partial<InsightModel<Node<Record<string, any>>>>
+        insight: InsightModel<Node<Record<string, any>>>
         payload?: {
             callback: (() => void) | undefined
-            insightUpdate: Partial<InsightModel<Node<Record<string, any>>>>
+            dashboardId: number
+        }
+    } // insightLogic
+    removeInsightFromDashboard: (
+        dashboardId: number,
+        callback?: (() => void) | undefined
+    ) => {
+        callback: (() => void) | undefined
+        dashboardId: number
+    } // insightLogic
+    removeInsightFromDashboardFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // insightLogic
+    removeInsightFromDashboardSuccess: (
+        insight: InsightModel<Node<Record<string, any>>>,
+        payload?:
+            | {
+                  callback: (() => void) | undefined
+                  dashboardId: number
+              }
+            | undefined
+    ) => {
+        insight: InsightModel<Node<Record<string, any>>>
+        payload?: {
+            callback: (() => void) | undefined
+            dashboardId: number
         }
     } // insightLogic
     showNewDashboardModal: () => {
@@ -140,6 +169,13 @@ export type addToDashboardModalLogicType = MakeLogicType<
     addToDashboardModalLogicMeta
 >
 
+function showDashboardUpdateError(errorObject: unknown): void {
+    // Surface hard rejections (e.g. the target dashboard is publicly shared and the
+    // editor lacks access to this insight's tables) - the modal otherwise fails silently.
+    const detail = (errorObject as { detail?: unknown } | null)?.detail
+    lemonToast.error(typeof detail === 'string' ? detail : 'Could not update dashboards')
+}
+
 export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -148,7 +184,14 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         values: [insightLogic(props), ['insight'], userLogic, ['user']],
         actions: [
             insightLogic(props),
-            ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
+            [
+                'addInsightToDashboard',
+                'addInsightToDashboardSuccess',
+                'addInsightToDashboardFailure',
+                'removeInsightFromDashboard',
+                'removeInsightFromDashboardSuccess',
+                'removeInsightFromDashboardFailure',
+            ],
             eventUsageLogic,
             ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],
             newDashboardLogic,
@@ -171,8 +214,10 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             {
                 addToDashboard: (_, { dashboardId }) => dashboardId,
                 removeFromDashboard: (_, { dashboardId }) => dashboardId,
-                updateInsightSuccess: () => null,
-                updateInsightFailure: () => null,
+                addInsightToDashboardSuccess: () => null,
+                addInsightToDashboardFailure: () => null,
+                removeInsightFromDashboardSuccess: () => null,
+                removeInsightFromDashboardFailure: () => null,
             },
         ],
         _dashboardToNavigateTo: [
@@ -251,49 +296,34 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             actions.setScrollIndex(values.orderedDashboards.findIndex((d) => d.id === dashboard.id))
         },
 
-        updateInsightFailure: ({ errorObject }) => {
-            // Surface hard rejections (e.g. the target dashboard is publicly shared and the
-            // editor lacks access to this insight's tables) - the modal otherwise fails silently.
-            const detail = (errorObject as { detail?: unknown } | null)?.detail
-            lemonToast.error(typeof detail === 'string' ? detail : 'Could not update dashboards')
+        addInsightToDashboardFailure: ({ errorObject }) => {
+            showDashboardUpdateError(errorObject)
+        },
+        removeInsightFromDashboardFailure: ({ errorObject }) => {
+            showDashboardUpdateError(errorObject)
         },
         addToDashboard: async ({ dashboardId }) => {
-            // TODO be able to update not by patching `dashboards` against insight
-            // either patch dashboard_tiles on the insight or add a dashboard_tiles API
-            actions.updateInsight(
-                {
-                    dashboards: [...liveDashboardIds(values.insight.dashboard_tiles), dashboardId],
-                },
-                () => {
-                    actions.reportSavedInsightToDashboard(values.insight, dashboardId)
-                    dashboardsModel.actions.tileAddedToDashboard(dashboardId)
-                    if (values._dashboardToNavigateTo === dashboardId) {
-                        actions.setDashboardToNavigateTo(null)
-                        router.actions.push(urls.dashboard(dashboardId))
-                    } else {
-                        lemonToast.success('Insight added to dashboard', {
-                            button: {
-                                label: 'View dashboard',
-                                action: () => router.actions.push(urls.dashboard(dashboardId)),
-                            },
-                        })
-                    }
+            actions.addInsightToDashboard(dashboardId, () => {
+                actions.reportSavedInsightToDashboard(values.insight, dashboardId)
+                dashboardsModel.actions.tileAddedToDashboard(dashboardId)
+                if (values._dashboardToNavigateTo === dashboardId) {
+                    actions.setDashboardToNavigateTo(null)
+                    router.actions.push(urls.dashboard(dashboardId))
+                } else {
+                    lemonToast.success('Insight added to dashboard', {
+                        button: {
+                            label: 'View dashboard',
+                            action: () => router.actions.push(urls.dashboard(dashboardId)),
+                        },
+                    })
                 }
-            )
+            })
         },
         removeFromDashboard: async ({ dashboardId }): Promise<void> => {
-            actions.updateInsight(
-                {
-                    dashboards: liveDashboardIds(values.insight.dashboard_tiles).filter((d) => d !== dashboardId),
-                    dashboard_tiles: (values.insight.dashboard_tiles || []).filter(
-                        (dt) => dt.dashboard_id !== dashboardId
-                    ),
-                },
-                () => {
-                    actions.reportRemovedInsightFromDashboard(values.insight, dashboardId)
-                    lemonToast.success('Insight removed from dashboard')
-                }
-            )
+            actions.removeInsightFromDashboard(dashboardId, () => {
+                actions.reportRemovedInsightFromDashboard(values.insight, dashboardId)
+                lemonToast.success('Insight removed from dashboard')
+            })
         },
     })),
 ])

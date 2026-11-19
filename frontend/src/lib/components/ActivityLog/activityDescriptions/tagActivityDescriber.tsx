@@ -11,7 +11,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { EntityFilter } from '~/types'
 
 const nameOrId = (name?: string | null, id?: string | null): string => {
     if (name) {
@@ -32,7 +31,7 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
 
     const getDisplayName = (): string => {
         if (objectType === 'event_definition') {
-            return getDisplayNameFromEntityFilter({ name: objectName } as EntityFilter, false) || objectName
+            return getDisplayNameFromEntityFilter({ name: objectName }, false) || objectName
         }
         if (objectType === 'property_definition') {
             return getFilterLabel(objectName, TaxonomicFilterGroupType.EventProperties)

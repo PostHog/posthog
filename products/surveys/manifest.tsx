@@ -25,7 +25,8 @@ export const manifest: ProductManifest = {
             iconType: 'survey',
             href: (ref: string) => urls.survey(ref),
             listHref: () => urls.surveys(),
-            iconColor: ['var(--color-product-surveys-light)'],
+            listSearchParam: 'search',
+            iconColor: ['var(--color-product-surveys-light)', 'var(--color-product-surveys-dark)'],
             filterKey: 'survey',
         },
     },
@@ -35,7 +36,10 @@ export const manifest: ProductManifest = {
             type: 'survey',
             href: urls.surveyWizard('new'),
             iconType: 'survey',
-            iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-surveys-light)',
+                'var(--color-product-surveys-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [
@@ -48,7 +52,10 @@ export const manifest: ProductManifest = {
             searchKeywords: ['feedback', 'nps', 'csat', 'polls'],
             searchTabs: [{ name: 'Notifications', href: urls.surveys('notifications') }],
             iconType: 'survey',
-            iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-surveys-light)',
+                'var(--color-product-surveys-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'Surveys',
             sceneKeys: ['Survey', 'Surveys'],
         },

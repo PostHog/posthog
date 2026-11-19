@@ -24,6 +24,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, is_smtp_email_service_available
+from posthog.helpers.email_utils import email_domain
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -352,6 +353,28 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> MailgunDnsRecords |
     return dns_records
 
 
+def _reregister_expired_sibling_domain(team: Team, domain: str) -> MailgunDnsRecords | None:
+    """Register an unverified sibling's domain again when Mailgun no longer has it.
+
+    The Mailgun domain cleanup removes the registration of a setup that never verified, but keeps its
+    channels. A new registration gets new DNS records, so every channel on the domain gets them too.
+    Returns None when the sibling's records still apply. Raises when Mailgun fails, because the
+    sibling's records are no longer valid.
+    """
+    try:
+        if mailgun_get_domain(domain) is not None:
+            return None
+        dns_records = mailgun_add_domain(domain)
+    except MailgunNotConfigured:
+        return None
+
+    EmailChannel.objects.filter(
+        team__organization_id=team.organization_id, domain=domain, kind=EmailChannelKind.SUPPORT
+    ).update(dns_records=dns_records)
+    logger.info("email_connect_reregistered_expired_domain", team_id=team.id, domain=domain)
+    return dns_records
+
+
 class EmailChannelKindQuerySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=EmailChannelKind.choices,
@@ -583,7 +606,9 @@ class EmailConnectView(APIView):
             if owner.id != user.id and not is_admin:
                 return Response({"error": "You can only connect your own email address."}, status=403)
 
-        domain = from_email.split("@")[1]
+        domain = email_domain(from_email)
+        if domain is None:
+            return Response({"error": "Enter a valid email address, like hello@example.com."}, status=400)
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
         if not inbound_domain:
             return Response(
@@ -618,6 +643,17 @@ class EmailConnectView(APIView):
             )
             if sibling:
                 dns_records = sibling.dns_records
+                if not sibling.domain_verified:
+                    try:
+                        dns_records = _reregister_expired_sibling_domain(team, domain) or dns_records
+                    except Exception:
+                        logger.exception(
+                            "email_connect_reregister_expired_domain_failed", team_id=team.id, domain=domain
+                        )
+                        return Response(
+                            {"error": "Failed to register domain for sending. Please try again later."},
+                            status=502,
+                        )
             else:
                 try:
                     dns_records = mailgun_add_domain(domain)

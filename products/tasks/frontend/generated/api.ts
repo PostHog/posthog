@@ -16,6 +16,7 @@ import type {
     ChannelFeedMessageWriteApi,
     ChannelInstructionsDTOApi,
     ChannelInstructionsWriteApi,
+    ChannelListResponseApi,
     ChannelMembersWriteApi,
     ChannelSetupWriteApi,
     ChannelStarWriteApi,
@@ -28,7 +29,6 @@ import type {
     OnboardingSessionApi,
     OnboardingSessionTestApi,
     OnboardingSessionTestResponseApi,
-    PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
@@ -592,8 +592,8 @@ export const taskChannelsList = async (
     projectId: string,
     params?: TaskChannelsListParams,
     options?: RequestInit
-): Promise<PaginatedChannelDTOListApi> => {
-    return apiMutator<PaginatedChannelDTOListApi>(getTaskChannelsListUrl(projectId, params), {
+): Promise<ChannelListResponseApi> => {
+    return apiMutator<ChannelListResponseApi>(getTaskChannelsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1223,6 +1223,25 @@ export const tasksArtifactsList = async (
     return apiMutator<TaskArtifactsResponseApi>(getTasksArtifactsListUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksCloseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/close/`
+}
+
+/**
+ * Mark an idle task as done. A done task refuses new runs and follow-up messages, so start a new task to keep working on it.
+ * @summary Close a task
+ */
+export const tasksCloseCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksCloseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

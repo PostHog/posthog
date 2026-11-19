@@ -26,8 +26,36 @@ def _mock_response(status_code: int, body: dict, chunks: list[bytes] | None = No
     m = MagicMock(status_code=status_code)
     m.headers = {}
     m.__enter__.return_value = m
-    m.iter_content.return_value = iter(chunks) if chunks is not None else iter([json.dumps(body).encode()])
+    # A fresh iterator per read, so one mock can answer several requests and survive a test rerun.
+    payload = chunks if chunks is not None else [json.dumps(body).encode()]
+    m.iter_content.side_effect = lambda *args, **kwargs: iter(payload)
     return m
+
+
+ME_URL = "https://eu.posthog.com/api/users/@me/"
+INTROSPECT_URL = "https://eu.posthog.com/oauth/introspect/"
+CURRENT_ORG = {
+    "id": "org-current",
+    "name": "Demo Org",
+    "teams": [{"id": 4242, "name": "Demo Team"}, {"id": 4343, "name": "Other Team"}],
+}
+ME = {
+    "team": {"id": 4242, "name": "Demo Team"},
+    "organization": CURRENT_ORG,
+    "organizations": [{"id": "org-current", "name": "Demo Org"}, {"id": "org-internal", "name": "Internal Org"}],
+}
+
+
+def _target_side(responses: dict[str, MagicMock]):
+    # Answer each far-side URL the target endpoint reads; any other URL is a bug in the test.
+    def side_effect(method: str, url: str, **kwargs):
+        return responses[url]
+
+    return side_effect
+
+
+def _introspection(scoped_teams: list[int]) -> MagicMock:
+    return _mock_response(200, {"active": True, "scoped_teams": scoped_teams, "scoped_organizations": []})
 
 
 class TestPostHogConnectionForward:
@@ -251,20 +279,34 @@ class TestPostHogConnectionForward:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_request.assert_not_called()
 
-    def test_forward_requires_caller_token_to_cover_connection_scopes(self, client: HttpClient):
-        # A scoped key that lacks the scopes the connection was granted can't wield the connection.
-        self.integration.config["granted_scopes"] = ["insight:read", "task:write"]
+    @pytest.mark.parametrize(
+        "granted_scopes,caller_scopes,forwarded",
+        [
+            (["insight:read", "task:write"], ["integration:write"], False),
+            (
+                ["task:read", "task:write", "inbox:read", "inbox:write"],
+                ["integration:write", "task:read", "task:write"],
+                True,
+            ),
+            (["task:read", "task:write", "inbox:read", "inbox:write"], ["integration:write", "inbox:write"], False),
+        ],
+    )
+    def test_forward_requires_caller_token_to_cover_connection_scopes(
+        self, client: HttpClient, granted_scopes: list[str], caller_scopes: list[str], forwarded: bool
+    ):
+        self.integration.config["granted_scopes"] = granted_scopes
         self.integration.save()
         client.force_login(self.user)
-        with patch("posthog.api.posthog_connection.get_authenticator_scopes", return_value=["integration:write"]):
+        with patch("posthog.api.posthog_connection.get_authenticator_scopes", return_value=caller_scopes):
             with patch(FORWARD_PATH) as mock_request:
+                mock_request.return_value = _mock_response(200, {"results": []})
                 response = client.post(
                     self._forward_url(),
                     {"method": "GET", "path": "api/projects/2/insights/"},
                     content_type="application/json",
                 )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        mock_request.assert_not_called()
+        assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN)
+        assert mock_request.called == forwarded
 
     def test_forward_refuses_scoped_caller_when_granted_scopes_unknown(self, client: HttpClient):
         # If the target's token response omitted `scope`, `granted_scopes` is empty and we can't bound
@@ -349,7 +391,8 @@ class TestPostHogConnectionForward:
             "team": {"id": 4242, "name": "EU Team"},
             "organization": {"id": "org-uuid", "name": "EU Org"},
         }
-        with patch(FORWARD_PATH, return_value=_mock_response(200, me)) as mock_request:
+        responses = {ME_URL: _mock_response(200, me), INTROSPECT_URL: _introspection([])}
+        with patch(FORWARD_PATH, side_effect=_target_side(responses)):
             response = client.get(self._target_url())
 
         assert response.status_code == status.HTTP_200_OK
@@ -361,7 +404,98 @@ class TestPostHogConnectionForward:
             "region": "EU",
             "base_url": "https://eu.posthog.com",
         }
-        assert mock_request.call_args[0][1] == "https://eu.posthog.com/api/users/@me/"
+
+    @pytest.mark.parametrize(
+        "introspection,project_response,expected",
+        [
+            pytest.param(_introspection([]), None, (4242, "Demo Team", "org-current", "Demo Org"), id="unscoped_token"),
+            pytest.param(
+                _introspection([4242]),
+                None,
+                (4242, "Demo Team", "org-current", "Demo Org"),
+                id="scoped_to_current_project",
+            ),
+            pytest.param(
+                _introspection([4343]),
+                None,
+                (4343, "Other Team", "org-current", "Demo Org"),
+                id="scoped_to_other_project_in_current_org",
+            ),
+            pytest.param(
+                _introspection([1]),
+                _mock_response(200, {"id": 1, "name": "Internal Team", "organization": "org-internal"}),
+                (1, "Internal Team", "org-internal", "Internal Org"),
+                id="scoped_to_project_in_other_org",
+            ),
+        ],
+    )
+    def test_target_uses_the_project_picked_at_consent(
+        self, client: HttpClient, introspection, project_response, expected
+    ):
+        # The token works only in the projects picked at consent. The user's current project on the
+        # far side can be another one, and resolving to it sends every call where the token is refused.
+        client.force_login(self.user)
+        responses = {ME_URL: _mock_response(200, ME), INTROSPECT_URL: introspection}
+        if project_response is not None:
+            responses["https://eu.posthog.com/api/projects/1/"] = project_response
+        with patch(FORWARD_PATH, side_effect=_target_side(responses)):
+            response = client.get(self._target_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert (
+            body["project_id"],
+            body["project_name"],
+            body["organization_id"],
+            body["organization_name"],
+        ) == expected
+
+    @pytest.mark.parametrize(
+        "introspection,project_status,error_fragment",
+        [
+            pytest.param(_introspection([1, 2]), None, "switch to the project you want", id="several_scoped_projects"),
+            pytest.param(_introspection([1]), 403, "switch to project 1", id="scoped_project_unreadable"),
+            pytest.param(
+                _mock_response(503, {"detail": "unavailable"}), None, "could not be read", id="introspection_down"
+            ),
+            pytest.param(
+                _mock_response(200, {"active": False}), None, "could not be read", id="introspection_inactive"
+            ),
+            pytest.param(
+                _mock_response(200, {"active": True, "scoped_teams": ["1"]}),
+                None,
+                "could not be read",
+                id="introspection_malformed",
+            ),
+        ],
+    )
+    def test_target_explains_a_consent_it_cannot_resolve(
+        self, client: HttpClient, introspection, project_status, error_fragment
+    ):
+        client.force_login(self.user)
+        responses = {ME_URL: _mock_response(200, ME), INTROSPECT_URL: introspection}
+        if project_status is not None:
+            responses["https://eu.posthog.com/api/projects/1/"] = _mock_response(project_status, {"detail": "no"})
+        with patch(FORWARD_PATH, side_effect=_target_side(responses)):
+            response = client.get(self._target_url())
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert error_fragment in response.json()["error"]
+
+    def test_target_does_not_cache_an_unknown_consent(self, client: HttpClient):
+        # Caching the current project while introspection is down would keep sending calls where
+        # the token is refused after introspection recovers.
+        client.force_login(self.user)
+        down = {ME_URL: _mock_response(200, ME), INTROSPECT_URL: _mock_response(503, {"detail": "unavailable"})}
+        with patch(FORWARD_PATH, side_effect=_target_side(down)):
+            failed = client.get(self._target_url())
+
+        recovered = {ME_URL: _mock_response(200, ME), INTROSPECT_URL: _introspection([4343])}
+        with patch(FORWARD_PATH, side_effect=_target_side(recovered)):
+            after = client.get(self._target_url())
+
+        assert failed.status_code == status.HTTP_502_BAD_GATEWAY
+        assert after.json()["project_id"] == 4343
 
     @pytest.mark.parametrize(
         "status_code,body",
@@ -385,14 +519,35 @@ class TestPostHogConnectionForward:
         # The connected project's identity changes only on reconnect, so it's cached — a second read
         # must not round-trip to the target again.
         client.force_login(self.user)
-        me = {"team": {"id": 4242, "name": "EU Team"}, "organization": {"id": "org-uuid", "name": "EU Org"}}
-        with patch(FORWARD_PATH, return_value=_mock_response(200, me)) as mock_request:
+        responses = {ME_URL: _mock_response(200, ME), INTROSPECT_URL: _introspection([])}
+        with patch(FORWARD_PATH, side_effect=_target_side(responses)) as mock_request:
             first = client.get(self._target_url())
+            calls_for_first = mock_request.call_count
             second = client.get(self._target_url())
 
         assert first.status_code == status.HTTP_200_OK
         assert second.json() == first.json()
-        assert mock_request.call_count == 1
+        assert mock_request.call_count == calls_for_first
+
+    def test_target_resolves_again_after_a_reconnect(self, client: HttpClient):
+        # A reconnect can pick another project at consent, and the old answer must not outlive it.
+        client.force_login(self.user)
+        with patch(
+            FORWARD_PATH,
+            side_effect=_target_side({ME_URL: _mock_response(200, ME), INTROSPECT_URL: _introspection([])}),
+        ):
+            before = client.get(self._target_url())
+
+        self.integration.config = {**self.integration.config, "refreshed_at": int(time.time()) + 1}
+        self.integration.save()
+        with patch(
+            FORWARD_PATH,
+            side_effect=_target_side({ME_URL: _mock_response(200, ME), INTROSPECT_URL: _introspection([4343])}),
+        ):
+            after = client.get(self._target_url())
+
+        assert before.json()["project_id"] == 4242
+        assert after.json()["project_id"] == 4343
 
     def test_target_survives_a_cache_outage(self, client: HttpClient):
         # Reading the identity fails open if the cache is down — a cache outage can't take the feature
@@ -414,7 +569,10 @@ class TestPostHogConnectionForward:
 
         with patch("posthog.api.posthog_connection.cache.get", side_effect=failing_get):
             with patch("posthog.api.posthog_connection.cache.set", side_effect=failing_set):
-                with patch(FORWARD_PATH, return_value=_mock_response(200, me)):
+                with patch(
+                    FORWARD_PATH,
+                    side_effect=_target_side({ME_URL: _mock_response(200, me), INTROSPECT_URL: _introspection([])}),
+                ):
                     response = client.get(self._target_url())
 
         assert response.status_code == status.HTTP_200_OK

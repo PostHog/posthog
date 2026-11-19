@@ -16,6 +16,7 @@ from redis import exceptions as redis_exceptions
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
     UNREADABLE_JOB_INPUTS_MESSAGE,
     IncrementalFieldValues,
+    KeptTableCorruptError,
     _get_redis,
     count_worker_deaths,
     finalize_desc_sort_incremental_value,
@@ -278,6 +280,11 @@ class TestPersistPrimaryKeys:
 
 
 class TestTrimSourceJobInputs:
+    @pytest.fixture(autouse=True)
+    def _read_inputs_as_stored(self):
+        with read_unsaved_source_inputs_as_stored():
+            yield
+
     @parameterized.expand(
         [
             ("list_is_skipped", ["a", "b"]),
@@ -288,9 +295,9 @@ class TestTrimSourceJobInputs:
     @pytest.mark.asyncio
     async def test_non_dict_job_inputs_is_a_noop(self, _name: str, job_inputs) -> None:
         source = MagicMock(job_inputs=job_inputs, save=MagicMock())
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        pool.assert_not_called()
+        asave.assert_not_awaited()
 
     @parameterized.expand(
         [
@@ -313,11 +320,9 @@ class TestTrimSourceJobInputs:
     @pytest.mark.asyncio
     async def test_json_string_job_inputs_is_decoded_and_saved(self, _name: str, job_inputs, expected) -> None:
         source = MagicMock(job_inputs=job_inputs, save=MagicMock())
-        saved = AsyncMock()
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        assert source.job_inputs == expected
-        saved.assert_awaited_once()
+        asave.assert_awaited_once_with(source, expected)
 
     @parameterized.expand(
         [
@@ -332,28 +337,25 @@ class TestTrimSourceJobInputs:
     @pytest.mark.asyncio
     async def test_unreadable_string_job_inputs_fails_non_retryably(self, _name: str, job_inputs) -> None:
         source = MagicMock(job_inputs=job_inputs, save=MagicMock())
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             with pytest.raises(NonRetryableException) as caught:
                 await trim_source_job_inputs(source)
-        pool.assert_not_called()
+        asave.assert_not_awaited()
         assert str(caught.value.cause) == UNREADABLE_JOB_INPUTS_MESSAGE
 
     @pytest.mark.asyncio
     async def test_dict_job_inputs_is_trimmed_and_saved(self) -> None:
         source = MagicMock(job_inputs={"host": " example.com ", "port": "5432"}, save=MagicMock())
-        saved = AsyncMock()
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        assert source.job_inputs["host"] == "example.com"
-        assert source.job_inputs["port"] == "5432"
-        saved.assert_awaited_once()
+        asave.assert_awaited_once_with(source, {"host": "example.com", "port": "5432"})
 
     @pytest.mark.asyncio
     async def test_dict_job_inputs_without_padding_does_not_save(self) -> None:
         source = MagicMock(job_inputs={"host": "example.com"}, save=MagicMock())
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        pool.assert_not_called()
+        asave.assert_not_awaited()
 
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):
@@ -874,6 +876,19 @@ class TestHandleResetOrFullRefresh:
         # streaming flip fires on the False->True transition).
         assert schema.initial_sync_complete is False
 
+    def test_a_reset_of_a_table_that_holds_history_keeps_the_table(self, team):
+        schema = self._webhook_schema(team)
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), keeps_table=True
+        )
+
+        helper.reset_table.assert_not_awaited()
+        schema.refresh_from_db()
+        assert "reset_pipeline" not in schema.sync_type_config
+        assert schema.sync_type_config.get("incremental_field_last_value") is None
+
     def test_full_refresh_sync_keeps_initial_sync_complete(self, team):
         # The prod regression: routine full-refresh runs cleared the latch at extraction start,
         # and a zero-row run never reaches post-load to re-set it, so the flag read false
@@ -902,19 +917,21 @@ class TestHandleResetOrFullRefresh:
         assert "incremental_field_last_value" not in schema.sync_type_config
 
 
-def _reset_inputs() -> list[tuple[str, bool, bool, str, bool]]:
+def _reset_inputs() -> list[tuple[str, bool, bool, str, bool, bool]]:
     return [
         (
-            f"reset_{reset}_resume_{resume}_{sync_type}_webhook_only_{webhook_only}",
+            f"reset_{reset}_resume_{resume}_{sync_type}_webhook_only_{webhook_only}_keeps_table_{keeps_table}",
             reset,
             resume,
             sync_type,
             webhook_only,
+            keeps_table,
         )
         for reset in (False, True)
         for resume in (False, True)
         for sync_type in (ExternalDataSchema.SyncType.FULL_REFRESH, ExternalDataSchema.SyncType.INCREMENTAL)
         for webhook_only in (False, True)
+        for keeps_table in (False, True)
     ]
 
 
@@ -925,21 +942,35 @@ class TestCorruptionCheckBeforeAReset:
         return schema
 
     def _logger(self) -> MagicMock:
-        return MagicMock(awarning=AsyncMock(), ainfo=AsyncMock(), aexception=AsyncMock(), adebug=AsyncMock())
+        return MagicMock(
+            awarning=AsyncMock(), ainfo=AsyncMock(), aexception=AsyncMock(), adebug=AsyncMock(), aerror=AsyncMock()
+        )
 
     @parameterized.expand(_reset_inputs())
     def test_prediction_matches_what_the_reset_step_does(
-        self, _name: str, reset_pipeline: bool, should_resume: bool, sync_type: str, webhook_only: bool
+        self,
+        _name: str,
+        reset_pipeline: bool,
+        should_resume: bool,
+        sync_type: str,
+        webhook_only: bool,
+        keeps_table: bool,
     ) -> None:
         schema = self._schema(sync_type)
         table_ref = MagicMock(reset_table=AsyncMock())
 
         with patch("products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys"):
             async_to_sync(handle_reset_or_full_refresh)(
-                reset_pipeline, should_resume, schema, table_ref, self._logger(), webhook_only=webhook_only
+                reset_pipeline,
+                should_resume,
+                schema,
+                table_ref,
+                self._logger(),
+                webhook_only=webhook_only,
+                keeps_table=keeps_table,
             )
 
-        predicted = resets_table_before_extraction(reset_pipeline, should_resume, schema, webhook_only)
+        predicted = resets_table_before_extraction(reset_pipeline, should_resume, schema, webhook_only, keeps_table)
         assert predicted is (table_ref.reset_table.await_count == 1)
 
     @parameterized.expand(
@@ -962,6 +993,15 @@ class TestCorruptionCheckBeforeAReset:
 
         assert revived is False
         assert table_ref.is_table_corrupted.await_count == int(expect_open)
+        table_ref.reset_table.assert_not_awaited()
+
+    def test_a_corrupt_table_that_holds_the_only_copy_of_its_data_is_kept_and_stops_the_run(self) -> None:
+        schema = self._schema(ExternalDataSchema.SyncType.INCREMENTAL)
+        table_ref = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
+
+        with pytest.raises(KeptTableCorruptError):
+            async_to_sync(handle_corrupted_delta_log)(schema, MagicMock(), table_ref, self._logger(), keeps_table=True)
+
         table_ref.reset_table.assert_not_awaited()
 
 

@@ -29,8 +29,10 @@ const engineeringAnalyticsBrokenTests = (): ToolBase<
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/broken_tests/`,
                 query: {
+                    branch: params.branch,
                     repo: params.repo,
                     source_id: params.source_id,
+                    test: params.test,
                 },
             })
             return result
@@ -84,13 +86,16 @@ const engineeringAnalyticsFlakyTests = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/flaky_tests/`,
             query: {
+                branch: params.branch,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
+                pr_number: params.pr_number,
                 repo: params.repo,
                 runner: params.runner,
                 source_id: params.source_id,
+                test: params.test,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')

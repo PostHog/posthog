@@ -1,6 +1,6 @@
 import './PlayerInspectorList.scss'
 
-import { range } from 'd3'
+import { range } from 'd3-array'
 import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useRef } from 'react'
 import { List, useDynamicRowHeight, useListRef } from 'react-window'

@@ -254,6 +254,7 @@ class TestMirrorConversation(APIBaseTest):
         assert result.skipped_reason is None
         task = Task.objects.get(id=result.task_id)
         assert task.origin_key == origin_key_for_conversation(self.conversation.id)
+        assert task.idempotency_key == task.origin_key
         assert task.origin_product == Task.OriginProduct.POSTHOG_AI
         assert task.title == "Pageviews chat"
         assert task.title_manually_set is False

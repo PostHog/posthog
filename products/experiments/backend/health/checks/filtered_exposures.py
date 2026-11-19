@@ -3,13 +3,16 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import ExposureTotals, HealthContext
 from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
 from products.experiments.backend.health.skips import (
+    NEEDS_EXPOSURES,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
     CheckSkip,
+    CheckValues,
     not_applicable,
     not_checked,
 )
@@ -17,7 +20,7 @@ from products.experiments.backend.health.skips import (
 # The count without the filter scans the exposure events, so the check runs only on results that look starved.
 FEW_EXPOSURES_LIMIT = 1_000
 # A filter that leaves out the project's own team and testers removes a small share of a live experiment's users.
-# Keeping this share or less means that the filter matches only some users and leaves out everyone else.
+# Keeping less than this share means that the filter matches only some users and leaves out everyone else.
 KEPT_SHARE_THRESHOLD = 10.0  # on the 0-100 scale (10.0 = 10%)
 # While few users are exposed, the project's own team can be most of them, so a small kept share is expected.
 MINIMUM_EXPOSED_WITHOUT_FILTER = 100
@@ -28,6 +31,22 @@ def reads_share_kept_by_test_account_filter(ctx: HealthContext) -> bool:
     exposures, but few. The exposure query counts the exposures without the filter for
     `exposures_removed_by_test_account_filter` only then, because the count scans the exposure events."""
     return ctx.exposures is not None and _skip(ctx, ctx.exposures) is None
+
+
+def test_account_filter_values(ctx: HealthContext) -> CheckValues:
+    exposures = ctx.exposures
+    if exposures is None:
+        return {}
+    values: dict[ExperimentHealthValueKey, int | float | None] = {
+        ExperimentHealthValueKey.EXPOSED_COUNT: exposures.total
+    }
+    exposed = exposures.exposed_without_test_account_filter
+    if exposed is not None:
+        values[ExperimentHealthValueKey.EXPOSED_WITHOUT_TEST_ACCOUNT_FILTER_COUNT] = exposed
+        values[ExperimentHealthValueKey.KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE] = (
+            exposures.total / exposed * 100 if exposed else None
+        )
+    return values
 
 
 def exposures_removed_by_test_account_filter(ctx: HealthContext) -> CheckOutcome:
@@ -43,7 +62,9 @@ def exposures_removed_by_test_account_filter(ctx: HealthContext) -> CheckOutcome
             f"Couldn't check because the {unit}s exposed without the test account filter weren't counted"
         )
     counted = exposures.total
-    if exposed < MINIMUM_EXPOSED_WITHOUT_FILTER or counted * 100 > exposed * KEPT_SHARE_THRESHOLD:
+    if exposed < MINIMUM_EXPOSED_WITHOUT_FILTER:
+        return not_applicable(NEEDS_EXPOSURES)
+    if counted * 100 >= exposed * KEPT_SHARE_THRESHOLD:
         return None
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,

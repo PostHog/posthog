@@ -1,28 +1,5 @@
 import { ApiError } from 'lib/api-error'
 
-// How a wizard sync stream pulls updates. `sse` holds a live EventSource; `polling` re-fetches a REST
-// snapshot on an interval (GROW-118). Toggled by the `onboarding-wizard-sync-mode` flag; `sse` stays
-// the default when the flag is off or unset.
-export type WizardSyncMode = 'sse' | 'polling'
-
-export function resolveWizardSyncMode(flagValue: unknown): WizardSyncMode {
-    return flagValue === 'polling' ? 'polling' : 'sse'
-}
-
-export const DEFAULT_POLLING_INTERVAL_SECS = 3
-const MIN_POLLING_INTERVAL_SECS = 1
-// Also guards against `window.setTimeout` int32 overflow: a delay above 2^31-1 ms fires immediately,
-// which would turn a fat-fingered payload into a tight polling loop across every flagged client.
-export const MAX_POLLING_INTERVAL_SECS = 300
-
-// Resolve the poll cadence from the flag payload's `polling_interval_secs`, falling back to the default
-// and clamping on both ends so a stray payload can neither hammer the endpoint nor stall sync entirely.
-export function resolvePollingIntervalMs(payload: unknown): number {
-    const raw = (payload as { polling_interval_secs?: unknown } | null)?.polling_interval_secs
-    const secs = typeof raw === 'number' && Number.isFinite(raw) ? raw : DEFAULT_POLLING_INTERVAL_SECS
-    return Math.min(MAX_POLLING_INTERVAL_SECS, Math.max(MIN_POLLING_INTERVAL_SECS, secs)) * 1000
-}
-
 // Spread poll ticks ±20% around the base cadence so clients whose runs kicked off together (or whose
 // tabs woke together) don't hit the endpoint in lockstep, avoiding a thundering herd on the API.
 export const POLL_JITTER_RATIO = 0.2
@@ -39,22 +16,6 @@ export const EMPTY_POLLS_BEFORE_BACKOFF = 5
 // 401/403 (access revoked), 404 (deleted), 410 (gone): retrying cannot succeed, stop the loop.
 export function isPermanentPollError(error: unknown): boolean {
     return error instanceof ApiError && [401, 403, 404, 410].includes(error.status ?? 0)
-}
-
-// A native EventSource only auto-reconnects after a cleanly dropped connection. Any non-200 response
-// on a (re)connect leaves it CLOSED for good, and posthog/api/streaming.py requires SSE consumers to
-// schedule their own reconnect from onerror. Consecutive attempts back off exponentially from the
-// base to the cap, with the same jitter as poll ticks so clients dropped together (a deploy, an
-// admission-control rejection wave) do not reconnect in lockstep.
-export const SSE_RECONNECT_BASE_MS = 2_000
-export const SSE_RECONNECT_MAX_MS = 30_000
-
-// Delay before reconnect attempt `attempt` (1-based count of consecutive failures since the last
-// successful open). Non-positive attempts are treated as the first.
-export function sseReconnectDelayMs(attempt: number, random: () => number = Math.random): number {
-    const exponent = Math.max(0, attempt - 1)
-    const baseMs = Math.min(SSE_RECONNECT_BASE_MS * 2 ** exponent, SSE_RECONNECT_MAX_MS)
-    return jitteredIntervalMs(baseMs, random)
 }
 
 export type PollTickOutcome = 'ok' | 'empty' | 'terminal'

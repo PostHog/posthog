@@ -28,24 +28,43 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("project_rate_limit_value", response.json())
         self.assertIn("per_issue_rate_limit_value", response.json())
+        self.assertIs(response.json()["adaptive_ingestion_enabled"], False)
+        self.assertIs(response.json()["ai_issue_summaries_enabled"], False)
 
     def test_update_settings_with_session_auth(self):
         response = self.client.patch(
             f"{self._base_url()}/update_settings/",
-            {"project_rate_limit_value": 5000, "project_rate_limit_bucket_size_minutes": 60},
+            {
+                "project_rate_limit_value": 5000,
+                "project_rate_limit_bucket_size_minutes": 60,
+                "adaptive_ingestion_enabled": True,
+                "ai_issue_summaries_enabled": True,
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["project_rate_limit_value"], 5000)
+        self.assertIs(response.json()["adaptive_ingestion_enabled"], True)
+        self.assertIs(response.json()["ai_issue_summaries_enabled"], True)
 
         settings = ErrorTrackingSettings.objects.get(team=self.team)
+        self.assertIs(settings.adaptive_ingestion_enabled, True)
+        self.assertIs(settings.ai_issue_summaries_enabled, True)
+        retrieved = self.client.get(f"{self._base_url()}/retrieve_settings/").json()
+        self.assertIs(retrieved["adaptive_ingestion_enabled"], True)
+        self.assertIs(retrieved["ai_issue_summaries_enabled"], True)
         self.assertEqual(settings.project_rate_limit_value, 5000)
         self.assertEqual(settings.project_rate_limit_bucket_size_minutes, 60)
 
     def test_update_settings_only_changes_provided_fields(self):
         setup_response = self.client.patch(
             f"{self._base_url()}/update_settings/",
-            {"project_rate_limit_value": 2000, "per_issue_rate_limit_value": 50},
+            {
+                "project_rate_limit_value": 2000,
+                "per_issue_rate_limit_value": 50,
+                "adaptive_ingestion_enabled": True,
+                "ai_issue_summaries_enabled": True,
+            },
             format="json",
         )
         self.assertEqual(setup_response.status_code, status.HTTP_200_OK)
@@ -57,21 +76,46 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["per_issue_rate_limit_value"], 75)
         self.assertEqual(response.json()["project_rate_limit_value"], 2000)
+        self.assertIs(response.json()["adaptive_ingestion_enabled"], True)
+        self.assertIs(response.json()["ai_issue_summaries_enabled"], True)
+
+    @parameterized.expand(
+        [
+            ("turning_on_is_refused", False, True, status.HTTP_400_BAD_REQUEST, False),
+            ("turning_off_is_allowed", True, False, status.HTTP_200_OK, False),
+        ]
+    )
+    def test_ai_issue_summaries_without_ai_approval(self, _name, initially, requested, expected_status, stored):
+        ErrorTrackingSettings.objects.create(team=self.team, ai_issue_summaries_enabled=initially)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.patch(
+            f"{self._base_url()}/update_settings/",
+            {"ai_issue_summaries_enabled": requested},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["attr"], "ai_issue_summaries_enabled")
+        self.assertIs(ErrorTrackingSettings.objects.get(team=self.team).ai_issue_summaries_enabled, stored)
 
     def test_update_settings_clears_limit_with_null(self):
         setup_response = self.client.patch(
             f"{self._base_url()}/update_settings/",
-            {"project_rate_limit_value": 1000},
+            {"project_rate_limit_value": 1000, "adaptive_ingestion_enabled": True},
             format="json",
         )
         self.assertEqual(setup_response.status_code, status.HTTP_200_OK)
         response = self.client.patch(
             f"{self._base_url()}/update_settings/",
-            {"project_rate_limit_value": None},
+            {"project_rate_limit_value": None, "adaptive_ingestion_enabled": False},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["project_rate_limit_value"])
+        self.assertIs(response.json()["adaptive_ingestion_enabled"], False)
 
     @parameterized.expand(
         [

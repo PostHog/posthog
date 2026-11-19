@@ -1,5 +1,4 @@
 import {
-    comparableRecordingFilters,
     splitOngoingRecordings,
     stripSessionIds,
     summarizePlaylistFilters,
@@ -63,6 +62,19 @@ describe('summarizePlaylistFilters()', () => {
                 cohortIdsMapped
             )
         ).toEqual('Pageview & Rageclick & Random action & Pageview & Autocapture')
+    })
+
+    it('names events and actions by custom name and all events, in their order', () => {
+        expect(
+            summarizePlaylistFilters(
+                [
+                    { type: 'events', id: 'signed_up', name: 'signed_up', custom_name: 'Sign ups', order: 2 },
+                    { type: 'events', id: null, name: 'All events', order: 0 },
+                    { type: 'actions', id: 7, name: 'Purchased', order: 1 },
+                ],
+                cohortIdsMapped
+            )
+        ).toEqual('All events & Purchased & Sign ups')
     })
 
     it('summarizes a playlist with one event, one PH person property and one custom property', () => {
@@ -222,24 +234,6 @@ describe('stripSessionIds()', () => {
         ['null', null],
     ])('passes %s through unchanged', (_name, input) => {
         expect(stripSessionIds(input as any)).toBe(input)
-    })
-})
-
-describe('comparableRecordingFilters()', () => {
-    it.each([
-        [
-            'drops recommended_only when the list wrote it back as false',
-            { recommended_only: false, date_from: '-7d' },
-            { date_from: '-7d' },
-        ],
-        [
-            'keeps recommended_only when it is on',
-            { recommended_only: true, date_from: '-7d' },
-            { recommended_only: true, date_from: '-7d' },
-        ],
-        ['drops session ids', { session_ids: ['a'], date_from: '-7d' }, { date_from: '-7d' }],
-    ])('%s', (_, filters, expected) => {
-        expect(comparableRecordingFilters(filters as any)).toEqual(expected)
     })
 })
 

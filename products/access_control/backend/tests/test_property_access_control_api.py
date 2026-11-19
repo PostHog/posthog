@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, PropertyDefinition
+from posthog.models import Organization
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.test.persons import create_person
 
@@ -11,6 +11,7 @@ from products.access_control.backend.facade.api import team_has_property_access_
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def _enable_property_access_control(organization: Organization, *, role_based_access: bool = False) -> None:

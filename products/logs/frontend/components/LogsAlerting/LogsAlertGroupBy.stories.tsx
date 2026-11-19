@@ -2,6 +2,8 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import type { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertTrigger } from './LogsAlertForm'
@@ -65,6 +67,7 @@ const meta: Meta = {
         layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-10-19',
+        featureFlags: [FEATURE_FLAGS.LOGS_ALERTS_GROUPING],
         // The simulation placeholder draws skeletons as decoration, so they never disappear.
         testOptions: { waitForLoadersToDisappear: false },
     },

@@ -468,6 +468,109 @@ async fn test_insert_cohort_members_idempotent(
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::subset_across_chunks(120, 70)]
+#[case::empty_input(5, 0)]
+#[tokio::test]
+async fn test_delete_cohort_members_by_person_ids(
+    #[case] members: usize,
+    #[case] to_delete: usize,
+) {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 7710;
+    let other_cohort_id: i64 = 7711;
+
+    // Every person is in two cohorts, so a delete that ignores cohort_id empties the other one.
+    let mut person_ids = Vec::new();
+    for i in 0..members {
+        let p = ctx
+            .insert_person(&format!("cohort_delete_{i}@example.com"), None)
+            .await
+            .expect("insert person");
+        ctx.add_person_to_cohort(p.id, cohort_id)
+            .await
+            .expect("add to cohort");
+        ctx.add_person_to_cohort(p.id, other_cohort_id)
+            .await
+            .expect("add to other cohort");
+        person_ids.push(p.id);
+    }
+    let (stale, kept) = person_ids.split_at(to_delete);
+
+    let deleted = ctx
+        .storage
+        .delete_cohort_members_by_person_ids(cohort_id, stale)
+        .await
+        .expect("delete cohort members");
+
+    assert_eq!(deleted, to_delete as i64);
+    assert_eq!(cohort_row_count(&ctx.pool, cohort_id, stale).await, 0);
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, kept).await,
+        kept.len() as i64
+    );
+    assert_eq!(
+        cohort_row_count(&ctx.pool, other_cohort_id, &person_ids).await,
+        members as i64
+    );
+
+    let retried = ctx
+        .storage
+        .delete_cohort_members_by_person_ids(cohort_id, stale)
+        .await
+        .expect("retry delete");
+    assert_eq!(retried, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::repeat_in_second_chunk(55, 1, 0)]
+#[case::partial_overlap_in_second_chunk(80, 10, 20)]
+#[tokio::test]
+async fn test_delete_cohort_members_by_person_ids_with_repeats_across_chunks(
+    #[case] members: usize,
+    #[case] repeated_from_first: usize,
+    #[case] extra_distinct: usize,
+) {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 7712;
+    let first_chunk = common::BULK_CHUNK_SIZE;
+
+    let mut person_ids = Vec::with_capacity(members);
+    for i in 0..members {
+        let p = ctx
+            .insert_person(&format!("cohort_repeat_delete_{i}@example.com"), None)
+            .await
+            .expect("insert person");
+        ctx.add_person_to_cohort(p.id, cohort_id)
+            .await
+            .expect("add to cohort");
+        person_ids.push(p.id);
+    }
+
+    let distinct_to_delete = first_chunk + extra_distinct;
+    let mut stale = person_ids[..first_chunk].to_vec();
+    stale.extend_from_slice(&person_ids[..repeated_from_first]);
+    stale.extend_from_slice(&person_ids[first_chunk..distinct_to_delete]);
+    let kept = &person_ids[distinct_to_delete..];
+
+    let deleted = ctx
+        .storage
+        .delete_cohort_members_by_person_ids(cohort_id, &stale)
+        .await
+        .expect("delete cohort members with repeats");
+
+    assert_eq!(deleted, distinct_to_delete as i64);
+    assert_eq!(cohort_row_count(&ctx.pool, cohort_id, &stale).await, 0);
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, kept).await,
+        kept.len() as i64
+    );
+
+    ctx.cleanup().await.ok();
+}
+
 #[tokio::test]
 async fn test_delete_persons_clears_cohort_memberships() {
     // posthog_cohortpeople has no FK to posthog_person (no DB cascade), so the
@@ -5245,6 +5348,12 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
     ctx.add_distinct_id_to_person(q.id, "w_q_same")
         .await
         .unwrap();
+    ctx.add_distinct_id_to_person(q.id, "w_q_tomb")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(q.id, "w_q_named_stray")
+        .await
+        .unwrap();
     ctx.add_distinct_id_to_person(p.id, "w_p_gone")
         .await
         .unwrap();
@@ -5259,6 +5368,29 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
     };
     let s = ctx.insert_person("w_s", None).await.unwrap();
     ctx.tombstone_person(s.id, None).await.unwrap();
+    let s2 = ctx.insert_person("w_s2", None).await.unwrap();
+    ctx.add_distinct_id_to_person(s2.id, "w_stray")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(s2.id, "w_stray_done")
+        .await
+        .unwrap();
+    ctx.tombstone_person(s2.id, Some("w_stray")).await.unwrap();
+    ctx.add_distinct_id_to_person(s2.id, "w_stray_high")
+        .await
+        .unwrap();
+    sqlx::query("UPDATE posthog_persondistinctid SET version = 7 WHERE team_id = $1 AND distinct_id = 'w_stray_high'")
+        .bind(ctx.team_id)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    let s3 = ctx.insert_person("w_s3", None).await.unwrap();
+    ctx.add_distinct_id_to_person(s3.id, "w_stray_expect")
+        .await
+        .unwrap();
+    ctx.tombstone_person(s3.id, Some("w_stray_expect"))
+        .await
+        .unwrap();
 
     let write =
         |distinct_id: &str, action, person: &common::TestPerson, min_version, expected_version| {
@@ -5270,7 +5402,7 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
                 expected_version,
             }
         };
-    use DistinctIdWriteAction::{Insert, Raise};
+    use DistinctIdWriteAction::{Insert, Raise, Tombstone};
     use DistinctIdWriteOutcome::{Applied, PersonNotLive, PreconditionFailed, Unchanged};
     let writes = vec![
         write("w_new", Insert, &p, 5, None),
@@ -5284,6 +5416,13 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
         write("w_on_missing", Insert, &ghost, 5, None),
         write("w_s", Insert, &p, 5, None),
         write("w_p_gone", Raise, &p, 5, None),
+        write("w_stray", Tombstone, &s2, 5, Some(0)),
+        write("w_stray_done", Tombstone, &s2, 1, None),
+        write("w_stray_expect", Tombstone, &s3, 0, Some(7)),
+        write("w_q_tomb", Tombstone, &q, 10, None),
+        write("w_q_named_stray", Tombstone, &s2, 10, None),
+        write("w_stray_high", Tombstone, &s2, 2, None),
+        write("w_s2", Tombstone, &s2, 5, None),
     ];
 
     let results = ctx
@@ -5318,6 +5457,21 @@ async fn test_write_distinct_ids_applies_each_write_only_from_its_expected_state
             ("w_on_missing", PersonNotLive, None),
             ("w_s", PreconditionFailed, Some((s.id, 1, true))),
             ("w_p_gone", PreconditionFailed, Some((p.id, 2, true))),
+            ("w_stray", Applied, Some((s2.id, 5, true))),
+            ("w_stray_done", Unchanged, Some((s2.id, 1, true))),
+            (
+                "w_stray_expect",
+                PreconditionFailed,
+                Some((s3.id, 0, false))
+            ),
+            ("w_q_tomb", PreconditionFailed, Some((q.id, 0, false))),
+            (
+                "w_q_named_stray",
+                PreconditionFailed,
+                Some((q.id, 0, false))
+            ),
+            ("w_stray_high", Applied, Some((s2.id, 8, true))),
+            ("w_s2", PreconditionFailed, Some((s2.id, 1, true))),
         ]
     );
     let marks_left: i64 =

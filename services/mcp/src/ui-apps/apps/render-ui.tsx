@@ -10,38 +10,44 @@ import { AppErrorState } from '../components/AppErrorState'
 import { AppLoadingState } from '../components/AppLoadingState'
 import { AppWrapper } from '../components/AppWrapper'
 import { RENDER_DISPATCH } from '../generated/render-dispatch.generated'
+import { APP_DATA_META_KEY } from '../types'
 import { loadRenderUiData } from './render-ui-data'
 
 /**
  * Envelope emitted by the `render-ui` server tool. It carries the tool to render
- * and its input — never the data itself. This app fetches the data via
- * `callServerTool` (the same path the list apps use for drill-down) and mounts
- * the matching view from the generated dispatch registry.
+ * and its input, plus the data for Cursor. Otherwise the data arrives preloaded on the result's
+ * app-only `_meta`, or the app fetches it via `callServerTool`, then mounts the
+ * matching view from the generated dispatch registry.
  */
 interface RenderUiEnvelope {
     tool_name: string
     tool_input?: Record<string, unknown>
     app_key: UiAppKey
+    [APP_DATA_META_KEY]?: unknown
 }
 
 function RenderUiApp(): JSX.Element {
     return (
         <AppWrapper<RenderUiEnvelope> appName="PostHog Render UI">
-            {({ data, app, openLink }) => <RenderUiContent envelope={data!} app={app} openLink={openLink} />}
+            {({ data, resultMeta, app, openLink }) => (
+                <RenderUiContent envelope={data!} resultMeta={resultMeta} app={app} openLink={openLink} />
+            )}
         </AppWrapper>
     )
 }
 
 function RenderUiContent({
     envelope,
+    resultMeta,
     app,
     openLink,
 }: {
     envelope: RenderUiEnvelope
+    resultMeta: Record<string, unknown> | null
     app: App | null
     openLink: (url: string) => void
 }): JSX.Element {
-    const [data, setData] = useState<unknown>(null)
+    const [loaded, setLoaded] = useState<unknown>(null)
     const [error, setError] = useState<{
         reason: string
         message: string
@@ -54,18 +60,23 @@ function RenderUiContent({
     const toolName = envelope.tool_name
     const appKey = envelope.app_key
     const toolInputJson = JSON.stringify(envelope.tool_input ?? {})
+    const preloaded = envelope[APP_DATA_META_KEY] ?? null
+    const isPreloaded = preloaded !== null
     useEffect(() => {
         capture('mcp_ui_app_render_requested', { rendered_tool_name: toolName, app_key: envelope.app_key })
     }, [toolName, envelope.app_key])
     useEffect(() => {
+        if (isPreloaded) {
+            return
+        }
         if (!app) {
             setError({ reason: 'no_app', message: 'Visualization unavailable: app context not provided.' })
             return
         }
         let cancelled = false
-        setData(null)
+        setLoaded(null)
         setError(null)
-        loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey)
+        loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey, resultMeta)
             .then((result) => {
                 if (cancelled) {
                     return
@@ -74,7 +85,7 @@ function RenderUiContent({
                     setError({ reason: 'tool_error', message: `Could not load data for ${toolName}.` })
                     return
                 }
-                setData(result.structuredContent)
+                setLoaded(result.structuredContent)
             })
             .catch((e: unknown) => {
                 if (!cancelled) {
@@ -91,7 +102,7 @@ function RenderUiContent({
         return () => {
             cancelled = true
         }
-    }, [app, toolName, toolInputJson, appKey])
+    }, [app, toolName, toolInputJson, appKey, resultMeta, isPreloaded])
 
     const render = RENDER_DISPATCH[envelope.app_key]
     const failureReason = render ? error?.reason : 'no_visualization'
@@ -115,6 +126,7 @@ function RenderUiContent({
     if (error) {
         return <AppErrorState message={error.message} />
     }
+    const data = preloaded ?? loaded
     if (data === null) {
         return <AppLoadingState />
     }

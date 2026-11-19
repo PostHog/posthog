@@ -1,11 +1,68 @@
-import { Meta, StoryObj } from '@storybook/react'
-import { router } from 'kea-router'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { PersonsTabType } from '~/types'
+
+import { createInitialFlagCallsPayload } from '../personFlagCallsQuery'
+
+const PERSON_ID = '741cc6c0-7c48-55f2-9b58-1b648a381c9e'
+
+const FLAG_CALL_COLUMNS = (createInitialFlagCallsPayload(PERSON_ID).source as { select: string[] }).select
+
+const FLAG_CALLS = [
+    {
+        flag: 'new-onboarding-flow',
+        response: 'test',
+        url: 'https://example.com/welcome',
+        lib: 'web',
+        timestamp: '2023-07-03T22:41:12.000000Z',
+    },
+    {
+        flag: 'pricing-page-v2',
+        response: true,
+        url: 'https://example.com/pricing',
+        lib: 'web',
+        timestamp: '2023-07-03T22:40:58.000000Z',
+    },
+    {
+        flag: 'billing-api-rewrite',
+        response: false,
+        url: null,
+        lib: 'posthog-python',
+        timestamp: '2023-07-03T21:12:03.000000Z',
+    },
+]
+
+function flagCallRow(call: (typeof FLAG_CALLS)[number], index: number): any[] {
+    const properties: Record<string, any> = {
+        $feature_flag: call.flag,
+        $feature_flag_response: call.response,
+        $lib: call.lib,
+        ...(call.url ? { $current_url: call.url } : {}),
+    }
+    const valueByColumn: Record<string, any> = {
+        '*': {
+            uuid: `0189a1b2-0000-0000-0000-00000000000${index}`,
+            event: '$feature_flag_called',
+            distinct_id: 'example-distinct-id',
+            timestamp: call.timestamp,
+            properties,
+            elements_chain: '',
+        },
+        'properties.$feature_flag': call.flag,
+        'properties.$feature_flag_response': call.response,
+        'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen': call.url,
+        'properties.$lib': call.lib,
+        timestamp: call.timestamp,
+    }
+    return FLAG_CALL_COLUMNS.map((column) => valueByColumn[column])
+}
 
 const meta: Meta = {
     title: 'Scenes-App/People/Person',
@@ -91,12 +148,18 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const query = ((await request.json()) as any)?.query
+                    if (query?.kind === 'EventsQuery' && query.event === '$feature_flag_called') {
+                        return [
+                            200,
+                            {
+                                columns: FLAG_CALL_COLUMNS,
+                                hasMore: false,
+                                results: FLAG_CALLS.map(flagCallRow),
+                            },
+                        ]
+                    }
                     // Check if it's a DataTableNode query, which is used for Events/Exceptions tabs
-                    if (
-                        query &&
-                        query.kind === 'HogQLQuery' &&
-                        query.values.id === '741cc6c0-7c48-55f2-9b58-1b648a381c9e'
-                    ) {
+                    if (query && query.kind === 'HogQLQuery' && query.values.id === PERSON_ID) {
                         return [
                             200,
                             {
@@ -135,18 +198,31 @@ export default meta
 
 type Story = StoryObj<{}>
 
+// `pageUrl`, not a delayed push, so the scene chunk has loaded before the runner checks for loaders.
 export const PersonNotFound: Story = {
-    render: () => {
-        useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('not-found')))
-
-        return <App />
-    },
+    render: () => <App />,
+    parameters: { pageUrl: urls.personByUUID('not-found') },
 }
 
 export const Person: Story = {
-    render: () => {
-        useDelayedOnMountEffect(() => router.actions.push(urls.personByUUID('741cc6c0-7c48-55f2-9b58-1b648a381c9e')))
+    render: () => <App />,
+    parameters: { pageUrl: urls.personByUUID(PERSON_ID) },
+}
 
-        return <App />
+export const PersonFlagCalls: Story = {
+    render: () => <App />,
+    decorators: [
+        (Story) => {
+            teamLogic.mount()
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_calls_only_in_flag_evaluations: true,
+            })
+            return <Story />
+        },
+    ],
+    parameters: {
+        pageUrl: `${urls.personByUUID(PERSON_ID)}#activeTab=${PersonsTabType.FLAG_CALLS}`,
+        testOptions: { waitForSelector: 'text=new-onboarding-flow', snapshotBrowsers: [] },
     },
 }

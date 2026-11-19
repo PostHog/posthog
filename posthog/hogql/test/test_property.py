@@ -3,7 +3,7 @@ from typing import Any, Literal, Optional, Union, cast
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
@@ -45,15 +45,17 @@ from posthog.hogql.visitor import TraversingVisitor, clear_locations
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
-from posthog.models import Property, PropertyDefinition, Team
+from posthog.models import Property, Team
+from posthog.models.event import MAX_SELECTOR_LENGTH
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr
 from posthog.utils import relative_date_parse
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
@@ -489,8 +491,8 @@ class TestProperty(BaseTest):
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_property_to_expr_event_dotted_key_reads_one_flat_path(self):
-        # A filter key is one property name however many dots it holds, so the native read must bind the escaped
-        # path name rather than descend into `properties.a.b`.
+        # A filter key is one property name however many dots it holds, so the native read must take the escaped
+        # path name as one segment rather than descend into `properties.a.b`.
         expr = self._property_to_expr({"type": "event", "key": "a.b", "value": "x"})
         self.assertEqual(expr, self._parse_expr("properties.`a.b` = 'x'"))
 
@@ -501,12 +503,12 @@ class TestProperty(BaseTest):
         )
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
-        self.assertIn("getSubcolumn(events.properties, %(hogql_val_", sql)
+        self.assertIn("events.properties.`a\\x252Eb`", sql)
         self.assertNotIn("events.properties.a", sql)
-        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb"})
+        self.assertEqual(set(context.values.values()), {"x"})
 
     def test_property_string_expr_reads_dotted_key_as_one_flat_path_on_native_table(self):
-        # Raw-SQL readers must bind the escaped path name like the printer does, and stay safe for callers that
+        # Raw-SQL readers spell the escaped path name inline like the printer does, and stay safe for callers that
         # run the SQL through `%` parameter substitution.
         expr, _ = get_property_string_expr("events", "a.b", "'a.b'", "properties", use_new_events_schema=True)
         self.assertNotIn("%", expr)
@@ -967,6 +969,17 @@ class TestProperty(BaseTest):
             clear_locations(elements_chain_match("(^|;)a(\\.|$|;|:)")),
         )
 
+    def test_selector_to_expr_length_cap(self):
+        long_id = "a" * (MAX_SELECTOR_LENGTH - len("[id='']"))
+        self.assertEqual(
+            self._selector_to_expr(f"[id='{long_id}']"),
+            clear_locations(
+                parse_expr("indexOf(elements_chain_ids, {value}) > 0", {"value": ast.Constant(value=long_id)})
+            ),
+        )
+        with self.assertRaises(QueryError):
+            self._selector_to_expr("a" * (MAX_SELECTOR_LENGTH + 1))
+
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
@@ -1220,11 +1233,10 @@ class TestProperty(BaseTest):
         assert "pdi" not in sql
 
     def test_entity_to_expr_actions_type_with_id(self):
-        action_mock = MagicMock()
-        with patch("products.actions.backend.models.action.Action.objects.get", return_value=action_mock):
-            entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
-            result = entity_to_expr(entity, self.team)
-            self.assertIsInstance(result, ast.Expr)
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
+        entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": action.id})
+        result = entity_to_expr(entity, self.team)
+        self.assertIsInstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
@@ -2475,9 +2487,9 @@ class TestProperty(BaseTest):
             self._property_to_expr(self._behavioral_filter(event_type="actions", key="999999"))
 
     def test_behavioral_performed_event_with_action(self):
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
         self.assertEqual(
-            self._property_to_expr(self._behavioral_filter(event_type="actions", key=str(action.pk))),
+            self._property_to_expr(self._behavioral_filter(event_type="actions", key=str(action.id))),
             self._parse_expr(
                 "person_id IN (SELECT person_id FROM events WHERE {action}"
                 " AND timestamp > now() - toIntervalDay(30) GROUP BY person_id)",
@@ -2487,14 +2499,16 @@ class TestProperty(BaseTest):
 
     def test_behavioral_property_in_action_step_raises(self):
         # Compiling one would re-enter action_to_expr until Python's recursion limit
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}])
-        action.steps_json = [
-            {
-                "event": "$pageview",
-                "properties": [self._behavioral_filter(event_type="actions", key=str(action.pk))],
-            }
-        ]
-        action.save()
+        action = create_action(team=self.team, steps_json=[{"event": "$pageview"}])
+        action = update_action(
+            action,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [self._behavioral_filter(event_type="actions", key=str(action.id))],
+                }
+            ],
+        )
         with self.assertRaises(QueryError):
             action_to_expr(action)
 

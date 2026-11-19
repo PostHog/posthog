@@ -22,6 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sceneRenderedLogic } from 'lib/logic/sceneRenderedLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { retryWithBackoff } from 'lib/utils/async'
 import { toParams } from 'lib/utils/url'
@@ -167,6 +168,7 @@ export interface sidePanelNotificationsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentOrganization: OrganizationType | null // organizationLogic
     currentProjectId: number | null // projectLogic
+    sceneHasRendered: boolean // sceneRenderedLogic
     sceneSidePanelContext: SidePanelSceneContext // sidePanelContextLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
@@ -208,6 +210,9 @@ export interface sidePanelNotificationsLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    sceneRendered: () => {
+        value: true
+    } // sceneRenderedLogic
     loadCurrentTeamSuccess: (
         currentTeam: TeamPublicType | null,
         payload?: any
@@ -276,6 +281,9 @@ export interface sidePanelNotificationsLogicActions {
         payload?: {
             onlyUnread: any
         }
+    }
+    loadInitialNotifications: () => {
+        value: true
     }
     loadMoreArchived: () => {
         value: true
@@ -436,11 +444,21 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             ['currentTeam', 'currentTeamId'],
             organizationLogic,
             ['currentOrganization'],
+            sceneRenderedLogic,
+            ['sceneHasRendered'],
         ],
-        actions: [teamLogic, ['loadCurrentTeamSuccess'], resourceEditedLogic, ['resourceEdited']],
+        actions: [
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+            resourceEditedLogic,
+            ['resourceEdited'],
+            sceneRenderedLogic,
+            ['sceneRendered'],
+        ],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
+        loadInitialNotifications: true,
         incrementErrorCount: true,
         clearErrorCount: true,
         markAllAsRead: true,
@@ -666,6 +684,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             null as ChangesResponse | null,
             {
                 loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
+                    // With real-time notifications, the panel and the unread badge read the in-app list instead.
+                    if (values.realTimeNotificationsEnabled) {
+                        return values.importantChanges
+                    }
                     await breakpoint(1)
 
                     try {
@@ -771,6 +793,32 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         }
 
         return {
+            // Notifications show in a badge and a side panel, not in the scene, so the scene's requests go first.
+            sceneRendered: () => {
+                if (values.realTimeNotificationsEnabled) {
+                    actions.loadInitialNotifications()
+                }
+            },
+            loadInitialNotifications: async () => {
+                try {
+                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
+                        limit: NOTIFICATION_PAGE_SIZE,
+                    })
+                    actions.setInAppNotifications(resp.results as InAppNotification[], !!resp.next)
+                } catch {
+                    // Swallow
+                }
+                try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                    const countResp = await api.get<{ count: number }>(
+                        `api/projects/${values.currentProjectId}/notifications/unread_count/`
+                    )
+                    actions.setInAppUnreadCount(countResp.count)
+                } catch {
+                    // Swallow
+                }
+                actions.initialLoadDone()
+            },
             togglePolling: ({ pageIsVisible }) => {
                 if (values.realTimeNotificationsEnabled) {
                     return
@@ -1321,26 +1369,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
     }),
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
-            void (async () => {
-                try {
-                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
-                        limit: NOTIFICATION_PAGE_SIZE,
-                    })
-                    actions.setInAppNotifications(resp.results as InAppNotification[], !!resp.next)
-                } catch {
-                    // Swallow
-                }
-                try {
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    const countResp = await api.get<{ count: number }>(
-                        `api/projects/${values.currentProjectId}/notifications/unread_count/`
-                    )
-                    actions.setInAppUnreadCount(countResp.count)
-                } catch {
-                    // Swallow
-                }
-                actions.initialLoadDone()
-            })()
+            if (values.sceneHasRendered) {
+                actions.loadInitialNotifications()
+            }
 
             if (values.currentTeam?.live_events_token) {
                 actions.startSSE()

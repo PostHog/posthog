@@ -1,8 +1,7 @@
 """Team ownership for a test, resolved from the repository's own ownership files.
 
-Quarantine debt asks who owes the fix now, so it resolves against the repo as it stands rather than
-the capture-time span stamp the flaky rollups keep (SPEC). The web container has no checkout, so the
-files are fetched and cached.
+Quarantine debt asks who owes the fix now, so it resolves against the repo as it stands and not
+against the capture-time span stamp the flaky rollups keep (SPEC §6).
 """
 
 from typing import Protocol
@@ -16,26 +15,21 @@ from posthog.ownership.repo_files import GitHubRepoFiles, OwnershipUnavailable, 
 
 logger = structlog.get_logger(__name__)
 
-# Directories a TypeScript suite can run from, so its tests arrive named relative to one of these.
-# Keep in step with jest_root_for_suite in .github/scripts/report_test_timings.py, which stamps the
-# same repositioning onto the CI spans.
+# A TypeScript suite names its tests relative to the directory it runs from.
+# Keep in step with jest_root_for_suite in .github/scripts/report_test_timings.py.
 _SUITE_ROOTS = ("nodejs/", "frontend/", "services/mcp/", "common/replay-shared/")
 
 
 class ProbeableRepoFiles(RepoFiles, Protocol):
-    """A reader that also answers which paths the repository holds, in batches.
-
-    Placing a test needs this and resolving a path does not: a quarantined test arrives named by its
-    suite, so the repository has to say which of its candidate paths exists.
-    """
+    """A quarantined test arrives named by its suite, so the repository has to say which of its
+    candidate paths exists."""
 
     def exists_all(self, paths: list[str]) -> dict[str, bool]: ...
 
 
 @frozen
 class QuarantinedTestFile:
-    """Where the quarantine snapshot says a test lives: a path as its suite reported it, or, for a
-    Rust test, only the crate."""
+    """A Rust test carries only its crate. Every other test carries the path its suite reported."""
 
     source_path: str
     crate: str
@@ -52,8 +46,8 @@ UNPLACED = PlacedTest(path="", owner_team=UNOWNED_TEAM)
 
 @frozen
 class RepoOwnershipResult:
-    """One placement per test. Everything is unowned whether the read failed or no team claims the
-    paths, so only ``resolved`` separates a real finding from a blind board."""
+    """Every test is unowned both when the read failed and when no team claims the paths, so only
+    ``resolved`` tells the two apart."""
 
     tests: list[PlacedTest]
     resolved: bool
@@ -66,11 +60,9 @@ def _strip_relative_prefix(path: str) -> str:
 
 
 def _candidate_paths(test: QuarantinedTestFile) -> list[str]:
-    """Paths that could decide the test's ownership, most specific first. The repository decides
-    which one holds the file.
+    """Paths that could hold the test, most specific first.
 
-    Cargo names a crate, nextest reports that name, and the directory holding it need not match:
-    `common-kafka` lives at rust/common/kafka.
+    A crate's directory need not match its name: `common-kafka` lives at rust/common/kafka.
     """
     if test.crate:
         return [
@@ -87,8 +79,8 @@ def _candidate_paths(test: QuarantinedTestFile) -> list[str]:
 
 
 def _place(repository: str, files: ProbeableRepoFiles, tests: list[QuarantinedTestFile]) -> list[PlacedTest]:
-    # Every repo this runs against declares one, so its absence proves the reader is blind
-    # (a private or renamed repo answers 404 to everything), not that nobody owns anything.
+    # A missing root file means the reader cannot see the repository (a private or renamed repo
+    # answers 404 to everything), not that nobody owns anything.
     root = read_root(repository, files)
     candidates = [_candidate_paths(test) for test in tests]
     present = files.exists_all([path for group in candidates for path in group])
@@ -107,12 +99,12 @@ def _place(repository: str, files: ProbeableRepoFiles, tests: list[QuarantinedTe
 def resolve_test_ownership(
     repository: str, tests: list[QuarantinedTestFile], files: ProbeableRepoFiles | None = None
 ) -> RepoOwnershipResult:
-    """Place every test in the repository and name the team that owns it."""
+    """Return one placement per test, in order. A failed read returns every test unowned with
+    ``resolved=False``."""
     reader = files if files is not None else GitHubRepoFiles(repository)
     try:
         return RepoOwnershipResult(tests=_place(repository, reader, tests), resolved=True)
     except OwnershipUnavailable:
-        # One unreadable file makes every later answer suspect too, so the batch fails together
-        # rather than attributing part of it.
+        # One unreadable file makes every other answer suspect, so the whole batch fails together.
         logger.exception("repo_ownership_unavailable", repository=repository)
         return RepoOwnershipResult(tests=[UNPLACED] * len(tests), resolved=False)

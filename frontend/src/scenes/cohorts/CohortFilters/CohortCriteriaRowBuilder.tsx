@@ -7,8 +7,7 @@ import { Field as KeaField } from 'kea-forms'
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { eventsWithMoveNotice, moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { moveAnnouncementUrl } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -19,9 +18,15 @@ import { getRowShape } from 'scenes/cohorts/CohortFilters/constants'
 import { renderField } from 'scenes/cohorts/CohortFilters/renderField'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
+import { storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+
+import {
+    criterionFlagCallProblem,
+    flagCallProblemText,
+} from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
@@ -44,16 +49,11 @@ export function CohortCriteriaRowBuilder({
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
+    const { cohort } = useValues(cohortEditLogic)
     const { currentTeam } = useValues(teamLogic)
-    const moveNoticeEvents = eventsWithMoveNotice(
-        currentTeam?.flag_evaluations_mode,
-        useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
-    )
+    const moveNoticesEnabled = useFeatureFlag('FLAG_CALLED_MOVE_NOTICES')
     const announcementUrl = moveAnnouncementUrl(getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES))
-    const showsMoveNotice =
-        (criteria.event_type === TaxonomicFilterGroupType.Events && moveNoticeEvents.includes(String(criteria.key))) ||
-        (criteria.seq_event_type === TaxonomicFilterGroupType.Events &&
-            moveNoticeEvents.includes(String(criteria.seq_event)))
+    const flagCallProblem = moveNoticesEnabled ? criterionFlagCallProblem(cohort, criteria) : null
     // Falling back to another row's fields would let an edit merge into the unmapped criterion,
     // which cleanCriteria then strips to undefined. An empty row keeps the type selector as the
     // recovery path.
@@ -184,7 +184,7 @@ export function CohortCriteriaRowBuilder({
                             </div>
                         </div>
                     )}
-                    {showsMoveNotice && (
+                    {flagCallProblem !== null && (
                         <LemonBanner
                             className="my-2"
                             type="warning"
@@ -194,9 +194,7 @@ export function CohortCriteriaRowBuilder({
                                     : undefined
                             }
                         >
-                            Feature flag called is moving out of the events table. Once your organization starts the
-                            move, you can't add new criteria on it. When the move finishes, this criterion stops
-                            matching new flag calls. To see how a flag is used, open the flag and check its Usage tab.
+                            {flagCallProblemText(flagCallProblem, storesFlagCallsOutsideEvents(currentTeam))}
                         </LemonBanner>
                     )}
                 </>

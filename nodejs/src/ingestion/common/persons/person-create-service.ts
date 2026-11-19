@@ -74,7 +74,12 @@ export class PersonCreateService {
                 // Try to fetch the person that was created concurrently
                 const allDistinctIds = [primaryDistinctId, ...(extraDistinctIds || [])]
                 for (const distinctIdInfo of allDistinctIds) {
-                    const existingPerson = await this.store.fetchForUpdate(teamId, distinctIdInfo.distinctId)
+                    // Read on the caller's transaction. A pool read needs a second connection while this
+                    // transaction holds one, so a pool full of conflicting transactions waits on itself
+                    // forever, holding row locks that block every other writer of these persons.
+                    const existingPerson = tx
+                        ? ((await tx.readPerson(teamId, distinctIdInfo.distinctId)) ?? null)
+                        : await this.store.fetchForUpdate(teamId, distinctIdInfo.distinctId)
                     if (existingPerson) {
                         return [existingPerson, false, [], true]
                     }

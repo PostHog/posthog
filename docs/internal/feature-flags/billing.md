@@ -47,10 +47,11 @@ When a feature flag request is processed, the Rust service increments Redis coun
 
 The service stores counts in Redis hashes using time-bucketed fields:
 
-| Request Type     | Team Key                                      | SDK Key                                                      |
-| ---------------- | --------------------------------------------- | ------------------------------------------------------------ |
-| `/decide`        | `posthog:decide_requests:{team_id}`           | `posthog:decide_requests:sdk:{team_id}:{sdk_name}`           |
-| Local evaluation | `posthog:local_evaluation_requests:{team_id}` | `posthog:local_evaluation_requests:sdk:{team_id}:{sdk_name}` |
+| Request Type           | Team Key                                                   | SDK Key                                                                   |
+| ---------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `/decide`              | `posthog:decide_requests:{team_id}`                        | `posthog:decide_requests:sdk:{team_id}:{sdk_name}`                        |
+| Local evaluation (200) | `posthog:local_evaluation_requests:{team_id}`              | `posthog:local_evaluation_requests:sdk:{team_id}:{sdk_name}`              |
+| Local evaluation (304) | `posthog:local_evaluation_not_modified_requests:{team_id}` | `posthog:local_evaluation_not_modified_requests:sdk:{team_id}:{sdk_name}` |
 
 ### Time bucketing
 
@@ -93,7 +94,13 @@ Rust's `/flags/definitions` endpoint enforces billing quotas. When a team exceed
 }
 ```
 
-The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag comparison and cache fetch. If the quota is exceeded, all requests (including conditional ones) return HTTP 402 — no 304 is issued while a team is over quota. Requests that pass the quota check but result in a 304 (ETag match) are not counted toward billing usage, matching Django's behavior.
+The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag comparison and cache fetch. If the quota is exceeded, all requests (including conditional ones) return HTTP 402 — no 304 is issued while a team is over quota.
+
+### Conditional requests (ETag)
+
+A request that passes the quota check and results in a 304 (ETag match) is counted on the separate `local_evaluation_not_modified_requests` counter. The usage report bills these at 1 unit each, the same as a `/decide` request, instead of the 10 units a full local evaluation response costs. The usage record key is `feature_flag_local_evaluation_not_modified_requests`, apart from `feature_flag_requests`, because each key has its own usage counter and a shared key would count a 304 twice.
+
+A 304 for definitions that hold only survey or product tour flags is not billed, the same as a 200. The service memoizes per team and ETag whether the definitions hold a billable flag, so it reads the payload once per pod per ETag rather than on every poll. The memo is sized by `DEFINITIONS_BILLABLE_CACHE_CAPACITY` and an entry lives for `DEFINITIONS_BILLABLE_CACHE_TTL_SECONDS` (default one hour), which bounds how long a wrong answer can last. Only a payload served from Redis decides, because an S3 copy can lag the ETag by a version. A payload that came from S3, failed to read, or took longer than 500 ms leaves that poll unbilled, and the miss is remembered for 30 seconds so a degraded payload tier is not hammered by every poll. These unbilled polls show as `flags_flag_definitions_not_modified_billing_total{outcome="unknown"}`, which is why the 304 billing counter can run below the ETag hit counter.
 
 ### SDK tracking
 
@@ -105,6 +112,7 @@ The service extracts the SDK type from the request's user-agent header and incre
 | `posthog-node`         | Server-side Node.js     |
 | `posthog-python`       | Python SDK              |
 | `posthog-php`          | PHP SDK                 |
+| `posthog-laravel`      | Laravel SDK             |
 | `posthog-ruby`         | Ruby SDK                |
 | `posthog-go`           | Go SDK                  |
 | `posthog-java`         | Java SDK                |
@@ -215,10 +223,11 @@ The aggregation task emits events to PostHog's internal analytics instance.
 
 ### Event types
 
-| Event Name               | Description                                    |
-| ------------------------ | ---------------------------------------------- |
-| `decide usage`           | Counts from `/decide` endpoint requests        |
-| `local evaluation usage` | Counts from local evaluation endpoint requests |
+| Event Name                            | Description                                             |
+| ------------------------------------- | ------------------------------------------------------- |
+| `decide usage`                        | Counts from `/decide` endpoint requests                 |
+| `local evaluation usage`              | Counts from local evaluation requests answered with 200 |
+| `local evaluation not modified usage` | Counts from local evaluation requests answered with 304 |
 
 ### Event properties
 
@@ -285,6 +294,7 @@ The team can also agree to bill the usage record count with the gap.
 
 - Events, enhanced person events, and exceptions: usage records use capture time, and the legacy queries use the event timestamp. The switch must not count an event on both dates or on neither date.
 - Feature flag requests: usage records use the flush time of the Rust flags service. The legacy query uses the later Celery export time.
+- Feature flag local evaluation 304 requests: the same clock difference as feature flag requests.
 - Feature flag local evaluation requests: usage records from before [#118814](https://github.com/PostHog/posthog/pull/118814) omit the requests that the Django feature flag list endpoint served. Compare both producers over a complete window before you switch this counter.
 - CDP invocations and workflow emails, push, and SMS: usage records and app metrics flush on separate clocks. Each source can put one dispatch on a different date.
 - Workflow invocations: the legacy query counts fetch and push dispatches. Before [#118809](https://github.com/PostHog/posthog/pull/118809), a push dispatch wrote only a `workflow_push_sent` record, so `workflow_billable_invocations` held only fetches. Now a push dispatch writes both records. The clock difference above also applies.
@@ -294,16 +304,17 @@ The team can also agree to bill the usage record count with the gap.
 
 ### Billable calculation
 
-Local evaluation requests are weighted 10x compared to decide requests:
+Local evaluation requests that return full flag definitions are weighted 10x compared to decide requests. Local evaluation requests answered with 304 are weighted like decide requests:
 
 ```python
 billable_feature_flag_requests_count_in_period = (
     decide_requests_count_in_period
     + (local_evaluation_requests_count_in_period * 10)
+    + local_evaluation_not_modified_requests_count_in_period
 )
 ```
 
-This reflects the higher resource cost of local evaluation requests, which return full flag definitions rather than just evaluation results.
+This reflects the higher resource cost of full local evaluation responses, which return full flag definitions rather than just evaluation results.
 
 ### Token validation
 
@@ -322,6 +333,7 @@ AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token
 | Distributed lock                 | Prevent concurrent processing of the same team's data                              |
 | Redis pipelining                 | Minimize network round-trips for better performance                                |
 | 10x local evaluation weight      | Local evaluation returns full flag definitions, requiring more server resources    |
+| 1x weight for 304 responses      | A 304 serves no definitions payload, so it costs the same as a `/decide` request   |
 | Selective billing                | Survey and product tour flags are internal features, not customer-billable         |
 | SDK breakdown for analytics only | Billing charges per request regardless of SDK; breakdown is for internal analytics |
 
@@ -333,7 +345,7 @@ The feature flags **Usage** tab shows the existing billing events grouped by SDK
 - Remote evaluation combines `/flags` and legacy `/decide` traffic.
 - Local evaluation combines `/flags/definitions` and its legacy alias.
 - Counts include billable requests only. They are not raw HTTP traffic totals.
-- Local evaluation requests contribute 10 billing units each.
+- A full local evaluation response contributes 10 billing units. A 304 contributes 1.
 - The SDK breakdown comes from the request user-agent and unknown SDKs appear as `other`.
 - Aggregation means recent usage can take approximately 30 minutes to appear. Hourly buckets use aggregation event time, so they approximate rather than preserve exact request time.
 

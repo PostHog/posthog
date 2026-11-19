@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { EvaluationRun } from '../evaluations/types'
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { sanitizeTraceUrlSearchParams } from '../utils'
 
 // Generation-target runs link to the specific event in the trace; trace-target
@@ -31,7 +32,7 @@ export function EvaluationRunTargetCell({ run }: { run: EvaluationRun }): JSX.El
     // (debounce window, manual re-runs), and without one the trace query scans from the
     // beginning, which always finds the trace.
     const to = combineUrl(urls.aiObservabilityTrace(run.trace_id), {
-        ...sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true }),
+        ...sanitizeTraceUrlSearchParams(withoutTraceDrawerParams(searchParams), { removeSearch: true }),
         tab: 'evals',
         ...(run.generation_id ? { event: run.generation_id } : {}),
     }).url
@@ -39,7 +40,7 @@ export function EvaluationRunTargetCell({ run }: { run: EvaluationRun }): JSX.El
 
     return (
         <div className="font-mono text-sm">
-            <Link to={to} className="text-primary">
+            <Link to={to} className="text-primary" data-attr="llma-eval-run-target-link">
                 {label}
             </Link>
         </div>

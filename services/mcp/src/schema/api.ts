@@ -51,6 +51,10 @@ export interface ApiRedactedPersonalApiKey {
     sandbox_task_id?: string
     // The tools a run with a picked tool list holds. Absent means no per-tool policy.
     mcp_allowed_tools?: string[]
+    supports_step_up?: boolean
+    user_distinct_id?: string | null
+    current_organization_id?: string | null
+    current_team_id?: number | null
 }
 
 export type ApiOAuthIntrospection =
@@ -64,6 +68,10 @@ export type ApiOAuthIntrospection =
           client_id?: string
           sandbox_task_id?: string
           mcp_allowed_tools?: string[]
+          supports_step_up?: boolean
+          user_distinct_id?: string | null
+          current_organization_id?: string | null
+          current_team_id?: number | null
       }
     | {
           active: false

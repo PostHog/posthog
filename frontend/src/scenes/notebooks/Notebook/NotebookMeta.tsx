@@ -8,11 +8,9 @@ import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { NotebookSyncStatus } from '../types'
-import { isJupyterModeAvailable, isKernelUiEnabled } from '../utils'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { NOTEBOOK_AI_PRESENCE_COLOR, type NotebookPresenceParticipant } from './notebookPresence'
@@ -210,12 +208,11 @@ export const NotebookExpandButton = ({ inPanel, ...buttonProps }: NotebookExpand
 export const NotebookVariablesButton = (
     props: Pick<LemonButtonProps, 'children' | 'size' | 'type'>
 ): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { content, variables, showVariables } = useValues(notebookLogic)
     const { setShowVariables } = useActions(notebookSettingsLogic)
 
     // Only the revamped cells read variables, so the toggle stays out of other notebooks.
-    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content)) {
+    if (!isMarkdownNotebookContent(content)) {
         return null
     }
 
@@ -241,13 +238,12 @@ export const NotebookKernelInfoButton = ({
     onBeforeShowKernelInfo,
     ...props
 }: NotebookKernelInfoButtonProps): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { content } = useValues(notebookLogic)
     const { showKernelInfo } = useValues(notebookSettingsLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
 
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
-    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content)) {
+    if (!isMarkdownNotebookContent(content)) {
         return null
     }
 
@@ -272,12 +268,11 @@ export const NotebookKernelInfoButton = ({
 export const NotebookJupyterModeButton = (
     props: Pick<LemonButtonProps, 'children' | 'size' | 'type'>
 ): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { content } = useValues(notebookLogic)
     const { isJupyterMode } = useValues(notebookSettingsLogic)
     const { setIsJupyterMode } = useActions(notebookSettingsLogic)
 
-    if (!isJupyterModeAvailable(featureFlags) || !isMarkdownNotebookContent(content)) {
+    if (!isMarkdownNotebookContent(content)) {
         return null
     }
 

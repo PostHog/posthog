@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_ORGANIZATION_MEMBER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -173,6 +174,49 @@ describe('supportTicketsSceneLogic', () => {
                 counter.actions.loadUnreadCountSuccess(newCount)
             }).toFinishAllListeners()
             expect(ticketRequests - before).toBe(extraRequests)
+        })
+    })
+
+    describe('request timing', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        let listTickets: jest.SpyInstance
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            initKeaTests()
+            listTickets = jest
+                .spyOn(api.conversationsTickets, 'list')
+                .mockResolvedValue({ results: [], count: 0 } as any)
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            listTickets.mockRestore()
+            jest.useRealTimers()
+        })
+
+        it('sends one ticket list request at once when the list opens', async () => {
+            expect(listTickets).toHaveBeenCalledTimes(1)
+
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(listTickets).toHaveBeenCalledTimes(1)
+        })
+
+        it('waits for typing in the search box to pause, then sends one request', async () => {
+            await jest.advanceTimersByTimeAsync(1000)
+            listTickets.mockClear()
+
+            logic.actions.setSearchQuery('refu')
+            logic.actions.setSearchQuery('refund')
+            await jest.advanceTimersByTimeAsync(299)
+            expect(listTickets).not.toHaveBeenCalled()
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(listTickets).toHaveBeenCalledTimes(1)
+            expect(listTickets).toHaveBeenCalledWith(expect.objectContaining({ search: 'refund' }))
         })
     })
 

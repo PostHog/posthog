@@ -97,6 +97,14 @@ class Producer:
         )
         return self._task
 
+    async def stop(self) -> None:
+        if self._task is None:
+            return
+        if not self._task.done():
+            self._task.cancel()
+        # Cleanup must not replace the destination error that caused this producer to stop.
+        await asyncio.gather(self._task, return_exceptions=True)
+
     async def produce_batch_export_record_batches_from_range(
         self,
         queue: RecordBatchQueue,

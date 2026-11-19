@@ -10,11 +10,9 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
-use common_types::ClickHouseEvent;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use lifecycle::Handle;
@@ -24,16 +22,16 @@ use serde::{de::IgnoredAny, Deserialize};
 use tokio::task::JoinError;
 use tracing::{debug, error, info, warn};
 
-use crate::event::{personless_mode, CohortStreamEvent, SourcePartitionRange};
-use crate::filter_team_index::TeamIndex;
+use crate::event::{personless_mode, CohortStreamEvent, ForwardFields, SourcePartitionRange};
+use crate::filter_team_index::TeamGate;
 use crate::ledger::{
     DeliveryOutcome, Ledger, NextOffset, Observation, Resolution, SourceOffset, SourcePartition,
 };
 use crate::observability::metrics::{
-    COMMITS, COMMIT_ERRORS, EVENTS_ABANDONED, EVENTS_CONSUMED, EVENTS_DROPPED_NO_PERSON_ID,
-    EVENTS_FORWARDED, EVENTS_PERSON_PAYLOAD_DROPPED, EVENTS_SKIPPED_TEAM_GATE, EVENTS_UNPARSEABLE,
-    FORWARDS_ENQUEUED, FORWARDS_INFLIGHT, LEDGER_PARTITIONS, PRODUCE_ACK_SECONDS, PRODUCE_ERRORS,
-    PRODUCE_QUEUE_FULL, UNCOMMITTED_EVENTS,
+    ACTIVE_TEAMS, COMMITS, COMMIT_ERRORS, EVENTS_ABANDONED, EVENTS_CONSUMED,
+    EVENTS_DROPPED_NO_PERSON_ID, EVENTS_FORWARDED, EVENTS_PERSON_PAYLOAD_DROPPED,
+    EVENTS_SKIPPED_TEAM_GATE, EVENTS_UNPARSEABLE, FORWARDS_ENQUEUED, FORWARDS_INFLIGHT,
+    LEDGER_PARTITIONS, PRODUCE_ACK_SECONDS, PRODUCE_ERRORS, PRODUCE_QUEUE_FULL, UNCOMMITTED_EVENTS,
 };
 use crate::producer::{CohortStreamProducer, EnqueueError};
 
@@ -79,24 +77,21 @@ enum GateOutcome {
 
 /// `person_id` is checked first: a missing routing key is attributed to `DropNoPersonId` even when
 /// the team would also be skipped.
-fn classify_gate(gate: &GateFields, team_index: &TeamIndex) -> GateOutcome {
+fn classify_gate(gate: &GateFields, team_gate: &TeamGate) -> GateOutcome {
     if gate.person_id.is_none() {
         return GateOutcome::DropNoPersonId;
     }
-    if !team_index.contains(gate.team_id) {
+    if !team_gate.passes(gate.team_id) {
         return GateOutcome::SkipTeamGate;
     }
     GateOutcome::Forward
 }
 
-/// `event` is boxed to keep the enum small: `Forward` is the only large variant and is built only
-/// for survivors.
+/// `Forward` is boxed to keep the enum small: it is the only large variant and is built only for
+/// survivors.
 #[derive(Debug)]
 enum Decoded {
-    Forward {
-        event: Box<ClickHouseEvent>,
-        person_id: String,
-    },
+    Forward(Box<ForwardFields>),
     DropNoPersonId,
     SkipTeamGate,
     /// Serde failure at either phase — counted and settled, never an `Err`. Infallibility matters:
@@ -108,30 +103,17 @@ enum Decoded {
     Unparseable,
 }
 
-/// Cheap gate parse for every event; a full `ClickHouseEvent` parse only for survivors, over the
-/// same bytes so forwarded envelopes are byte-identical to a single-parse path.
-fn decode_gated(payload: &[u8], team_index: &TeamIndex) -> Decoded {
+/// Cheap gate parse for every event; survivors get a second parse, over the same bytes, of only the
+/// fields the envelope forwards.
+fn decode_gated(payload: &[u8], team_gate: &TeamGate) -> Decoded {
     let Ok(gate) = serde_json::from_slice::<GateFields>(payload) else {
         return Decoded::Unparseable;
     };
-    match classify_gate(&gate, team_index) {
+    match classify_gate(&gate, team_gate) {
         GateOutcome::DropNoPersonId => Decoded::DropNoPersonId,
         GateOutcome::SkipTeamGate => Decoded::SkipTeamGate,
-        GateOutcome::Forward => {
-            let Ok(mut event) = serde_json::from_slice::<ClickHouseEvent>(payload) else {
-                return Decoded::Unparseable;
-            };
-            let Some(person_id) = event.person_id.take() else {
-                // Unreachable: the gate saw a present non-null person_id, and a non-string one would
-                // have failed the full parse above. Fail safe instead of panicking.
-                warn!("gate-forwarded event had no person_id after full parse; dropping");
-                return Decoded::DropNoPersonId;
-            };
-            Decoded::Forward {
-                event: Box::new(event),
-                person_id,
-            }
-        }
+        GateOutcome::Forward => serde_json::from_slice::<Box<ForwardFields>>(payload)
+            .map_or(Decoded::Unparseable, Decoded::Forward),
     }
 }
 
@@ -206,7 +188,7 @@ impl Intake {
 pub struct EventShuffler {
     consumer: SingleTopicConsumer,
     producer: CohortStreamProducer,
-    team_index: Arc<TeamIndex>,
+    team_gate: TeamGate,
     handle: Handle,
     settings: ShufflerSettings,
 }
@@ -215,14 +197,14 @@ impl EventShuffler {
     pub fn new(
         consumer: SingleTopicConsumer,
         producer: CohortStreamProducer,
-        team_index: Arc<TeamIndex>,
+        team_gate: TeamGate,
         handle: Handle,
         settings: ShufflerSettings,
     ) -> Self {
         Self {
             consumer,
             producer,
-            team_index,
+            team_gate,
             handle,
             settings,
         }
@@ -283,14 +265,14 @@ impl EventShuffler {
                     };
                 }
 
-                // Fail-closed until the team index loads once: don't consume — and advance
+                // Fail-closed until the team gate loads once: don't consume — and advance
                 // offsets past — events while the gate would forward nothing.
                 recv = tokio::time::timeout(
                     RECV_TIMEOUT,
-                    self.consumer.recv_with(|payload| Ok(decode_gated(payload, &self.team_index))),
+                    self.consumer.recv_with(|payload| Ok(decode_gated(payload, &self.team_gate))),
                 ), if intake.is_open()
                     && ledger.in_flight() < self.settings.max_inflight_forwards
-                    && self.team_index.is_loaded() =>
+                    && self.team_gate.is_loaded() =>
                 {
                     match recv {
                         Ok(Ok((decoded, offset))) => {
@@ -354,8 +336,8 @@ impl EventShuffler {
             return Intake::Open;
         };
 
-        let (event, person_id) = match decoded {
-            Decoded::Forward { event, person_id } => (event, person_id),
+        let fields = match decoded {
+            Decoded::Forward(fields) => fields,
             Decoded::DropNoPersonId => {
                 counter!(EVENTS_DROPPED_NO_PERSON_ID).increment(1);
                 ledger.observe(partition, source_offset, Observation::Settled);
@@ -373,16 +355,11 @@ impl EventShuffler {
             }
         };
 
-        if let Some(person_mode) = personless_mode(event.person_mode) {
+        if let Some(person_mode) = personless_mode(fields.person_mode) {
             counter!(EVENTS_PERSON_PAYLOAD_DROPPED, "person_mode" => person_mode).increment(1);
         }
         let forward = Box::new(PendingForward {
-            event: CohortStreamEvent::from_clickhouse(
-                *event,
-                person_id,
-                envelope_partition,
-                source_offset.0,
-            ),
+            event: CohortStreamEvent::from_forward(*fields, envelope_partition, source_offset.0),
             partition,
             offset: source_offset,
         });
@@ -446,8 +423,8 @@ impl EventShuffler {
     }
 
     /// Plans a commit from the current assignment snapshot and spawns the blocking Sync commit
-    /// into the single in-flight slot. Emits the ledger gauges even when there is nothing to
-    /// commit.
+    /// into the single in-flight slot. Emits the ledger and team gauges even when there is nothing
+    /// to commit.
     fn start_commit(&self, ledger: &mut Ledger) -> Option<CommitFuture> {
         let assigned = match self.consumer.assigned_partitions() {
             Ok(partitions) => partitions.into_iter().map(SourcePartition).collect(),
@@ -465,6 +442,7 @@ impl EventShuffler {
         gauge!(FORWARDS_INFLIGHT).set(stats.in_flight as f64);
         gauge!(UNCOMMITTED_EVENTS).set(stats.uncommitted_events as f64);
         gauge!(LEDGER_PARTITIONS).set(stats.partitions as f64);
+        gauge!(ACTIVE_TEAMS).set(self.team_gate.passing_teams() as f64);
 
         if plan.offsets.is_empty() {
             return None;
@@ -631,11 +609,20 @@ fn should_heartbeat(commit_stale: bool, has_committable: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::sample_clickhouse_event;
+    use std::sync::Arc;
+
+    use crate::event::{sample_clickhouse_event, RawJsonString};
+    use crate::filter_team_index::TeamIndex;
+    use common_cohort_team_access::TeamAccess;
+    use common_types::cohort::TeamAllowlist;
     use serde_json::{json, Value};
 
-    fn index_with(teams: &[i32]) -> TeamIndex {
-        TeamIndex::from_teams(teams.iter().copied())
+    /// Every team processes, so only the index decides.
+    fn gate_with(teams: &[i32]) -> TeamGate {
+        TeamGate::new(
+            Arc::new(TeamIndex::from_teams(teams.iter().copied())),
+            TeamAccess::with_granted(TeamAllowlist::All, []),
+        )
     }
 
     fn gate_fields(team_id: i32, person_id: Option<IgnoredAny>) -> GateFields {
@@ -689,9 +676,9 @@ mod tests {
         ];
 
         for (name, person_id, team_id, teams, expected) in cases {
-            let index = index_with(&teams);
+            let gate = gate_with(&teams);
             assert_eq!(
-                classify_gate(&gate_fields(team_id, person_id), &index),
+                classify_gate(&gate_fields(team_id, person_id), &gate),
                 expected,
                 "case: {name}"
             );
@@ -700,29 +687,32 @@ mod tests {
 
     #[test]
     fn unloaded_index_forwards_nothing() {
-        let index = TeamIndex::new();
+        let gate = TeamGate::new(
+            Arc::new(TeamIndex::new()),
+            TeamAccess::with_granted(TeamAllowlist::All, []),
+        );
         assert_eq!(
-            classify_gate(&gate_fields(2, Some(IgnoredAny)), &index),
+            classify_gate(&gate_fields(2, Some(IgnoredAny)), &gate),
             GateOutcome::SkipTeamGate
         );
     }
 
     #[test]
     fn dropped_event_never_materializes_blobs() {
-        // A JSON-object `properties` fails the full parse (the field is a stringified blob): outside
-        // the index the gate ignores the blob and skips; inside it the survivor parse rejects it as
-        // unparseable.
+        // A JSON-object `properties` fails the survivor parse (the field is a stringified blob):
+        // outside the index the gate ignores the blob and skips; inside it the survivor parse rejects
+        // it as unparseable.
         let mut value: Value =
             serde_json::to_value(sample_clickhouse_event(99, Some("p"))).unwrap();
         value["properties"] = json!({ "a": [1, 2, 3] });
         let payload = serde_json::to_vec(&value).unwrap();
 
         assert!(matches!(
-            decode_gated(&payload, &index_with(&[2])),
+            decode_gated(&payload, &gate_with(&[2])),
             Decoded::SkipTeamGate
         ));
         assert!(matches!(
-            decode_gated(&payload, &index_with(&[99])),
+            decode_gated(&payload, &gate_with(&[99])),
             Decoded::Unparseable
         ));
     }
@@ -730,31 +720,31 @@ mod tests {
     #[test]
     fn garbage_payload_is_unparseable_not_an_error() {
         assert!(matches!(
-            decode_gated(b"not json at all", &index_with(&[2])),
+            decode_gated(b"not json at all", &gate_with(&[2])),
             Decoded::Unparseable
         ));
     }
 
     #[test]
     fn missing_person_mode_skips_mismatched_team_instead_of_erroring() {
-        // `person_mode` is required by the full parse but ignored by the gate.
+        // `person_mode` is required by the survivor parse but ignored by the gate.
         let mut value: Value =
             serde_json::to_value(sample_clickhouse_event(99, Some("p"))).unwrap();
         value.as_object_mut().unwrap().remove("person_mode");
         let payload = serde_json::to_vec(&value).unwrap();
 
         assert!(matches!(
-            decode_gated(&payload, &index_with(&[2])),
+            decode_gated(&payload, &gate_with(&[2])),
             Decoded::SkipTeamGate
         ));
     }
 
     #[test]
     fn person_id_presence_matches_full_parse_semantics() {
-        let index = index_with(&[2]);
+        let gate = gate_with(&[2]);
         let base: Value =
             serde_json::to_value(sample_clickhouse_event(2, Some("ignored"))).unwrap();
-        let decode = |value: Value| decode_gated(&serde_json::to_vec(&value).unwrap(), &index);
+        let decode = |value: Value| decode_gated(&serde_json::to_vec(&value).unwrap(), &gate);
 
         // Absent: drop (person check runs before the team gate).
         let mut absent = base.clone();
@@ -770,13 +760,7 @@ mod tests {
         let mut empty = base.clone();
         empty["person_id"] = json!("");
         match decode(empty) {
-            Decoded::Forward { event, person_id } => {
-                assert_eq!(person_id, "");
-                assert!(
-                    event.person_id.is_none(),
-                    "person_id must be taken from the event"
-                );
-            }
+            Decoded::Forward(fields) => assert_eq!(fields.person_id, ""),
             other => panic!("expected Forward, got {other:?}"),
         }
 
@@ -784,30 +768,26 @@ mod tests {
         let mut valid = base.clone();
         valid["person_id"] = json!("p");
         match decode(valid) {
-            Decoded::Forward { event, person_id } => {
-                assert_eq!(person_id, "p");
-                assert!(event.person_id.is_none());
-            }
+            Decoded::Forward(fields) => assert_eq!(fields.person_id, "p"),
             other => panic!("expected Forward, got {other:?}"),
         }
     }
 
     #[test]
-    fn survivor_fully_materializes_the_forward_envelope() {
+    fn survivor_parses_the_forwarded_fields() {
         let payload = serde_json::to_vec(&sample_clickhouse_event(2, Some("p"))).unwrap();
-        match decode_gated(&payload, &index_with(&[2])) {
-            Decoded::Forward { event, person_id } => {
-                assert_eq!(person_id, "p");
-                assert_eq!(event.team_id, 2);
-                assert!(event.person_id.is_none(), "person_id should be taken");
-                // Blobs skipped on the drop path are fully parsed for survivors.
+        match decode_gated(&payload, &gate_with(&[2])) {
+            Decoded::Forward(fields) => {
+                assert_eq!(fields.person_id, "p");
+                assert_eq!(fields.team_id, 2);
+                // Blobs skipped on the drop path are captured, still escaped, for survivors.
                 assert_eq!(
-                    event.properties.as_deref(),
-                    Some(r#"{"$current_url":"/pricing"}"#)
+                    fields.properties.as_ref().map(RawJsonString::get),
+                    Some(r#""{\"$current_url\":\"/pricing\"}""#)
                 );
                 assert_eq!(
-                    event.person_properties.as_deref(),
-                    Some(r#"{"email":"u@p.com"}"#)
+                    fields.person_properties.as_ref().map(RawJsonString::get),
+                    Some(r#""{\"email\":\"u@p.com\"}""#)
                 );
             }
             other => panic!("expected Forward, got {other:?}"),

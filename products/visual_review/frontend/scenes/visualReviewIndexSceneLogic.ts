@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 
 import { visualReviewReposList, visualReviewRunsRetrieve } from '../generated/api'
 import { ForwardUrl, LegacyRoute, legacyForwardUrl, pickLandingRepo } from '../lib/forwardUrls'
-import { RepoNotFoundError, resolveRepoFullName } from '../lib/repoIds'
+import { isNotFoundError, resolveRepoFullName } from '../lib/repoIds'
 import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 
@@ -39,10 +39,6 @@ export type visualReviewIndexSceneLogicType = MakeLogicType<
     visualReviewIndexSceneLogicValues,
     visualReviewIndexSceneLogicActions
 >
-
-function isNotFound(error: any): boolean {
-    return error instanceof RepoNotFoundError || error?.status === 404
-}
 
 // Forwarding scene logic. `/visual-review` goes to the repo the team used last, else the first
 // connected repo, else Settings. URLs that name a repo or a run by UUID go to the owner/name URL
@@ -105,7 +101,7 @@ export const visualReviewIndexSceneLogic = kea<visualReviewIndexSceneLogicType>(
                 }
             } catch (error) {
                 if (router.values.location.pathname === pathname) {
-                    actions.forwardFailed(isNotFound(error) ? 'not_found' : 'load_failed')
+                    actions.forwardFailed(isNotFoundError(error) ? 'not_found' : 'load_failed')
                 }
                 return
             }

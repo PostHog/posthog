@@ -20,10 +20,9 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { AppContext, DashboardType, UserBasicType } from '~/types'
 
+import dashboardJson from 'products/dashboards/frontend/__mocks__/dashboard.json'
 import * as generatedApi from 'products/dashboards/frontend/generated/api'
 import type { DashboardBulkDeleteResponseApi } from 'products/dashboards/frontend/generated/api.schemas'
-
-import dashboardJson from '../__mocks__/dashboard.json'
 
 let dashboardId = 1234
 const dashboard = (extras: Partial<DashboardType>): DashboardType => {

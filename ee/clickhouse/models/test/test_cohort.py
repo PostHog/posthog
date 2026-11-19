@@ -23,7 +23,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.team import Team
 from posthog.test.persons import create_person, delete_person, update_person
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
 
@@ -218,13 +218,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort1")
+        cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.id, "days": 1}], name="cohort1")
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 2)
 
-        cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort2")
+        cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.id, "days": 1}], name="cohort2")
         self.calculate_cohort_hogql_test_harness(cohort2, 0)
 
         results = self._get_cohortpeople(cohort2)
@@ -308,7 +308,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         # test operators
         cohort1 = Cohort.objects.create(
             team=self.team,
-            groups=[{"action_id": action.pk, "days": 3, "count": 2, "count_operator": "gte"}],
+            groups=[{"action_id": action.id, "days": 3, "count": 2, "count_operator": "gte"}],
             name="cohort1",
         )
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
@@ -318,7 +318,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort2 = Cohort.objects.create(
             team=self.team,
-            groups=[{"action_id": action.pk, "days": 3, "count": 1, "count_operator": "lte"}],
+            groups=[{"action_id": action.id, "days": 3, "count": 1, "count_operator": "lte"}],
             name="cohort2",
         )
         self.calculate_cohort_hogql_test_harness(cohort2, 0)
@@ -328,7 +328,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort3 = Cohort.objects.create(
             team=self.team,
-            groups=[{"action_id": action.pk, "days": 3, "count": 1, "count_operator": "eq"}],
+            groups=[{"action_id": action.id, "days": 3, "count": 1, "count_operator": "eq"}],
             name="cohort3",
         )
         self.calculate_cohort_hogql_test_harness(cohort3, 0)
@@ -671,7 +671,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertFalse(Cohort.objects.get().is_calculating)
 
     def test_query_with_multiple_new_style_cohorts(self):
-        action1 = Action.objects.create(
+        action1 = create_action(
             team=self.team,
             name="action1",
             steps_json=[
@@ -746,7 +746,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                     "type": "AND",
                     "values": [
                         {
-                            "key": action1.pk,
+                            "key": action1.id,
                             "event_type": "actions",
                             "time_value": 2,
                             "time_interval": "week",
@@ -935,7 +935,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
     def test_cohortpeople_action_all_events(self):
         # Create an action that matches all events (no specific event defined)
-        action = Action.objects.create(team=self.team, name="all events", steps_json=[{"event": None}])
+        action = create_action(team=self.team, name="all events", steps_json=[{"event": None}])
 
         # Create two people
         create_person(
@@ -969,7 +969,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         # Create a cohort based on the "all events" action
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort_all_events"
+            team=self.team, groups=[{"action_id": action.id, "days": 1}], name="cohort_all_events"
         )
         cohort.calculate_people_ch(pending_version=0)
 

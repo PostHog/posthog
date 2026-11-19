@@ -17,6 +17,7 @@ from products.access_control.backend.facade.api import (
     bulk_set_object_access_controls,
     every_member_has_resource_access,
     object_ids_restricted_from_any_member,
+    replace_object_access_rules,
     role_belongs_to_organization,
     set_object_access_control,
     valid_role_member_user_ids,
@@ -27,7 +28,7 @@ from products.access_control.backend.models.role import Role, RoleMembership
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
-class TestSetObjectAccessControl(BaseTest):
+class _DashboardRulesTest(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [
@@ -40,6 +41,11 @@ class TestSetObjectAccessControl(BaseTest):
         self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
         AccessControl.objects.create(team=self.team, resource="dashboard", resource_id=None, access_level="none")
 
+    def _other_user_level(self) -> str | None:
+        return UserAccessControl(user=self.other_user, team=self.team).get_user_access_level(self.dashboard)
+
+
+class TestSetObjectAccessControl(_DashboardRulesTest):
     def _grant(
         self, access_level: str | None = "viewer", **overrides: object
     ) -> contracts.ObjectAccessControlRule | None:
@@ -53,9 +59,6 @@ class TestSetObjectAccessControl(BaseTest):
         return set_object_access_control(
             team_id=self.team.id, input=contracts.SetObjectAccessControlInput(**input_kwargs)
         )
-
-    def _other_user_level(self) -> str | None:
-        return UserAccessControl(user=self.other_user, team=self.team).get_user_access_level(self.dashboard)
 
     def test_grant_update_and_revoke_are_visible_through_user_access_control(self) -> None:
         assert self._other_user_level() == "none"
@@ -244,6 +247,76 @@ class TestSetObjectAccessControl(BaseTest):
                 ],
             )
         assert not AccessControl.objects.filter(team=self.team, resource_id=str(self.dashboard.id)).exists()
+
+
+class TestReplaceObjectAccessRules(_DashboardRulesTest):
+    def _replace(self, *rules: contracts.ObjectAccessRuleInput) -> None:
+        replace_object_access_rules(
+            team_id=self.team.id, resource="dashboard", resource_id=str(self.dashboard.id), rules=list(rules)
+        )
+
+    def _rules(self) -> dict[tuple[object, object], tuple[object, str]]:
+        return {
+            (rule.organization_member_id, rule.role_id): (rule.id, rule.access_level)
+            for rule in AccessControl.objects.filter(team=self.team, resource_id=str(self.dashboard.id))
+        }
+
+    def test_the_object_ends_with_exactly_the_given_rules(self) -> None:
+        self._replace(
+            contracts.ObjectAccessRuleInput(access_level="viewer"),
+            contracts.ObjectAccessRuleInput(access_level="none", organization_member_id=self.other_membership.id),
+        )
+        kept_id = self._rules()[(None, None)][0]
+        assert self._other_user_level() == "none"
+
+        self._replace(
+            contracts.ObjectAccessRuleInput(access_level="viewer"),
+            contracts.ObjectAccessRuleInput(access_level="editor", organization_member_id=self.other_membership.id),
+        )
+
+        rules = self._rules()
+        assert rules[(None, None)] == (kept_id, "viewer")
+        assert rules[(self.other_membership.id, None)][1] == "editor"
+        assert len(rules) == 2
+        assert self._other_user_level() == "editor"
+        logged = ActivityLog.objects.filter(
+            scope="AccessControl", detail__name=f"dashboard {self.dashboard.id}"
+        ).values_list("activity", flat=True)
+        assert sorted(logged) == ["created", "created", "created", "deleted"]
+
+        self._replace()
+
+        assert self._rules() == {}
+
+    @parameterized.expand([("unknown_level",), ("foreign_member",), ("foreign_role",), ("same_subject_twice",)])
+    def test_rejects_invalid_rules_before_writing(self, case: str) -> None:
+        other_org = Organization.objects.create(name="Other")
+        outsider = User.objects.create_and_join(other_org, "outsider@posthog.com", "testtest")
+        rules = {
+            "unknown_level": [contracts.ObjectAccessRuleInput(access_level="owner")],
+            "foreign_member": [
+                contracts.ObjectAccessRuleInput(
+                    access_level="viewer",
+                    organization_member_id=OrganizationMembership.objects.get(user=outsider).id,
+                )
+            ],
+            "foreign_role": [
+                contracts.ObjectAccessRuleInput(
+                    access_level="viewer", role_id=Role.objects.create(name="Outside", organization=other_org).id
+                )
+            ],
+            "same_subject_twice": [
+                contracts.ObjectAccessRuleInput(access_level="viewer"),
+                contracts.ObjectAccessRuleInput(access_level="none"),
+            ],
+        }[case]
+        self._replace(contracts.ObjectAccessRuleInput(access_level="editor"))
+        before = self._rules()
+
+        with pytest.raises(InvalidObjectAccessControlError):
+            self._replace(*rules)
+
+        assert self._rules() == before
 
 
 class TestEveryMemberHasResourceAccess(BaseTest):

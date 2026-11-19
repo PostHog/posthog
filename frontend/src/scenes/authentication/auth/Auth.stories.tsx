@@ -1,4 +1,3 @@
-import { WEBSITE_REFERRER, setDocumentReferrer } from 'scenes/authentication/shared/authReferrer.mock'
 import { setLastLoginMethodCookie } from 'scenes/authentication/shared/lastLoginMethod.mock'
 import {
     PENDING_OAUTH_CONNECTION_FIXTURE,
@@ -10,13 +9,13 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { userLogic } from 'scenes/userLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
-import { arrivedFromWebsiteLogic } from '../shared/arrivedFromWebsiteLogic'
 import { Auth } from './Auth'
 import { authLogic } from './authLogic'
 import { loginLogic } from './loginLogic'
@@ -49,9 +48,8 @@ type StoryArgs = {
     gitlab: boolean
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-    generalError: 'none' | 'invalid_credentials' | 'no_new_organizations'
+    generalError: 'none' | 'invalid_credentials' | 'no_new_organizations' | 'login_code_email_undeliverable'
     pendingOAuthConnection: boolean
-    arrivedFromWebsite: boolean
     hasLoggedInBefore: boolean
     signedOutForSessionRisk: boolean
     noSignInMethod: boolean
@@ -90,10 +88,9 @@ const meta: Meta<StoryArgs> = {
         generalError: {
             control: 'select',
             name: 'General error',
-            options: ['none', 'invalid_credentials', 'no_new_organizations'],
+            options: ['none', 'invalid_credentials', 'no_new_organizations', 'login_code_email_undeliverable'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
-        arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
         hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
         signedOutForSessionRisk: { control: 'boolean', name: 'Signed out for session risk' },
         noSignInMethod: { control: 'boolean', name: 'Account has no sign-in method' },
@@ -113,7 +110,6 @@ const meta: Meta<StoryArgs> = {
         ssoEnforcement: 'none',
         generalError: 'none',
         pendingOAuthConnection: false,
-        arrivedFromWebsite: false,
         hasLoggedInBefore: true,
         signedOutForSessionRisk: false,
         noSignInMethod: false,
@@ -126,6 +122,7 @@ export default meta
 
 const ERROR_DETAILS: Record<string, string> = {
     invalid_credentials: 'Invalid email or password.',
+    login_code_email_undeliverable: "We can't send email to this address, so we can't send you a login code.",
 }
 
 const Template: StoryFn<StoryArgs> = ({
@@ -140,7 +137,6 @@ const Template: StoryFn<StoryArgs> = ({
     ssoEnforcement,
     generalError,
     pendingOAuthConnection,
-    arrivedFromWebsite,
     hasLoggedInBefore,
     signedOutForSessionRisk,
     noSignInMethod,
@@ -151,7 +147,6 @@ const Template: StoryFn<StoryArgs> = ({
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookies while it mounts during this same render.
     setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
-    setDocumentReferrer(arrivedFromWebsite ? WEBSITE_REFERRER : '')
     setLastLoginMethodCookie(hasLoggedInBefore ? 'password' : null)
 
     useStorybookMocks({
@@ -185,6 +180,7 @@ const Template: StoryFn<StoryArgs> = ({
                               password_login_available: !noSignInMethod,
                           },
                       ],
+            '/api/reset/': () => [200, { success: true }],
             '/api/signup/precheck': () =>
                 emailTaken
                     ? [
@@ -215,10 +211,6 @@ const Template: StoryFn<StoryArgs> = ({
     }, [entry, signedOutForSessionRisk])
 
     useEffect(() => {
-        arrivedFromWebsiteLogic.findMounted()?.actions.setArrivedFromWebsite(arrivedFromWebsite)
-    }, [arrivedFromWebsite])
-
-    useEffect(() => {
         authLogic.actions.backToEmail()
         if (step === 'Email') {
             return
@@ -229,7 +221,7 @@ const Template: StoryFn<StoryArgs> = ({
 
     useEffect(() => {
         if (step === 'Login code') {
-            loginLogic.actions.setCodeVerificationRequired(EMAIL)
+            loginLogic.actions.setCodeVerificationRequired(EMAIL, null)
         }
     }, [step])
 
@@ -283,6 +275,10 @@ LoginStepFromSignupEntry.args = { step: 'Login', entry: 'signup' }
 export const LoginError: StoryFn<StoryArgs> = Template.bind({})
 LoginError.args = { step: 'Login', generalError: 'invalid_credentials' }
 
+export const LoginCodeEmailUndeliverable: StoryFn<StoryArgs> = Template.bind({})
+LoginCodeEmailUndeliverable.storyName = 'Login code email undeliverable'
+LoginCodeEmailUndeliverable.args = { step: 'Login', generalError: 'login_code_email_undeliverable' }
+
 export const SSOEnforced: StoryFn<StoryArgs> = Template.bind({})
 SSOEnforced.args = { step: 'Login', ssoEnforcement: 'google-oauth2' }
 
@@ -294,6 +290,15 @@ LoginCode.args = { step: 'Login code' }
 
 export const SignupCredentials: StoryFn<StoryArgs> = Template.bind({})
 SignupCredentials.args = { step: 'Signup credentials' }
+SignupCredentials.parameters = {
+    featureFlags: { [FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED]: 'control' },
+}
+
+export const SignupCredentialsWithCrackEstimate: StoryFn<StoryArgs> = Template.bind({})
+SignupCredentialsWithCrackEstimate.args = { step: 'Signup credentials' }
+SignupCredentialsWithCrackEstimate.parameters = {
+    featureFlags: { [FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED]: 'test' },
+}
 
 export const SignupCredentialsEU: StoryFn<StoryArgs> = Template.bind({})
 SignupCredentialsEU.storyName = 'Signup credentials (EU)'
@@ -319,7 +324,7 @@ SignedOutForSessionRisk.args = { signedOutForSessionRisk: true }
 
 export const NoSignInMethod: StoryFn<StoryArgs> = Template.bind({})
 NoSignInMethod.storyName = 'Account with no sign-in method'
-NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: false, github: false, gitlab: false }
+NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: true, github: true, gitlab: false }
 
 export const PrecheckFailed: StoryFn<StoryArgs> = Template.bind({})
 PrecheckFailed.storyName = 'Login step when the precheck fails'

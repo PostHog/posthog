@@ -1,12 +1,10 @@
-import { IconCheckCircle, IconQuestion, IconSparkles, IconXCircle } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { LabeledRow } from '../components/LabeledRow'
 import { ObservationPrimaryOutput } from '../components/ObservationCard'
-import type { PromptValenceEnumApi, ReplayObservationApi, ScannerTypeEnumApi } from '../generated/api.schemas'
-import { configFromSnapshot, type ScorerScannerConfig } from '../replay_scanners/types'
+import type { ReplayObservationApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import {
-    type MonitorVerdict,
     VERDICT_LABEL,
     readFixedTags,
     readFreeformTags,
@@ -14,6 +12,7 @@ import {
     readScore,
     readVerdict,
 } from '../utils/observation'
+import { VERDICT_ICON, scoreColorFor, scorerScale, verdictClassFor } from '../utils/resultValence'
 import { ConfidenceBadge } from './ConfidenceBadge'
 
 // Filled, so each category stays visible in dark mode, where a tag's outline alone fades into the card.
@@ -27,41 +26,6 @@ const HEADLINE_LABEL: Record<ScannerTypeEnumApi, string> = {
     classifier: 'Assigned categories',
     summarizer: 'Summary',
     experiment: 'Summary',
-}
-
-// The `--success`/`--danger` family LemonTag uses. The `text-success` utility maps to a different, brighter green.
-const GOOD_CLASS = 'text-success-dark dark:text-success-light'
-const BAD_CLASS = 'text-danger-dark dark:text-danger-light'
-
-const VERDICT_ICON: Record<MonitorVerdict, typeof IconCheckCircle> = {
-    yes: IconCheckCircle,
-    no: IconXCircle,
-    inconclusive: IconQuestion,
-}
-
-type Direction = 'good' | 'bad'
-
-function direction(valence: PromptValenceEnumApi | null): Direction | null {
-    return valence === 'good' || valence === 'bad' ? valence : null
-}
-
-function verdictClass(verdict: MonitorVerdict, yesIs: Direction | null): string {
-    if (verdict === 'inconclusive') {
-        return 'text-secondary dark:text-default'
-    }
-    if (!yesIs) {
-        return 'text-default'
-    }
-    return (verdict === 'yes') === (yesIs === 'good') ? GOOD_CLASS : BAD_CLASS
-}
-
-function scorerScale(observation: ReplayObservationApi): { min: number; max: number | null; label: string | null } {
-    const scale = (configFromSnapshot(observation.scanner_snapshot) as ScorerScannerConfig | null)?.scale
-    return {
-        min: typeof scale?.min === 'number' ? scale.min : 0,
-        max: typeof scale?.max === 'number' ? scale.max : null,
-        label: scale?.label ?? null,
-    }
 }
 
 /** The scale's name, stamped on each result from the scanner config. Older results may lack it. */
@@ -86,15 +50,6 @@ function headlineLabel(observation: ReplayObservationApi, scannerType: ScannerTy
     return `${label} · ${shown}`
 }
 
-/** Red at the bad end of the scale through amber to green at the good end. */
-function scoreColor(score: number, min: number, max: number, highIs: Direction): string {
-    const fromMin = max > min ? Math.min(1, Math.max(0, (score - min) / (max - min))) : 1
-    const position = highIs === 'good' ? fromMin : 1 - fromMin
-    return position < 0.5
-        ? `color-mix(in oklab, var(--warning) ${Math.round(position * 200)}%, var(--danger))`
-        : `color-mix(in oklab, var(--success) ${Math.round((position - 0.5) * 200)}%, var(--warning))`
-}
-
 function HeadlineValue({
     observation,
     scannerType,
@@ -112,7 +67,7 @@ function HeadlineValue({
         const Icon = VERDICT_ICON[verdict]
         return (
             <span
-                className={`inline-flex items-center gap-1.5 text-xl font-bold ${verdictClass(verdict, direction(observation.prompt_valence))}`}
+                className={`inline-flex items-center gap-1.5 text-xl font-bold ${verdictClassFor(observation, verdict)}`}
                 data-attr="vision-observation-verdict"
             >
                 <Icon className="text-2xl" />
@@ -123,9 +78,8 @@ function HeadlineValue({
 
     if (scannerType === 'scorer') {
         const score = readScore(observation)
-        const { min, max } = scorerScale(observation)
-        const highIs = direction(observation.prompt_valence)
-        const color = score !== null && max !== null && highIs ? scoreColor(score, min, max, highIs) : null
+        const { max } = scorerScale(observation)
+        const color = score !== null ? scoreColorFor(observation, score) : null
         return (
             <span className="text-3xl font-bold tabular-nums">
                 <span

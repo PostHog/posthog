@@ -10,7 +10,7 @@ import {
     setupSyncRaf,
     waitForChartTooltip,
 } from '../../testing'
-import { TimeSeriesLineChart } from './TimeSeriesLineChart'
+import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from './TimeSeriesLineChart'
 
 const THEME: ChartTheme = {
     colors: ['#111', '#222', '#333'],
@@ -51,6 +51,39 @@ describe('TimeSeriesLineChart', () => {
             </TimeSeriesLineChart>
         )
         expect(bottomMargin).toBe(76)
+    })
+
+    describe('config.xScale', () => {
+        const TIME_LABELS = ['2026-03-01T00:00:00Z', '2026-03-01T01:00:00Z', '2026-03-01T04:00:00Z']
+
+        it.each([
+            ['spaces points evenly by default', {}, [0, 0.5, 1]],
+            ["places points by time with xScale: 'time'", { xScale: 'time' as const }, [0, 0.25, 1]],
+            [
+                'spans xDomain and drops points outside it',
+                {
+                    xScale: 'time' as const,
+                    xDomain: [Date.parse('2026-03-01T01:00:00Z'), Date.parse('2026-03-01T03:00:00Z')] as const,
+                },
+                [null, 0, null],
+            ],
+        ])('%s', (_, config, expectedFractions) => {
+            let fractions: (number | null)[] = []
+            function Measure(): null {
+                const { scales, dimensions } = useChartLayout()
+                fractions = TIME_LABELS.map((label) => {
+                    const x = scales.x(label)
+                    return x == null ? null : (x - dimensions.plotLeft) / dimensions.plotWidth
+                })
+                return null
+            }
+            renderChart(
+                <TimeSeriesLineChart series={SERIES} labels={TIME_LABELS} theme={THEME} config={config}>
+                    <Measure />
+                </TimeSeriesLineChart>
+            )
+            expect(fractions).toEqual(expectedFractions)
+        })
     })
 
     describe('config.xAxis', () => {
@@ -625,6 +658,40 @@ describe('TimeSeriesLineChart', () => {
     })
 
     describe('interactive legend', () => {
+        // MULTI_SERIES peaks at 3 in both series.
+        it.each<[string, Partial<TimeSeriesLineChartConfig>, string[][]]>([
+            [
+                'formats legend values with each series axis format',
+                {
+                    yAxis: [
+                        { id: 'left', suffix: ' ms' },
+                        { id: 'right', prefix: '$' },
+                    ],
+                },
+                [['3 ms'], ['$3']],
+            ],
+            [
+                'keeps a secondary axis without a format plain',
+                { yAxis: [{ id: 'left', suffix: ' ms' }, { id: 'right' }] },
+                [['3 ms'], ['3']],
+            ],
+            [
+                'keeps raw values plain on a percent chart',
+                { yAxis: { format: 'percentage_scaled' }, percentStackView: true },
+                [['3'], ['3']],
+            ],
+        ])('%s', (_, config, expectedValues) => {
+            const { chart } = renderChart(
+                <TimeSeriesLineChart
+                    series={[MULTI_SERIES[0], { ...MULTI_SERIES[1], yAxisId: 'right' }]}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ ...config, legend: { show: true, table: { values: ['max'] } } }}
+                />
+            )
+            expect(chart.legendValues()).toEqual(expectedValues)
+        })
+
         it('lists the raw series (not derived trend lines) and isolates one on click', () => {
             const { container, chart } = renderChart(
                 <TimeSeriesLineChart

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { urls } from 'scenes/urls'
 
 export interface DevUser {
@@ -207,6 +208,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
                 clientId: connector.client_id,
                 logoUri: connector.logo_uri,
                 redirectHost: connector.redirect_host,
+                flow: 'authorize',
             })
             const { pathname } = router.values.location
             const authPath = pathname === urls.signup() ? urls.signup() : urls.login()
@@ -214,7 +216,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
         },
         devLogin: async ({ email }) => {
             // Dynamic import to avoid a circular dependency: loginLogic statically imports this logic.
-            const { loginLogic, redirectAfterLogin } = await import('scenes/authentication/auth/loginLogic')
+            const { loginLogic } = await import('scenes/authentication/auth/loginLogic')
             loginLogic.actions.clearGeneralError()
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.

@@ -1,12 +1,12 @@
 import { IconMessage } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { StepFeedback } from '../types'
+import type { TraceStepFeedbackApi } from '../../../generated/api.schemas'
 
 const SHOWN_SCORES = 3
 
 export interface StepFeedbackChipsProps {
-    feedback: StepFeedback
+    feedback: TraceStepFeedbackApi
     onOpen: () => void
 }
 

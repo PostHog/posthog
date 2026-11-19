@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from posthog.temporal.session_replay.delete_recordings.object_storage import (
     delete_session_id_chunks,
+    discard_session_id_chunks,
     generate_chunk_key,
     generate_prefix,
     load_session_id_chunk,
@@ -65,6 +66,18 @@ def test_store_session_id_chunks(session_ids, chunk_size, expected_chunks, expec
 
     last_key = generate_chunk_key(prefix, expected_chunks - 1)
     assert len(written[last_key].split("\n")) == expected_last_chunk_size
+
+
+def test_discard_session_id_chunks_returns_the_keys_storage_did_not_delete():
+    with patch("posthog.temporal.session_replay.delete_recordings.object_storage.object_storage") as mock_os:
+        mock_os.delete_objects.return_value = ["deletion-inputs/wf-1/chunk-0001.csv"]
+
+        failed_keys = discard_session_id_chunks("deletion-inputs/wf-1/", 2)
+
+    mock_os.delete_objects.assert_called_once_with(
+        ["deletion-inputs/wf-1/chunk-0000.csv", "deletion-inputs/wf-1/chunk-0001.csv"]
+    )
+    assert failed_keys == ["deletion-inputs/wf-1/chunk-0001.csv"]
 
 
 @pytest.mark.asyncio

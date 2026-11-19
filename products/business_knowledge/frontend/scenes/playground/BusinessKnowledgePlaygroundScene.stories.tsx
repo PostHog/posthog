@@ -94,6 +94,8 @@ const searchResults: KnowledgeSearchResultApi[] = [
         ].join('\n\n'),
         is_generated: false,
         url: 'https://example.com/help/refunds',
+        matched_by: 'both',
+        similarity: 0.82,
     },
     {
         chunk_id: 'chunk-2',
@@ -107,6 +109,8 @@ const searchResults: KnowledgeSearchResultApi[] = [
         content: 'Priority support is included on the Enterprise plan.',
         is_generated: false,
         url: '',
+        matched_by: 'semantic',
+        similarity: 0.61,
     },
 ]
 
@@ -128,7 +132,12 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/business_knowledge/playground/chats/': [listedChat, olderChat],
+                '/api/projects/:team_id/business_knowledge/playground/chats/': {
+                    count: 3,
+                    next: '/api/projects/1/business_knowledge/playground/chats/?offset=2',
+                    previous: null,
+                    results: [listedChat, olderChat],
+                },
                 '/api/projects/:team_id/business_knowledge/playground/chats/:chatId/': chat,
                 '/api/projects/:team_id/business_knowledge/documents/search/': searchResults,
             },

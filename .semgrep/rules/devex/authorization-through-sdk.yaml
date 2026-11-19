@@ -1,0 +1,73 @@
+rules:
+    # INFO keeps this migration report out of the blocking WARNING and ERROR passes.
+    - id: authorization-through-sdk
+      message: |
+          Make authorization decisions through products.authorization.backend.facade.api.
+          Use check for a decision, permissions for allowed actions, and the authorization
+          presentation adapter for QuerySet filters. Build object resources with
+          products.authorization.backend.presentation.resources.resource_for_object so
+          creator and fallback-parent access are preserved. Background work must pass
+          an explicit subject. This migration report is informational until the direct
+          v1 callers have moved to the SDK.
+      languages: [python]
+      severity: INFO
+      paths:
+          include:
+              - /common/**/*.py
+              - /ee/**/*.py
+              - /posthog/**/*.py
+              - /products/**/*.py
+          exclude:
+              - /products/authorization/**
+              - /products/access_control/**
+              - /posthog/user_permissions.py
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+              - '**/migrations/**'
+      pattern-either:
+          - pattern: products.access_control.backend.facade.user_access_control.UserAccessControl(...)
+          - pattern: posthog.user_permissions.UserPermissions(...)
+          - patterns:
+                - pattern: $ACCESS.$METHOD(...)
+                - metavariable-regex:
+                      metavariable: $METHOD
+                      regex: ^(check_access_level_for_(object|resource|ref)|assert_access_level_for_resource|check_can_modify_access_levels_for_(object|ref)|access_level_for_(object|resource|ref)|specific_access_level_for_object|effective_access_level_for_resource|get_user_access_level|filter_queryset_by_access_level|filter_and_annotate_file_system_queryset|allowed_object_ids|denied_object_ids|object_ids_matching|none_denied_object_ids|bulk_object_access_levels|has_resource_access|has_any_specific_access_for_resource|has_object_access_limit|has_access_levels_for_resource|resolve_most_specific_(object|resource)_access)$
+          - pattern: $ACCESS.is_organization_admin
+          - pattern: $ACCESS.effective_membership_level
+          - pattern: $ACCESS.blocked_resource_ids_by_scope
+          - pattern: $ACCESS.allowlisted_resource_ids_by_scope
+          - pattern: $ACCESS.blocked_resources
+          - pattern: $VALUE == posthog.models.OrganizationMembership.Level.$LEVEL
+          - pattern: $VALUE != posthog.models.OrganizationMembership.Level.$LEVEL
+          - pattern: $VALUE < posthog.models.OrganizationMembership.Level.$LEVEL
+          - pattern: posthog.models.OrganizationMembership.Level.$LEVEL < $VALUE
+          - pattern: $VALUE <= posthog.models.OrganizationMembership.Level.$LEVEL
+          - pattern: posthog.models.OrganizationMembership.Level.$LEVEL <= $VALUE
+          - pattern: $VALUE > posthog.models.OrganizationMembership.Level.$LEVEL
+          - pattern: posthog.models.OrganizationMembership.Level.$LEVEL > $VALUE
+          - pattern: $VALUE >= posthog.models.OrganizationMembership.Level.$LEVEL
+          - pattern: posthog.models.OrganizationMembership.Level.$LEVEL >= $VALUE
+          - pattern: $VALUE in [..., posthog.models.OrganizationMembership.Level.$LEVEL, ...]
+          - pattern: $VALUE in (..., posthog.models.OrganizationMembership.Level.$LEVEL, ...)
+          - pattern: $VALUE not in [..., posthog.models.OrganizationMembership.Level.$LEVEL, ...]
+          - pattern: $VALUE not in (..., posthog.models.OrganizationMembership.Level.$LEVEL, ...)
+          - pattern: $VALUE == posthog.models.organization.OrganizationMembership.Level.$LEVEL
+          - pattern: $VALUE != posthog.models.organization.OrganizationMembership.Level.$LEVEL
+          - pattern: $VALUE < posthog.models.organization.OrganizationMembership.Level.$LEVEL
+          - pattern: posthog.models.organization.OrganizationMembership.Level.$LEVEL < $VALUE
+          - pattern: $VALUE <= posthog.models.organization.OrganizationMembership.Level.$LEVEL
+          - pattern: posthog.models.organization.OrganizationMembership.Level.$LEVEL <= $VALUE
+          - pattern: $VALUE > posthog.models.organization.OrganizationMembership.Level.$LEVEL
+          - pattern: posthog.models.organization.OrganizationMembership.Level.$LEVEL > $VALUE
+          - pattern: $VALUE >= posthog.models.organization.OrganizationMembership.Level.$LEVEL
+          - pattern: posthog.models.organization.OrganizationMembership.Level.$LEVEL >= $VALUE
+          - pattern: $VALUE in [..., posthog.models.organization.OrganizationMembership.Level.$LEVEL, ...]
+          - pattern: $VALUE in (..., posthog.models.organization.OrganizationMembership.Level.$LEVEL, ...)
+          - pattern: $VALUE not in [..., posthog.models.organization.OrganizationMembership.Level.$LEVEL, ...]
+          - pattern: $VALUE not in (..., posthog.models.organization.OrganizationMembership.Level.$LEVEL, ...)
+      metadata:
+          category: best-practice
+          confidence: MEDIUM

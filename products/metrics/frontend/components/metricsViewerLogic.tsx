@@ -50,6 +50,7 @@ import type {
     _MetricClauseApi,
     _MetricFilterApi,
     _MetricQueryBodyApi,
+    _MetricQueryPointApi,
     _MetricSeriesApi,
     MetricAnomalyDirectionEnumApi,
     MetricQueryIntervalEnumApi,
@@ -71,7 +72,16 @@ import type { MetricsChartSeries } from './metricsSeries'
 // kea-typegen inlines derived unions into every consumer's generated block — keep the
 // named alias so those blocks stay stable.
 export type HistogramQuantileAggregation = 'histogram_p50' | 'histogram_p95' | 'histogram_p99'
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95' | HistogramQuantileAggregation
+export type HistogramCountAggregation = 'count_rate' | 'count_increase'
+export type MetricAggregation =
+    | 'sum'
+    | 'avg'
+    | 'count'
+    | 'min'
+    | 'max'
+    | 'p95'
+    | HistogramQuantileAggregation
+    | HistogramCountAggregation
 export const METRIC_AGGREGATIONS: MetricAggregation[] = [
     'sum',
     'avg',
@@ -82,6 +92,8 @@ export const METRIC_AGGREGATIONS: MetricAggregation[] = [
     'histogram_p50',
     'histogram_p95',
     'histogram_p99',
+    'count_rate',
+    'count_increase',
 ]
 
 /** Viewer shorthands for the API's `histogram_quantile`, which reads the bucket distribution. */
@@ -96,6 +108,13 @@ export const isHistogramQuantileAggregation = (
     aggregation: string | null
 ): aggregation is HistogramQuantileAggregation =>
     !!aggregation && Object.prototype.hasOwnProperty.call(HISTOGRAM_QUANTILES, aggregation)
+
+/**
+ * Aggregations that read a histogram's buckets or observation count. They need a histogram,
+ * and the backend rejects them together with a range function.
+ */
+export const isHistogramOnlyAggregation = (aggregation: string | null): boolean =>
+    isHistogramQuantileAggregation(aggregation) || aggregation === 'count_rate' || aggregation === 'count_increase'
 
 const histogramQuantileFields = (
     aggregation: HistogramQuantileAggregation
@@ -132,7 +151,8 @@ export const splitLegacyAggregation = (
 
 export { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY }
 
-export type MetricsViewerSeries = _MetricSeriesApi
+// The viewer runs range queries only, so every series it holds has its points.
+export type MetricsViewerSeries = _MetricSeriesApi & { points: _MetricQueryPointApi[] }
 
 /** One query line of the viewer — the state behind one clause row. */
 export interface MetricsViewerClause {
@@ -250,6 +270,9 @@ const defaultsToHistogramQuantile = (
 
 // Grouping needs an aggregation to combine series, so a grouped clause falls back to sum, not to none.
 const fallbackAggregation = (groupByKeys: string[]): MetricAggregation | null => (groupByKeys.length ? 'sum' : null)
+
+// The backend computes Apdex as one score per bucket and accepts only `avg` to combine it, not `sum`.
+const DERIVED_APDEX_METRIC = 'posthog.derived.spans.apdex'
 
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
@@ -479,6 +502,8 @@ export const isBuilderCompatibleQuery = (query: MetricsQuery): boolean =>
                 (clause.aggregation === 'quantile' && clause.quantile === 0.95) ||
                 (clause.aggregation === 'histogram_quantile' &&
                     histogramAggregationForQuantile(clause.quantile) !== null)) &&
+            // The builder has no Apdex threshold control, so an edit would reset a saved one to the default.
+            clause.apdexThresholdMs === undefined &&
             (clause.filters ?? []).every((filter) => isAutoScope(filter.scope)) &&
             (clause.groupBy ?? []).every((groupBy) => isAutoScope(groupBy.scope))
     )
@@ -568,6 +593,7 @@ export interface metricsViewerLogicValues {
     histogramQueryNode: MetricsHistogramQuery | null
     interval: string | null
     isAddToDashboardModalOpen: boolean
+    isHeatmap: boolean
     language: MetricsQueryLanguage
     lastSavedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     liveRefresh: boolean
@@ -575,6 +601,7 @@ export interface metricsViewerLogicValues {
     metricsDisplay: MetricsDisplaySettings | undefined
     metricsQueryNode: MetricsQuery | null
     namedClauses: MetricsViewerClause[]
+    noQueryReason: string | undefined
     pendingAddToDashboard: boolean
     pendingAlert: boolean
     queryAbortController: AbortController | null
@@ -591,12 +618,14 @@ export interface metricsViewerLogicValues {
     queryTextChanged: boolean
     rangeFunction: MetricRangeFunction | null
     reduce: MetricsReducer
+    refreshCount: number
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     selectedMetricType: OtelMetricTypeEnumApi | null
     selectedServices: string[]
     seriesCapReached: boolean
+    statSparkline: boolean
     viewerClauses: MetricsViewerClause[]
     yAxisSettings: MetricsYAxisSettings
 }
@@ -696,10 +725,10 @@ export interface metricsViewerLogicActions {
         errorObject?: any
     }
     fetchQueryResultsSuccess: (
-        queryResults: _MetricSeriesApi[],
+        queryResults: MetricsViewerSeries[],
         payload?: any
     ) => {
-        queryResults: _MetricSeriesApi[]
+        queryResults: MetricsViewerSeries[]
         payload?: any
     }
     liveRefreshTick: () => {
@@ -729,6 +758,9 @@ export interface metricsViewerLogicActions {
         payload?: any
     }
     openAddToDashboardModal: () => {
+        value: true
+    }
+    refresh: () => {
         value: true
     }
     removeClause: (index: number) => {
@@ -825,6 +857,9 @@ export interface metricsViewerLogicActions {
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
     }
+    setStatSparkline: (statSparkline: boolean) => {
+        statSparkline: boolean
+    }
     setYAxisSetting: (
         key: keyof MetricsYAxisSettings,
         value: boolean | number | string | undefined
@@ -860,6 +895,7 @@ export interface metricsViewerLogicMeta {
         namedClauses: (viewerClauses: MetricsViewerClause[]) => MetricsViewerClause[]
         hasMetricName: (namedClauses: MetricsViewerClause[]) => boolean
         hasQuery: (language: MetricsQueryLanguage, hasMetricName: boolean, queryText: string) => boolean
+        noQueryReason: (hasQuery: boolean, language: MetricsQueryLanguage) => string | undefined
         queryPayload: (
             namedClauses: MetricsViewerClause[],
             formula: string,
@@ -877,7 +913,8 @@ export interface metricsViewerLogicMeta {
             displayType: MetricsDisplayType,
             goalLines: GoalLine[],
             yAxisSettings: MetricsYAxisSettings,
-            reduce: MetricsReducer
+            reduce: MetricsReducer,
+            statSparkline: boolean
         ) => MetricsDisplaySettings | undefined
         metricsQueryNode: (
             namedClauses: MetricsViewerClause[],
@@ -890,6 +927,7 @@ export interface metricsViewerLogicMeta {
             queryText: string
         ) => MetricsQuery | null
         queryTextChanged: (queryDraft: string, queryText: string) => boolean
+        isHeatmap: (displayType: MetricsDisplayType, histogramQueryNode: MetricsHistogramQuery | null) => boolean
         heatmapEligible: (
             language: MetricsQueryLanguage,
             namedClauses: MetricsViewerClause[],
@@ -908,15 +946,15 @@ export interface metricsViewerLogicMeta {
         ) => MetricsHistogramQuery | MetricsQuery | null
         queryFilters: (activeClause: MetricsViewerClause) => _MetricFilterApi[]
         selectedServices: (activeClause: MetricsViewerClause) => string[]
-        correlationServices: (selectedServices: string[], queryResults: _MetricSeriesApi[]) => string[]
+        correlationServices: (selectedServices: string[], queryResults: MetricsViewerSeries[]) => string[]
         attributeEndpointFilters: (
             dateFrom: string | null,
             dateTo: string | null,
             timezone: string
         ) => Record<string, string>
-        chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
-        hasResults: (queryResults: _MetricSeriesApi[]) => boolean
-        seriesCapReached: (viewerClauses: MetricsViewerClause[], queryResults: _MetricSeriesApi[]) => boolean
+        chartSeries: (queryResults: MetricsViewerSeries[]) => MetricsChartSeries[]
+        hasResults: (queryResults: MetricsViewerSeries[]) => boolean
+        seriesCapReached: (viewerClauses: MetricsViewerClause[], queryResults: MetricsViewerSeries[]) => boolean
         anomalyTopMovers: (anomalyReport: _MetricAnomalyReportApi | null) => MetricTopMoverRow[]
         anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
     }
@@ -970,6 +1008,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         // One auto-refresh cycle. The chart and the facet rail both reload on it.
         liveRefreshTick: true,
+        // Reloads everything the chart area shows: the series, the anomaly badge and the heatmap.
+        refresh: true,
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         // Narrows the chart to one label value, from the anomaly panel's ranked movers.
         addAttributeFilter: (key: string, value: string) => ({ key, value }),
@@ -1010,6 +1050,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             value,
         }),
         setReduce: (reduce: MetricsReducer) => ({ reduce }),
+        setStatSparkline: (statSparkline: boolean) => ({ statSparkline }),
         // PromQL and SQL modes: the draft follows each keystroke, and only a run moves it into the
         // query, so typing does not run a half-written query.
         setQueryDraft: (queryDraft: string) => ({ queryDraft }),
@@ -1045,10 +1086,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         let aggregation = clause.aggregation
                         if (!aggregation && defaultsToHistogramQuantile(metricType, clause.rangeFunction)) {
                             aggregation = DEFAULT_HISTOGRAM_AGGREGATION
-                        } else if (
-                            isHistogramQuantileAggregation(aggregation) &&
-                            !supportsHistogramQuantile(metricType)
-                        ) {
+                        } else if (isHistogramOnlyAggregation(aggregation) && !supportsHistogramQuantile(metricType)) {
                             aggregation = fallbackAggregation(clause.groupByKeys)
                         }
                         return { ...clause, selectedMetricType: metricType, aggregation }
@@ -1060,7 +1098,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     withActiveClause(state, (clause) => ({
                         ...clause,
                         aggregation,
-                        rangeFunction: isHistogramQuantileAggregation(aggregation) ? null : clause.rangeFunction,
+                        rangeFunction: isHistogramOnlyAggregation(aggregation) ? null : clause.rangeFunction,
                         groupByKeys: aggregation ? clause.groupByKeys : [],
                     })),
                 setRangeFunction: (state, { rangeFunction }) =>
@@ -1068,7 +1106,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         ...clause,
                         rangeFunction,
                         aggregation:
-                            rangeFunction && isHistogramQuantileAggregation(clause.aggregation)
+                            rangeFunction && isHistogramOnlyAggregation(clause.aggregation)
                                 ? fallbackAggregation(clause.groupByKeys)
                                 : clause.aggregation,
                     })),
@@ -1080,10 +1118,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         groupByKeys,
                         aggregation:
                             clause.aggregation ??
-                            (groupByKeys.length &&
-                            defaultsToHistogramQuantile(clause.selectedMetricType, clause.rangeFunction)
-                                ? DEFAULT_HISTOGRAM_AGGREGATION
-                                : fallbackAggregation(groupByKeys)),
+                            (groupByKeys.length && clause.metricName.trim() === DERIVED_APDEX_METRIC
+                                ? 'avg'
+                                : groupByKeys.length &&
+                                    defaultsToHistogramQuantile(clause.selectedMetricType, clause.rangeFunction)
+                                  ? DEFAULT_HISTOGRAM_AGGREGATION
+                                  : fallbackAggregation(groupByKeys)),
                     })),
                 // The clause's UniversalFilters group; converted into backend matchers by `metricFiltersForGroup`.
                 setFilterGroup: (state, { filterGroup }) =>
@@ -1187,6 +1227,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             { setInterval: (_, { interval }) => interval },
         ],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
+        // The heatmap loads through its own query node, which remounts when this changes.
+        refreshCount: [0, { refresh: (count) => count + 1 }],
         // Free-text search backing the group-by attribute-key autocomplete.
         groupBySearch: ['' as string, { setGroupBySearch: (_, { groupBySearch }) => groupBySearch }],
         queryAbortController: [
@@ -1231,6 +1273,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         reduce: [
             resolveReducer(props.initialQuery?.display) as MetricsReducer,
             { setReduce: (_, { reduce }) => reduce },
+        ],
+        statSparkline: [
+            props.initialQuery?.display?.statSparkline !== false,
+            { setStatSparkline: (_, { statSparkline }) => statSparkline },
         ],
         isAddToDashboardModalOpen: [
             false,
@@ -1475,6 +1521,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }, LIVE_REFRESH_KEY)
             },
             liveRefreshTick: () => {
+                actions.refresh()
+            },
+            refresh: () => {
                 actions.fetchQueryResults({})
                 actions.fetchAnomaly({})
             },
@@ -1513,7 +1562,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         queryResults: [
             [] as MetricsViewerSeries[],
             {
-                fetchQueryResults: async (_, breakpoint) => {
+                fetchQueryResults: async (_, breakpoint): Promise<MetricsViewerSeries[]> => {
                     if (!canViewMetrics()) {
                         return []
                     }
@@ -1563,7 +1612,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     )
                     breakpoint()
                     actions.setQueryAbortController(null)
-                    return response.results
+                    return response.results.map((series) => ({ ...series, points: series.points ?? [] }))
                 },
             },
         ],
@@ -1696,6 +1745,11 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             (language: MetricsQueryLanguage, hasMetricName: boolean, queryText: string): boolean =>
                 language === 'builder' ? hasMetricName : queryText.trim() !== '',
         ],
+        noQueryReason: [
+            (s) => [s.hasQuery, s.language],
+            (hasQuery: boolean, language: MetricsQueryLanguage): string | undefined =>
+                hasQuery ? undefined : language === 'builder' ? 'Pick a metric first' : 'Write a query first',
+        ],
         // The chart request minus the date range (resolved at fetch time). The fetch
         // loader sends this object verbatim, so the fingerprint below can't drift from
         // the real payload. Null when nothing queries anything yet.
@@ -1759,18 +1813,20 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // Chart settings as they'd be persisted, with every default omitted — an all-defaults
         // object would change the shape of newly-saved nodes for no gain.
         metricsDisplay: [
-            (s) => [s.displayType, s.goalLines, s.yAxisSettings, s.reduce],
+            (s) => [s.displayType, s.goalLines, s.yAxisSettings, s.reduce, s.statSparkline],
             (
                 displayType: MetricsDisplayType,
                 goalLines: GoalLine[],
                 yAxisSettings: MetricsYAxisSettings,
-                reduce: MetricsReducer
+                reduce: MetricsReducer,
+                statSparkline: boolean
             ): MetricsDisplaySettings | undefined => {
                 const display: MetricsDisplaySettings = {
                     ...(displayType !== DEFAULT_DISPLAY_TYPE ? { type: displayType } : {}),
                     ...(goalLines.length ? { goalLines } : {}),
                     ...(Object.keys(yAxisSettings).length ? { yAxis: yAxisSettings } : {}),
                     ...(reduce !== DEFAULT_REDUCER ? { reduce } : {}),
+                    ...(statSparkline ? {} : { statSparkline: false }),
                 }
                 return Object.keys(display).length ? display : undefined
             },
@@ -1833,6 +1889,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // The heatmap renders one distribution, so it needs exactly one non-formula builder clause
         // on a distribution metric. The OTel type is latched at pick time (backfilled from the picker
         // list), so this doesn't flicker as the live picker search results change.
+        // The heatmap draws a separate histogram query, so the time-series result does not feed it.
+        isHeatmap: [
+            (s) => [s.displayType, s.histogramQueryNode],
+            (displayType: MetricsDisplayType, histogramQueryNode: MetricsHistogramQuery | null): boolean =>
+                displayType === 'heatmap' && histogramQueryNode !== null,
+        ],
         heatmapEligible: [
             (s) => [s.language, s.namedClauses, s.formula],
             (language: MetricsQueryLanguage, namedClauses: MetricsViewerClause[], formula: string): boolean =>

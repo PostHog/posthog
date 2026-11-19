@@ -39,6 +39,7 @@ export const OnboardingWebAnalyticsAuthorizedDomainsStep: OnboardingStepComponen
                 type={AuthorizedUrlListType.WEB_ANALYTICS}
                 allowWildCards={false}
                 displaySuggestions={false}
+                showLaunch={false}
             />
         </OnboardingStep>
     )

@@ -161,6 +161,9 @@ fn format_last_updated(timestamp_micros: i64) -> String {
         .to_string()
 }
 
+/// `produce` must hand every change to the producer before its future first returns `Pending`, and
+/// await only the acks after that. The worker's produce window polls a live batch's produce once
+/// and then moves on, so a sink that awaits before it enqueues lets later output overtake the batch.
 #[async_trait]
 pub trait MembershipSink: Send + Sync {
     async fn produce(

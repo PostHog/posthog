@@ -9,6 +9,10 @@ from products.error_tracking.backend.facade import api as error_tracking_api
 
 
 class ErrorTrackingSettingsSerializer(serializers.Serializer):
+    adaptive_ingestion_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Project preference for adaptive ingestion. Turning this on does not currently change ingestion.",
+    )
     project_rate_limit_value = serializers.IntegerField(
         min_value=1,
         allow_null=True,
@@ -40,6 +44,22 @@ class ErrorTrackingSettingsSerializer(serializers.Serializer):
             "for this project before it is stored or billed, and the events cannot be recovered."
         ),
     )
+    ai_issue_summaries_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the "
+            "organization's AI credits. Setting it to true fails until the organization approves AI data "
+            "processing. Setting it to false always succeeds."
+        ),
+    )
+
+    def validate_ai_issue_summaries_enabled(self, value: bool) -> bool:
+        if value and not self.context["get_organization"]().is_ai_data_processing_approved:
+            raise serializers.ValidationError(
+                "Your organization must approve AI data processing before you turn on issue summaries.",
+                code="ai_data_processing_not_approved",
+            )
+        return value
 
 
 class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -59,7 +79,9 @@ class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["patch"])
     def update_settings(self, request, *args, **kwargs):
-        serializer = ErrorTrackingSettingsSerializer(data=request.data, partial=True)
+        serializer = ErrorTrackingSettingsSerializer(
+            data=request.data, partial=True, context=self.get_serializer_context()
+        )
         serializer.is_valid(raise_exception=True)
         settings = error_tracking_api.update_settings(self.team.id, dict(serializer.validated_data))
         return Response(ErrorTrackingSettingsSerializer(settings).data, status=status.HTTP_200_OK)

@@ -30,7 +30,9 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.utils import uuid7
+from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -336,6 +338,32 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 overview_precompute.can_use_lazy_precompute(WebOverviewQueryRunner(team=self.team, query=query)),
                 eligible,
             )
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_channel_boundary_read_carries_the_native_read_settings_for_a_switched_team(self) -> None:
+        def boundary_read_settings() -> dict:
+            query = self._build_query(
+                date_from="2024-01-03T11:00:00",
+                date_to="2024-01-03T12:00:00",
+                properties=[
+                    SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+                ],
+            )
+            assert query.dateRange is not None
+            query.dateRange.explicitDate = True
+            runner = WebOverviewQueryRunner(team=self.team, query=query)
+            with patch.object(overview_precompute, "sync_execute", return_value=[[0, 0, 0, 0.0, None]]) as execute:
+                overview_precompute.execute_channel_period_read(
+                    runner, runner.query_date_range.date_from(), runner.query_date_range.date_to()
+                )
+            return execute.call_args.kwargs["settings"]
+
+        if not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("json_type_escape_dots_in_keys", boundary_read_settings())
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            switched = boundary_read_settings()
+        self.assertEqual(switched["json_type_escape_dots_in_keys"], 1)
+        self.assertEqual(switched["output_format_json_escape_forward_slashes"], 0)
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_sampling_falls_through(self):

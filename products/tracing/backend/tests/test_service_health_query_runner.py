@@ -402,12 +402,16 @@ class TestServiceHealthQueryRunner(_TraceSpansTestBase):
             aggregate["query"]["dateRange"], {"date_from": "2026-06-02T08:00:00Z", "date_to": "2026-06-02T09:00:00Z"}
         )
         self.assertEqual(aggregate["query"]["compareFilter"], {"compare": True})
+        self.assertTrue(aggregate["query"]["includeHealth"])
         error_spans = calls["query-apm-spans"]["query"]
         self.assertEqual((error_spans["serviceNames"], error_spans["statusCodes"]), (["worker"], [2]))
         self.assertEqual((error_spans["flatSpans"], error_spans["rootSpans"]), (True, False))
         for call in result["next"]:
             self.assertLessEqual(len(call["why"]), MAX_REASON_LENGTH)
         self.assertEqual(self._run()["next"], [])
+        no_baseline = self._run(environment=None, compare=ServiceHealthCompare.NONE)["next"][0]
+        self.assertEqual(no_baseline["tool"], "apm-spans-aggregate")
+        self.assertNotIn("includeHealth", no_baseline["query"])
 
     def test_a_truncated_scan_does_not_invent_silent_or_new_services(self):
         with patch("products.tracing.backend.service_health_query_runner.SERVICE_SCAN_LIMIT", 3):

@@ -1,128 +1,201 @@
-import { DateTime } from 'luxon'
-import { register } from 'prom-client'
-
 import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { drop, ok } from '~/ingestion/framework/results'
+import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
+import {
+    SessionBlockMetadata,
+    createNoopBlockMetadata,
+} from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
+import { RedisPool } from '~/types'
 
-import { ParsedMessageData } from './kafka/types'
-import { Recordable, SessionReplayHeaders } from './pipeline-types'
-import { createRecordSessionUsageStep, trackUnbilledNewSessions } from './session-usage-step'
-import { TeamForReplay } from './teams/types'
+import { billPersistedSessions, recordPersistedSessionUsage } from './session-usage-step'
 
-type SessionUsageValue = Recordable<{
-    team: TeamForReplay
-    headers: SessionReplayHeaders
-    parsedMessage: ParsedMessageData
-    isNewSession: boolean
-}>
-
-describe('createRecordSessionUsageStep', () => {
+describe('session usage', () => {
     let ingested: UsageRecordInput[]
     let usageBatch: UsageRecordBatch
+    // 'stored' is a send that the service kept while the client saw it fail.
+    let sendFailure: 'none' | 'lost' | 'stored'
+
+    function newUsageBatch(): UsageRecordBatch {
+        const client = {
+            ingest: jest.fn((records: UsageRecordInput[]) => {
+                if (sendFailure !== 'lost') {
+                    ingested.push(...records)
+                }
+                return Promise.resolve(sendFailure === 'none' ? records : [])
+            }),
+        } as unknown as UsageIngestionClient
+        return new UsageRecordBatch(client, { unit: 'recordings', isTeamEnabled: () => true })
+    }
 
     beforeEach(() => {
         ingested = []
-        const client = {
-            ingest: jest.fn((records: UsageRecordInput[]) => {
-                ingested.push(...records)
-                return Promise.resolve()
-            }),
-        } as unknown as UsageIngestionClient
-        usageBatch = new UsageRecordBatch(client, { unit: 'recordings', isTeamEnabled: () => true })
+        sendFailure = 'none'
+        usageBatch = newUsageBatch()
     })
 
-    function buildValue(
-        snapshotSource: string | null,
-        snapshotLibrary: string | null,
-        isNewSession: boolean
-    ): SessionUsageValue {
+    function metadata(snapshotSource: string | null, captureTimestampMs?: number): SessionBlockMetadata {
         return {
-            team: { teamId: 42, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false },
-            headers: { token: 'token', session_id: 'session-1', distinct_id: 'distinct-1' },
-            parsedMessage: {
-                distinct_id: 'distinct-1',
-                session_id: 'session-1',
-                token: 'token',
-                eventsByWindowId: { window1: [] },
-                eventsRange: { start: DateTime.fromMillis(0), end: DateTime.fromMillis(0) },
-                snapshot_source: snapshotSource,
-                snapshot_library: snapshotLibrary,
-                metadata: { partition: 0, topic: 'test-topic', rawSize: 0, offset: 0, timestamp: 0 },
-            },
-            isNewSession,
-            status: 'allowed',
-            sessionKey: {
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'ciphertext',
-            },
+            ...createNoopBlockMetadata('session-1', 42),
+            snapshotSource,
+            captureTimestampMs,
         }
     }
 
-    async function record(
-        snapshotSource: string | null,
-        snapshotLibrary: string | null,
-        isNewSession = true
-    ): Promise<string[]> {
-        const step = createRecordSessionUsageStep(usageBatch)
-        await step(buildValue(snapshotSource, snapshotLibrary, isNewSession))
-
+    async function record(sessions: SessionBlockMetadata[]): Promise<string[]> {
+        recordPersistedSessionUsage(usageBatch, sessions)
         await usageBatch.flush()
         return ingested.map((record) => record.usageKey)
     }
 
     it.each([
-        ['web', 'posthog-js', ['session_replay_recordings']],
-        ['mobile', 'posthog-ios', ['mobile_replay_recordings']],
-        ['mobile', 'posthog-flutter', ['mobile_replay_recordings']],
-        // The report bills mobile replay only from four named libraries. The meter reads the
-        // source instead, so a mobile recording bills whatever library it names.
-        ['mobile', 'posthog-python', ['mobile_replay_recordings']],
-        ['mobile', null, ['mobile_replay_recordings']],
-        // Nothing validates the source, so anything but 'mobile' bills as web rather than for free.
-        ['desktop', 'posthog-js', ['session_replay_recordings']],
-        [null, null, ['session_replay_recordings']],
-    ])('bills a %s session from %s under %j', async (source, library, expectedUsageKeys) => {
-        expect(await record(source, library)).toEqual(expectedUsageKeys)
+        ['web', ['session_replay_recordings']],
+        ['mobile', ['mobile_replay_recordings']],
+        ['desktop', ['session_replay_recordings']],
+        [null, ['session_replay_recordings']],
+    ])('bills persisted %s metadata under %j', async (source, expectedUsageKeys) => {
+        expect(await record([metadata(source, 1_700_000_000_000)])).toEqual(expectedUsageKeys)
     })
 
-    it('bills nothing for a session already seen in this batch', async () => {
-        expect(await record('web', 'posthog-js', false)).toEqual([])
+    it('uses the persisted session identity and trusted capture timestamp once', async () => {
+        const persisted = metadata('web', 1_700_000_000_000)
+
+        await record([persisted, persisted])
+
+        expect(ingested).toEqual([
+            expect.objectContaining({
+                recordId: 'session-1',
+                quantity: 1,
+                timestampMs: 1_700_000_000_000,
+            }),
+        ])
     })
 
-    it('uses trusted capture time from replay headers', async () => {
-        const capturedAtMs = 1_700_000_000_000
-        const value = buildValue('web', 'posthog-js', true)
-        value.headers.now = new Date(capturedAtMs)
-
-        await createRecordSessionUsageStep(usageBatch)(value)
-        await usageBatch.flush()
-
-        expect(ingested[0]).toEqual(expect.objectContaining({ timestampMs: capturedAtMs }))
+    it('bills nothing without persisted replay metadata', async () => {
+        expect(await record([])).toEqual([])
     })
 
-    describe('trackUnbilledNewSessions', () => {
-        async function unbilledCount(): Promise<number> {
-            const metric = register.getSingleMetric('recording_blob_ingestion_v2_unbilled_new_session')!
-            const data = (await metric.get()) as { values: { value: number }[] }
-            return data.values.reduce((total, entry) => total + entry.value, 0)
+    describe('billing each saved session once', () => {
+        const FIRST_FLUSH = Date.parse('2026-10-15T23:59:58Z')
+        const SECOND_FLUSH = Date.parse('2026-10-16T00:00:03Z')
+        const seenKey = '@posthog/replay/session-seen:42:session-1'
+        const billedKey = '@posthog/replay/session-billed:42:session-1'
+
+        let redisValues: Map<string, string>
+        let redisTtls: Map<string, number>
+        let redisAvailable: boolean
+        let redisPool: RedisPool
+
+        beforeEach(() => {
+            redisValues = new Map()
+            redisTtls = new Map()
+            redisAvailable = true
+            const client = {
+                pipeline: () => {
+                    const commands: (() => string | null)[] = []
+                    const pipeline = {
+                        set: (key: string, value: string, _mode: string, ttlSeconds: number, condition?: string) => {
+                            commands.push(() => {
+                                if (condition === 'NX' && redisValues.has(key)) {
+                                    return null
+                                }
+                                redisValues.set(key, value)
+                                redisTtls.set(key, ttlSeconds)
+                                return 'OK'
+                            })
+                            return pipeline
+                        },
+                        get: (key: string) => {
+                            commands.push(() => redisValues.get(key) ?? null)
+                            return pipeline
+                        },
+                        exec: () =>
+                            redisAvailable
+                                ? Promise.resolve(commands.map((command) => [null, command()]))
+                                : Promise.reject(new Error('Redis unavailable')),
+                    }
+                    return pipeline
+                },
+            }
+            redisPool = {
+                acquire: () => Promise.resolve(client),
+                release: () => Promise.resolve(),
+            } as unknown as RedisPool
+        })
+
+        // A new tracker for each flush, so the local cache cannot hide what Redis holds.
+        async function flush(sessions: SessionBlockMetadata[]): Promise<void> {
+            await billPersistedSessions(usageBatch, new SessionTracker(redisPool, 60_000), sessions)
         }
 
-        it.each([
-            ['counts a new session whose message fails', true, false, 1],
-            ['counts nothing for a session already seen', false, false, 0],
-            ['counts nothing for a new session that parses', true, true, 0],
-        ])('%s', async (_name, isNewSession, succeeds, expectedIncrease) => {
-            const value = buildValue('web', 'posthog-js', isNewSession)
-            const before = await unbilledCount()
-            const step = trackUnbilledNewSessions(() =>
-                Promise.resolve(succeeds ? ok(value) : drop<typeof value>('message_contained_no_valid_rrweb_events'))
-            )
+        it('bills a session saved in two flushes once, across midnight', async () => {
+            await flush([metadata('web', FIRST_FLUSH)])
+            await flush([metadata('web', SECOND_FLUSH)])
 
-            await step(value)
-
-            expect(await unbilledCount()).toEqual(before + expectedIncrease)
+            expect(ingested).toEqual([expect.objectContaining({ recordId: 'session-1', timestampMs: FIRST_FLUSH })])
         })
+
+        it.each([
+            ['loses', 'lost', 1],
+            ['stores', 'stored', 2],
+        ] as const)(
+            'bills a failed send on the next saved flush with the first flush time when the service %s it',
+            async (_name, failure, records) => {
+                sendFailure = failure
+                await flush([metadata('web', FIRST_FLUSH)])
+                sendFailure = 'none'
+                await flush([metadata('web', SECOND_FLUSH)])
+
+                expect(ingested).toEqual(
+                    Array(records).fill(expect.objectContaining({ recordId: 'session-1', timestampMs: FIRST_FLUSH }))
+                )
+            }
+        )
+
+        it('sends one billing time when two consumers bill a session at once', async () => {
+            await Promise.all([
+                flush([metadata('web', FIRST_FLUSH)]),
+                billPersistedSessions(newUsageBatch(), new SessionTracker(redisPool, 60_000), [
+                    metadata('web', SECOND_FLUSH),
+                ]),
+            ])
+
+            expect(new Set(ingested.map((record) => record.timestampMs))).toEqual(new Set([FIRST_FLUSH]))
+        })
+
+        it('bills a session saved in only one flush when Redis is unavailable', async () => {
+            redisAvailable = false
+            await flush([metadata('web', FIRST_FLUSH)])
+
+            expect(ingested).toEqual([expect.objectContaining({ recordId: 'session-1', timestampMs: FIRST_FLUSH })])
+        })
+
+        it.each([
+            ['a session the tracker marked seen but did not bill', 'seen', ['session-1']],
+            ['nothing for a session that an earlier release billed when it first saw it', '1', []],
+        ])('bills %s, also after the seen key expires', async (_name, trackerValue, billedSessionIds) => {
+            redisValues.set(seenKey, trackerValue)
+
+            await flush([metadata('mobile', FIRST_FLUSH)])
+            redisValues.delete(seenKey)
+            await flush([metadata('mobile', SECOND_FLUSH)])
+
+            expect(ingested.map((record) => record.recordId)).toEqual(billedSessionIds)
+        })
+
+        it.each([
+            ['mobile', 7 * 24 * 60 * 60],
+            ['web', 48 * 60 * 60],
+        ])(
+            'keeps a billed %s session marked for %i seconds without changing its seen key',
+            async (source, ttlSeconds) => {
+                redisValues.set(seenKey, 'seen')
+                redisTtls.set(seenKey, 48 * 60 * 60)
+
+                await flush([metadata(source, FIRST_FLUSH)])
+
+                expect(redisTtls.get(billedKey)).toBe(ttlSeconds)
+                expect([redisValues.get(seenKey), redisTtls.get(seenKey)]).toEqual(['seen', 48 * 60 * 60])
+            }
+        )
     })
 })

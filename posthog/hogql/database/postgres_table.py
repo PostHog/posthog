@@ -16,7 +16,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.persons_db import persons_db_url
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -130,6 +130,10 @@ class PostgresTable(FunctionCallTable):
     # read next to the team guard (see ClickHousePrinter._print_table_ref), so it prunes in Postgres
     # rather than after the rows have been copied out. None means the table has no retention window.
     retention_field: Optional[str] = None
+    # Keep the team guard next to the table function even when the table has predicates. A table that
+    # is too large to read in full needs this: as the right side of a LEFT JOIN its guard sits in the
+    # ON clause, which ClickHouse does not send to Postgres. The predicates then run in ClickHouse.
+    push_team_guard_with_predicates: bool = False
     postgres_pushdown_values: dict[str, str | int | bool] = {}
     predicates: list[Expr] = []
 
@@ -150,6 +154,12 @@ class PostgresTable(FunctionCallTable):
 
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         return self.predicates
+
+    def postgres_pushdown_in_values(self, context: HogQLContext) -> dict[str, tuple[str, ...]]:
+        """Field name -> the values the Postgres read keeps, added as `IN` next to the team guard so Postgres
+        prunes the rows. For a filter that holds only at print time, such as ids read from another table.
+        A filter here prunes the read only: rows a reader may not see still need the table's predicates."""
+        return {}
 
     def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
         """Oldest `retention_field` value this team may read, or None when unrestricted.

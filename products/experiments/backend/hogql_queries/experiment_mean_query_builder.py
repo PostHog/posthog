@@ -8,6 +8,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from products.experiments.backend.hogql_queries.base_query_utils import (
     is_session_property_metric,
     validate_session_property,
+    winsorization_bound_expr,
 )
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
@@ -129,14 +130,15 @@ class MeanQueryBuilder:
                     {value_agg} AS value"""
 
         if self._metric_events_job_ids:
-            # Read from the precomputed table instead of scanning events. Only reachable
-            # for eligible metrics (no breakdowns/CUPED/DW/session properties), so the
-            # branches above never coexist with this one.
+            # Read from the precomputed table instead of scanning events. Only reachable for
+            # eligible metrics (no breakdowns/DW/session properties). With CUPED the join
+            # predicate above also admits the pre-exposure window, which the precomputed rows
+            # cover because the build and the read start lookback_days before the experiment.
             assert isinstance(self._b.metric.source, (ActionsNode, EventsNode))
             metric_events_cte = build_precomputed_metric_events_cte(
                 cte_name="metric_events",
                 source=self._b.metric.source,
-                entity_key=self._b.entity_key,
+                entity_id_sql=self._b.context.precomputed_entity_id_sql(),
                 job_ids_placeholder="metric_events_job_ids",
             )
         else:
@@ -208,7 +210,7 @@ class MeanQueryBuilder:
 
         metric_predicate = self._b._build_metric_predicate(
             table_alias=source_info.table_name,
-            cuped_lookback_days=self._b.cuped_config.lookback_days if self._b.cuped_config.enabled else None,
+            cuped_lookback_days=self._cuped_lookback_days(),
         )
         conversion_window_predicate = self._b._build_conversion_window_predicate()
 
@@ -241,6 +243,7 @@ class MeanQueryBuilder:
                     team=self._b.team,
                     date_range_query=self._b.date_range_query,
                     conversion_window_seconds=self._b._get_conversion_window_seconds(),
+                    cuped_lookback_days=self._cuped_lookback_days(),
                 )
             )
 
@@ -277,7 +280,13 @@ class MeanQueryBuilder:
             entity_key=self._b.entity_key,
             date_range_query=self._b.date_range_query,
             conversion_window_seconds=self._b._get_conversion_window_seconds(),
+            distinct_id_column_sql=self._b.context.precompute_distinct_id_column_sql("distinct_id"),
+            cuped_lookback_days=self._cuped_lookback_days(),
         )
+
+    def _cuped_lookback_days(self) -> int | None:
+        """The CUPED lookback the metric-events scan rolls back by, or None without CUPED."""
+        return self._b.cuped_config.lookback_days if self._b.cuped_config.enabled else None
 
     def build_mean_query(self) -> ast.SelectQuery:
         assert isinstance(self._b.metric, ExperimentMeanMetric)
@@ -346,24 +355,16 @@ class MeanQueryBuilder:
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
         if self._b.metric.lower_bound_percentile is not None:
-            lower_bound_expr = parse_expr(
-                "quantileExact({level})(entity_metrics.value)",
-                placeholders={"level": ast.Constant(value=self._b.metric.lower_bound_percentile)},
-            )
+            lower_bound_expr = winsorization_bound_expr(self._b.metric.lower_bound_percentile, "entity_metrics.value")
         else:
             lower_bound_expr = parse_expr("min(entity_metrics.value)")
 
         if self._b.metric.upper_bound_percentile is not None:
-            if getattr(self._b.metric, "ignore_zeros", False):
-                upper_bound_expr = parse_expr(
-                    "quantileExact({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
-                    placeholders={"level": ast.Constant(value=self._b.metric.upper_bound_percentile)},
-                )
-            else:
-                upper_bound_expr = parse_expr(
-                    "quantileExact({level})(entity_metrics.value)",
-                    placeholders={"level": ast.Constant(value=self._b.metric.upper_bound_percentile)},
-                )
+            upper_bound_expr = winsorization_bound_expr(
+                self._b.metric.upper_bound_percentile,
+                "entity_metrics.value",
+                ignore_zeros=bool(getattr(self._b.metric, "ignore_zeros", False)),
+            )
         else:
             upper_bound_expr = parse_expr("max(entity_metrics.value)")
 

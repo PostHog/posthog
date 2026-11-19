@@ -65,12 +65,16 @@ env:
     # split this way: master push runs only the per-commit checks (migrations, OpenAPI types, repo
     # checks), and the test matrices run hourly.
     # Frontend CI is split the same way: jest runs hourly, while typecheck, format and bundle size
-    # run on every push. For Node.js, Dagster, Python and MCP the whole suite is on the cron, so
-    # their push lane only proves the run dispatched and the scheduled lane carries the coverage.
-    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml'
+    # run on every push. For Node.js, Dagster, Python, MCP and Rust the whole suite is on the cron,
+    # so their push lane only proves the run dispatched and the scheduled lane carries the coverage.
+    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml,ci-rust.yml'
     # Workflows that run on Depot CI, so GitHub has no runs for their lanes. The reconcile job
     # writes each of their lanes to DEPOT_RUNS_DIR first, as <workflow file>-<event>.json.
     DEPOT_WORKFLOWS: 'ci-backend.yml'
+    # Depot workflows whose schedule runs the full matrix only on some ticks. Their scheduled runs
+    # split into a Core-only lane and a full-matrix lane, read from <workflow file>-schedule-core-only.json
+    # and <workflow file>-schedule-full.json, so a green Core-only run can't mask a red full run.
+    SCHEDULED_FULL_MATRIX_WORKFLOWS: 'ci-backend.yml'
     # A scheduled lane produces one run an hour, so it needs its own arms: the push streak of 5
     # would take 5 hours to trip, while the push wall-clock arm of 60 minutes pages on a single
     # flaky run held for one tick. Two red ticks in a row, or red across two ticks, is the honest
@@ -85,7 +89,8 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
                   sparse-checkout: |
@@ -95,7 +100,8 @@ jobs:
 
             # Both Depot steps are capped, so a slow Depot API cannot use up the job's
             # timeout and cancel the reconcile of every other lane.
-            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: depot/setup-action@v1.7.1
               continue-on-error: true
               timeout-minutes: 1
 
@@ -115,7 +121,8 @@ jobs:
                   # Each lane is read on its own, so one unreadable lane does not hide the other.
                   status=0
                   python3 .github/scripts/depot_backend_runs.py gate-runs --trigger push --limit 40 --out "$RUNS_DIR/ci-backend.yml-push.json" || status=1
-                  python3 .github/scripts/depot_backend_runs.py gate-runs --trigger schedule --limit 12 --out "$RUNS_DIR/ci-backend.yml-schedule.json" || status=1
+                  python3 .github/scripts/depot_backend_runs.py gate-runs --trigger schedule --matrix core-only --limit 12 --out "$RUNS_DIR/ci-backend.yml-schedule-core-only.json" || status=1
+                  python3 .github/scripts/depot_backend_runs.py gate-runs --trigger schedule --matrix full --limit 24 --out "$RUNS_DIR/ci-backend.yml-schedule-full.json" || status=1
                   exit "$status"
 
             # Ticks list runs for every gating workflow (dozens of calls at worst)
@@ -126,14 +133,16 @@ jobs:
             - name: Mint posthog-tests GitHub token
               id: app-token
               continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/create-github-app-token@v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Reconcile master CI incident with Slack
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/github-script@v8.0.0
               env:
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   # Incoming-webhook trigger of the master-red diagnosis workflow. Unset skips the

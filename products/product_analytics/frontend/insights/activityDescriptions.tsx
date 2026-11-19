@@ -26,14 +26,14 @@ import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, InsightQueryNode, QuerySchema } from '~/queries/schema/schema-general'
 import {
     isDataTableNodeWithHogQLQuery,
     isDataVisualizationNode,
     isHogQLQuery,
     isInsightQueryNode,
     isInsightVizNode,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { HogQLQuery, InsightQueryNode, QuerySchema } from '~/queries/schema/schema-general'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {

@@ -44,6 +44,9 @@ export interface PersonRepositoryTransaction {
     /** The target and sources are row-locked, in ascending id order, until the transaction ends. */
     readMergeRows(teamId: number, targetId: string, sourceIds: string[]): Promise<InternalPerson[]>
 
+    /** The live person that owns the distinct id, read on this transaction without a row lock. */
+    readPerson(teamId: Team['id'], distinctId: string): Promise<InternalPerson | undefined>
+
     /** See PersonRepository.updatePersonsBatch; the rows are written under this transaction. */
     updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
         Map<

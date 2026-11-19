@@ -144,6 +144,8 @@ class SurveyContext:
         if survey.schedule == Survey.Schedule.ALWAYS:
             return "always (every time the display conditions are met)"
         if survey.schedule == Survey.Schedule.RECURRING:
+            if survey.repeat_until_stopped and survey.iteration_frequency_days:
+                return f"recurring (every {survey.iteration_frequency_days} days, until stopped)"
             if survey.iteration_count and survey.iteration_frequency_days:
                 return f"recurring (up to {survey.iteration_count} times, every {survey.iteration_frequency_days} days)"
             return "recurring"

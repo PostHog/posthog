@@ -28,7 +28,7 @@ from products.ai_observability.backend.llm.errors import (
     ProviderConfigurationError,
     ProviderConnectionError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     error_field_for_message,
     is_context_window_error_message,
@@ -197,6 +197,8 @@ class AnthropicAdapter:
 
     name = "anthropic"
 
+    max_retries: int = anthropic.DEFAULT_MAX_RETRIES
+
     def __init__(self, foundry_endpoint: str = ""):
         # Set when the key belongs to a Microsoft Foundry resource that serves Claude.
         self.foundry_endpoint = foundry_endpoint
@@ -208,6 +210,7 @@ class AnthropicAdapter:
         kwargs: dict[str, Any] = {
             "api_key": api_key,
             "timeout": AnthropicConfig.TIMEOUT,
+            "max_retries": self.max_retries,
             "http_client": tagged_http_client(timeout=AnthropicConfig.TIMEOUT),
         }
         if self.foundry_endpoint:
@@ -334,7 +337,7 @@ class AnthropicAdapter:
         if isinstance(error, anthropic.RateLimitError):
             if _is_quota_or_billing_error(error):
                 return QuotaExceededError(str(error))
-            return RateLimitError(str(error))
+            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
         if isinstance(error, anthropic.APIConnectionError):
             # Transient transport failure (connection reset, read timeout). Map to a quiet
             # retryable error so the caller retries silently instead of spamming error tracking.
@@ -496,6 +499,12 @@ class AnthropicAdapter:
         except anthropic.APIConnectionError:
             return (LLMProviderKey.State.ERROR, "Could not connect to Anthropic")
         except Exception as e:
+            # An empty credit balance comes back as a plain request error, which would read as a glitch to retry.
+            if _is_quota_or_billing_error(e):
+                return (
+                    LLMProviderKey.State.ERROR,
+                    "The Anthropic account is out of credits. Add credits, then validate again.",
+                )
             logger.exception(f"Anthropic key validation error: {e}")
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 

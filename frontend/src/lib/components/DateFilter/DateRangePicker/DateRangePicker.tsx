@@ -12,6 +12,7 @@ import { TimezoneSelect } from 'lib/components/TimezoneSelect'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { cn } from 'lib/utils/css-classes'
 
 import { DateRange } from '~/queries/schema/schema-general'
 import { DateMappingOption } from '~/types'
@@ -83,6 +84,8 @@ export interface DateRangePickerProps {
     logicKey: string
     /** Preset list shown under "In the last". Defaults to DEFAULT_DATE_RANGE_PICKER_OPTIONS. */
     dateOptions?: DateMappingOption[]
+    /** Stack controls in a scrollable popover for narrow viewports. */
+    compact?: boolean
     /** Units offered by the embedded rolling stepper. Defaults to ['minutes', 'hours', 'days']. */
     allowedRollingDateOptions?: DateOption[]
     /** Both required to show the timezone selector; absent => hidden, parsing defaults to UTC. */
@@ -95,13 +98,16 @@ export const DateRangePicker = ({
     setDateRange,
     logicKey,
     dateOptions = DEFAULT_DATE_RANGE_PICKER_OPTIONS,
+    compact = false,
     allowedRollingDateOptions = ['minutes', 'hours', 'days'],
     timezone,
     onTimezoneChange,
 }: DateRangePickerProps): JSX.Element => {
     const logic = dateRangePickerLogic({ key: logicKey })
-    const { popoverOpen, customFrom, customTo, history } = useValues(logic)
-    const { setPopoverOpen, setCustomFrom, setCustomTo, addToHistory } = useActions(logic)
+    const { customFrom, customTo, history } = useValues(logic)
+    const { setCustomFrom, setCustomTo, addToHistory } = useActions(logic)
+    // Per instance, not in the keyed logic: pickers sharing a logicKey must not open together.
+    const [popoverOpen, setPopoverOpen] = useState(false)
 
     const effectiveTimezone = timezone ?? 'UTC'
     const showTimezone = timezone !== undefined && onTimezoneChange !== undefined
@@ -159,7 +165,15 @@ export const DateRangePicker = ({
             onClickOutside={() => setPopoverOpen(false)}
             placement="bottom-end"
             overlay={
-                <div className="w-fit bg-bg-light rounded-lg overflow-hidden flex flex-row-reverse">
+                <div
+                    data-attr="date-range-picker-content"
+                    className={cn(
+                        'bg-bg-light rounded-lg flex',
+                        compact
+                            ? 'w-[calc(100vw-2rem)] max-w-lg max-h-[80dvh] overflow-y-auto flex-col'
+                            : 'w-fit overflow-hidden flex-row-reverse'
+                    )}
+                >
                     <div className="flex flex-col gap-1 p-3">
                         <div className="text-xs font-medium text-secondary mb-1">In the last</div>
                         {dateOptions.map((option) => (
@@ -186,12 +200,12 @@ export const DateRangePicker = ({
                         />
                     </div>
 
-                    <LemonDivider vertical className="my-3" />
+                    <LemonDivider vertical={!compact} className={compact ? 'my-0' : 'my-3'} />
 
-                    <div className="flex flex-col gap-3 p-3 w-fit">
+                    <div className={cn('flex flex-col gap-3 p-3', compact ? 'w-full' : 'w-fit')}>
                         <div className="flex flex-col gap-2">
                             <div className="text-xs font-medium text-secondary">Custom range</div>
-                            <div className="flex gap-2">
+                            <div className={cn('flex gap-2', compact && 'flex-col')}>
                                 <DateTimeInput
                                     value={customFrom}
                                     onChange={setCustomFrom}

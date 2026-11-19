@@ -53,7 +53,7 @@ from products.ml_inference.backend.facade.enums import DecisionQuestionType
 logger = structlog.get_logger(__name__)
 
 AI_PRODUCT = "logs_natural_language_search"
-PROPOSAL_MODEL = "gpt-4.1-mini"
+PROPOSAL_MODEL = "gpt-6-luna"
 PROPOSAL_TIMEOUT_SECONDS = 15
 # Five candidates with a few filters each fit well inside this. A cut-off reply fails validation.
 PROPOSAL_MAX_COMPLETION_TOKENS = 4096
@@ -249,7 +249,7 @@ def propose_candidates(
     try:
         response = client.chat.completions.create(
             model=PROPOSAL_MODEL,
-            temperature=0.2,
+            reasoning_effort="low",
             timeout=PROPOSAL_TIMEOUT_SECONDS,
             max_completion_tokens=PROPOSAL_MAX_COMPLETION_TOKENS,
             user=distinct_id,

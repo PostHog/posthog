@@ -14,7 +14,6 @@ They have to reject them because they combine partial aggregates across refreshe
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 from posthog.schema import HogQLQueryModifiers
@@ -46,8 +45,8 @@ from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
 if TYPE_CHECKING:
     from posthog.models import User
 
-from products.data_modeling.backend.logic.incremental import IncrementalConfig
-from products.data_modeling.backend.logic.incremental_filter import find_key_expression
+from products.data_modeling.backend.facade.contracts import EligibilityResult, IncrementalConfig
+from products.data_modeling.backend.logic.incremental_filter import find_key_expression, parse_model_query
 
 # Non-deterministic calls make a window irreproducible: two runs over the same window can disagree,
 # so a re-run silently rewrites rows. Warned rather than blocked, because a `now()` in a filter is
@@ -131,20 +130,6 @@ _NON_KEY_TYPE_LABELS = {
 _NON_UNIQUE_KEY_TYPE_LABELS = {"array", "tuple", "map", "interval", "aggregate", "json", "struct"}
 
 
-@dataclass(frozen=True, kw_only=True)
-class EligibilityResult:
-    eligible: bool
-    key_candidates: list[str] = field(default_factory=list)
-    # Columns the unique key may be built from: a superset of key_candidates, since identifying a
-    # row only needs equality while the incremental key needs an advancing order.
-    unique_key_candidates: list[str] = field(default_factory=list)
-    # Coarse type per candidate, for the picker's type tags. Missing entry: type unknown.
-    key_candidate_types: dict[str, str] = field(default_factory=dict)
-    blockers: list[str] = field(default_factory=list)
-    blocked_keys: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-
-
 def definition_database(team_id: int, *, user: Optional["User"] = None) -> Database:
     """The team's HogQL schema with every saved query read as its definition, never as its materialized table."""
     return Database.create_for(
@@ -169,7 +154,7 @@ def check_incremental_eligibility(
     the key candidates are pickable names and a config naming an expanded column passes. Without it
     (or when the query does not resolve against it), the raw AST is checked as-is."""
     try:
-        node = parse_select(query)
+        node = parse_model_query(query)
     except (ExposedHogQLError, ValueError) as err:
         return EligibilityResult(eligible=False, blockers=[f"This query could not be parsed: {err}"])
 

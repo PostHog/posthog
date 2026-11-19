@@ -27,6 +27,7 @@ export interface organizationIntegrationsLogicValues {
             | 'customerio-webhook'
             | 'databricks'
             | 'email'
+            | 'email_sandbox'
             | 'firebase'
             | 'github'
             | 'gitlab'
@@ -46,6 +47,7 @@ export interface organizationIntegrationsLogicValues {
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'motherduck'
             | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
@@ -106,6 +108,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -125,6 +128,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'motherduck'
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
@@ -140,6 +144,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[],
         payload?: any
     ) => {
@@ -167,6 +172,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -186,6 +192,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'motherduck'
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
@@ -201,6 +208,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[]
         payload?: any
     }
@@ -226,6 +234,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -245,6 +254,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'motherduck'
                 | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'

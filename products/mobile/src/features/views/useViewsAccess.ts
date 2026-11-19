@@ -1,11 +1,11 @@
 import { create } from 'zustand'
 
-import { coversScope, missingFeatureScope, missingScope, type ScopedFeature } from '@/api/scopeErrors'
+import { coversScope, FEATURE_SCOPES, missingFeatureScope, missingScope, type ScopedFeature } from '@/api/scopeErrors'
 import { type AuthMethod, addSessionEndTask, useAuthStore } from '@/auth/authStore'
 import { getSessionTokens, type SessionTokens } from '@/auth/tokens'
 import { useDataMode } from '@/demo/demoMode'
 
-const NONE_REPORTED: Record<ScopedFeature, string | null> = { views: null, errors: null, replay: null }
+const NONE_REPORTED: Record<ScopedFeature, string | null> = { views: null, errors: null, replay: null, inbox: null }
 
 interface ScopeErrorState {
     /** Per feature, the scope one of its requests was refused for in this session. */
@@ -29,10 +29,11 @@ addSessionEndTask(() => useScopeErrorStore.getState().clear())
  */
 export function reportScopeError(error: unknown, feature: ScopedFeature = 'views'): boolean {
     const scope = missingScope(error)
-    if (scope) {
+    if (scope && (feature !== 'inbox' || FEATURE_SCOPES.inbox.includes(scope))) {
         useScopeErrorStore.getState().report(feature, scope)
+        return true
     }
-    return scope !== null
+    return false
 }
 
 /**
@@ -65,7 +66,8 @@ export interface ViewsAccessInput {
  */
 export function featureAccessFor({ method, tokens, reported }: ViewsAccessInput, feature: ScopedFeature): ViewsAccess {
     const granted = method === 'oauth' ? (tokens?.grantedScopes ?? null) : null
-    const missing = reported ?? missingFeatureScope(granted, feature)
+    // The server can accept legacy task scopes for inbox access, so wait for a scope rejection before asking again.
+    const missing = reported ?? (feature === 'inbox' ? null : missingFeatureScope(granted, feature))
     if (!missing) {
         return OK
     }

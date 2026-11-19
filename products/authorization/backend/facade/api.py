@@ -12,12 +12,17 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from typing import overload
+from typing import TYPE_CHECKING, overload
 from uuid import UUID
 
-from ..logic import legacy, session
+from ..logic import legacy, lists, session
 from . import contracts
 from .enums import Action, Level, SubjectType
+
+if TYPE_CHECKING:
+    from posthog.user_permissions import UserPermissions
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @contextmanager
@@ -29,6 +34,18 @@ def authorization_session() -> Iterator[None]:
     """
     with session.scope():
         yield
+
+
+def reuse_current_rules(
+    user_access_control: UserAccessControl, user_permissions: UserPermissions | None = None
+) -> None:
+    """Let the checks in the current session read the rules and memberships that a view already loaded.
+
+    The current access rules answer every check, so the checks then skip a second load of the same
+    rules. It has no effect outside a session, or for rules that no project scopes.
+    """
+    # TODO: remove after the migration to the SDK. Only views that load UserAccessControl themselves need it.
+    legacy.reuse(user_access_control, user_permissions)
 
 
 def synchronize_organization(organization_id: UUID) -> None:
@@ -89,7 +106,7 @@ def permissions(
     context: contracts.Context | None = None,
 ) -> frozenset[Action]:
     """Return every action the subject may take on the resource."""
-    raise NotImplementedError
+    return legacy.permissions(resource, subject, context)
 
 
 def list_objects(
@@ -107,8 +124,22 @@ def list_objects(
     `excluded=True` allows every ID except those returned. Other actions retain inclusion-only IDs.
     An incomplete result allows nothing. `creator_exempt` requests a creator predicate only when
     the rules permit it.
+
+    The current access rules list only VIEW and QUERY. `resource` names a type and its `project_id`,
+    or `ResourceType.PROJECT` and an `organization_id`. A project list without an `organization_id`
+    lists the projects of every organization the subject belongs to. VIEW gives the rows of today's list filter,
+    which applies object rules to org admins too. QUERY gives the rows the query guard reads, so an
+    org admin gets every row. To filter a QuerySet, use `presentation.querysets` instead.
     """
-    raise NotImplementedError
+    return lists.list_objects(resource, action, subject, context, limit, creator_exempt)
+
+
+def principal_user_id(*, subject: contracts.Subject | None = None) -> int | None:
+    """Return the id of the user that checks evaluate for the subject, or None when the subject is not a user.
+
+    `subject=None` means the user of the current request.
+    """
+    return lists.principal_user_id(subject)
 
 
 def list_subjects(

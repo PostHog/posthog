@@ -1,5 +1,5 @@
-import { isBranchingAction } from '../../tree/workflowTree'
 import type { HogFlow, HogFlowAction } from '../../types'
+import { isBranchingAction } from '../../workflowBranches'
 import { StepPresentation, stepPresentation, TimeWindowPresentation, WaitPresentation } from './stepPresentation'
 import {
     ActionOf,
@@ -30,7 +30,9 @@ type PresentationOf<Kind extends StepPresentation['kind']> = Extract<StepPresent
 const fieldIf = (label: string, value: string | undefined): Field[] => (value ? [[label, value]] : [])
 
 function emailFacts(email: EmailContent, action: HogFlowAction): StepFacts {
-    const isTransactional = action.type === 'function_email' && action.config.message_category_type === 'transactional'
+    const isTransactional =
+        (action.type === 'function_email' || action.type === 'email_sandbox') &&
+        action.config.message_category_type === 'transactional'
     const preheader = email.preheader && plainVariables(email.preheader)
     return {
         headline: plainVariables(email.subject),

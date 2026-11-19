@@ -34,6 +34,36 @@ const getContextDescription = (context: any): JSX.Element | null => {
     return null
 }
 
+function describeOwnershipChange(logItem: ActivityLogItem): HumanizedChange {
+    const isTransfer = logItem.activity === 'transferred_ownership'
+    const owner = logItem.detail.changes?.find((change) => change.field === 'created_by')?.after
+    const ownerEmail =
+        owner && typeof owner === 'object' && !Array.isArray(owner) && typeof owner.email === 'string'
+            ? owner.email
+            : 'another member'
+    const action = isTransfer ? 'transferred ownership of the alert' : 'took ownership of the alert'
+    const target = (
+        <>
+            {formattedName(logItem.detail.name)}
+            {getContextDescription(logItem.detail.context)}
+            {isTransfer && (
+                <>
+                    {' '}
+                    to <strong>{ownerEmail}</strong>
+                </>
+            )}
+        </>
+    )
+    return {
+        summary: activityLogSummary(logItem, action, target),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {action} {target}
+            </>
+        ),
+    }
+}
+
 export function alertConfigurationActivityDescriber(
     logItem: ActivityLogItem,
     asNotification?: boolean
@@ -136,6 +166,10 @@ export function alertConfigurationActivityDescriber(
                 </>
             ),
         }
+    }
+
+    if (['took_ownership', 'transferred_ownership'].includes(logItem.activity)) {
+        return describeOwnershipChange(logItem)
     }
 
     if (logItem.activity == 'updated') {

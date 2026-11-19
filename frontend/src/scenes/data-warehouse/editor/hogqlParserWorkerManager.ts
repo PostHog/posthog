@@ -1,5 +1,18 @@
-import { type AstRange, innermostSelectRangeFromAst, tablesAndColumnsFromAst } from './hogqlAst'
-import { parseSelect } from './hogqlParserSingleton'
+import { parseSelect } from 'lib/monaco/hogqlParser'
+import { createWorker } from 'lib/utils/createWorker'
+
+import {
+    type SqlTableReference,
+    tableReferenceFromAst,
+} from 'products/data_warehouse/frontend/shared/sqlTableReference'
+
+import {
+    type AstRange,
+    type SelectComparison,
+    compareParsedSelects,
+    innermostSelectRangeFromAst,
+    tablesAndColumnsFromAst,
+} from './hogqlAst'
 import type { HogqlParserQuestion, HogqlParserRequest, HogqlParserResponse } from './hogqlParserWorker'
 
 // Runs the HogQL parse in a worker so a long query does not freeze the editor. Falls back to
@@ -7,7 +20,6 @@ import type { HogqlParserQuestion, HogqlParserRequest, HogqlParserResponse } fro
 // isn't served, init times out, or a request fails. The fallback is slow but correct, and it runs
 // the same walkers as the worker, so behavior does not change with it.
 
-const WORKER_URL = '/static/hogqlParserWorker.js'
 const READY_TIMEOUT_MS = 5000
 const REQUEST_TIMEOUT_MS = 60000
 
@@ -48,7 +60,7 @@ function getWorker(): Promise<Worker> {
             reject(new Error('Worker is not available'))
             return
         }
-        const created = new Worker(WORKER_URL, { type: 'module' })
+        const created = createWorker('hogqlParserWorker.js', { type: 'module' })
         worker = created
 
         const timer = setTimeout(() => reject(new Error('Parser worker init timed out')), READY_TIMEOUT_MS)
@@ -135,4 +147,28 @@ export async function analyzeTablesAndColumns(query: string): Promise<Record<str
     }
     const ast = await parseOnMainThread(query)
     return ast ? tablesAndColumnsFromAst(ast) : {}
+}
+
+export async function analyzeTableReference(query: string, localOffset: number): Promise<SqlTableReference | null> {
+    if (!workerUnavailable) {
+        try {
+            return await ask({ op: 'tableReference', query, localOffset })
+        } catch {}
+    }
+    const ast = await parseOnMainThread(query)
+    return ast ? tableReferenceFromAst(ast, localOffset) : null
+}
+
+const SELECT_COMPARISONS: ReadonlySet<unknown> = new Set<SelectComparison>(['same', 'different', 'unparsable'])
+
+export async function compareSelectQueries(query: string, other: string): Promise<SelectComparison> {
+    if (!workerUnavailable) {
+        try {
+            const result = await ask({ op: 'compareSelects', query, other })
+            if (SELECT_COMPARISONS.has(result)) {
+                return result
+            }
+        } catch {}
+    }
+    return compareParsedSelects(await parseSelect(query, true), await parseSelect(other, true))
 }

@@ -28,13 +28,7 @@ from products.signals.backend.activity_summary.render import (
     build_input,
     sampling_seed,
 )
-from products.signals.backend.activity_summary.summaries import (
-    DEFAULT_MODEL,
-    MODEL_PRICES,
-    cost_usd,
-    gateway_client,
-    summarize,
-)
+from products.signals.backend.activity_summary.summaries import DEFAULT_VARIANT, gateway_client, summarize
 from products.tasks.backend.facade.user_task_summaries import list_user_task_times
 
 # Teams per pair query, so a run over a whole region reads in bounded batches.
@@ -293,9 +287,9 @@ def leave_one_out_pair(
             client,
             rendered_input=rendered.text,
             previous_summary=None,
-            model=DEFAULT_MODEL,
+            variant=DEFAULT_VARIANT,
             as_of=now.date(),
-            computed=compute_fields(variant_tasks, variant_activity, []).as_json(),
+            computed=compute_fields(variant_tasks, variant_activity, []).with_line_refs(rendered).as_json(),
         )
         records.append(
             {
@@ -307,7 +301,7 @@ def leave_one_out_pair(
                 "input_chars": rendered.input_chars,
                 "tokens_in": outcome.tokens_in,
                 "tokens_out": outcome.tokens_out,
-                "cost_usd": cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(DEFAULT_MODEL)),
+                "cost_usd": outcome.cost_usd,
                 "latency_ms": outcome.latency_ms,
                 "error": outcome.error,
                 "summary": outcome.summary,

@@ -89,7 +89,7 @@ WHERE team_id = %(source_team_id)s AND `$session_id` = %(session_id)s
     + ")"
 )
 
-# AI tags, highlights and surfacing scores are left out so the copy starts unscanned.
+# AI tags and highlights are left out so the copy starts unscanned.
 COPY_REPLAY_ROW_QUERY = """
 INSERT INTO writable_session_replay_events (
     session_id, team_id, distinct_id, min_first_timestamp, max_last_timestamp,
@@ -230,7 +230,10 @@ async def _copy_session_recording(input: CopySessionInput) -> CopySessionResult:
         log.info("copy_recording.already_copied")
         return CopySessionResult(session_id=input.session_id, status="already_copied")
 
-    source_blocks = await fetch_blocks_from_recording_api(input.session_id, input.source_team_id)
+    try:
+        source_blocks = await fetch_blocks_from_recording_api(input.session_id, input.source_team_id)
+    except RecordingDeletedError as e:
+        raise ApplicationError("Recording was deleted", non_retryable=True) from e
     if not source_blocks:
         log.warning("copy_recording.source_not_found")
         return CopySessionResult(session_id=input.session_id, status="not_found")

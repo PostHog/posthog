@@ -15,6 +15,7 @@ import { createRoot } from 'react-dom/client'
 
 import { ToolbarApp } from '~/toolbar/floating/components/ToolbarApp'
 import { isToolbarMounted, posthogToolbarController, setToolbarRefs } from '~/toolbar/floating/toolbarController'
+import { isExpectedComparisonStop } from '~/toolbar/shared/flags/flagComparisonErrors'
 import { canonicalizeApiHost, identifiesToolbarUser } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
@@ -53,8 +54,9 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
                 })
                 // Loaders throw ToolbarRequestError to drive their *Failure actions on
                 // expected request failures (4xx/5xx/network) - those are logged above but
-                // must not pollute error tracking. Anything else is a genuine toolbar bug.
-                if (!isToolbarRequestError(error)) {
+                // must not pollute error tracking. A flag comparison that stops on purpose is
+                // expected too. Anything else is a genuine toolbar bug.
+                if (!isToolbarRequestError(error) && !isExpectedComparisonStop(error)) {
                     // A loader can reject with a non-Error value (e.g. html-to-image throws a raw
                     // DOM Event). Normalize first so no bare value reaches error tracking without a
                     // message or stack, whatever a loader throws.

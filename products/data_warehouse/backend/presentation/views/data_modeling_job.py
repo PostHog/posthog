@@ -4,10 +4,11 @@ import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import pagination, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import is_service_auth
 
@@ -81,7 +82,7 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class DataModelingJobPagination(pagination.LimitOffsetPagination):
+class DataModelingJobPagination(BoundedLimitOffsetPagination):
     default_limit = 10
     max_limit = 100
 
@@ -168,10 +169,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
             queryset = queryset.filter(engine=DataModelingJobEngine.CLICKHOUSE)
 
         if not is_service_auth(self.request):
-            accessible_saved_queries = self.user_access_control.filter_queryset_by_access_level(
-                DataWarehouseSavedQuery.objects.filter(team_id=self.team_id), resource="warehouse_view"
-            )
-            queryset = queryset.filter(saved_query_id__in=accessible_saved_queries.values("id"))
+            queryset = queryset.filter(self._readable_saved_query_filter())
 
         return (
             queryset.select_related("saved_query")
@@ -182,6 +180,15 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
             )
             .order_by("-created_at")
         )
+
+    def _readable_saved_query_filter(self) -> Q:
+        access = self.user_access_control.list_access_filter("warehouse_view")
+        if access is None or not (access.only_allowed or access.blocked_ids):
+            return Q(saved_query_id__isnull=False)
+        readable_saved_queries = self.user_access_control.filter_queryset_by_access_level(
+            DataWarehouseSavedQuery.objects.filter(team_id=self.team_id), resource="warehouse_view"
+        )
+        return Q(saved_query_id__in=readable_saved_queries.values("id"))
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

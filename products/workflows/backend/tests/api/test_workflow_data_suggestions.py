@@ -1,5 +1,8 @@
+from collections.abc import Callable
 from copy import deepcopy
 from io import StringIO
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -14,10 +17,12 @@ from django.utils import timezone
 from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
+
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import PropertyDefinition
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -28,6 +33,7 @@ from posthog.models.utils import generate_random_token_personal
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.event_definitions.backend.models import PropertyDefinition
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models import WorkflowIdea as WorkflowIdeaModel
@@ -42,6 +48,7 @@ from products.workflows.backend.services.data_suggestions.planner import (
     PlannedWorkflow,
     StepsContext,
     WorkflowIdea,
+    WorkflowIdeas,
 )
 from products.workflows.backend.services.data_suggestions.service import (
     FAILURE_CACHE_TTL_SECONDS,
@@ -49,12 +56,10 @@ from products.workflows.backend.services.data_suggestions.service import (
     _build_key,
     _build_lock_key,
     _cache_key,
-    _event_build_lock_key,
     _generation_lock_key,
     _to_cache,
     build_caller,
     run_data_suggestions,
-    run_event_workflows,
     start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
@@ -65,13 +70,33 @@ from products.workflows.backend.services.data_suggestions.team_context import (
     saved_workflow_actions,
 )
 from products.workflows.backend.services.email_sending_controls import ensure_workflows_config
-from products.workflows.backend.tasks.data_suggestions import build_data_suggestion
+from products.workflows.backend.tasks.data_suggestions import build_data_suggestion, build_event_workflows
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
 
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
 EVENT_VOLUME = "products.workflows.backend.services.data_suggestions.event_volume"
 VIEW = "products.workflows.backend.presentation.views.workflow_data_suggestions"
 FLAG = f"{VIEW}.posthoganalytics.feature_enabled"
+LLM = "products.workflows.backend.services.data_suggestions.llm"
+
+
+class _RecordingModel:
+    def __init__(self, answers: dict[str, WorkflowIdeas | PlannedWorkflow]) -> None:
+        self.answers = answers
+        self.requests: list[tuple[str, str]] = []
+        self.while_answering: Callable[[str], None] = lambda _feature: None
+
+    def __call__(self, **settings: Any) -> SimpleNamespace:
+        feature = settings["posthog_properties"]["ai_feature"]
+        schema = settings["model_kwargs"]["output_config"]["format"]["schema"]["title"]
+
+        def invoke(_messages: object, config: object = None) -> SimpleNamespace:
+            self.requests.append((feature, schema))
+            self.while_answering(feature)
+            answer = self.answers[feature].model_dump_json()
+            return SimpleNamespace(content=[{"type": "thinking", "thinking": ""}, {"type": "text", "text": answer}])
+
+        return SimpleNamespace(invoke=invoke)
 
 
 def _idea(trigger_event: str) -> WorkflowIdea:
@@ -277,9 +302,13 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{EVENT_VOLUME}.estimated_weekly_events", return_value=2 * FULL_SCAN_MAX_WEEKLY_EVENTS)
     def test_large_teams_get_sampled_counts_scaled_back_up(self, _estimate: MagicMock) -> None:
-        counts = weekly_counts(self.team)
+        # A half sample keeps rows by a hash of the distinct ID, which keeps buyer-in and drops buyer-out.
+        for distinct_id, count in [("buyer-in", 5), ("buyer-out", 2)]:
+            for _ in range(count):
+                _create_event(team=self.team, event="order placed", distinct_id=distinct_id)
+        flush_persons_and_events()
 
-        assert counts["query executed"] % 2 == 0
+        assert weekly_counts(self.team)["order placed"] == 10
 
     @patch(f"{EVENT_VOLUME}.estimated_weekly_events", return_value=10**9 * FULL_SCAN_MAX_WEEKLY_EVENTS)
     def test_events_a_sample_misses_are_counted_exactly(self, _estimate: MagicMock) -> None:
@@ -331,8 +360,9 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert retry.status == poll.status == "building"
 
-    @patch(f"{SERVICE}.suggest_ideas", return_value=[])
+    @patch(f"{SERVICE}.suggest_ideas")
     def test_events_a_workflow_already_triggers_on_are_not_offered(self, suggest_ideas: MagicMock) -> None:
+        suggest_ideas.return_value = [_idea("trial_started"), _idea("user_registered")]
         HogFlow.objects.create(
             team=self.team,
             name="Existing trial flow",
@@ -341,9 +371,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             actions=[],
         )
 
-        self._list()
-
-        assert "trial_started" not in dict(suggest_ideas.call_args.kwargs["context"].events)
+        assert [card["trigger_event"] for card in self._list()["suggestions"]] == ["user_registered"]
 
     @parameterized.expand(
         [
@@ -585,26 +613,37 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("draft", "signed_up")
         ]
 
-    @patch(f"{SERVICE}.plan_steps")
-    @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_batch_that_lost_its_lock_makes_no_model_calls(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock
-    ) -> None:
-        events = ("signed_up",)
-        cache.set(_event_build_lock_key(self.team.id, self.user.id, events), "newer-run", 60)
-        save_draft = MagicMock()
-
-        run_event_workflows(
-            team_id=self.team.id,
-            user_id=self.user.id,
-            events=events,
-            lock_token="older-run",
-            validate_draft=lambda team, workflow: validated_draft(team, workflow, EventSource.WEB),
-            save_draft=save_draft,
+    @patch(FLAG, return_value=True)
+    def test_a_batch_that_lost_its_lock_asks_the_model_nothing_and_saves_no_draft(self, _flag: MagicMock) -> None:
+        model = _RecordingModel(
+            {
+                "destination_workflow_ideas": WorkflowIdeas(ideas=[_idea("signed_up")]),
+                "destination_workflow_steps": PlannedWorkflow(
+                    first_step="welcome", steps=[_email_step("welcome", "Welcome")]
+                ),
+            }
         )
+        patch(f"{LLM}.MaxChatAnthropic", model).start()
+        url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build_for_events/"
+        click = {"events": ["signed_up"]}
+        with patch.object(build_event_workflows, "delay") as queue:
+            newer = self.client.post(url, click, format="json").json()
 
-        assert (suggest_ideas.call_count, plan_steps.call_count, save_draft.call_count) == (0, 0, 0)
-        assert cache.get(_event_build_lock_key(self.team.id, self.user.id, events)) == "newer-run"
+        build_event_workflows(self.team.id, self.user.id, ["signed_up"], "older-run")
+        drafts_after_stale_run = HogFlow.objects.filter(team=self.team).count()
+        requests_after_stale_run = list(model.requests)
+        while_newer_waits = self.client.post(url, click, format="json").json()
+        build_event_workflows(*queue.call_args.args)
+        done = self.client.post(url, click, format="json").json()
+
+        assert (newer["status"], while_newer_waits["status"], drafts_after_stale_run) == ("building", "building", 0)
+        assert requests_after_stale_run == []
+        assert done["status"] == "ready"
+        assert [str(draft.id) for draft in HogFlow.objects.filter(team=self.team)] == done["workflow_ids"]
+        assert model.requests == [
+            ("destination_workflow_ideas", "WorkflowIdeas"),
+            ("destination_workflow_steps", "PlannedWorkflow"),
+        ]
 
     @parameterized.expand(
         [
@@ -825,29 +864,44 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert email["html"] == "<p>Saved</p>"
         assert "text" not in email
 
-    @patch(f"{SERVICE}.plan_steps")
-    @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_second_build_of_the_same_suggestion_waits_for_the_first(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock
-    ) -> None:
-        suggest_ideas.return_value = [_idea("trial_started")]
-        suggestion_id = self._list()["suggestions"][0]["id"]
-        cache.add(f"workflows:data_suggestions:building:{self.team.id}:{suggestion_id}:web", "first-click", 60)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
-            {"suggestion_id": suggestion_id},
-            format="json",
+    def test_a_second_build_of_the_same_suggestion_waits_for_the_first(self) -> None:
+        model = _RecordingModel(
+            {
+                "data_suggestion_ideas": WorkflowIdeas(ideas=[_idea("trial_started")]),
+                "data_suggestion_steps": PlannedWorkflow(
+                    first_step="welcome", steps=[_email_step("welcome", "Welcome")]
+                ),
+            }
         )
+        patch(f"{LLM}.MaxChatAnthropic", model).start()
+        build = {"suggestion_id": self._list()["suggestions"][0]["id"], "save_draft": True}
+        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
+        second_clicks: list[_MonkeyPatchedResponse] = []
 
-        assert response.json() == {
-            "status": "building",
-            "workflow": None,
-            "uses_saved_template": False,
-            "workflow_id": None,
-            "missing_inputs": [],
-        }
-        plan_steps.assert_not_called()
+        def click_again_while_the_first_build_plans(feature: str) -> None:
+            if feature == "data_suggestion_steps":
+                model.while_answering = lambda _feature: None
+                second_clicks.append(self.client.post(build_url, build, format="json"))
+
+        model.while_answering = click_again_while_the_first_build_plans
+
+        first = self.client.post(build_url, build, format="json")
+
+        assert [click.json() for click in second_clicks] == [
+            {
+                "status": "building",
+                "workflow": None,
+                "uses_saved_template": False,
+                "workflow_id": None,
+                "missing_inputs": [],
+            }
+        ]
+        assert first.json()["status"] == "ready"
+        assert HogFlow.objects.filter(team=self.team).count() == 1
+        assert model.requests == [
+            ("data_suggestion_ideas", "WorkflowIdeas"),
+            ("data_suggestion_steps", "PlannedWorkflow"),
+        ]
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
@@ -1030,96 +1084,168 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == 404
 
-    @parameterized.expand(
-        [
-            ("one_project", ""),
-            ("with_an_unknown_project", "team 999999: skipped, no such project\n"),
-        ]
-    )
-    @patch(f"{SERVICE}.posthoganalytics.capture")
-    @patch(f"{SERVICE}.plan_steps")
-    @patch(f"{SERVICE}.suggest_ideas")
-    def test_premade_ideas_replace_the_generated_cards_until_one_click_saves_them(
-        self,
-        _name: str,
-        missing: str,
-        suggest_ideas: MagicMock,
-        plan_steps: MagicMock,
-        capture: MagicMock,
-    ) -> None:
+    def _prepare_ideas(self, suggest_ideas: MagicMock, plan_steps: MagicMock, *team_ids: int) -> str:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        out = StringIO()
+        call_command("prepare_workflow_ideas", "--team-ids", *map(str, team_ids or [self.team.id]), stdout=out)
+        return out.getvalue()
 
-        args = ["--team-ids", str(self.team.id), *(["999999"] if missing else [])]
+    def _premade_idea(self, suggest_ideas: MagicMock, plan_steps: MagicMock) -> WorkflowIdeaModel:
+        self._prepare_ideas(suggest_ideas, plan_steps)
+        return WorkflowIdeaModel.objects.for_team(self.team.id).get()
 
-        def prepare() -> str:
-            out = StringIO()
-            call_command("prepare_workflow_ideas", *args, stdout=out)
-            return out.getvalue()
+    def _save_premade(self, idea: WorkflowIdeaModel, project: str = "", **kwargs: Any) -> "_MonkeyPatchedResponse":
+        url = project or f"/api/projects/{self.team.id}"
+        body = {"suggestion_id": str(idea.id), "save_draft": True}
+        return self.client.post(f"{url}/workflow_data_suggestions/build/", body, format="json", **kwargs)
+
+    @parameterized.expand(
+        [
+            ("one_project", []),
+            ("with_an_unknown_project", [999999]),
+        ]
+    )
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_prepare_workflow_ideas_stores_ideas_once_per_project(
+        self, _name: str, unknown: list[int], suggest_ideas: MagicMock, plan_steps: MagicMock
+    ) -> None:
+        team_ids = [self.team.id, *unknown]
+        skipped = "".join(f"team {team_id}: skipped, no such project\n" for team_id in unknown)
 
         with self.assertRaises(CommandError):
             call_command("prepare_workflow_ideas")
-        assert prepare() == missing + f"team {self.team.id}: stored Follow up on trial_started, 0 failed to build\n"
-        assert prepare() == missing + f"team {self.team.id}: skipped, 1 ideas already waiting\n"
-        suggest_ideas.reset_mock()
-        plan_steps.reset_mock()
+        first = self._prepare_ideas(suggest_ideas, plan_steps, *team_ids)
+        second = self._prepare_ideas(suggest_ideas, plan_steps, *team_ids)
+
+        assert first == skipped + f"team {self.team.id}: stored Follow up on trial_started, 0 failed to build\n"
+        assert second == skipped + f"team {self.team.id}: skipped, 1 ideas already waiting\n"
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_premade_ideas_replace_the_generated_cards_until_one_is_saved(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
+    ) -> None:
+        idea = self._premade_idea(suggest_ideas, plan_steps)
+        suggest_ideas.return_value = [_idea("user_registered")]
+
+        refreshed = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/generate/", {"refresh": True}, format="json"
+        )
+        premade = refreshed.json()["suggestions"]
+        self._save_premade(idea)
+        generated = self._list()["suggestions"]
+
+        assert [(card["id"], card["premade"]) for card in premade] == [(str(idea.id), True)]
+        assert [(card["trigger_event"], card["premade"]) for card in generated] == [("user_registered", False)]
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_opening_a_premade_idea_shows_its_workflow_without_saving_it(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
+    ) -> None:
+        idea = self._premade_idea(suggest_ideas, plan_steps)
+
+        opened = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/", {"suggestion_id": str(idea.id)}
+        )
+
+        idea.refresh_from_db()
+        assert (opened.status_code, opened.json()["status"], opened.json()["workflow_id"]) == (200, "ready", None)
+        assert (idea.status, HogFlow.objects.filter(team=self.team).exists()) == ("suggested", False)
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_saving_a_premade_idea_keeps_its_stored_plan(self, suggest_ideas: MagicMock, plan_steps: MagicMock) -> None:
+        idea = self._premade_idea(suggest_ideas, plan_steps)
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Replanned")])
+
+        saved = self._save_premade(idea).json()
+
+        draft = HogFlow.objects.get(team=self.team, id=saved["workflow_id"])
+        assert draft.actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "Welcome"
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_saving_a_premade_idea_takes_a_sender_verified_since(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
+    ) -> None:
+        idea = self._premade_idea(suggest_ideas, plan_steps)
         sender = Integration.objects.create(
             team=self.team, kind="email", config={"email": "hello@example.com", "verified": True}
         )
-        idea = WorkflowIdeaModel.objects.for_team(self.team.id).get()
 
-        cards = self._list(refresh=True)
+        saved = self._save_premade(idea).json()
 
-        assert [(card["id"], card["premade"]) for card in cards["suggestions"]] == [(str(idea.id), True)]
-        assert suggest_ideas.call_count == 0
-        assert cache.get(_cache_key(self.team)) is None
+        draft = HogFlow.objects.get(team=self.team, id=saved["workflow_id"])
+        assert draft.actions[1]["config"]["inputs"]["email"]["value"]["from"]["integrationId"] == sender.id
 
-        save = {"suggestion_id": str(idea.id), "save_draft": True}
-        build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
-        unsaved = self.client.post(build_url, {"suggestion_id": str(idea.id)}, format="json")
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save()
-        withdrawn = (self._list()["status"], self.client.post(build_url, save, format="json").status_code)
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save()
-        other_team = Team.objects.create(organization=self.organization)
-        foreign = self.client.post(
-            f"/api/projects/{other_team.id}/workflow_data_suggestions/build/", save, format="json"
-        )
-        child = Team.objects.create(organization=self.organization, parent_team=self.team)
-        from_child = self.client.post(
-            f"/api/environments/{child.id}/workflow_data_suggestions/build/", save, format="json"
-        )
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_premade_idea_saves_one_draft(self, suggest_ideas: MagicMock, plan_steps: MagicMock) -> None:
+        idea = self._premade_idea(suggest_ideas, plan_steps)
+
+        saved = self._save_premade(idea)
+        repeated = self._save_premade(idea)
+
+        draft = HogFlow.objects.get(team=self.team)
+        idea.refresh_from_db()
+        assert (saved.status_code, repeated.status_code) == (200, 409)
+        assert (idea.status, idea.hog_flow_id, saved.json()["workflow_id"]) == ("accepted", draft.id, str(draft.id))
+
+    @patch(f"{SERVICE}.posthoganalytics.capture")
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_an_api_save_of_a_premade_idea_reports_the_build_and_the_new_workflow(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, capture: MagicMock
+    ) -> None:
+        idea = self._premade_idea(suggest_ideas, plan_steps)
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="agent", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write", "query:read"]
         )
         self.client.logout()
-        auth = {"authorization": f"Bearer {key}"}
-        saved = self.client.post(build_url, save, format="json", headers=auth)
-        repeated = self.client.post(build_url, save, format="json", headers=auth)
 
-        assert (unsaved.status_code, unsaved.json()["status"], unsaved.json()["workflow_id"]) == (200, "ready", None)
-        assert withdrawn == ("ai_not_approved", 404)
-        assert (foreign.status_code, from_child.status_code, saved.status_code, repeated.status_code) == (
-            404,
-            404,
-            200,
-            409,
-        )
-        draft = HogFlow.objects.get(team=self.team)
-        idea.refresh_from_db()
-        assert (idea.status, idea.hog_flow_id) == ("accepted", draft.id)
-        assert saved.json()["workflow_id"] == str(draft.id)
-        # The sender was verified after the idea was built, so the save fills it in.
-        assert draft.actions[1]["config"]["inputs"]["email"]["value"]["from"]["integrationId"] == sender.id
-        assert plan_steps.call_count == 0
+        saved = self._save_premade(idea, headers={"authorization": f"Bearer {key}"}).json()
+
         events = {call.kwargs.get("event"): call.kwargs.get("properties", {}) for call in capture.call_args_list}
         assert events["workflows data suggestion built"]["source"] == EventSource.API.value
-        assert events["hog_flow_created"]["workflow_id"] == str(draft.id)
+        assert events["hog_flow_created"]["workflow_id"] == saved["workflow_id"]
 
-        self.client.force_login(self.user)
-        suggest_ideas.return_value = [_idea("user_registered")]
-        assert [card["premade"] for card in self._list()["suggestions"]] == [False]
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_premade_ideas_are_gone_once_ai_consent_is_withdrawn(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
+    ) -> None:
+        idea = self._premade_idea(suggest_ideas, plan_steps)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        cards = self._list()
+        saved = self._save_premade(idea)
+
+        assert (cards["status"], saved.status_code) == ("ai_not_approved", 404)
+        assert not HogFlow.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(
+        [
+            ("another project", "projects", False),
+            ("a child environment", "environments", True),
+        ]
+    )
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_premade_idea_is_not_found_from_another_project(
+        self, _name: str, route: str, child: bool, suggest_ideas: MagicMock, plan_steps: MagicMock
+    ) -> None:
+        idea = self._premade_idea(suggest_ideas, plan_steps)
+        other = Team.objects.create(organization=self.organization, parent_team=self.team if child else None)
+
+        saved = self._save_premade(idea, f"/api/{route}/{other.id}")
+
+        idea.refresh_from_db()
+        assert (saved.status_code, idea.status) == (404, "suggested")
+        assert not HogFlow.objects.exists()

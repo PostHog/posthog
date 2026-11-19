@@ -101,7 +101,7 @@ describe('TriageCard', () => {
         if (entrypoint === 'keyboard') {
             logic.actions.createPrForCurrent()
         } else {
-            fireEvent.click(screen.getByText('Implement').closest('button')!)
+            fireEvent.click(screen.getByLabelText('More implementation options'))
             expect(screen.getByText('Copy prompt for your agent')).toBeInTheDocument()
             if (status === 200) {
                 fireEvent.click(screen.getByText('Implement with PostHog').closest('button')!)

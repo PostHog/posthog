@@ -16,14 +16,16 @@ use personhog_proto::personhog::types::v1::{
     CohortMembership, CohortMembershipResponse, CountCohortMembersRequest,
     CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
     CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
-    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
-    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
-    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
-    DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse, DistinctIdRow as ProtoDistinctIdRow, DistinctIdWithVersion,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteCohortMembersByPersonIdsRequest, DeleteCohortMembersByPersonIdsResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse,
+    DeletePersonsMode as ProtoDeletePersonsMode, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    DistinctIdRow as ProtoDistinctIdRow, DistinctIdWithVersion,
     DistinctIdWriteAction as ProtoDistinctIdWriteAction,
     DistinctIdWriteOutcome as ProtoDistinctIdWriteOutcome,
     DistinctIdWriteResult as ProtoDistinctIdWriteResult, EnsurePersonVersionFloorsRequest,
@@ -67,6 +69,7 @@ use crate::storage::{self, FullStorage};
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
 const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
+const MAX_COHORT_MEMBER_IDS_PER_REQUEST: usize = 10_000;
 const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
 // Splits run in a single all-or-nothing transaction holding row locks, so the
 // cap bounds both lock-hold time and payload size — same order as batch lookups.
@@ -860,16 +863,45 @@ impl PersonHogReplica for PersonHogReplicaService {
         }))
     }
 
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        request: Request<DeleteCohortMembersByPersonIdsRequest>,
+    ) -> Result<Response<DeleteCohortMembersByPersonIdsResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_ids.len() > MAX_COHORT_MEMBER_IDS_PER_REQUEST {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_COHORT_MEMBER_IDS_PER_REQUEST} person IDs per request"
+            )));
+        }
+
+        if req.person_ids.is_empty() {
+            return Ok(Response::new(DeleteCohortMembersByPersonIdsResponse {
+                deleted_count: 0,
+            }));
+        }
+
+        let deleted_count = self
+            .storage
+            .delete_cohort_members_by_person_ids(req.cohort_id, &req.person_ids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_cohort_members_by_person_ids"))?;
+
+        Ok(Response::new(DeleteCohortMembersByPersonIdsResponse {
+            deleted_count,
+        }))
+    }
+
     async fn insert_cohort_members(
         &self,
         request: Request<InsertCohortMembersRequest>,
     ) -> Result<Response<InsertCohortMembersResponse>, Status> {
         let req = request.into_inner();
 
-        if req.person_ids.len() > 10000 {
-            return Err(Status::invalid_argument(
-                "Maximum 10000 person IDs per request",
-            ));
+        if req.person_ids.len() > MAX_COHORT_MEMBER_IDS_PER_REQUEST {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_COHORT_MEMBER_IDS_PER_REQUEST} person IDs per request"
+            )));
         }
 
         if req.person_ids.is_empty() {
@@ -1785,6 +1817,9 @@ impl PersonHogReplica for PersonHogReplicaService {
                     }
                     Ok(ProtoDistinctIdWriteAction::Raise) => {
                         storage::types::DistinctIdWriteAction::Raise
+                    }
+                    Ok(ProtoDistinctIdWriteAction::Tombstone) => {
+                        storage::types::DistinctIdWriteAction::Tombstone
                     }
                     _ => {
                         return Err(Status::invalid_argument(format!(

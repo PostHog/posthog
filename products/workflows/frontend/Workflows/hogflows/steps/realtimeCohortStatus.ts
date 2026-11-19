@@ -1,6 +1,8 @@
-import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 
 import { RealtimeCohortStatusApi } from 'products/workflows/frontend/generated/api.schemas'
+
+import { isCohortInclusion } from '../../../Broadcasts/audience/audienceList'
 
 /** How often an open send screen refreshes a realtime cohort's status until the cohort is ready. */
 export const REALTIME_COHORT_STATUS_POLL_MS = 10000
@@ -13,12 +15,11 @@ export function isRealtimeCohortUnresolved(status: RealtimeCohortStatusApi | nul
 /**
  * The audience reduced to its realtime cohort, which has to be the only condition. Null when the cohort is
  * not one of the audience's top-level conditions, for example when a preview response is stale or the
- * cohort sits in a nested group, so a caller never empties the audience to everyone.
+ * cohort sits in a nested group, so a caller never empties the audience to everyone. Also null when the audience
+ * excludes the cohort, because a realtime cohort can't be excluded and the save reports that instead.
  */
 export function keepOnlyRealtimeCohort(properties: AnyPropertyFilter[], cohortId: number): AnyPropertyFilter[] | null {
-    const cohort = properties.find(
-        (property) => property.type === PropertyFilterType.Cohort && Number(property.value) === cohortId
-    )
+    const cohort = properties.find((property) => isCohortInclusion(property) && Number(property.value) === cohortId)
     return cohort && properties.length > 1 ? [cohort] : null
 }
 

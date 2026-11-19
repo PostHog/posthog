@@ -1,6 +1,7 @@
 """GitHub `pull_request` deliveries of the PostHog GitHub App, routed by action.
 
 - `opened` / `synchronize` / `ready_for_review`: an automatic review (`automatic_reviews.py`).
+- `review_requested` for the `posthog-review` team: a requested review (`review_team_requests.py`).
 
 The webhook handler runs inside the request, so this module only parses the payload, reads the
 cached ownership summary, and queues a Celery task. The task checks ownership and the rules again.
@@ -15,6 +16,8 @@ from products.review_hog.backend.ownership import OwnedRepositoryPrefilter, Repo
 # Authors and automation apply this label to opt a pull request out of automatic reviews.
 SKIP_AGENT_REVIEW_LABEL = "skip-agent-review"
 AUTOMATIC_REVIEW_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review"})
+REVIEW_REQUESTED_ACTION = "review_requested"
+REVIEW_TEAM_SLUG = "posthog-review"
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -102,9 +105,52 @@ class PullRequestEvent:
         )
 
 
+@frozen
+class ReviewTeamRequester:
+    """The person who asked the `posthog-review` team to review, as GitHub names them."""
+
+    github_user_id: int
+    login: str
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, object]) -> "ReviewTeamRequester | None":
+        team_slug = _text(_mapping(payload.get("requested_team")).get("slug"))
+        if team_slug is None or team_slug.lower() != REVIEW_TEAM_SLUG:
+            return None
+        sender = _mapping(payload.get("sender"))
+        login = _text(sender.get("login"))
+        github_user_id = _positive_int(sender.get("id"))
+        # Automation that assigns reviewers must not start paid runs on its own.
+        if sender.get("type") != "User" or login is None or login.lower().endswith("[bot]") or github_user_id is None:
+            return None
+        return cls(github_user_id=github_user_id, login=login)
+
+
+def _accept_review_team_request(event: PullRequestEvent, payload: Mapping[str, object]) -> None:
+    requester = ReviewTeamRequester.from_payload(payload)
+    if requester is None or not OwnedRepositoryPrefilter.may_be_owned(event.ref):
+        return
+    # Keeps Celery off the registry import path.
+    from products.review_hog.backend.tasks import process_review_team_request  # noqa: PLC0415
+
+    process_review_team_request.delay(
+        installation_id=event.installation_id,
+        repository=event.repository,
+        github_repo_id=event.github_repo_id,
+        pr_number=event.pr_number,
+        requester_github_id=requester.github_user_id,
+        requester_login=requester.login,
+    )
+
+
 def accept_pull_request_event(payload: Mapping[str, object]) -> None:
     event = PullRequestEvent.from_payload(payload)
-    if event is None or event.action not in AUTOMATIC_REVIEW_ACTIONS:
+    if event is None:
+        return
+    if event.action == REVIEW_REQUESTED_ACTION:
+        _accept_review_team_request(event, payload)
+        return
+    if event.action not in AUTOMATIC_REVIEW_ACTIONS:
         return
     if not OwnedRepositoryPrefilter.may_be_owned(event.ref):
         return
@@ -120,4 +166,5 @@ def accept_pull_request_event(payload: Mapping[str, object]) -> None:
         github_repo_id=event.github_repo_id,
         draft=event.draft,
         skip_agent_review=event.skip_agent_review,
+        action=event.action,
     )

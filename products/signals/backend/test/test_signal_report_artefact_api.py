@@ -1,16 +1,19 @@
 import json
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.core.management import call_command
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -416,26 +419,56 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["github_login"] for r in json.loads(new_row.content)] == ["bob"]
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["bob"]
 
-    def test_put_reviewers_re_evaluates_autostart(self):
-        # Appending a reviewers status re-runs the (idempotent) auto-start evaluation on commit.
+    @parameterized.expand(
+        [
+            ("put_session", "put", None, True),
+            ("put_inbox_and_task_key", "put", ["inbox:write", "task:write"], True),
+            ("put_inbox_only_key", "put", ["inbox:write"], False),
+            ("post_inbox_and_task_key", "post", ["inbox:write", "task:write"], True),
+            ("post_inbox_only_key", "post", ["inbox:write"], False),
+        ]
+    )
+    def test_reviewer_writes_need_task_scope_and_re_evaluate_autostart(
+        self, _name: str, method: str, scopes: list[str] | None, allowed: bool
+    ):
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+        if scopes is not None:
+            api_key = self.create_personal_api_key_with_scopes(scopes)
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        content = [{"github_login": "alice"}, {"github_login": "bob"}]
 
         with patch(
             "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
             new_callable=AsyncMock,
         ) as mock_autostart:
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.put(
-                    self._detail_url(str(report.id), str(artefact.id)),
-                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
-                    content_type="application/json",
-                )
+                if method == "put":
+                    response = self.client.put(
+                        self._detail_url(str(report.id), str(artefact.id)),
+                        data=json.dumps({"content": content}),
+                        content_type="application/json",
+                    )
+                else:
+                    response = self.client.post(
+                        self._list_url(str(report.id)),
+                        data=json.dumps({"artefact_type": "suggested_reviewers", "content": content}),
+                        content_type="application/json",
+                    )
 
-        assert response.status_code == status.HTTP_200_OK
-        mock_autostart.assert_awaited_once()
-        assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
-        assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+        if allowed:
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == (
+            ["alice", "bob"] if allowed else ["alice"]
+        )
+        assert mock_autostart.await_count == (1 if allowed else 0)
+        if allowed:
+            assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
+            assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+            assert mock_autostart.call_args.kwargs["triggering_user_id"] == self.user.id
 
     def test_put_adding_reviewer_notifies_added_reviewer_on_commit(self):
         # Manually adding a reviewer enqueues a Slack ping (after commit) for only the newly-added
@@ -2353,6 +2386,93 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
         assert artefact.created_by_id is None
         assert response.json()["task_id"] == str(task.id)
 
+    def _sandbox_token_header(self) -> dict[str, str]:
+        application = OAuthApplication.objects.create(
+            name="Sandbox app",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_sandbox_note_mention_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="inbox:write task:write",
+            sandbox_task_id=self._create_task().id,
+        )
+        return {"Authorization": f"Bearer {token.token}"}
+
+    @parameterized.expand(
+        [("person", "none", [[5]]), ("task_header", "task_header", []), ("sandbox_token", "sandbox_token", [])]
+    )
+    def test_post_note_pings_mentions_only_for_a_person(self, _name, credential, expected_user_ids):
+        report = self._create_report()
+        headers: dict[str, str] = {}
+        if credential == "task_header":
+            headers = {"X-PostHog-Task-Id": str(self._create_task().id)}
+        elif credential == "sandbox_token":
+            self.client.logout()
+            headers = self._sandbox_token_header()
+        with (
+            patch(
+                "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._list_url(str(report.id)),
+                data=json.dumps({"artefact_type": "note", "content": {"note": "@member:5 can you look"}}),
+                content_type="application/json",
+                headers=headers,
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [call.kwargs["user_ids"] for call in delay.call_args_list] == expected_user_ids
+
+    def test_patch_note_with_a_bad_task_header_saves_nothing(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "first"}}),
+            content_type="application/json",
+        )
+        artefact_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"{self._list_url(str(report.id))}{artefact_id}/",
+            data=json.dumps({"content": {"note": "second"}}),
+            content_type="application/json",
+            headers={"X-PostHog-Task-Id": "not-a-uuid"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert json.loads(SignalReportArtefact.objects.get(id=artefact_id).content)["note"] == "first"
+
+    def test_patch_note_pings_only_the_mentions_it_adds(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "@member:5 look"}}),
+            content_type="application/json",
+        )
+        artefact_id = response.json()["id"]
+        with (
+            patch(
+                "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"{self._list_url(str(report.id))}{artefact_id}/",
+                data=json.dumps({"content": {"note": "@member:5 and @member:6 look"}}),
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [call.kwargs["user_ids"] for call in delay.call_args_list] == [[6]]
+
     def test_post_with_foreign_team_task_header_returns_400(self):
         report = self._create_report()
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -2492,6 +2612,8 @@ class TestSignalReportCommitDiff(APIBaseTest):
         with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
             response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["code"] == "github_repository_inaccessible"
+        assert response.json()["remediation_url"] == f"/project/{self.team.id}/settings/project-integrations"
 
     def _mock_github(self, result: dict):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()

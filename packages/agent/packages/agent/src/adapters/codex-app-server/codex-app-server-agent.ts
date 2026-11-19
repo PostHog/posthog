@@ -201,6 +201,7 @@ type AppServerSessionMeta = {
   baseBranch?: string;
   taskOriginProduct?: string;
   endRunWhenDone?: boolean;
+  callerEndsRun?: boolean;
   posthogExecPermissionRegex?: string;
   nativeGoal?: NativeGoalState;
 };
@@ -809,6 +810,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       baseBranch: meta.baseBranch,
       taskOriginProduct: meta.taskOriginProduct,
       endRunWhenDone: meta.endRunWhenDone === true,
+      callerEndsRun: meta.callerEndsRun === true,
     };
   }
 

@@ -1,4 +1,4 @@
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.team import Team
@@ -35,8 +35,8 @@ class TeamWorkflowsConfig(models.Model):
     ses_tenant_reputation_impact = models.CharField(max_length=32, blank=True, default="", db_default="")
     ses_tenant_state_synced_at = models.DateTimeField(null=True, blank=True)
 
-    # Trust tier for workflow email. The tier picks the team's hourly cap, daily cap and maximum
-    # batch audience from the tables in settings, so an unproven team cannot send fast enough to
+    # Trust tier for workflow email. The tier picks the team's daily cap and maximum batch
+    # audience from the tables in settings, so an unproven team cannot send fast enough to
     # damage the shared SES account's reputation. Every team starts at 0 and a periodic task moves
     # it one step at a time based on how much it sent and how clean the sending was.
     # db_default so raw INSERTs from non-Django writers keep working.
@@ -58,6 +58,9 @@ class TeamWorkflowsConfig(models.Model):
     # bulk apply rewrites the steps whose values still follow them. Off by default.
     email_utm_tags_enabled = models.BooleanField(default=False, db_default=False)
     email_utm_params = models.JSONField(default=dict, db_default={}, blank=True)
+    # Tracked email links carry ph_workflow_run=<run id>, so a click joins the session it starts.
+    # The CDP email worker reads this flag, and a team that has no row is tagged.
+    email_workflow_run_link_tag_enabled = models.BooleanField(default=True, db_default=True)
 
     # Overrides for AI tasks created by workflows. Null keeps the product defaults;
     # zero pauses new task creation at that scope.
@@ -76,3 +79,7 @@ class TeamWorkflowsConfig(models.Model):
     # Max marketing messages per person per rolling window across all workflows; null on either means no cap.
     marketing_frequency_cap_max_messages = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
     marketing_frequency_cap_window_days = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    # How long a capped marketing message waits for a free slot before it is skipped; null skips it at once.
+    marketing_frequency_cap_hold_hours = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(168)]
+    )

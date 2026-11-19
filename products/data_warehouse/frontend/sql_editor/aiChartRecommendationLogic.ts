@@ -28,8 +28,8 @@ import {
     dataVisualizationLogic,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery } from '~/queries/query'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { VisualizationNode, HogLanguage, HogQLMetadata, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import * as decisionsApi from 'products/ml_inference/frontend/generated/api'

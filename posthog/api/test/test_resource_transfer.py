@@ -1,11 +1,11 @@
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
@@ -13,7 +13,7 @@ from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -168,7 +168,7 @@ class TestResourceTransferPreview(APIBaseTest):
 
     def test_preview_survey_includes_insight_and_dependencies(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Survey insight")
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="survey trigger",
             steps_json=[{"event": "$pageview"}],
@@ -180,7 +180,7 @@ class TestResourceTransferPreview(APIBaseTest):
             questions=[{"id": "q1", "type": "open", "question": "Hi"}],
             linked_insight=insight,
         )
-        survey.actions.add(action)
+        survey.actions.add(action.id)
 
         response = self.client.post(
             self._preview_url(),
@@ -336,6 +336,36 @@ class TestResourceTransferTransfer(APIBaseTest):
         assert new_tiles.exists()
         tile_insight_ids = set(new_tiles.values_list("insight_id", flat=True))
         assert dest_insight.pk in tile_insight_ids
+
+    def test_second_copy_suggests_and_substitutes_tiles_without_access_rules(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        body = {
+            "source_team_id": self.team.pk,
+            "destination_team_id": self.dest_team.pk,
+            "resource_kind": "Dashboard",
+            "resource_id": str(dashboard.pk),
+        }
+        assert self.client.post(self._transfer_url(), body, format="json").status_code == status.HTTP_201_CREATED
+
+        preview = self.client.post(f"/api/organizations/{self.organization.id}/resource_transfers/preview/", body)
+
+        assert preview.status_code == status.HTTP_200_OK
+        tile = next(r for r in preview.json()["resources"] if r["resource_kind"] == "DashboardTile")
+        substitutions = [
+            {
+                "source_resource_kind": r["resource_kind"],
+                "source_resource_id": r["resource_id"],
+                "destination_resource_kind": r["suggested_substitution"]["resource_kind"],
+                "destination_resource_id": r["suggested_substitution"]["resource_id"],
+            }
+            for r in preview.json()["resources"]
+            if "suggested_substitution" in r
+        ]
+        assert "suggested_substitution" in tile
+        second = self.client.post(self._transfer_url(), {**body, "substitutions": substitutions}, format="json")
+        assert second.status_code == status.HTTP_201_CREATED
 
     @parameterized.expand(
         [
@@ -765,11 +795,11 @@ class TestResourceTransferTenantIsolation(APIBaseTest):
         return f"/api/organizations/{self.organization.id}/resource_transfers/transfer/"
 
     def test_preview_rejects_insight_referencing_foreign_org_action(self) -> None:
-        foreign_action = Action.objects.create(team=self.foreign_team, name="Secret action")
+        foreign_action = create_action(team=self.foreign_team, name="Secret action")
         insight = Insight.objects.create(
             team=self.team,
             name="Malicious insight",
-            filters={"actions": [{"id": foreign_action.pk}]},
+            filters={"actions": [{"id": foreign_action.id}]},
         )
 
         response = self.client.post(
@@ -845,6 +875,10 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
 
         self.private_project = Project.objects.create(
             id=Team.objects.increment_id_sequence(), organization=self.organization
@@ -919,9 +953,6 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
             ("search",),
         ]
     )
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_blocked_for_user_without_project_access(self, endpoint: str) -> None:
         self.client.force_login(self.other_user)
         url, payload = self._endpoint_params(endpoint)
@@ -935,17 +966,11 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
             ("search", status.HTTP_200_OK),
         ]
     )
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_allowed_for_user_with_project_access(self, endpoint: str, expected_status: int) -> None:
         url, payload = self._endpoint_params(endpoint)
         response = self.client.post(url, payload)
         assert response.status_code == expected_status
 
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_search_hides_objects_the_user_cannot_view(self) -> None:
         visible = Dashboard.objects.create(team=self.dest_team, name="Visible dashboard", created_by=self.user)
         restricted = Dashboard.objects.create(team=self.dest_team, name="Restricted dashboard", created_by=self.user)
@@ -967,9 +992,6 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
         assert str(visible.id) in ids
         assert str(restricted.id) not in ids
 
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_substitution_needs_read_access_to_the_destination_object(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Source dashboard")
         insight = Insight.objects.create(team=self.team, name="Source insight")

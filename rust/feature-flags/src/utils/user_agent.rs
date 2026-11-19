@@ -107,6 +107,7 @@ impl UserAgentInfo {
             "ruby" => ("posthog-ruby", RuntimeType::Server),
             "rails" => ("posthog-rails", RuntimeType::Server),
             "php" => ("posthog-php", RuntimeType::Server),
+            "laravel" => ("posthog-laravel", RuntimeType::Server),
             "java" => ("posthog-java", RuntimeType::Server),
             "go" => ("posthog-go", RuntimeType::Server),
             "node" => ("posthog-node", RuntimeType::Server),
@@ -283,6 +284,12 @@ mod tests {
         "posthog-go/1.0.0",
         Some("posthog-go"),
         Some("1.0.0"),
+        RuntimeType::Server
+    )]
+    #[case(
+        "posthog-laravel/0.1.0",
+        Some("posthog-laravel"),
+        Some("0.1.0"),
         RuntimeType::Server
     )]
     #[case(
@@ -492,6 +499,7 @@ mod tests {
     #[case(Some("posthog-rails/3.18.0"), "posthog-rails")]
     #[case(Some("posthog-ruby2.0.0"), "posthog-ruby")]
     #[case(Some("posthog-php/3.0.0"), "posthog-php")]
+    #[case(Some("posthog-laravel/0.1.0"), "posthog-laravel")]
     #[case(Some("posthog-java/1.0.0"), "posthog-java")]
     #[case(Some("posthog-go/0.1.0"), "posthog-go")]
     #[case(Some("posthog-node/2.2.0"), "posthog-node")]

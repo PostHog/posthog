@@ -1,5 +1,5 @@
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { CurrencyCode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { ExperimentMetricGoal, ExperimentMetricMathType, FunnelConversionWindowTimeUnit } from '~/types'
 
 import {
@@ -15,6 +15,13 @@ import {
     isProportionMetric,
     isWinning,
 } from './utils'
+
+const quantileMetric: ExperimentMetric = {
+    kind: NodeKind.ExperimentMetric,
+    metric_type: ExperimentMetricType.QUANTILE,
+    quantile: 0.9,
+    source: { kind: NodeKind.EventsNode, event: 'page_loaded', math_property: 'load_ms' },
+}
 
 describe('getMetricTag', () => {
     it('handles different metric types correctly', () => {
@@ -45,6 +52,7 @@ describe('getMetricTag', () => {
         }
 
         expect(getMetricTag(experimentMetric)).toBe('Mean')
+        expect(getMetricTag(quantileMetric)).toBe('Percentile')
         expect(getMetricTag(funnelMetric)).toBe('Funnel')
         expect(getMetricTag(trendMetric)).toBe('Trend')
     })
@@ -90,6 +98,13 @@ describe('getDefaultMetricTitle', () => {
             },
         }
         expect(getDefaultMetricTitle(metric)).toBe('purchase_events')
+    })
+
+    it.each([
+        [0.9, 'p90 of load_ms'],
+        [0.975, 'p97.5 of load_ms'],
+    ])('keeps the percentile level %s as entered', (quantile, expected) => {
+        expect(getDefaultMetricTitle({ ...quantileMetric, quantile } as ExperimentMetric)).toBe(expected)
     })
 })
 
@@ -331,30 +346,92 @@ describe('isProportionMetric', () => {
 
 describe('formatMetricValue', () => {
     it('formats a plain mean metric as a raw number', () => {
-        expect(formatMetricValue({ sum: 4, number_of_samples: 100 }, meanMetric())).toBe('0.04')
+        expect(formatMetricValue({ sum: 4, number_of_samples: 100 }, meanMetric(), CurrencyCode.USD)).toBe('0.04')
     })
 
     it('formats a threshold mean metric as a percentage', () => {
-        expect(formatMetricValue({ sum: 40, number_of_samples: 100 }, meanMetric(5))).toBe('40.00%')
+        expect(formatMetricValue({ sum: 40, number_of_samples: 100 }, meanMetric(5), CurrencyCode.USD)).toBe('40.00%')
     })
 
     it('formats a funnel metric as a percentage', () => {
-        expect(formatMetricValue({ sum: 25, number_of_samples: 100 }, funnelMetric)).toBe('25.00%')
+        expect(formatMetricValue({ sum: 25, number_of_samples: 100 }, funnelMetric, CurrencyCode.USD)).toBe('25.00%')
     })
 
     it('formats a retention metric as a percentage', () => {
-        expect(formatMetricValue({ sum: 60, number_of_samples: 100 }, retentionMetric)).toBe('60.00%')
+        expect(formatMetricValue({ sum: 60, number_of_samples: 100 }, retentionMetric, CurrencyCode.USD)).toBe('60.00%')
     })
 
     it('formats a ratio metric as a quotient', () => {
-        expect(formatMetricValue({ sum: 50, denominator_sum: 200 }, ratioMetric)).toBe('0.25')
+        expect(formatMetricValue({ sum: 50, denominator_sum: 200 }, ratioMetric, CurrencyCode.USD)).toBe('0.25')
     })
 
     it('returns "—" for a ratio metric with a zero denominator', () => {
-        expect(formatMetricValue({ sum: 3, denominator_sum: 0 }, ratioMetric)).toBe('—')
+        expect(formatMetricValue({ sum: 3, denominator_sum: 0 }, ratioMetric, CurrencyCode.USD)).toBe('—')
+    })
+
+    it.each([
+        ['the quantile, not a mean of the below-quantile count', [842.5, 790, 901], '843'],
+        ['"—" without a quantile grid', undefined, '—'],
+    ])('formats a quantile metric as %s', (_, quantileGrid, expected) => {
+        expect(
+            formatMetricValue(
+                { sum: 450, number_of_samples: 120, denominator_sum: 500, quantile_grid: quantileGrid },
+                quantileMetric,
+                CurrencyCode.USD
+            )
+        ).toBe(expected)
     })
 
     it('returns "—" when the value is not a number', () => {
-        expect(formatMetricValue({ sum: 0, number_of_samples: 0 }, meanMetric())).toBe('—')
+        expect(formatMetricValue({ sum: 0, number_of_samples: 0 }, meanMetric(), CurrencyCode.USD)).toBe('—')
     })
+    it.each([
+        [
+            'a small currency amount with three significant digits',
+            { sum: 3.42, number_of_samples: 100 },
+            { ...meanMetric(), value_format: { type: 'currency' } },
+            CurrencyCode.USD,
+            '$0.0342',
+        ],
+        [
+            'a currency amount in the base currency',
+            { sum: 1250, number_of_samples: 100 },
+            { ...meanMetric(), value_format: { type: 'currency' } },
+            CurrencyCode.EUR,
+            '€12.50',
+        ],
+        [
+            'a negative currency amount with the sign before the symbol',
+            { sum: -420, number_of_samples: 100 },
+            { ...meanMetric(), value_format: { type: 'currency' } },
+            CurrencyCode.USD,
+            '-$4.20',
+        ],
+        [
+            'a ratio as a percentage',
+            { sum: 50, denominator_sum: 200 },
+            { ...ratioMetric, value_format: { type: 'percentage_scaled' } },
+            CurrencyCode.USD,
+            '25%',
+        ],
+        [
+            'a quantile in milliseconds as seconds',
+            { quantile_grid: [1500] },
+            { ...quantileMetric, value_format: { type: 'duration_ms' } },
+            CurrencyCode.USD,
+            '1.5s',
+        ],
+        [
+            'a threshold mean as a percentage whatever its value format',
+            { sum: 40, number_of_samples: 100 },
+            { ...meanMetric(5), value_format: { type: 'currency' } },
+            CurrencyCode.USD,
+            '40.00%',
+        ],
+    ] as [string, Record<string, unknown>, ExperimentMetric, CurrencyCode, string][])(
+        'formats %s',
+        (_, data, metric, baseCurrency, expected) => {
+            expect(formatMetricValue(data, metric, baseCurrency)).toBe(expected)
+        }
+    )
 })

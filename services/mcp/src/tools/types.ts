@@ -50,6 +50,10 @@ export type BusinessKnowledgeContent = {
     hasRepositories?: boolean | undefined
 }
 
+export type MetricCatalogContent = {
+    hasMetrics: boolean
+}
+
 export type State = {
     projectId: string | undefined
     orgId: string | undefined
@@ -57,6 +61,12 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     apiKeyFetchedAt: number | undefined
+    /**
+     * Set only when the credential is a project secret API key (`phs_`), which a customer's agent uses
+     * to read business knowledge. It holds the ID of the project that key was created in. Other
+     * credentials never set it: their project comes from `projectId`.
+     */
+    projectSecretKeyProjectId: string | undefined
     clientName: string | undefined
     oauthClientId: string | undefined
     mcpClientName: string | undefined
@@ -77,10 +87,10 @@ export type State = {
     Record<PrefixedString<'integrationKindsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
     Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
-    Record<PrefixedString<'warehouseObjectCount'>, number | undefined> &
-    Record<PrefixedString<'warehouseObjectCountFetchedAt'>, number | undefined> &
     Record<PrefixedString<'businessKnowledgeContent'>, BusinessKnowledgeContent | undefined> &
-    Record<PrefixedString<'businessKnowledgeContentFetchedAt'>, number | undefined>
+    Record<PrefixedString<'businessKnowledgeContentFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'metricCatalog'>, MetricCatalogContent | undefined> &
+    Record<PrefixedString<'metricCatalogFetchedAt'>, number | undefined>
 
 export type Env = {
     /**
@@ -129,6 +139,8 @@ export type Env = {
     /** Override the published product skills archive, primarily for local development. */
     POSTHOG_MCP_SKILLS_URL?: string | undefined
     POSTHOG_MCP_SKILLS_SHA256?: string | undefined
+    /** `off` serves the product skills archive without the context-mill omnibus overlay. */
+    POSTHOG_MCP_OMNIBUS_SKILLS?: string | undefined
     POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
 }
 
@@ -168,6 +180,7 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     name: string
     title: string
     description: string
+    searchKeywords?: string[]
     schema: TSchema
     /**
      * JSON Schema to advertise instead of deriving one from `schema`. Set for proxied

@@ -13,6 +13,7 @@ import pyarrow as pa
 import deltalake
 import deltalite
 import pyarrow.parquet as pq
+import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
@@ -343,6 +344,29 @@ class TestOpenWithoutExistenceCheck:
 
         mock_delta_table.assert_not_called()
         mock_delta_table.is_deltatable.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reset_purge_transient_error_is_not_captured_but_still_reraised(self) -> None:
+        """A reset's purge can exhaust `_purge_s3_prefix`'s own retry budget on a recognized-transient
+        S3 blip (e.g. an exhausted HeadObject 500, which s3fs surfaces as a bare OSError with errno
+        EREMOTEIO). Before this fix, `reset_table` only caught `FileNotFoundError` around the purge,
+        so that raw OSError skipped `_capture_unless_transient` entirely and reached the activity
+        interceptor as a fresh defect instead of the self-healing blip it is."""
+        ref = DeltaTableRef("t", MagicMock(), make_logger())
+        s3_cm = MagicMock(__aenter__=AsyncMock(return_value=MagicMock()), __aexit__=AsyncMock(return_value=False))
+        original_error = OSError(121, "Internal Server Error")
+
+        with (
+            patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value="s3://bucket/team/job/t")),
+            patch(f"{self._MODULE}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{self._MODULE}._purge_s3_prefix", AsyncMock(side_effect=original_error)),
+            patch(f"{self._MODULE}.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(TransientObjectStoreError) as exc_info:
+                await ref.reset_table()
+
+        assert exc_info.value.__cause__ is original_error
+        mock_capture.assert_not_called()
 
 
 class TestCorruptionCheckSharesItsOpen:
@@ -738,6 +762,32 @@ class TestGetDeltaTableUnrecoverableErrors:
             mock_capture.assert_not_called()
             mock_purge.assert_not_awaited()
             assert table_ref.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_get_credentials_transient_error_is_not_captured_but_still_reraised(self):
+        """`_get_credentials` (ensure_bucket_exists under USE_LOCAL_SETUP) runs before any open
+        attempt and isn't delta-rs's own object_store client, so its errors previously escaped
+        `_capture_unless_transient` entirely: a self-hosted object store still bootstrapping (raising
+        botocore's EndpointConnectionError) was captured as a defect on every occurrence instead of
+        being recognized as the same transient blip `is_transient_object_store_error` already covers."""
+        table_ref = DeltaTableRef(resource_name="t", job=MagicMock(), logger=make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        original_error = botocore.exceptions.EndpointConnectionError(endpoint_url="http://objectstorage:19000")
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+        with (
+            patch.object(table_ref, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch.object(table_ref, "_get_credentials", MagicMock(side_effect=original_error)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(TransientObjectStoreError) as exc_info:
+                await table_ref.get_delta_table()
+
+            assert exc_info.value.__cause__ is original_error
+            mock_capture.assert_not_called()
+            mock_delta_table.assert_not_called()
+            mock_delta_table.is_deltatable.assert_not_called()
 
 
 class TestIsTableCorrupted:

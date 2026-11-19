@@ -7,7 +7,7 @@ import structlog
 
 from posthog.cloud_utils import is_dev_mode
 from posthog.mcp_tool_definitions import mcp_tool_required_scopes
-from posthog.scopes import get_oauth_scopes_supported
+from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 
 logger = structlog.get_logger(__name__)
 
@@ -58,11 +58,16 @@ def mcp_advertised_scopes() -> list[str]:
     runtime fetch to the resource server.
     """
     required = mcp_tool_required_scopes()
-    return [scope for scope in get_oauth_scopes_supported() if ":" not in scope or scope in required]
+    return [scope for scope in OAUTH_SCOPES_SUPPORTED if ":" not in scope or scope in required]
 
 
-def build_oauth_mcp_consent_context(resource_url: str | None) -> OAuthMcpConsentContext | None:
+def build_oauth_mcp_consent_context(
+    resource_url: str | None, scopes: list[str] | None = None
+) -> OAuthMcpConsentContext | None:
+    """`scopes` replaces the advertised set when the server already resolved what the screen lists."""
     if not resource_url or not is_trusted_posthog_mcp_resource(resource_url):
         return None
 
-    return OAuthMcpConsentContext(is_mcp_resource=True, scopes=mcp_advertised_scopes())
+    return OAuthMcpConsentContext(
+        is_mcp_resource=True, scopes=scopes if scopes is not None else mcp_advertised_scopes()
+    )

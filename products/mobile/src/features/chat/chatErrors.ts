@@ -1,4 +1,5 @@
 import { ApiError, NotSignedInError } from '@/api/client'
+import { TransportError } from '@/api/transport'
 import { isRecord } from '@/lib/records'
 
 import type { ChatError } from './types'
@@ -17,18 +18,6 @@ function retryHint(seconds: number | undefined): string {
         return `Try again in ${seconds} seconds.`
     }
     return `Try again in ${Math.ceil(seconds / 60)} minutes.`
-}
-
-function isAbortError(error: unknown): boolean {
-    return error instanceof Error && error.name === 'AbortError'
-}
-
-export function isNetworkError(error: unknown): boolean {
-    if (error instanceof ApiError || error instanceof NotSignedInError || isAbortError(error)) {
-        return false
-    }
-    // fetch reports a lost connection as a TypeError on every platform the app runs on.
-    return error instanceof TypeError || (error instanceof Error && /network|connection|socket/i.test(error.message))
 }
 
 /** The tasks API's PostHog Desktop gate and limits. Their copy is under `error`, which `ApiError.detail` carries. */
@@ -114,8 +103,8 @@ export function toChatError(error: unknown): ChatError {
                 return { kind: 'unknown', message: 'Something went wrong. Try again.' }
         }
     }
-    if (isNetworkError(error)) {
-        return { kind: 'network', message: "Couldn't reach PostHog. Check your connection and try again." }
+    if (error instanceof TransportError) {
+        return { kind: 'network', message: error.message }
     }
     return { kind: 'unknown', message: 'Something went wrong. Try again.' }
 }

@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -26,7 +26,7 @@ from .summary import (
     ttl_for,
 )
 
-_ENTRY = TypeAdapter[SummaryEntry](Annotated[SummaryEntry, Field(discriminator="status")])
+_ENTRY = TypeAdapter[SummaryEntry](cast(Any, Annotated[SummaryEntry, Field(discriminator="status")]))
 
 
 def requester_fingerprint(team_id: int, user: User) -> str:

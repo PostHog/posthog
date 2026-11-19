@@ -39,6 +39,10 @@ class TestEvaluationDelay(SimpleTestCase):
             calculation_interval="every_15_minutes",
             evaluation_delay_intervals=2,
         )
+        # The owner check needs the database, and these alerts have no owner on purpose.
+        owner_check = patch("products.alerts.backend.evaluation.dispatcher.assert_creator_can_run")
+        owner_check.start()
+        self.addCleanup(owner_check.stop)
 
     def evaluate(self, data: list[float | None], dates: list[str], detector: bool = False) -> AlertEvaluationResult:
         module = "detector" if detector else "trends"

@@ -1,8 +1,6 @@
-import { Entity, EntityFilter } from '~/types'
+import { LegacyDisplayEntity, getDisplayNameFromEntityFilter } from './entityFilterNames'
 
-import { getDisplayNameFromEntityFilter } from './entityFilterNames'
-
-const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
+const createFilter = (id?: LegacyDisplayEntity['id'], name?: string, custom_name?: string): LegacyDisplayEntity => {
     return {
         custom_name,
         name: name ?? null,
@@ -11,7 +9,7 @@ const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): E
 }
 
 describe('getDisplayNameFromEntityFilter()', () => {
-    const paramsToExpected: [EntityFilter, boolean, string | null][] = [
+    const paramsToExpected: [LegacyDisplayEntity, boolean, string | null][] = [
         [createFilter(3, 'name', 'custom_name'), true, 'custom_name'],
         [createFilter(3, 'name', ''), true, 'name'],
         [createFilter(3, 'name', '    '), true, 'name'],

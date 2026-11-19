@@ -1,8 +1,9 @@
-"""The missing-capabilities feed: every `$mcp_missing_capability` report, newest first.
+"""The missing-capabilities feed: every missing-capability report, newest first.
 
 When a server enables `reportMissing`, the SDK registers a virtual `get_more_tools`
-tool; an agent that calls it says, in its own words, what it wanted and could not
-get. That text lands in `$mcp_intent` and records the capability the agent needed.
+tool; with `collectFeedback`, a virtual `send_feedback` tool whose reports can have the
+`missing_capability` type. An agent that calls either says, in its own words, what it wanted
+and could not get. That text lands in `$mcp_intent` and records the capability the agent needed.
 
 The feed stays chronological because exact-text grouping would split similar free-form
 requests. Semantic clustering is a separate job.
@@ -23,15 +24,18 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
-from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
+    HarnessLabelQueryRunner,
     display_person_properties,
+    isoformat_timestamp,
     mcp_query_date_range,
+    missing_capability_report_expr,
+    shared_filter_exprs,
     validate_mcp_analytics_access,
 )
 
@@ -43,10 +47,12 @@ DEFAULT_LIMIT = 100
 MAX_LIMIT = 500
 
 # Both the result column and search expression use this property so they cannot drift.
-_REPORT_TEXT = "toString(properties.$mcp_intent)"
+# `properties.$mcp_intent` returns the raw JSON text, which keeps escapes such as `\n` and `\"`.
+# A send_feedback report puts a blank line between its summary and details, so decode the string.
+_REPORT_TEXT = "JSONExtractString(properties, '$mcp_intent')"
 
 
-class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilitiesQueryResponse]):
+class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabilitiesQueryResponse]):
     """Chronological feed of the capabilities agents asked for and could not get.
 
     Powers the "Missing capabilities" tab and the `query-mcp-missing-capabilities` MCP
@@ -76,11 +82,12 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
 
     def _where(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
-            parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT)}),
+            missing_capability_report_expr(),
             parse_expr(
                 "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
             ),
             parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
+            *shared_filter_exprs(self.team, None, self.query.filterTestAccounts),
         ]
         term = (self.query.search or "").strip()
         if term:
@@ -101,13 +108,11 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
         # column in the inner query and the label buckets that column, per mcp_harness's contract.
         # The sort keys carry their own names because an outer ORDER BY on a name that the events
         # table also defines makes HogQL synthesize a suffixed column, such as `uuid_0`, while the
-        # sort description still asks for `uuid`, and ClickHouse then rejects the sort. Naming the
-        # timestamp separately also stops the outer projection from shadowing it, so the sort
-        # compares timestamps rather than the strings the outer column holds.
+        # sort description still asks for `uuid`, and ClickHouse then rejects the sort.
         return parse_select(
             """
             SELECT
-                toString(sort_ts) AS timestamp,
+                sort_ts,
                 intent,
                 {harness_label} AS harness,
                 session_id,
@@ -132,7 +137,9 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
             LIMIT {limit} OFFSET {offset}
             """,
             placeholders={
-                "harness_label": parse_expr(mcp_harness.harness_label_or_token_sql("h", "client_display")),
+                "harness_label": parse_expr(
+                    mcp_harness.harness_label_or_token_sql("h", "client_display", custom_harness_rules(self.team))
+                ),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "display_name": parse_expr(mcp_harness.HARNESS_DISPLAY_NAME_SQL),
                 "report_text": parse_expr(_REPORT_TEXT),
@@ -164,7 +171,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
         has_next = len(rows) > self.limit
         results = [
             MCPMissingCapabilitiesItem(
-                timestamp=str(row[0] or ""),
+                timestamp=isoformat_timestamp(row[0]),
                 intent=str(row[1] or ""),
                 harness=str(row[2] or ""),
                 session_id=str(row[3] or ""),

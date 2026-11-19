@@ -44,7 +44,7 @@ from llm_gateway.services.quota_resolver import QuotaResourceStatus
 def _make_request(
     body: dict | None = None,
     headers: dict[str, str] | None = None,
-    path: str = "/openai/v1/chat/completions",
+    path: str = "/django/v1/chat/completions",
 ) -> Request:
     request = MagicMock(spec=Request)
     request.state = MagicMock()

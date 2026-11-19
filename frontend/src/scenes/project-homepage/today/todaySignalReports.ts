@@ -54,7 +54,7 @@ const SOURCES: Record<string, TodayReportSource> = {
         color: 'var(--color-product-product-analytics-light)',
         icon: 'analytics',
     },
-    alerts: { label: 'Alerts', color: 'var(--color-product-product-analytics-light)', icon: 'alert' },
+    alerts: { label: 'Alerts', color: 'var(--color-product-alerts-light)', icon: 'alert' },
     support: { label: 'Support', color: 'var(--color-product-support-light)', icon: 'support' },
 }
 

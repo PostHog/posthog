@@ -6,13 +6,14 @@ from many providers. It is BYOKEY-only (no PostHog-funded key).
 
 import logging
 from collections.abc import Generator
-from typing import Any
+from typing import Any, Literal
 
 from django.core.cache import cache
 
 import httpx
 import openai
 
+from products.ai_observability.backend.llm.attachments import VIDEO_MIME_TYPES, AttachmentPart
 from products.ai_observability.backend.llm.errors import UnsupportedModelError
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import (
@@ -38,40 +39,62 @@ OPENROUTER_ALL_MODELS_URL = f"{OPENROUTER_BASE_URL}/models?output_modalities=all
 # Older workers expect a non-chat-only snapshot, so use a separate cache namespace.
 MODEL_MODALITIES_CACHE_KEY = "ai_observability:openrouter:model_output_modalities:v1"
 MODEL_MODALITIES_LAST_GOOD_CACHE_KEY = f"{MODEL_MODALITIES_CACHE_KEY}:last_good"
+MODEL_INPUT_MODALITIES_CACHE_KEY = "ai_observability:openrouter:model_input_modalities:v1"
+MODEL_INPUT_MODALITIES_LAST_GOOD_CACHE_KEY = f"{MODEL_INPUT_MODALITIES_CACHE_KEY}:last_good"
 MODEL_MODALITIES_CACHE_TTL_SECONDS = 60 * 60
 MODEL_MODALITIES_FETCH_TIMEOUT_SECONDS = 5.0
 # Short, so a catalogue outage adds the fetch timeout at most once a minute.
 MODEL_MODALITIES_UNAVAILABLE_TTL_SECONDS = 60
 _CATALOGUE_UNAVAILABLE = "unavailable"
+_CACHE_KEYS = {
+    "output": (MODEL_MODALITIES_CACHE_KEY, MODEL_MODALITIES_LAST_GOOD_CACHE_KEY),
+    "input": (MODEL_INPUT_MODALITIES_CACHE_KEY, MODEL_INPUT_MODALITIES_LAST_GOOD_CACHE_KEY),
+}
 
 
-def _model_output_modalities(*, refresh: bool = True) -> dict[str, list[str]] | None:
-    """Output modalities of OpenRouter models.
+def _model_modalities(direction: Literal["input", "output"], *, refresh: bool = True) -> dict[str, list[str]] | None:
+    """Input or output modalities of OpenRouter models.
 
     Returns the last successful catalogue during outages, or None before the first success.
     """
-    cached = cache.get(MODEL_MODALITIES_CACHE_KEY)
+    cache_key, last_good_key = _CACHE_KEYS[direction]
+    cached = cache.get(cache_key)
     if cached == _CATALOGUE_UNAVAILABLE:
-        return cache.get(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY)
+        return cache.get(last_good_key)
     if cached is not None:
         return cached
     if not refresh:
-        return cache.get(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY)
+        return cache.get(last_good_key)
     try:
         response = httpx.get(OPENROUTER_ALL_MODELS_URL, timeout=MODEL_MODALITIES_FETCH_TIMEOUT_SECONDS)
         response.raise_for_status()
         models = response.json()["data"]
-        modalities = {
-            model["id"]: (model.get("architecture") or {}).get("output_modalities") or ["text"] for model in models
+        catalogue = {
+            name: {
+                model["id"]: (model.get("architecture") or {}).get(f"{name}_modalities") or ["text"] for model in models
+            }
+            for name in _CACHE_KEYS
         }
     except Exception:
         logger.warning("Could not fetch the OpenRouter model catalogue", exc_info=True)
-        cache.set(MODEL_MODALITIES_CACHE_KEY, _CATALOGUE_UNAVAILABLE, MODEL_MODALITIES_UNAVAILABLE_TTL_SECONDS)
-        return cache.get(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY)
-    # An outage must not discard the last successful catalogue.
-    cache.set(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY, modalities, timeout=None)
-    cache.set(MODEL_MODALITIES_CACHE_KEY, modalities, MODEL_MODALITIES_CACHE_TTL_SECONDS)
-    return modalities
+        for key, _ in _CACHE_KEYS.values():
+            cache.set(key, _CATALOGUE_UNAVAILABLE, MODEL_MODALITIES_UNAVAILABLE_TTL_SECONDS)
+        return cache.get(last_good_key)
+    for name, (key, last_good) in _CACHE_KEYS.items():
+        # An outage must not discard the last successful catalogue.
+        cache.set(last_good, catalogue[name], timeout=None)
+        cache.set(key, catalogue[name], MODEL_MODALITIES_CACHE_TTL_SECONDS)
+    return catalogue[direction]
+
+
+def _model_output_modalities(*, refresh: bool = True) -> dict[str, list[str]] | None:
+    return _model_modalities("output", refresh=refresh)
+
+
+def model_input_modalities(model: str) -> frozenset[str] | None:
+    """What a model reads, such as text, image, file, audio or video. None when the catalogue doesn't list it."""
+    models = _model_modalities("input")
+    return frozenset(models[model]) if models is not None and model in models else None
 
 
 def non_chat_model_ids() -> frozenset[str] | None:
@@ -109,6 +132,11 @@ class OpenRouterAdapter(OpenAIAdapter):
 
     def _get_default_headers(self) -> dict[str, str]:
         return OPENROUTER_HEADERS
+
+    def _attachment_block(self, part: AttachmentPart) -> dict[str, Any]:
+        if part.mime_type in VIDEO_MIME_TYPES:
+            return {"type": "video_url", "video_url": {"url": part.data_uri()}}
+        return super()._attachment_block(part)
 
     def complete(
         self,

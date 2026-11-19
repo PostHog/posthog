@@ -16,15 +16,14 @@ from posthog.hogql.placeholders import replace_placeholders
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     ExecuteLLMJudgeInputs,
-    _execute_llm_judge_activity,
     get_output_type_config,
+    run_generation_llm_judge,
 )
 from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
 from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
     AI_EVENTS_RETENTION_DAYS,
-    JUDGE_SESSION_MAX_CHARS,
     ExecuteSessionEvaluationInputs,
     SessionFetchOutcome,
     _count_session_events,
@@ -45,6 +44,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     execute_trace_llm_judge_activity,
 )
 
+from products.ai_observability.backend.facade.evaluation_runtime import JUDGE_SESSION_MAX_CHARS
 from products.ai_observability.backend.hog import compile_ai_observability_hog
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.cdp.backend.validation import compile_hog
@@ -563,9 +563,7 @@ class TestExecuteSessionActivities:
                 result = (
                     async_to_sync(run_hog_eval_for_event)(evaluation, event_data)
                     if runtime == "hog"
-                    else _execute_llm_judge_activity(
-                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
-                    )
+                    else run_generation_llm_judge(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
                 )
             elif target == "trace":
                 trace_inputs = ExecuteTraceEvaluationInputs(
@@ -686,7 +684,6 @@ class TestExecuteSessionActivities:
                 "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
                 return_value=SessionFetchOutcome(traces=[trace], skip_reason=None, event_count=1),
             ),
-            patch("posthog.temporal.ai_observability.judge_attachments.judge_sees_attachments", return_value=True),
             patch("posthog.temporal.ai_observability.run_session_evaluation.call_llm_judge") as mock_call_llm_judge,
         ):
             execute_session_llm_judge_activity(
@@ -725,6 +722,7 @@ class TestExecuteSessionActivities:
             result = execute_session_llm_judge_activity(
                 ExecuteSessionEvaluationInputs(
                     evaluation={
+                        "team_id": 1,
                         "evaluation_type": "llm_judge",
                         "evaluation_config": {"prompt": "Did the user accomplish their goal?"},
                         "output_type": "boolean",

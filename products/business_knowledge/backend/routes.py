@@ -5,8 +5,10 @@ from products.business_knowledge.backend.api import (
     BusinessKnowledgeRepositoriesViewSet,
     BusinessKnowledgeSandboxViewSet,
     BusinessKnowledgeSettingsViewSet,
+    KnowledgeAccessViewSet,
     KnowledgeDocumentViewSet,
     KnowledgeGapSuggestionViewSet,
+    KnowledgeKeyViewSet,
     KnowledgeLibraryViewSet,
     KnowledgeSourceViewSet,
 )
@@ -50,6 +52,21 @@ def register_routes(routers: RouterRegistry) -> None:
         r"business_knowledge/repositories",
         BusinessKnowledgeRepositoriesViewSet,
         "project_business_knowledge_repositories",
+        ["team_id"],
+    )
+    # An action on the bare prefix, so the route answers one object. Before the settings viewset so
+    # `access` is not captured as that viewset's detail pk.
+    routers.projects.register(
+        r"business_knowledge",
+        KnowledgeAccessViewSet,
+        "project_business_knowledge_access",
+        ["team_id"],
+    )
+    # Before the settings viewset so `keys` is not captured as that viewset's detail pk.
+    routers.projects.register(
+        r"business_knowledge/keys",
+        KnowledgeKeyViewSet,
+        "project_business_knowledge_keys",
         ["team_id"],
     )
     # Before the settings viewset so `libraries` is not captured as that viewset's detail pk.

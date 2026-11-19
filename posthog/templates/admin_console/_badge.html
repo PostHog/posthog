@@ -1,0 +1,2 @@
+{# A quill Badge. Every tone class is written out in full, so the Tailwind build sees it. #}
+<span class="quill-badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap {% if tone == 'success' %}quill-badge--variant-success{% elif tone == 'warning' %}quill-badge--variant-warning{% elif tone == 'destructive' %}quill-badge--variant-destructive{% elif tone == 'info' %}quill-badge--variant-info{% else %}quill-badge--variant-default{% endif %}{% if mono %} font-mono{% endif %}">{{ label }}</span>

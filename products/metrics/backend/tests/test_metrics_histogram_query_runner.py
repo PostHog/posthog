@@ -23,6 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.metrics.backend.hogql_queries.metrics_histogram_query_runner import MetricsHistogramQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
+from products.metrics.backend.query_counts import list_metric_query_counts
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
@@ -116,6 +117,9 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run()
         self.assertEqual(response.bounds, [])
         self.assertEqual(response.counts, [])
+        self.assertEqual(
+            [(c.metric_name, c.query_count) for c in list_metric_query_counts(self.team)], [("latency", 1)]
+        )
 
     # The viewer latches the OTel type at pick time and sends it as `metricType` — the
     # runner must filter on it, or one metric name stored as two types (a histogram and

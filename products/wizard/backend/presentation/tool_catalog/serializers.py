@@ -3,6 +3,8 @@ from django.db.models import TextChoices
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
+from products.wizard.backend.facade import api as wizard_facade
+
 
 class WizardSetupMode(TextChoices):
     IN_CLI = "in-cli", "In the terminal"
@@ -30,6 +32,11 @@ class WizardCatalogToolSerializer(serializers.Serializer):
     warehouse_source_type = serializers.CharField(
         allow_null=True,
         help_text="Data warehouse source type the tool imports as, or null for a tool with no warehouse source.",
+    )
+    warehouse_destination_type = serializers.ChoiceField(
+        choices=wizard_facade.TOOL_CATALOG_DESTINATION_CHOICES,
+        allow_null=True,
+        help_text="Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.",
     )
     wizard_setup_mode = serializers.ChoiceField(
         choices=WizardSetupMode.choices,

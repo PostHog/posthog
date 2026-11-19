@@ -1,14 +1,21 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonCollapse, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { DailyVolumeChart } from '../DailyVolumeChart'
 import { ProbabilityHistogram } from '../ProbabilityHistogram'
 import { EmptyTab } from './EmptyTab'
 import { PredictionActionsPanel } from './PredictionActionsPanel'
-import { CoverageHistoryChart, CoverageSummaryBanner } from './PredictionCoverage'
+import {
+    COVERAGE_PANEL_DATA_ATTR,
+    CoverageHistoryChart,
+    CoverageSummaryBanner,
+    LowCoverageNotice,
+} from './PredictionCoverage'
 import { PredictionSegmentCards } from './PredictionSegmentCards'
 import { ProbabilityUsersTable } from './ProbabilityUsersTable'
 import { ScoreNowButton } from './ScoreNowButton'
@@ -34,8 +41,9 @@ function DailyVolumePanel(): JSX.Element {
 }
 
 function ProbabilityDistributionPanel(): JSX.Element {
-    const { probabilityHistogram, probabilityDistributionError, segmentThresholds } =
+    const { probabilityHistogram, probabilityDistributionError, segmentThresholds, lowestBucket, lowestBucketHidden } =
         useValues(autoresearchPipelineLogic)
+    const { setHideLowestBucket } = useActions(autoresearchPipelineLogic)
 
     if (probabilityDistributionError) {
         return (
@@ -54,11 +62,33 @@ function ProbabilityDistributionPanel(): JSX.Element {
             </p>
         )
     }
-    return <ProbabilityHistogram buckets={probabilityHistogram} thresholds={segmentThresholds} />
+    return (
+        <div className="space-y-3">
+            {lowestBucket && (
+                <LemonSwitch
+                    label="Hide the lowest bucket"
+                    checked={lowestBucketHidden}
+                    onChange={setHideLowestBucket}
+                    data-attr="autoresearch-hide-lowest-bucket"
+                />
+            )}
+            <ProbabilityHistogram
+                buckets={probabilityHistogram}
+                thresholds={segmentThresholds}
+                hideLowestBucket={lowestBucketHidden}
+            />
+            {lowestBucketHidden && lowestBucket && (
+                <p className="text-xs text-muted mb-0">
+                    {`The 0-10% bucket is hidden. It holds ${humanFriendlyNumber(lowestBucket.users)} people (${(100 * lowestBucket.share).toFixed(1)}% of everyone scored).`}
+                </p>
+            )}
+        </div>
+    )
 }
 
 export function PredictionsTab(): JSX.Element {
-    const { pipeline } = useValues(autoresearchPipelineLogic)
+    const { pipeline, predictionsPanels } = useValues(autoresearchPipelineLogic)
+    const { setPredictionsPanels } = useActions(autoresearchPipelineLogic)
     if (!pipeline) {
         return <LemonSkeleton className="h-40" />
     }
@@ -75,7 +105,7 @@ export function PredictionsTab(): JSX.Element {
 
     return (
         <div className="space-y-6">
-            <CoverageSummaryBanner />
+            <LowCoverageNotice />
 
             <SectionCard
                 title="Likelihood segments"
@@ -95,7 +125,8 @@ export function PredictionsTab(): JSX.Element {
             <LemonCollapse
                 className="bg-surface-primary"
                 multiple
-                defaultActiveKeys={['distribution', 'people']}
+                activeKeys={predictionsPanels}
+                onChange={setPredictionsPanels}
                 panels={[
                     {
                         key: 'distribution',
@@ -110,7 +141,13 @@ export function PredictionsTab(): JSX.Element {
                     {
                         key: 'coverage',
                         header: 'Coverage and score age',
-                        content: <CoverageHistoryChart />,
+                        dataAttr: COVERAGE_PANEL_DATA_ATTR,
+                        content: (
+                            <div className="space-y-4">
+                                <CoverageSummaryBanner />
+                                <CoverageHistoryChart />
+                            </div>
+                        ),
                     },
                     {
                         key: 'volume',

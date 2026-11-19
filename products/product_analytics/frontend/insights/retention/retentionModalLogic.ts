@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/schema/node-guards'
 import {
     ActorsQuery,
     DataTableNode,
@@ -31,7 +32,7 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
+import { isInsightActorsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'

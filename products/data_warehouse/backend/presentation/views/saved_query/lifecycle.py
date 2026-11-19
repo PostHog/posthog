@@ -3,48 +3,11 @@
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from django.db.models import Q
-
-import structlog
-from rest_framework import serializers
-
-from posthog.exceptions_capture import capture_exception
-
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.contracts import Dependent
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.facade.api import HasDependentsError
-
-logger = structlog.get_logger(__name__)
-
-
-def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
-    from products.data_modeling.backend.facade.api import HasDependentsError, check_saved_query_deletable
-
-    if saved_query.managed_viewset is not None:
-        raise serializers.ValidationError(
-            "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
-        )
-
-    try:
-        check_saved_query_deletable(saved_query.team_id, saved_query.id)
-    except HasDependentsError:
-        raise
-    except Exception as e:
-        capture_exception(e)
-        logger.exception("Failed to check dependents of saved query", saved_query_name=saved_query.name)
-
-    for join in DataWarehouseJoin.objects.filter(
-        Q(team_id=saved_query.team_id)
-        & (Q(source_table_name=saved_query.name) | Q(joining_table_name=saved_query.name))
-    ).exclude(deleted=True):
-        join.soft_delete()
-
-    saved_query.revert_materialization()
-    saved_query.soft_delete()
 
 
 def _readable_saved_query_ids(

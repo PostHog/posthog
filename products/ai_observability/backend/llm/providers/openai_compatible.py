@@ -32,8 +32,6 @@ from products.ai_observability.backend.llm.errors import (
     ProviderHostUnresolvedError,
     ProviderRequestRejectedError,
     ProviderTimeoutError,
-    RateLimitError,
-    RetryableRateLimitError,
     error_field_for_message,
 )
 from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
@@ -170,10 +168,7 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
             return ProviderRequestRejectedError(RESPONSE_LIMIT_MESSAGE)
         if isinstance(cause, httpx.TimeoutException):
             return ProviderTimeoutError(self.request_timeout)
-        mapped = super()._mapped_error(error, model)
-        if isinstance(error, openai.RateLimitError) and isinstance(mapped, RateLimitError):
-            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
-        return mapped
+        return super()._mapped_error(error, model)
 
     def complete(
         self,

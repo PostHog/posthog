@@ -20,10 +20,13 @@ from products.wizard.backend.observability.contracts import (
     WizardWorkerUsageObservation,
 )
 
+# The run's local or cloud environment uses the `run_environment` label. The scrape pipeline
+# sets its own `environment` target label, so a metric label with that name is overwritten and
+# every query that filters on it returns no series.
 WIZARD_RUNS_CREATED_TOTAL = Counter(
     "posthog_wizard_runs_created_total",
     "Wizard runs created",
-    labelnames=["environment"],
+    labelnames=["run_environment"],
 )
 
 WIZARD_RUN_DISPATCH_ATTEMPTS_TOTAL = Counter(
@@ -47,26 +50,26 @@ WIZARD_RUN_STAGE_ENTERED_TOTAL = Counter(
 WIZARD_RUNS_FINISHED_TOTAL = Counter(
     "posthog_wizard_runs_finished_total",
     "Wizard runs that reached a terminal status",
-    labelnames=["environment", "status", "error_code"],
+    labelnames=["run_environment", "status", "error_code"],
 )
 
 WIZARD_RUN_FAILURES_TOTAL = Counter(
     "posthog_wizard_run_failures_total",
     "Failed Wizard runs by execution stage and error code",
-    labelnames=["environment", "stage", "error_code"],
+    labelnames=["run_environment", "stage", "error_code"],
 )
 
 WIZARD_RUN_DURATION_SECONDS = Histogram(
     "posthog_wizard_run_duration_seconds",
     "Wizard run duration",
-    labelnames=["environment", "status"],
+    labelnames=["run_environment", "status"],
     buckets=WIZARD_RUN_DURATION_BUCKETS,
 )
 
 WIZARD_GIT_DIFFS_OMITTED_TOTAL = Counter(
     "posthog_wizard_git_diffs_omitted_total",
     "Wizard git diff artifacts omitted because they exceeded the size limit",
-    labelnames=["environment"],
+    labelnames=["run_environment"],
 )
 
 WIZARD_HANDOFF_BODY_FALLBACKS_TOTAL = Counter(
@@ -89,7 +92,7 @@ WIZARD_WORKER_CLEANUPS_TOTAL = Counter(
 WIZARD_RUNS_PAST_DEADLINE_TOTAL = Counter(
     "posthog_wizard_runs_past_deadline_total",
     "Wizard cloud runs detected past their deadline",
-    labelnames=["environment"],
+    labelnames=["run_environment"],
 )
 
 WIZARD_WORKER_LIFETIME_SECONDS = Histogram(
@@ -130,7 +133,7 @@ WIZARD_WORKER_ALLOCATED_DISK_GB_SECONDS = Histogram(
 
 
 def report_run_created(run: WizardRunDTO) -> None:
-    WIZARD_RUNS_CREATED_TOTAL.labels(environment=run.environment.value).inc()
+    WIZARD_RUNS_CREATED_TOTAL.labels(run_environment=run.environment.value).inc()
 
     if run.environment == WizardRunEnvironment.CLOUD and run.stage is not None:
         WIZARD_CLOUD_RUNS_ACTIVE.labels(status=run.status.value, stage=run.stage.value).inc()
@@ -180,14 +183,14 @@ def report_run_finished(run: WizardRunDTO, failure_stage: WizardRunStage | None)
     error_code = _bounded_error_code(run.error_code)
 
     WIZARD_RUNS_FINISHED_TOTAL.labels(
-        environment=run.environment.value,
+        run_environment=run.environment.value,
         status=run.status.value,
         error_code=error_code,
     ).inc()
 
     if run.status == WizardRunStatus.FAILED:
         WIZARD_RUN_FAILURES_TOTAL.labels(
-            environment=run.environment.value,
+            run_environment=run.environment.value,
             stage=failure_stage.value if failure_stage is not None else "none",
             error_code=error_code,
         ).inc()
@@ -197,7 +200,9 @@ def report_run_finished(run: WizardRunDTO, failure_stage: WizardRunStage | None)
 
     duration = (run.finished_at - run.started_at).total_seconds()
     if duration >= 0:
-        WIZARD_RUN_DURATION_SECONDS.labels(environment=run.environment.value, status=run.status.value).observe(duration)
+        WIZARD_RUN_DURATION_SECONDS.labels(run_environment=run.environment.value, status=run.status.value).observe(
+            duration
+        )
 
 
 def report_worker_usage(usage: WizardWorkerUsageObservation) -> None:
@@ -217,7 +222,7 @@ def report_worker_usage(usage: WizardWorkerUsageObservation) -> None:
 
 
 def report_git_diff_omitted(run: WizardRunDTO) -> None:
-    WIZARD_GIT_DIFFS_OMITTED_TOTAL.labels(environment=run.environment.value).inc()
+    WIZARD_GIT_DIFFS_OMITTED_TOTAL.labels(run_environment=run.environment.value).inc()
 
 
 def report_handoff_body_fallback() -> None:
@@ -233,4 +238,4 @@ def report_worker_cleanup(outcome: WizardWorkerCleanupOutcome) -> None:
 
 
 def report_run_past_deadline(run: WizardRunDTO) -> None:
-    WIZARD_RUNS_PAST_DEADLINE_TOTAL.labels(environment=run.environment.value).inc()
+    WIZARD_RUNS_PAST_DEADLINE_TOTAL.labels(run_environment=run.environment.value).inc()

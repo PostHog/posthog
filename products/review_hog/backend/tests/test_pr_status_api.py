@@ -20,8 +20,8 @@ from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, RE
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR, record_run_outcome
 from products.review_hog.backend.temporal.client import WorkflowProbe
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import NoteArtefact
+from products.signals.backend.facade.report_artefacts import NoteArtefact
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 PR_URL = "https://github.com/PostHog/posthog/pull/5"
 REQUESTED_AT = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
@@ -34,7 +34,7 @@ class TestPRStatusAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
-        self.url = f"/api/projects/{self.team.id}/review_hog/reviews/pr_status/"
+        self.url = f"/api/projects/{self.team.id}/code_review/reviews/pr_status/"
         # Staleness checks read the clock, so pin it a few minutes after the request.
         self.enterContext(time_machine.travel(REQUESTED_AT + timedelta(minutes=5), tick=False))
 
