@@ -12,6 +12,7 @@ import { TeamType } from '~/types'
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { emailImpactLogic } from './emailImpactLogic'
+import { EmailImpactTab } from './EmailImpactTab'
 import { ImpactFunnelCard } from './ImpactFunnelCard'
 
 const { ToastContainer } = jest.requireActual('react-toastify')
@@ -105,11 +106,15 @@ describe('ImpactFunnelCard', () => {
         initKeaTests(true, teamWithLinkTagging(false))
         useMocks({ get: { '/api/projects/:id/': teamWithLinkTagging(true) } })
         answer = [200, IMPACT]
-        renderCard()
+        render(
+            <Provider>
+                <EmailImpactTab workflowId="workflow-1" alwaysSensitive={false} />
+            </Provider>
+        )
 
         fireEvent.click(await screen.findByText('Needs link tagging'))
-        act(() => emailImpactLogic({ workflowId: 'workflow-1' }).actions.setDays(7))
-        await screen.findByText('Needs link tagging')
+        fireEvent.click(screen.getByText('Last 30 days'))
+        fireEvent.click(await screen.findByText('Last 7 days'))
         await act(async () => {
             window.dispatchEvent(new Event('focus'))
         })

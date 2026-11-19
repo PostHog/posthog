@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -7,6 +8,17 @@ import { RunLinkTagSettingsLink } from 'products/workflows/frontend/scenes/setti
 
 export function RunLinkTagHint(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
+    const { refreshCurrentTeam } = useActions(teamLogic)
+
+    // The setting changes in the settings tab the link opens, and the reader can come back before or
+    // after saving it there, so reload the team on every return while the hint is on the page.
+    useEffect(() => {
+        const onFocus = (): void => {
+            refreshCurrentTeam()
+        }
+        window.addEventListener('focus', onFocus)
+        return () => window.removeEventListener('focus', onFocus)
+    }, [refreshCurrentTeam])
 
     if (!currentTeam) {
         return null

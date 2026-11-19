@@ -61,6 +61,7 @@ export interface emailImpactLogicActions {
         currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
+    refreshCurrentTeam: () => any // teamLogic
     loadImpact: (_: void) => void
     loadImpactFailure: (
         error: string,
@@ -148,7 +149,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Transactional', 'impact', 'emailImpactLogic', key]),
     connect(() => ({
         values: [teamLogic, ['currentTeamId', 'currentTeam']],
-        actions: [teamLogic, ['loadCurrentTeamSuccess']],
+        actions: [teamLogic, ['loadCurrentTeamSuccess', 'refreshCurrentTeam']],
     })),
     actions({
         setEvent: (event: string | null) => ({ event }),
@@ -263,5 +264,23 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => actions.loadImpact()),
+    afterMount(({ actions, values, cache }) => {
+        actions.loadImpact()
+        // The link tagging switch opens in another tab, and the reader can come back before or after saving it there,
+        // so reload the team on every return while the session step says tagging is off. The focus event is the
+        // return itself, so the listener stays registered while the page is hidden.
+        cache.disposables.add(
+            () => {
+                const onFocus = (): void => {
+                    if (values.linkTagging === 'off') {
+                        actions.refreshCurrentTeam()
+                    }
+                }
+                window.addEventListener('focus', onFocus)
+                return () => window.removeEventListener('focus', onFocus)
+            },
+            'linkTaggingRefresh',
+            { pauseOnPageHidden: false }
+        )
+    }),
 ])

@@ -1,9 +1,5 @@
-import { useActions } from 'kea'
-import { useEffect } from 'react'
-
 import { Link } from '@posthog/lemon-ui'
 
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 export function RunLinkTagSettingsLink({
@@ -15,18 +11,6 @@ export function RunLinkTagSettingsLink({
     dataAttr: string
     children: React.ReactNode
 }): JSX.Element {
-    const { refreshCurrentTeam } = useActions(teamLogic)
-
-    // The setting changes in the settings tab this link opens, and the reader can come back before or
-    // after saving it there, so reload the team on every return while this link is on the page.
-    useEffect(() => {
-        const onFocus = (): void => {
-            refreshCurrentTeam()
-        }
-        window.addEventListener('focus', onFocus)
-        return () => window.removeEventListener('focus', onFocus)
-    }, [refreshCurrentTeam])
-
     return (
         <Link
             to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
