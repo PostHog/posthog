@@ -40,6 +40,12 @@ def _shadow_events(capture: MagicMock) -> list[dict[str, Any]]:
     ]
 
 
+_DAILY_SQL = {
+    "kind": "HogQLQuery",
+    "query": "SELECT toStartOfDay(timestamp) AS day, count() AS value FROM events GROUP BY day ORDER BY day",
+}
+
+
 def _trends_query(interval: str) -> dict[str, Any]:
     return {
         "kind": "TrendsQuery",
@@ -70,15 +76,38 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def _alert(self, *, detector: dict[str, Any] | None, interval: str = "day") -> AlertConfiguration:
-        insight = Insight.objects.create(team=self.team, query=_trends_query(interval))
+        return self._alert_on(
+            _trends_query(interval),
+            {"type": "TrendsAlertConfig", "series_index": 0},
+            detector=detector,
+            calculation_interval="daily" if interval == "day" else "hourly",
+        )
+
+    def _sql_alert(self, *, detector: dict[str, Any] | None) -> AlertConfiguration:
+        return self._alert_on(
+            _DAILY_SQL,
+            {"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            detector=detector,
+            calculation_interval="daily",
+        )
+
+    def _alert_on(
+        self,
+        query: dict[str, Any],
+        config: dict[str, Any],
+        *,
+        detector: dict[str, Any] | None,
+        calculation_interval: str,
+    ) -> AlertConfiguration:
+        insight = Insight.objects.create(team=self.team, query=query)
         return AlertConfiguration.objects.create(
             team=self.team,
             insight=insight,
             created_by=self.user,
             name="signups",
             condition={"type": "absolute_value"},
-            config={"type": "TrendsAlertConfig", "series_index": 0},
-            calculation_interval="daily" if interval == "day" else "hourly",
+            config=config,
+            calculation_interval=calculation_interval,
             detector_config=detector,
             threshold=None
             if detector
@@ -145,6 +174,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert (warm_properties["outcome"], warm_properties["freshly_built"]) == ("match", False)
         assert cold_properties["buckets_compared"] > 0
         assert cold_properties["alert_kind"] == ("detector" if detector else "threshold")
+        assert cold_properties["insight_kind"] == "trends"
         assert self._insert_execution_limits() == {str(SHADOW_BUILD_BUDGET_SECONDS)}
 
     @parameterized.expand([("threshold", None), ("detector", _THRESHOLD_DETECTOR)])
@@ -237,3 +267,55 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert checked == live
         assert len(_shadow_events(capture)) == shadow_events
         assert (self._jobs() > 0) == bool(shadow_events)
+
+    @parameterized.expand(
+        [
+            ("enrolled_threshold", True, None, "threshold"),
+            ("enrolled_detector", True, _THRESHOLD_DETECTOR, "detector"),
+            ("unenrolled", False, None, None),
+        ]
+    )
+    def test_a_sql_alert_check_records_it_is_not_covered(
+        self, _name: str, enrolled: bool, detector: dict[str, Any] | None, alert_kind: str | None
+    ) -> None:
+        alert = self._sql_alert(detector=detector)
+        live = check_alert_for_insight(alert)
+
+        with (
+            patch(f"{_SHADOW}.posthoganalytics.feature_enabled", return_value=enrolled),
+            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
+        ):
+            checked = check_alert_for_insight(alert)
+
+        assert checked == live
+        assert [
+            {key: properties[key] for key in ("outcome", "reason", "insight_kind", "alert_kind", "alert_id")}
+            for properties in _shadow_events(capture)
+        ] == (
+            [
+                {
+                    "outcome": "unavailable",
+                    "reason": "unsupported_insight_kind",
+                    "insight_kind": "HogQLQuery",
+                    "alert_kind": alert_kind,
+                    "alert_id": str(alert.id),
+                }
+            ]
+            if enrolled
+            else []
+        )
+        assert self._jobs() == 0
+
+    def test_a_cancelled_sql_alert_check_stops_while_recording(self) -> None:
+        alert = self._sql_alert(detector=None)
+
+        def cancel_on_shadow_event(**kwargs: Any) -> None:
+            if kwargs.get("event") == SHADOW_COMPARISON_EVENT:
+                raise CancelledError()
+
+        with (
+            self._enrolled(),
+            patch(f"{_SHADOW}.posthoganalytics.capture", side_effect=cancel_on_shadow_event),
+            self.assertRaises(CancelledError),
+        ):
+            check_alert_for_insight(alert)
