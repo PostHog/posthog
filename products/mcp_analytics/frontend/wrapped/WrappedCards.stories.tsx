@@ -90,6 +90,7 @@ function AllCards(): JSX.Element {
                     card={CARDS.apps}
                     kicker="The AI apps calling your server"
                     headline={(leader, share) => `${leader} led with ${share}`}
+                    otherLabel="All other apps"
                 />
             )}
             {CARDS.labs && (
@@ -98,7 +99,7 @@ function AllCards(): JSX.Element {
                     card={CARDS.labs}
                     kicker="The AI labs behind the agents"
                     headline={(leader, share) => `${leader} models made ${share} of calls`}
-                    footnote="Based on the model each agent reported."
+                    otherLabel="Other labs"
                 />
             )}
             {CARDS.models && <ModelsCard card={CARDS.models} />}
