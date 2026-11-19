@@ -1,4 +1,3 @@
-import json
 from contextlib import contextmanager
 
 from django.conf import settings
@@ -12,7 +11,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import BatchWriteOutcome
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 
@@ -155,47 +153,3 @@ def mark_batch_as_processed(
 
         key = get_idempotency_key(team_id, schema_id, run_uuid, batch_index, destination_id)
         redis_client.set(key, "1", ex=IDEMPOTENCY_TTL_SECONDS)
-
-
-def _pending_egress_key(team_id: int, schema_id: str, run_uuid: str, batch_index: int, destination_id: str) -> str:
-    return f"{get_idempotency_key(team_id, schema_id, run_uuid, batch_index, destination_id)}:pending_egress"
-
-
-def stash_delivery_outcome(
-    team_id: int, schema_id: str, run_uuid: str, batch_index: int, destination_id: str, outcome: BatchWriteOutcome
-) -> None:
-    """Keep a delivered batch's outcome until its egress record is saved.
-
-    Lives next to the processed marker, so a retry that skips the write can still record the
-    egress. Without it, the only way to record again is to write the batch again, and an
-    append has nothing on the destination side to drop the second copy.
-    """
-    with get_redis_client() as redis_client:
-        if redis_client is None:
-            logger.warning("failed_to_stash_delivery_outcome", team_id=team_id, schema_id=schema_id)
-            return
-        redis_client.set(
-            _pending_egress_key(team_id, schema_id, run_uuid, batch_index, destination_id),
-            json.dumps({"rows_written": outcome.rows_written, "bytes_written": outcome.bytes_written}),
-            ex=IDEMPOTENCY_TTL_SECONDS,
-        )
-
-
-def stashed_delivery_outcome(
-    team_id: int, schema_id: str, run_uuid: str, batch_index: int, destination_id: str
-) -> BatchWriteOutcome | None:
-    with get_redis_client() as redis_client:
-        if redis_client is None:
-            return None
-        stashed = redis_client.get(_pending_egress_key(team_id, schema_id, run_uuid, batch_index, destination_id))
-    if stashed is None:
-        return None
-    return BatchWriteOutcome(**json.loads(stashed))
-
-
-def clear_stashed_delivery_outcome(
-    team_id: int, schema_id: str, run_uuid: str, batch_index: int, destination_id: str
-) -> None:
-    with get_redis_client() as redis_client:
-        if redis_client is not None:
-            redis_client.delete(_pending_egress_key(team_id, schema_id, run_uuid, batch_index, destination_id))

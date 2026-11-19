@@ -2,20 +2,15 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import redis
-import fakeredis
 from parameterized import parameterized
 
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import BatchWriteOutcome
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
-    clear_stashed_delivery_outcome,
     get_idempotency_key,
     get_redis_client,
     is_batch_already_processed,
     mark_batch_as_processed,
-    stash_delivery_outcome,
-    stashed_delivery_outcome,
 )
 
 _IDEMPOTENCY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency"
@@ -230,20 +225,3 @@ class TestGetRedisClient:
         with get_redis_client() as client:
             assert client is None
         assert mock_redis.ping.call_count == 3
-
-
-class TestStashedDeliveryOutcome:
-    def test_a_stashed_outcome_reads_back_until_cleared(self):
-        client = fakeredis.FakeRedis()
-        coordinates = (1, "schema", "run-a1", 3, "destination")
-        outcome = BatchWriteOutcome(rows_written=10, bytes_written=2048)
-
-        with patch(REDIS_CLIENT_PATH) as get_client:
-            get_client.return_value.__enter__.return_value = client
-            stash_delivery_outcome(*coordinates, outcome)
-            read_back = stashed_delivery_outcome(*coordinates)
-            clear_stashed_delivery_outcome(*coordinates)
-            after_clear = stashed_delivery_outcome(*coordinates)
-
-        assert read_back == outcome
-        assert after_clear is None

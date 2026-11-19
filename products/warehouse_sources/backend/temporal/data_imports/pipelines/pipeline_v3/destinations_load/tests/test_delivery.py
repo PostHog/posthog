@@ -103,20 +103,10 @@ class DeliveryTestCase(BaseTest):
         # Idempotency markers live in memory, so every test starts with none and the writers
         # never touch Redis. The staged parquet is never read, since no batch reaches a writer.
         self._seen: set[str] = set()
-        self._stashed: dict[tuple, BatchWriteOutcome] = {}
         patches = [
             mock.patch.object(delivery, "aiter_record_batches", return_value=iter(())),
             mock.patch.object(delivery, "is_batch_already_processed", side_effect=self._already),
             mock.patch.object(delivery, "mark_batch_as_processed", side_effect=self._mark),
-            mock.patch.object(
-                delivery,
-                "stash_delivery_outcome",
-                side_effect=lambda *key: self._stashed.__setitem__(key[:-1], key[-1]),
-            ),
-            mock.patch.object(delivery, "stashed_delivery_outcome", side_effect=lambda *key: self._stashed.get(key)),
-            mock.patch.object(
-                delivery, "clear_stashed_delivery_outcome", side_effect=lambda *key: self._stashed.pop(key, None)
-            ),
         ]
         for patch in patches:
             patch.start()
@@ -217,26 +207,28 @@ class TestDelivery(DeliveryTestCase):
         )
         assert sorted(recorded) == [("run-a1", 2048), ("run-a2", 2048)]
 
-    def test_a_failed_egress_record_is_saved_by_the_retry_without_writing_again(self) -> None:
+    def test_a_failed_egress_record_warns_and_the_batch_still_succeeds(self) -> None:
         a = self._destination("warehouse a")
         RecordingWriter.bytes_written = {"warehouse a": 2048}
         signal = self._signal([str(a.id)])
 
-        with mock.patch.object(
-            ExternalDataDestinationDelivery.objects, "for_team", side_effect=OperationalError("database unavailable")
+        with (
+            mock.patch.object(
+                ExternalDataDestinationDelivery.objects,
+                "for_team",
+                side_effect=OperationalError("database unavailable"),
+            ),
+            structlog.testing.capture_logs() as logs,
         ):
-            with self.assertRaises(delivery.DeliveryRecordError):
-                delivery.deliver_batch_to_destinations(signal)
-
-        a.refresh_from_db()
-        assert a.status == ExternalDataDestination.Status.HEALTHY
-
+            assert delivery.deliver_batch_to_destinations(signal) == 1
+        # A retry finds the batch delivered, so an append is never written twice.
         delivery.deliver_batch_to_destinations(signal)
 
-        # An append has nothing on the destination side to drop a second copy of the rows.
+        failed = next(entry for entry in logs if entry["event"] == "destination_delivery_record_failed")
+        assert failed["bytes_exported"] == 2048
+        assert failed["job_id"] == signal.job_id
         assert self._writes() == ["warehouse a"]
-        assert self._recorded_egress() == {"warehouse a": 2048}
-        assert self._stashed == {}
+        assert self._recorded_egress() == {}
 
     @parameterized.expand(
         [

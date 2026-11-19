@@ -47,11 +47,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     aiter_record_batches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
-    clear_stashed_delivery_outcome,
     is_batch_already_processed,
     mark_batch_as_processed,
-    stash_delivery_outcome,
-    stashed_delivery_outcome,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
@@ -186,8 +183,7 @@ def deliver_batch_to_destinations(
     Returns the number of destinations written. Raises `DestinationDeliveryError` on the
     first failure, which fails the batch and leaves it to be retried. That includes a
     destination from the run's snapshot that was deleted mid-run: it is reported as failed
-    rather than silently skipped, so the run cannot complete while owing it data. Raises
-    `DeliveryRecordError` when the egress record of a written batch cannot be saved.
+    rather than silently skipped, so the run cannot complete while owing it data.
 
     Connection hygiene belongs to the caller: `close_old_connections` here would drop the
     connection a caller's transaction is running in, which is what the load consumer already
@@ -217,9 +213,6 @@ def deliver_batch_to_destinations(
         # Writing and publishing are separate. The extraction side sends the last batch twice,
         # once while processing and once flagged final, so skipping the whole batch because it
         # was already written would leave a full refresh staged and never swapped in.
-        if already_written:
-            _record_stashed_delivery(export_signal, destination)
-
         if already_written and not export_signal.is_final_batch:
             logger.info(
                 "destination_batch_already_delivered",
@@ -287,9 +280,6 @@ def deliver_batch_to_destinations(
                         f"{f' ({export_signal.total_rows:,} rows)' if export_signal.total_rows else ''}"
                     ),
                 )
-        except DeliveryRecordError:
-            # PostHog's own database failed, not the destination, so its health is left alone.
-            raise
         except Exception as e:
             logger.warning(
                 "destination_batch_failed",
@@ -323,72 +313,45 @@ def deliver_batch_to_destinations(
     return written
 
 
-class DeliveryRecordError(Exception):
-    """The egress record of a delivered batch could not be saved, so the batch is retried."""
-
-
 def _record_delivery(
     export_signal: ExportSignalMessage, destination: ExternalDataDestination, outcome: BatchWriteOutcome | None
 ) -> None:
     """Record the egress of one delivered batch for billing.
 
-    Runs after the processed marker, so a failed save never writes the batch again: an append
-    has nothing on the destination side to drop a second copy. The outcome is stashed instead,
-    and the batch fails so that its retry, which skips the write, saves the record from the stash.
+    Runs after the processed marker. The unique constraint makes a re-delivered batch insert
+    nothing, so it is billed once. A failed save only under-bills the batch, so it logs and the
+    batch, which the destination already has, still succeeds. Failing it instead would write an
+    append batch twice, and an append has nothing on the destination side to drop the copy.
     """
-    outcome = outcome or BatchWriteOutcome(rows_written=0, bytes_written=0)
+    rows_written = outcome.rows_written if outcome else 0
+    bytes_exported = outcome.bytes_written if outcome else 0
     try:
-        _insert_delivery(export_signal, destination, outcome)
+        # The savepoint keeps a failed insert from aborting a transaction the caller may have open.
+        with transaction.atomic():
+            ExternalDataDestinationDelivery.objects.for_team(export_signal.team_id, canonical=True).bulk_create(
+                [
+                    ExternalDataDestinationDelivery(
+                        team_id=export_signal.team_id,
+                        job_id=export_signal.job_id,
+                        destination_id=destination.id,
+                        run_uuid=export_signal.run_uuid,
+                        batch_index=export_signal.batch_index,
+                        rows_written=rows_written,
+                        bytes_exported=bytes_exported,
+                    )
+                ],
+                ignore_conflicts=True,
+            )
     except Exception as e:
-        stash_delivery_outcome(
-            export_signal.team_id,
-            export_signal.schema_id,
-            export_signal.run_uuid,
-            export_signal.batch_index,
-            str(destination.id),
-            outcome,
-        )
-        raise DeliveryRecordError(f"Could not record the egress of batch {export_signal.batch_index}: {e}") from e
-
-
-def _record_stashed_delivery(export_signal: ExportSignalMessage, destination: ExternalDataDestination) -> None:
-    """Save the egress record that an earlier pass of this batch could not save."""
-    coordinates = (
-        export_signal.team_id,
-        export_signal.schema_id,
-        export_signal.run_uuid,
-        export_signal.batch_index,
-        str(destination.id),
-    )
-    outcome = stashed_delivery_outcome(*coordinates)
-    if outcome is None:
-        return
-    try:
-        _insert_delivery(export_signal, destination, outcome)
-    except Exception as e:
-        raise DeliveryRecordError(f"Could not record the egress of batch {export_signal.batch_index}: {e}") from e
-    clear_stashed_delivery_outcome(*coordinates)
-
-
-def _insert_delivery(
-    export_signal: ExportSignalMessage, destination: ExternalDataDestination, outcome: BatchWriteOutcome
-) -> None:
-    # The unique constraint makes a batch recorded twice insert nothing, so it bills once. The
-    # savepoint keeps a failed insert from aborting a transaction the caller may have open.
-    with transaction.atomic():
-        ExternalDataDestinationDelivery.objects.for_team(export_signal.team_id, canonical=True).bulk_create(
-            [
-                ExternalDataDestinationDelivery(
-                    team_id=export_signal.team_id,
-                    job_id=export_signal.job_id,
-                    destination_id=destination.id,
-                    run_uuid=export_signal.run_uuid,
-                    batch_index=export_signal.batch_index,
-                    rows_written=outcome.rows_written,
-                    bytes_exported=outcome.bytes_written,
-                )
-            ],
-            ignore_conflicts=True,
+        logger.warning(
+            "destination_delivery_record_failed",
+            team_id=export_signal.team_id,
+            job_id=export_signal.job_id,
+            destination_id=str(destination.id),
+            run_uuid=export_signal.run_uuid,
+            batch_index=export_signal.batch_index,
+            bytes_exported=bytes_exported,
+            error=str(e),
         )
 
 
