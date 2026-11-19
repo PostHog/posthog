@@ -1,15 +1,23 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
+import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
-import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
+import { chartOpenTarget } from '../../utils/chartOpenTarget'
+import {
+    asReportMetricSeriesQuery,
+    asReportMetricTrendsQuery,
+    formatReportMetricValue,
+} from '../../utils/reportMetrics'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMetricSuggestionModal } from './ReportCheckMetricSuggestionModal'
 import {
@@ -46,6 +54,28 @@ function approvalDisabledReason({
     return unavailableMeasurements
         ? 'The measurement query is not available to you.'
         : 'No measurements awaiting approval.'
+}
+
+function MeasurementOpenButton({ metric }: { metric: ReportMetricApi }): JSX.Element | null {
+    const authoredQuery = asReportMetricTrendsQuery(metric.query)
+    const openTarget = authoredQuery ? chartOpenTarget(authoredQuery) : null
+    if (!openTarget) {
+        return null
+    }
+    return (
+        <LemonButton
+            to={openTarget.url}
+            targetBlank
+            hideExternalLinkIcon
+            icon={<IconExternal />}
+            size="xsmall"
+            type="tertiary"
+            className="shrink-0"
+            tooltip={openTarget.label}
+            aria-label={openTarget.label}
+            data-attr="report-expected-impact-open"
+        />
+    )
 }
 
 export function ReportExpectedImpact({
@@ -120,12 +150,15 @@ export function ReportExpectedImpact({
                             !['resolved', 'suppressed', 'deleted'].includes(reportStatus)
                         return (
                             <div key={check.id} className="flex flex-col gap-2">
-                                <p className="m-0 font-semibold">
-                                    <span>{`${metric.title}: ${goal}`}</span>
-                                    {config.monitoring?.threshold_scaling === 'linear' && (
-                                        <span>{` per ${monitoringPeriodLabel(config.monitoring.reference_period_minutes)}`}</span>
-                                    )}
-                                </p>
+                                <div className="flex items-start justify-between gap-2">
+                                    <p className="m-0 min-w-0 font-semibold">
+                                        <span>{`${metric.title}: ${goal}`}</span>
+                                        {config.monitoring?.threshold_scaling === 'linear' && (
+                                            <span>{` per ${monitoringPeriodLabel(config.monitoring.reference_period_minutes)}`}</span>
+                                        )}
+                                    </p>
+                                    <MeasurementOpenButton metric={metric} />
+                                </div>
                                 <div className="m-0 flex flex-wrap items-center gap-x-1 text-secondary text-sm">
                                     {showApprovalLabel ? (
                                         <span>
