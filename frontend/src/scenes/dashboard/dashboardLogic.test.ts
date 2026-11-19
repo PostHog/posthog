@@ -2877,6 +2877,8 @@ describe('dashboardLogic', () => {
                             resource_ttfb_ms: 15,
                             request_total_ms: 20,
                             http_status: 200,
+                            request_ms: 20,
+                            queue_wait_ms: expect.any(Number),
                         })
                     )
                     const refreshEvents = capture.mock.calls.filter(([event]) =>
@@ -2884,6 +2886,7 @@ describe('dashboardLogic', () => {
                     )
                     for (const [, properties] of refreshEvents) {
                         expect(properties?.$update_person_last_seen_at).toBe(isAutomatic ? false : undefined)
+                        expect(properties?.dashboard_v2_ui).toBe(false)
                     }
                 } finally {
                     refresh.mockRestore()
