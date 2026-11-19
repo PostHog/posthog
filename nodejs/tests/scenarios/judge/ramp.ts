@@ -3,7 +3,7 @@ import type { Profile } from '../cards/schema'
 import { pause } from '../duration'
 import type { DrivenStep, StepGate, StepWindow } from '../generator/generator'
 import { type Admission, admissionsOf } from '../runner/status'
-import { BarResult, CpuPoint, judgeStep } from './bars'
+import { BarResult, WriterCpu, judgeStep, unsourced } from './bars'
 import { crossedByOf, refusalsOf } from './invariants'
 import type { InvariantResult, JournalEntry } from './judge'
 import {
@@ -45,7 +45,7 @@ export type LiveRamp = {
     samples(): readonly MetricSample[]
     queue(): readonly QueueSample[]
     host(): readonly HostSample[]
-    writerCpu(window: DriveWindow): Promise<CpuPoint[] | { unread: string }>
+    writerCpu(window: DriveWindow): Promise<WriterCpu>
 }
 
 export type RampWatch = {
@@ -369,5 +369,13 @@ export function rampOf(evidence: RampEvidence): Ramp {
         }
     }
     const ceiling = planned[planned.length - 1].scale
-    return { end: 'ceiling', sustainedScale: ceiling, reason: `every step held up to the ${ceiling}x ceiling` }
+    const notJudged = evidence.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`)
+    return {
+        end: 'ceiling',
+        sustainedScale: ceiling,
+        reason:
+            notJudged.length === 0
+                ? `every step held up to the ${ceiling}x ceiling`
+                : [`every judged bar held up to the ${ceiling}x ceiling`, ...notJudged].join('; '),
+    }
 }

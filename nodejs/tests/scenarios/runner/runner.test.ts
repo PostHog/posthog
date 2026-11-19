@@ -1552,25 +1552,45 @@ describe('runner through seed, drive and judge', () => {
         expect(cloud.writerOf(manifest.stackName)).toBe(`${manifest.stackName}-writer`)
     }, 30_000)
 
-    it('calls the scale card invalid at its writer CPU bar on a host without a run manifest', async () => {
-        const { bars } = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card
-        const ramp = [
-            { scale: 1, for: '1s' },
-            { scale: 2, for: '1s' },
-        ]
+    it.each<[string, true | undefined]>([
+        ['the scale card', undefined],
+        ['a ramp that stops on a break', true],
+    ])(
+        'names the writer CPU bar as not judged for %s on a host without a run manifest',
+        async (_story, stopOnBreak) => {
+            const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
+                ({ name }) => name === 'writer_cpu_under'
+            )
+            const ramp = [
+                { scale: 1, for: '1s' },
+                { scale: 2, for: '1s' },
+                { scale: 3, for: '1s' },
+            ]
 
-        const result = await run('all', [], undefined, { ramp, bars })
+            const result = await run('all', [], undefined, { ramp, stopOnBreak, bars: writerCpu, driveFor: '3s' })
 
-        expect(result.status).toBe('invalid')
-        expect(result.bars[0]).toEqual({
-            name: 'writer_cpu_under',
-            unit: '%',
-            limit: 70,
-            passed: false,
-            unjudged: 'no writer CPU reading off a run host in the 1x step',
-            harnessLimit: expect.objectContaining({ by: 'run_host', scale: 1 }),
-        })
-    }, 30_000)
+            expect({
+                status: result.status,
+                statusReason: result.statusReason,
+                bars: result.bars,
+                steps: result.units?.steps.map(({ scale }) => scale),
+            }).toEqual({
+                status: 'invalid',
+                statusReason: 'writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+                bars: [
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        limit: 70,
+                        passed: false,
+                        unjudged: 'the local stack has no Aurora writer to read CPU from',
+                    },
+                ],
+                steps: [1, 2, 3],
+            })
+        },
+        30_000
+    )
 
     it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
         let answered = 0

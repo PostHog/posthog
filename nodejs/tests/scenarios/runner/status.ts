@@ -2,7 +2,7 @@ import type { Profile } from '../cards/schema'
 import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
-import type { BarResult } from '../judge/bars'
+import { BarResult, unsourced } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS, phasesOf } from '../judge/measurements'
 import type { Ramp } from '../judge/ramp'
@@ -189,7 +189,7 @@ export function statusOf(verdict: Verdict): { status: Status; statusReason: stri
     const placesDeliveries = invariants.some(
         ({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined
     )
-    return withRamp(
+    const ramped = withRamp(
         unrampedStatusOf({
             ...verdict,
             bars: [],
@@ -198,6 +198,13 @@ export function statusOf(verdict: Verdict): { status: Status; statusReason: stri
         }),
         verdict.ramp
     )
+    const notJudged = verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`)
+    if (notJudged.length === 0) {
+        return ramped
+    }
+    return ramped.status === 'passed'
+        ? { status: 'invalid', statusReason: notJudged.join('; ') }
+        : { ...ramped, statusReason: [ramped.statusReason, ...notJudged].join('; ') }
 }
 
 function unrampedStatusOf({

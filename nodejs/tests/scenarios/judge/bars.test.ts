@@ -170,6 +170,11 @@ describe('judgeBars', () => {
             [unjudged(0, 'no writer CPU reading off a run host in the 1x step'), HELD[1]],
         ],
         [
+            'the stack declares no writer to read CPU from',
+            { writerCpu: { unsourced: 'the local stack has no Aurora writer to read CPU from' } },
+            [{ ...HELD[0], passed: false, unjudged: 'the local stack has no Aurora writer to read CPU from' }, HELD[1]],
+        ],
+        [
             'one queue picked up late at the 10x step while the other stayed prompt',
             { samples: scrapedEvery5s(120, lateAfter('hogflow', 60)) },
             [HELD[0], broke(1, 10, 60, 10, 'hogflow')],

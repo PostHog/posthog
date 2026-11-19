@@ -39,7 +39,7 @@ import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, DrivenStep, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
-import { BarResult, CpuPoint, judgeBars } from '../judge/bars'
+import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
 import { Convergence, InvariantResult, JournalEntry, createJudge } from '../judge/judge'
 import {
     DriveWindow,
@@ -393,16 +393,12 @@ export function createRunner(
         }
     }
 
-    const writerCpuFor = async (
-        bars: Named[],
-        window: DriveWindow,
-        signal: AbortSignal
-    ): Promise<CpuPoint[] | { unread: string }> => {
+    const writerCpuFor = async (bars: Named[], window: DriveWindow, signal: AbortSignal): Promise<WriterCpu> => {
         if (!bars.some(({ name }) => name === 'writer_cpu_under')) {
             return []
         }
         if (manifest === undefined) {
-            return { unread: 'no writer CPU reading off a run host' }
+            return { unsourced: 'the local stack has no Aurora writer to read CPU from' }
         }
         return environment.writerCpu(manifest, window, signal).catch((error: unknown) => ({
             unread: `the writer CPU read failed: ${messageOf(error)}`,

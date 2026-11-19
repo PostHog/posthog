@@ -18,11 +18,13 @@ export type BarEvidence = {
     samples: readonly MetricSample[]
     drive: DriveWindow
     steps: readonly (Step & { offeredUnits?: number })[]
-    writerCpu: CpuPoint[] | { unread: string }
+    writerCpu: WriterCpu
     host: readonly HostSample[]
     hostCpuCeiling?: number
     settled?: ReadonlyMap<number, readonly BarResult[]>
 }
+
+export type WriterCpu = CpuPoint[] | { unread: string } | { unsourced: string }
 
 export type StepPoint = { scale: number; at: string; offeredPerSecond: number }
 
@@ -42,7 +44,10 @@ export type BarResult = {
 
 type Window = { from: number; to: number; last: boolean }
 
-type Reading = { key?: string; value: number; passed: boolean; part: string } | { unread: string }
+type Reading =
+    | { key?: string; value: number; passed: boolean; part: string }
+    | { unread: string }
+    | { unsourced: string }
 
 type BarDefinition = Definition & {
     limit(params: unknown): number
@@ -74,7 +79,7 @@ const writerCpuUnder: BarDefinition = {
     limit: (params) => WriterCpuParams.parse(params).percent,
     unit: '%',
     read: ({ writerCpu }, { from, to }, params) => {
-        if ('unread' in writerCpu) {
+        if (!Array.isArray(writerCpu)) {
             return writerCpu
         }
         const { percent } = WriterCpuParams.parse(params)
@@ -248,6 +253,9 @@ function judgeStepOf(
         return { unjudged: overloaded, harnessLimit: { scale, by: 'run_host' } }
     }
     const reading = definition.read(evidence, window, params)
+    if ('unsourced' in reading) {
+        return { unjudged: reading.unsourced }
+    }
     if ('unread' in reading) {
         return { unjudged: `${reading.unread} in the ${scale}x step`, harnessLimit: { scale, by: 'run_host' } }
     }
@@ -277,6 +285,9 @@ function verdictOf(
 }
 
 const definitionOf = (name: string): BarDefinition => BARS.find((bar) => bar.name === name)!
+
+export const unsourced = ({ unjudged, harnessLimit }: BarResult): boolean =>
+    unjudged !== undefined && harnessLimit === undefined
 
 export function judgeStep(bars: Named[], evidence: BarEvidence, i: number): BarResult[] {
     return bars.map(({ name, params }) => {

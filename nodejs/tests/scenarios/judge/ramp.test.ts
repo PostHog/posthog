@@ -207,6 +207,16 @@ describe('ramp', () => {
             },
         ],
         [
+            'goes on past a step whose bar has no source on this stack',
+            {
+                writerCpu: () =>
+                    Promise.resolve({ unsourced: 'the local stack has no Aurora writer to read CPU from' }),
+            },
+            0,
+            UNITS_PER_STEP[0],
+            { advance: true, stop: undefined },
+        ],
+        [
             'ends at a step whose bar the run host could not read',
             { writerCpu: () => Promise.resolve({ unread: 'CloudWatch returned no datapoints' }) },
             0,
@@ -519,6 +529,15 @@ describe('ramp', () => {
             'every step held up to the last',
             {},
             { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+        ],
+        [
+            'every step held up to the last, with a bar the stack has no source for',
+            { bars: [{ ...held(), passed: false, unjudged: 'the local stack has no Aurora writer to read CPU from' }] },
+            {
+                end: 'ceiling',
+                sustainedScale: 5,
+                reason: 'every judged bar held up to the 5x ceiling; writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+            },
         ],
     ])('reads %s', (_story, evidence, expected) => {
         expect(
