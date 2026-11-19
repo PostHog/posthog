@@ -274,13 +274,15 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
 
     def _tail_refresh_enabled(self, dashboard_id: int | None) -> bool:
         # Only the builder's HogQL engine buckets the way the splice assumes. A raw clause ranks and labels
-        # its series over the whole window, and a derived metric runs on another engine.
+        # its series over the whole window, and a derived metric runs on another engine. A formula returns
+        # only its own series, so it hides whether a grouped input clause reached the series cap.
         date_range = self.query.dateRange
         return (
             dashboard_id is not None
             and (self.query.language or MetricsQueryLanguage.BUILDER) == MetricsQueryLanguage.BUILDER
             and (date_range is None or date_range.date_to is None)
             and not self._reads_derived_metrics
+            and not (self.query.formula and any(clause.groupBy for clause in self.query.clauses))
             and not any(
                 MetricAggregation(clause.aggregation.value if clause.aggregation else "none").is_raw
                 for clause in self.query.clauses

@@ -398,13 +398,16 @@ class TestMetricsTailRefresh(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, dt.timedelta(minutes=2), [None, None]),
-            ("entry_older_than_15_minutes", True, dt.timedelta(minutes=16), ["full", "full"]),
+            ("flag_off", False, dt.timedelta(minutes=2), [None, None], None),
+            ("entry_older_than_15_minutes", True, dt.timedelta(minutes=16), ["full", "full"], None),
+            ("formula_over_a_grouped_clause", True, dt.timedelta(minutes=2), [None, None], "a * 2"),
         ]
     )
-    def test_full_run(self, _name: str, flag_on: bool, shift: dt.timedelta, modes: list[str | None]) -> None:
+    def test_full_run(
+        self, _name: str, flag_on: bool, shift: dt.timedelta, modes: list[str | None], formula: str | None
+    ) -> None:
         self._seed_gauges(self.T0 - dt.timedelta(hours=2), self.T0)
-        query = self._gauge_query("-1h")
+        query = self._gauge_query("-1h").model_copy(update={"formula": formula})
 
         with _dashboard_v2(flag_on) as report, time_machine.travel(self.T0, tick=False) as traveller:
             self._refresh(query)
