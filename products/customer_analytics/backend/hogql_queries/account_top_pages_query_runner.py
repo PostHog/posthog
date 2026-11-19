@@ -100,25 +100,27 @@ class AccountTopPagesQueryRunner(AccountScopedActivityQueryRunner[AccountTopPage
         )
         where: ast.Expr = self._where(external_id, group_type_index, [PAGEVIEW_EVENT])
         query = parse_select(
-            f"""
+            """
             SELECT path, title, product, views, people, active_days, last_viewed
             FROM (
-                SELECT {{path}} AS path,
-                    substringUTF8(argMax(coalesce(toString(properties.title), ''), timestamp), 1, {TITLE_MAX_CHARS}) AS title,
-                    any({{product}}) AS product,
+                SELECT {path} AS path,
+                    substringUTF8(argMax(coalesce(toString(properties.title), ''), timestamp), 1, {title_max_chars}) AS title,
+                    any({product}) AS product,
                     count() AS views,
                     uniq(person_id) AS people,
                     uniq(toDate(timestamp)) AS active_days,
                     max(timestamp) AS last_viewed
                 FROM events
-                WHERE {{where}}
+                WHERE {where}
                 GROUP BY path
             )
-            WHERE {{product_filter}}
+            WHERE {product_filter}
             ORDER BY views DESC, path ASC
-            LIMIT {PAGE_LIMIT}
+            LIMIT {page_limit}
             """,
             placeholders={
+                "title_max_chars": ast.Constant(value=TITLE_MAX_CHARS),
+                "page_limit": ast.Constant(value=PAGE_LIMIT),
                 "path": path,
                 "product": product,
                 "where": where,
