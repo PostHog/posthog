@@ -12,10 +12,12 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { endpointOperationUrl } from '../endpointOperationUrl'
 import type { EndpointHealthApi } from '../generated/api.schemas'
 import { healthColumns } from '../healthColumns'
 import { formatMs, formatPercent, formatRate } from '../healthDisplay'
 import { HealthStatusTag } from '../HealthStatusTag'
+import { HealthTableLink } from '../HealthTableLink'
 import { Sparkline } from '../Sparkline'
 import { TelemetryLinks } from '../TelemetryLinks'
 import { ServiceLatencyChart } from './ServiceLatencyChart'
@@ -140,16 +142,12 @@ export function ServicePageScene(): JSX.Element {
             title: 'Endpoint',
             key: 'endpoint',
             render: (_, row) => (
-                <Link
-                    to={urls.tracingOperation(row.service_name, row.endpoint, dateRange)}
-                    className="font-semibold"
-                    data-attr="apm-service-endpoint-operation"
-                >
+                <HealthTableLink to={endpointOperationUrl(row, dateRange)} data-attr="apm-service-endpoint-operation">
                     {row.endpoint}
-                </Link>
+                </HealthTableLink>
             ),
         },
-        ...healthColumns<EndpointHealthApi>(),
+        ...healthColumns<EndpointHealthApi>(endpoints),
     ]
 
     return (

@@ -4,15 +4,19 @@ import type { ReactElement, ReactNode } from 'react'
 
 import { setAuthProvider } from '@/api/client'
 import type { ProjectScope } from '@/api/reports'
+import type { DataMode } from '@/demo/demoMode'
 import { useInternalUsersPreference } from '@/features/settings/internalUsersPreference'
 
+import { useFeedSettings } from './feed/feedSettingsStore'
+import { useFeed, useSessionSignals } from './feed/useFeed'
 import { useSessionList } from './hooks'
 
 let mockScope: ProjectScope = { host: 'https://app.example.com', projectId: 2 }
+let mockMode: DataMode = 'live'
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => mockScope }))
 jest.mock('@/demo/demoMode', () => ({
     ...jest.requireActual('@/demo/demoMode'),
-    useDataMode: () => 'live',
+    useDataMode: () => mockMode,
 }))
 jest.mock('@/features/views/useViewsAccess', () => ({
     reportScopeError: jest.fn(),
@@ -34,6 +38,7 @@ function setup(): { client: QueryClient; wrapper: ({ children }: { children: Rea
 
 beforeEach(() => {
     mockScope = { host: 'https://app.example.com', projectId: 2 }
+    mockMode = 'live'
     setAuthProvider({
         getAuth: () => ({ ...mockScope, accessToken: 'fake-token', session: 1 }),
         refreshAccessToken: async () => null,
@@ -145,6 +150,75 @@ test('pages by cursor, keeps rows on failure, deduplicates, stops at the end and
         await waitFor(() => expect(result.current.rows.data?.map((row) => row.sessionId)).toEqual(['first']))
         expect(requests).toHaveLength(4)
         expect(requests[3]?.searchParams.has('after')).toBe(false)
+    } finally {
+        unmount()
+        client.clear()
+    }
+})
+
+test('loads the next feed page when the only available recording is hidden', async () => {
+    globalThis.fetch = jest.fn(async (url: string) => {
+        const request = new URL(url)
+        if (!request.pathname.endsWith('/session_recordings/')) {
+            return response({ results: [] })
+        }
+        return request.searchParams.get('after')
+            ? response({ results: [{ id: 'second' }], has_next: false })
+            : response({ results: [{ id: 'first' }], has_next: true, next_cursor: 'next' })
+    }) as typeof fetch
+    const { client, wrapper } = setup()
+    const { result, unmount } = renderHook(() => useFeed('newest'), { wrapper })
+    try {
+        await waitFor(() => expect(result.current.items?.map((item) => item.recording.sessionId)).toEqual(['first']))
+        act(() => useFeedSettings.getState().hide('first'))
+        await waitFor(() => expect(result.current.items?.map((item) => item.recording.sessionId)).toEqual(['second']))
+    } finally {
+        unmount()
+        useFeedSettings.getState().set({ hidden: [] })
+        client.clear()
+    }
+})
+
+test('reloads the feed with the current internal-user filter', async () => {
+    const requests: URL[] = []
+    globalThis.fetch = jest.fn(async (url: string) => {
+        const request = new URL(url)
+        if (request.pathname.endsWith('/session_recordings/')) {
+            requests.push(request)
+        }
+        return response({ results: [] })
+    }) as typeof fetch
+    const { client, wrapper } = setup()
+    const { unmount } = renderHook(() => useFeed('newest'), { wrapper })
+    try {
+        await waitFor(() => expect(requests).toHaveLength(1))
+        expect(requests[0]?.searchParams.get('filter_test_accounts')).toBeNull()
+        act(() => useInternalUsersPreference.getState().setExclude(true))
+        await waitFor(() => expect(requests).toHaveLength(2))
+        expect(requests[1]?.searchParams.get('filter_test_accounts')).toBe('true')
+    } finally {
+        unmount()
+        client.clear()
+    }
+})
+
+test('shows simulated errors and signals without contacting the signed-in project', async () => {
+    mockMode = 'demo'
+    globalThis.fetch = jest.fn()
+    const { client, wrapper } = setup()
+    const { result, unmount } = renderHook(
+        () => {
+            const feed = useFeed('errors')
+            const signals = useSessionSignals(feed.items)
+            return { feed, signals }
+        },
+        { wrapper }
+    )
+    try {
+        expect(result.current.feed.items?.map((item) => item.recording.sessionId)).toEqual(['demo-replay-export'])
+        expect(result.current.signals.get('demo-replay-export')?.errors).toHaveLength(1)
+        await act(() => result.current.feed.refresh())
+        expect(globalThis.fetch).not.toHaveBeenCalled()
     } finally {
         unmount()
         client.clear()

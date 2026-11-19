@@ -1132,28 +1132,38 @@ describe('CI workflow run plans', () => {
         expect(cleanup?.runs ?? false).toBe(runs)
     })
 
-    it.each([
-        { result: 'success', exitCode: 0 },
-        { result: 'failure', exitCode: 1 },
-        { result: 'cancelled', exitCode: 1 },
-    ])('mobile gate reports an API-only typecheck $result', ({ result, exitCode }) => {
-        const script = evaluateValue(
-            workflow('mobile-ci.yml').jobs.mobile_checks?.steps?.[0]?.run,
-            {
-                needs: {
-                    changes: { result: 'success', outputs: { mobile: 'false', api_types: 'true' } },
-                    check: { result },
+    describe.each([
+        { name: 'API-only typecheck', output: 'api_types', job: 'check' },
+        { name: 'replay bundle verification', output: 'replay_bundle', job: 'replay_bundle' },
+    ])('mobile gate for $name', ({ output, job }) => {
+        it.each([
+            { result: 'success', exitCode: 0 },
+            { result: 'failure', exitCode: 1 },
+            { result: 'cancelled', exitCode: 1 },
+        ])('reports $result', ({ result, exitCode }) => {
+            const script = evaluateValue(
+                workflow('mobile-ci.yml').jobs.mobile_checks?.steps?.[0]?.run,
+                {
+                    needs: {
+                        changes: {
+                            result: 'success',
+                            outputs: { mobile: 'false', api_types: 'false', replay_bundle: 'false', [output]: 'true' },
+                        },
+                        check: { result: 'skipped' },
+                        replay_bundle: { result: 'skipped' },
+                        [job]: { result },
+                    },
                 },
-            },
-            planFunctions({
-                dependenciesSucceeded: result === 'success',
-                dependenciesFailed: result === 'failure',
-                cancelled: false,
-            })
-        )
-        const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
-        expect(gate.error).toBeUndefined()
-        expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+                planFunctions({
+                    dependenciesSucceeded: result === 'success',
+                    dependenciesFailed: result === 'failure',
+                    cancelled: false,
+                })
+            )
+            const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
+            expect(gate.error).toBeUndefined()
+            expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+        })
     })
 
     it.each([
