@@ -12533,7 +12533,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual((response["X-Log-Offset"], response["X-Log-Count"]), expected_headers)
-        self.assertEqual(response["Access-Control-Expose-Headers"], "X-Log-Offset, X-Log-Count")
+        self.assertEqual(response["X-Log-Origin"], str(ancestor.id))
+        self.assertEqual(response["Access-Control-Expose-Headers"], "X-Log-Offset, X-Log-Count, X-Log-Origin")
         self.assertEqual(response.content.decode("utf-8").splitlines(), [lines[index] for index in expected_indexes])
 
     @parameterized.expand(

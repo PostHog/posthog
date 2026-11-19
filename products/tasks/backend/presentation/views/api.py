@@ -3740,7 +3740,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
                 log_content = log_page.content if log_page else None
                 if log_page is not None:
-                    log_headers = {"X-Log-Offset": str(log_page.offset), "X-Log-Count": str(log_page.count)}
+                    log_headers = {
+                        "X-Log-Offset": str(log_page.offset),
+                        "X-Log-Count": str(log_page.count),
+                        "X-Log-Origin": log_page.origin,
+                    }
             else:
                 log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
         if log_content is None:

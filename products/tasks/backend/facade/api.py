@@ -5784,11 +5784,10 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    return _conversation_log_content(run)
+    return _conversation_log_content(run, run.get_history_chain())
 
 
-def _conversation_log_content(run: TaskRun) -> str:
-    chain = run.get_history_chain()
+def _conversation_log_content(run: TaskRun, chain: list[TaskRun]) -> str:
     if len(chain) < 2 or run.task.runtime != Task.Runtime.PI:
         return read_task_run_log_content([ancestor.log for ancestor in chain])
 
@@ -5878,9 +5877,11 @@ def read_task_run_conversation_log_slice(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    if run.task.runtime == Task.Runtime.PI:
-        return contracts.TaskRunLogSliceDTO(content=_conversation_log_content(run), offset=0, count=0, sliced=False)
     chain = run.get_history_chain()
+    if run.task.runtime == Task.Runtime.PI:
+        return contracts.TaskRunLogSliceDTO(
+            content=_conversation_log_content(run, chain), offset=0, count=0, sliced=False
+        )
     parts = _conversation_log_parts([ancestor.log for ancestor in chain])
     if start is not None:
         sliced = slice_log_parts_from(parts, start, tail_bytes)
@@ -5908,12 +5909,13 @@ def read_task_run_conversation_log_page(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    chain = run.get_history_chain()
+    origin = str(chain[0].id)
     if run.task.runtime != Task.Runtime.PI and log_filter == contracts.TaskRunLogFilter():
-        parts = _conversation_log_parts([ancestor.log for ancestor in run.get_history_chain()])
-        return page_log_parts(parts, start=start, limit=limit)
-    return page_log_entries(
-        log_entries(_conversation_log_content(run)), start=start, limit=limit, log_filter=log_filter
-    )
+        parts = _conversation_log_parts([ancestor.log for ancestor in chain])
+        return page_log_parts(parts, start=start, limit=limit, origin=origin)
+    entries = log_entries(_conversation_log_content(run, chain))
+    return page_log_entries(entries, start=start, limit=limit, log_filter=log_filter, origin=origin)
 
 
 def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[TaskRunLog] | None:

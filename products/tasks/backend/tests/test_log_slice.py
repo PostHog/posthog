@@ -247,14 +247,43 @@ class TestSliceLogTail(SimpleTestCase):
             )
             for minute, kind in enumerate(kinds)
         ]
-        expected = TaskRunLogPageDTO(content=_log([lines[index] for index in indexes]), offset=offset, count=count)
+        expected = TaskRunLogPageDTO(
+            content=_log([lines[index] for index in indexes]), offset=offset, count=count, origin="run"
+        )
 
-        page = page_log_entries(lines, start=start, limit=limit, log_filter=log_filter, max_bytes=max_bytes)
+        page = page_log_entries(
+            lines, start=start, limit=limit, log_filter=log_filter, origin="run", max_bytes=max_bytes
+        )
 
         self.assertEqual(page, expected)
         if log_filter == TaskRunLogFilter():
             parts = [log_part(lines[:2]), log_part(lines[2:])]
-            self.assertEqual(page_log_parts(parts, start=start, limit=limit, max_bytes=max_bytes), expected)
+            self.assertEqual(
+                page_log_parts(parts, start=start, limit=limit, origin="run", max_bytes=max_bytes), expected
+            )
+
+    @parameterized.expand(
+        [
+            ("byte_cap_reached_in_the_first_run", 0, 1, [0]),
+            ("window_inside_the_second_run", 2, 10**9, [1]),
+        ]
+    )
+    def test_pages_load_only_the_runs_they_return(
+        self, _name: str, start: int, max_bytes: int, expected_reads: list[int]
+    ) -> None:
+        runs = [[_user("older"), _user("old")], [_user("new"), _user("newer")]]
+        reads: list[int] = []
+
+        def part(index: int) -> LogPart:
+            def read() -> list[str]:
+                reads.append(index)
+                return runs[index]
+
+            return LogPart(summary=summarize_log_part(runs[index]), entries=read)
+
+        page_log_parts([part(0), part(1)], start=start, limit=4, origin="run", max_bytes=max_bytes)
+
+        self.assertEqual(reads, expected_reads)
 
     def test_cuts_a_turn_past_the_cap_before_a_tool_call(self) -> None:
         lines = _turn("only", 40, 1000)

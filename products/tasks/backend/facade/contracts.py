@@ -849,6 +849,7 @@ class TaskRunLogPageDTO:
     content: str
     offset: int
     count: int
+    origin: str
 
 
 @dataclass(frozen=True)
