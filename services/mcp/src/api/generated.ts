@@ -39249,10 +39249,6 @@ export namespace Schemas {
       edges: DependencyEdge[];
       /** True when more edges matched than the response holds. */
       truncated: boolean;
-      /** True when the window held too many spans to read whole, so the counts are estimated from evenly spaced slices of it. */
-      sampled: boolean;
-      /** The share of the window read, from 0 to 1. Request and error counts are scaled up by its inverse. */
-      sample_rate: number;
       /**
          * The environment filter the edges were computed for: null for every environment, empty for spans with no environment.
          * @nullable

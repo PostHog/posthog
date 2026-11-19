@@ -8,20 +8,12 @@ in the window counts on that service's edge, so a call that never arrived still 
 Every edge is measured on the caller's side when the caller has a client or producer span, since
 that is the latency and the errors the caller saw. Without one, the callee span is used.
 
-A window with up to EXACT_SPAN_LIMIT spans is read whole, so the counts add up to the spans in it.
-A busier window is sampled by time: the join reads evenly spaced slices of the window that hold about
-EXACT_SPAN_LIMIT spans, child margins included, judged from a count of spans per minute. The counts are
-scaled back up by the share of the window's spans that start in the slices, counted exactly, so a burst
-in one part of the window doesn't skew them.
-Slices of time, not of trace ids, because the timestamp index skips the granules outside a slice,
-while a hash of the trace id matches a row in nearly every granule and saves no reads.
-Fail-fast settings still cap the bytes read and the run time.
+Unlike the service map, this reads the whole window rather than a trace sample, so the counts add up
+to the spans in the window. Fail-fast settings cap the bytes read and the run time instead.
 """
 
-import math
-from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -29,7 +21,6 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models import Team
 
 from products.apm.backend.logic.health.contract import DependencyEdge, DependencyKind
@@ -38,17 +29,6 @@ from products.apm.backend.logic.health.sources import environment_where, window_
 DEPENDENCY_EDGES_LIMIT = 500
 MAX_BYTES_TO_READ = 10_000_000_000
 MAX_EXECUTION_SECONDS = 30
-# The most spans the join reads before it samples. The query scans the window about four times and
-# reads the attributes map in two of those scans, so this keeps a sampled run well under the byte cap.
-EXACT_SPAN_LIMIT = 4_000_000
-SAMPLE_SLICE_SECONDS = 60
-MIN_SAMPLE_SLICE_SECONDS = 1.0
-# The planning count reads one row per bucket, so a long window gets wider buckets to stay under this.
-MAX_DENSITY_BUCKETS = 10_000
-MAX_SAMPLE_SLICES = 30
-# A child span starts after its parent, give or take clock skew between hosts, so the child side reads
-# a little past each slice to find the children of parents that start near its end.
-CHILD_MARGIN = timedelta(seconds=10)
 
 _ENTRY_KINDS = "(2, 5)"
 # A left join leaves the callee columns null for a span with no matching child span.
@@ -97,189 +77,10 @@ _TARGET_KIND = f"""multiIf(
 class DependenciesResult:
     edges: list[DependencyEdge]
     truncated: bool
-    sampled: bool
-    sample_rate: float
-
-
-@dataclass(frozen=True)
-class _Sample:
-    slices: list[tuple[datetime, datetime]]
-
-
-@dataclass(frozen=True)
-class _SpanDensity:
-    """Spans per bucket in a window, read as spread evenly within each bucket."""
-
-    starts: list[float]
-    ends: list[float]
-    counts: list[int]
-    before: list[int]
-
-    @classmethod
-    def from_buckets(
-        cls, bucket_counts: list[tuple[datetime, int]], bucket: timedelta, date_from: datetime, date_to: datetime
-    ):
-        starts, ends, counts, before, total = [], [], [], [], 0
-        for minute, count in sorted(bucket_counts):
-            minute = minute if minute.tzinfo else minute.replace(tzinfo=UTC)
-            start = (max(minute, date_from) - date_from).total_seconds()
-            end = (min(minute + bucket, date_to) - date_from).total_seconds()
-            if end <= start or count <= 0:
-                continue
-            starts.append(start)
-            ends.append(end)
-            counts.append(count)
-            before.append(total)
-            total += count
-        return cls(starts=starts, ends=ends, counts=counts, before=before)
-
-    @property
-    def total(self) -> int:
-        return self.before[-1] + self.counts[-1] if self.counts else 0
-
-    def spans_before(self, seconds: float) -> float:
-        i = bisect_right(self.starts, seconds) - 1
-        if i < 0:
-            return 0
-        share = min(seconds - self.starts[i], self.ends[i] - self.starts[i]) / (self.ends[i] - self.starts[i])
-        return self.before[i] + self.counts[i] * share
-
-    def reads(self, sample: _Sample, date_from: datetime, date_to: datetime) -> float:
-        # The child scans read each slice widened by the margin, so the margin counts against the limit.
-        window_seconds = (date_to - date_from).total_seconds()
-        margin = CHILD_MARGIN.total_seconds()
-        return sum(
-            self.spans_before(min(window_seconds, (end - date_from).total_seconds() + margin))
-            - self.spans_before(max(0.0, (start - date_from).total_seconds() - margin))
-            for start, end in sample.slices
-        )
-
-    def widen_to_buckets(self, sample: _Sample, date_from: datetime, date_to: datetime) -> _Sample:
-        # A count per bucket can't show where in a bucket the spans sit, so a slice can land in a quiet
-        # part of a busy bucket and read nothing. Each slice grows to the populated buckets it touches,
-        # or moves to the nearest one when it touches none, so the sample is never empty.
-        covered: list[tuple[int, int]] = []
-        for start, end in sample.slices:
-            first = bisect_right(self.ends, (start - date_from).total_seconds())
-            last = bisect_left(self.starts, (end - date_from).total_seconds()) - 1
-            if first > last:
-                first = last = min(first, len(self.starts) - 1)
-            covered.append((first, last))
-        merged: list[list[int]] = []
-        for first, last in sorted(covered):
-            if merged and first <= merged[-1][1] + 1:
-                merged[-1][1] = max(merged[-1][1], last)
-            else:
-                merged.append([first, last])
-        widened = _Sample(
-            slices=[
-                (date_from + timedelta(seconds=self.starts[first]), date_from + timedelta(seconds=self.ends[last]))
-                for first, last in merged
-            ]
-        )
-        # Whole buckets can hold more than the join may read, so the window is refused, as it would
-        # be at the byte cap, rather than read past the limit.
-        if self.reads(widened, date_from, date_to) > EXACT_SPAN_LIMIT:
-            raise CHQueryErrorTooManyBytes("The populated buckets hold more spans than the sample may read.")
-        return widened
-
-
-def _plan_sample(density: _SpanDensity, date_from: datetime, date_to: datetime) -> _Sample | None:
-    total = density.total
-    if total <= EXACT_SPAN_LIMIT:
-        return None
-    window_seconds = (date_to - date_from).total_seconds()
-    count = min(
-        MAX_SAMPLE_SLICES,
-        max(1, round(window_seconds * EXACT_SPAN_LIMIT / total / SAMPLE_SLICE_SECONDS)),
-    )
-    stride = window_seconds / count
-
-    def slices(width: float) -> _Sample:
-        return _Sample(
-            slices=[
-                (date_from + timedelta(seconds=i * stride), date_from + timedelta(seconds=i * stride + width))
-                for i in range(count)
-            ]
-        )
-
-    # The widest slices that read at most the limit. A burst denser than the limit in a single second
-    # still gets a one-second slice, and the fail-fast settings cap that read.
-    low, high = MIN_SAMPLE_SLICE_SECONDS, stride
-    for _ in range(30):
-        middle = (low + high) / 2
-        if density.reads(slices(middle), date_from, date_to) <= EXACT_SPAN_LIMIT:
-            low = middle
-        else:
-            high = middle
-    return slices(low)
-
-
-def _sample_where(
-    date_from: datetime, date_to: datetime, sample: _Sample | None, margin: timedelta = timedelta(0)
-) -> ast.Expr:
-    if sample is None:
-        return window_where(date_from, date_to)
-    ranges = [
-        parse_expr(
-            "timestamp >= {start} AND timestamp < {end}",
-            placeholders={
-                "start": ast.Constant(value=max(date_from, start - margin)),
-                "end": ast.Constant(value=min(date_to, end + margin)),
-            },
-        )
-        for start, end in sample.slices
-    ]
-    return ast.And(exprs=[window_where(date_from, date_to), ast.Or(exprs=ranges)])
-
-
-def _span_count_query(
-    date_from: datetime,
-    date_to: datetime,
-    environment: str | None,
-    service: str | None,
-    sample: _Sample | None = None,
-) -> ast.SelectQuery:
-    # Without a sample it counts the window's spans per bucket to plan one; with one, the spans the
-    # join reads as parents, which sets the scale.
-    query = parse_select(
-        (
-            "SELECT count() FROM posthog.trace_spans WHERE {where} AND {env_where} AND {trace_where}"
-            if sample
-            else "SELECT toStartOfInterval(timestamp, toIntervalMinute({bucket_minutes})) AS bucket, count()"
-            " FROM posthog.trace_spans WHERE {where} AND {env_where} AND {trace_where}"
-            " GROUP BY bucket LIMIT {limit}"
-        ),
-        placeholders={
-            "where": _sample_where(date_from, date_to, sample),
-            "env_where": environment_where(environment),
-            "trace_where": _service_traces_where(date_from, date_to, environment, service),
-            **(
-                {}
-                if sample
-                else {
-                    "bucket_minutes": ast.Constant(value=_density_bucket_minutes(date_from, date_to)),
-                    # HogQL caps an unlimited query at 100 rows, which would drop the later buckets.
-                    "limit": ast.Constant(value=MAX_DENSITY_BUCKETS),
-                }
-            ),
-        },
-    )
-    assert isinstance(query, ast.SelectQuery)
-    return query
-
-
-def _density_bucket_minutes(date_from: datetime, date_to: datetime) -> int:
-    # Buckets align to the epoch, so a window can touch one more bucket than it spans.
-    return max(1, math.ceil((date_to - date_from).total_seconds() / 60 / (MAX_DENSITY_BUCKETS - 1)))
 
 
 def _dependencies_query(
-    date_from: datetime,
-    date_to: datetime,
-    environment: str | None,
-    service: str | None,
-    sample: _Sample | None = None,
+    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
 ) -> ast.SelectQuery:
     # The callee side is the right side of the join, so ClickHouse builds its hash table from entry
     # spans only, one per request, not from every span in the window. A client span whose child call
@@ -309,12 +110,12 @@ def _dependencies_query(
                     GROUP BY service_name
                 ) AS target_is_service
             FROM posthog.trace_spans
-            WHERE {{parent_where}} AND {{env_where}} AND {{trace_where}}
+            WHERE {{where}} AND {{env_where}} AND {{trace_where}}
         ) AS p
         LEFT JOIN (
             SELECT trace_id, parent_span_id, service_name, status_code, duration_nano
             FROM posthog.trace_spans
-            WHERE {{child_where}} AND {{env_where}} AND {{trace_where}}
+            WHERE {{where}} AND {{env_where}} AND {{trace_where}}
                 AND kind IN {_ENTRY_KINDS} AND NOT is_root_span
         ) AS c ON p.trace_id = c.trace_id AND p.span_id = c.parent_span_id
         LEFT JOIN (
@@ -326,13 +127,13 @@ def _dependencies_query(
             FROM (
                 SELECT trace_id, span_id, parent_span_id, {_TARGET} AS target, {_TARGET_KIND} AS target_kind
                 FROM posthog.trace_spans
-                WHERE {{child_where}} AND {{env_where}} AND {{trace_where}}
+                WHERE {{where}} AND {{env_where}} AND {{trace_where}}
                     AND kind IN {_CALL_KINDS} AND NOT is_root_span
             ) AS x
             LEFT JOIN (
                 SELECT trace_id, parent_span_id, service_name
                 FROM posthog.trace_spans
-                WHERE {{child_where}} AND {{env_where}} AND {{trace_where}}
+                WHERE {{where}} AND {{env_where}} AND {{trace_where}}
                     AND kind IN {_ENTRY_KINDS} AND NOT is_root_span
             ) AS e ON x.trace_id = e.trace_id AND x.span_id = e.parent_span_id
             GROUP BY x.trace_id, x.parent_span_id
@@ -353,8 +154,6 @@ def _dependencies_query(
         """,
         placeholders={
             "where": window_where(date_from, date_to),
-            "parent_where": _sample_where(date_from, date_to, sample),
-            "child_where": _sample_where(date_from, date_to, sample, CHILD_MARGIN),
             "env_where": environment_where(environment),
             "trace_where": _service_traces_where(date_from, date_to, environment, service),
             "known_services_where": _known_services_where(date_from, date_to, environment, service),
@@ -423,10 +222,12 @@ def _known_services_where(
     )
 
 
-def _run(team: Team, query_type: str, query: ast.SelectQuery) -> list:
-    return execute_hogql_query(
-        query_type=query_type,
-        query=query,
+def get_dependencies(
+    *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
+) -> DependenciesResult:
+    rows = execute_hogql_query(
+        query_type="ApmDependenciesQuery",
+        query=_dependencies_query(date_from, date_to, environment, service),
         team=team,
         workload=Workload.LOGS,
         limit_context=LimitContext.QUERY,
@@ -436,50 +237,16 @@ def _run(team: Team, query_type: str, query: ast.SelectQuery) -> list:
             read_overflow_mode="throw",
         ),
     ).results
-
-
-def _scale(value: int, rate: float) -> int:
-    return value if rate >= 1 else math.floor(value / rate + 0.5)
-
-
-def _count_sample(
-    team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None, sample: _Sample
-) -> int:
-    query = _span_count_query(date_from, date_to, environment, service, sample)
-    return int(_run(team, "ApmDependenciesSampleCount", query)[0][0])
-
-
-def get_dependencies(
-    *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
-) -> DependenciesResult:
-    buckets = _run(team, "ApmDependenciesSpanCount", _span_count_query(date_from, date_to, environment, service))
-    density = _SpanDensity.from_buckets(
-        [(bucket, int(count)) for bucket, count in buckets],
-        timedelta(minutes=_density_bucket_minutes(date_from, date_to)),
-        date_from,
-        date_to,
-    )
-    sample = _plan_sample(density, date_from, date_to)
-    rate = 1.0
-    if sample:
-        sampled = _count_sample(team, date_from, date_to, environment, service, sample)
-        if sampled == 0:
-            sample = density.widen_to_buckets(sample, date_from, date_to)
-            sampled = _count_sample(team, date_from, date_to, environment, service, sample)
-        rate = min(1.0, max(1, sampled) / density.total)
-    rows = _run(team, "ApmDependenciesQuery", _dependencies_query(date_from, date_to, environment, service, sample))
     edges = [
         DependencyEdge(
             caller=caller,
             callee=callee,
             inferred=bool(inferred),
             kind=DependencyKind(kind),
-            requests=_scale(int(requests), rate),
-            error_count=_scale(int(error_count), rate),
+            requests=int(requests),
+            error_count=int(error_count),
             p95_ms=float(p95_ms) if p95_ms is not None else None,
         )
         for caller, callee, inferred, kind, requests, error_count, p95_ms in rows[:DEPENDENCY_EDGES_LIMIT]
     ]
-    return DependenciesResult(
-        edges=edges, truncated=len(rows) > DEPENDENCY_EDGES_LIMIT, sampled=sample is not None, sample_rate=rate
-    )
+    return DependenciesResult(edges=edges, truncated=len(rows) > DEPENDENCY_EDGES_LIMIT)

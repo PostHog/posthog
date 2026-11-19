@@ -146,12 +146,6 @@ class DependencyEdgeSerializer(serializers.Serializer):
 class DependenciesResponseSerializer(serializers.Serializer):
     edges = DependencyEdgeSerializer(many=True, help_text="One edge per caller and callee, most requests first.")
     truncated = serializers.BooleanField(help_text="True when more edges matched than the response holds.")
-    sampled = serializers.BooleanField(
-        help_text="True when the window held too many spans to read whole, so the counts are estimated from evenly spaced slices of it."
-    )
-    sample_rate = serializers.FloatField(
-        help_text="The share of the window read, from 0 to 1. Request and error counts are scaled up by its inverse."
-    )
     environment = serializers.CharField(
         allow_null=True,
         allow_blank=True,
