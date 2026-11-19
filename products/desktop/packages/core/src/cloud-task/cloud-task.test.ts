@@ -66,6 +66,118 @@ function createLogEntriesResponse(
   );
 }
 
+function createRunResponse(
+  status: string,
+  branch: string | null,
+  updatedAt = "2026-01-01T00:00:00Z",
+): Response {
+  return createJsonResponse({
+    id: "run-1",
+    status,
+    stage: null,
+    output: null,
+    error_message: null,
+    branch,
+    updated_at: updatedAt,
+  });
+}
+
+function createChainPage(
+  chain: unknown[],
+  offset: number,
+  limit: number,
+): Response {
+  return createLogEntriesResponse(
+    chain.slice(offset, offset + limit),
+    offset,
+    chain.length,
+  );
+}
+
+function mockLogEntriesPages(
+  run: { status: string; branch: string | null },
+  logEntriesPage: (offset: number, limit: number) => Response,
+): void {
+  mockNetFetch.mockImplementation((input: string | URL | Request) => {
+    const url = new URL(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url,
+    );
+    if (!url.pathname.includes("/log_entries/")) {
+      return Promise.resolve(createRunResponse(run.status, run.branch));
+    }
+    return Promise.resolve(
+      logEntriesPage(
+        Number(url.searchParams.get("start") ?? "0"),
+        Number(url.searchParams.get("limit")),
+      ),
+    );
+  });
+}
+
+function mockLogEntriesPersistedAfterFirstProbe(chain: unknown[]): void {
+  let persistedCount = 0;
+  let probes = 0;
+  mockLogEntriesPages(
+    { status: "in_progress", branch: "main" },
+    (offset, limit) => {
+      if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
+        probes += 1;
+        persistedCount = probes === 1 ? 0 : chain.length;
+      }
+      return createLogEntriesResponse(
+        chain.slice(offset, Math.min(offset + limit, persistedCount)),
+        offset,
+        persistedCount,
+      );
+    },
+  );
+}
+
+function mockRunTerminalFromFourthFetch(): void {
+  let runFetchCount = 0;
+  mockNetFetch.mockImplementation((input: string | Request) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.includes("/log_entries/")) {
+      return Promise.resolve(createLogEntriesResponse([]));
+    }
+    runFetchCount += 1;
+    // Calls 1-3 (bootstrap, post-bootstrap verify, first legacy poll) report an
+    // active run; the second legacy poll reports terminal.
+    const terminal = runFetchCount >= 4;
+    return Promise.resolve(
+      createRunResponse(
+        terminal ? "completed" : "in_progress",
+        "main",
+        terminal ? "2026-01-01T00:00:05Z" : "2026-01-01T00:00:00Z",
+      ),
+    );
+  });
+}
+
+function toolCallEntry(index: number) {
+  return {
+    type: "notification",
+    timestamp: "2026-01-01T00:00:00Z",
+    event_id: `boot-${index}`,
+    notification: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "run-1",
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: `tool-${index}`,
+          status: "completed",
+        },
+      },
+    },
+  };
+}
+
 function createSseResponse(payload: string, status = 200): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -518,34 +630,9 @@ describe("CloudTaskEngine", () => {
       }));
       const tailStart = Math.max(0, chain.length - TRANSCRIPT_TAIL_WINDOW);
       const logRequests: Array<{ offset: number; limit: number }> = [];
-      mockNetFetch.mockImplementation((input: string | URL | Request) => {
-        const url = new URL(
-          typeof input === "string"
-            ? input
-            : input instanceof URL
-              ? input.toString()
-              : input.url,
-        );
-        if (!url.pathname.includes("/log_entries/")) {
-          return Promise.resolve(
-            createJsonResponse({
-              id: "run-1",
-              status,
-              stage: null,
-              output: null,
-              error_message: null,
-              branch: null,
-              updated_at: "2026-01-01T00:00:00Z",
-            }),
-          );
-        }
-        const offset = Number(url.searchParams.get("start") ?? "0");
-        const limit = Number(url.searchParams.get("limit"));
+      mockLogEntriesPages({ status, branch: null }, (offset, limit) => {
         logRequests.push({ offset, limit });
-        const page = chain.slice(offset, offset + limit);
-        return Promise.resolve(
-          createLogEntriesResponse(page, offset, chain.length),
-        );
+        return createChainPage(chain, offset, limit);
       });
       mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
 
@@ -607,34 +694,10 @@ describe("CloudTaskEngine", () => {
       timestamp: "2026-01-01T00:00:00Z",
       notification: { jsonrpc: "2.0", method: "_posthog/console" },
     }));
-    mockNetFetch.mockImplementation((input: string | URL | Request) => {
-      const url = new URL(
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url,
-      );
-      if (!url.pathname.includes("/log_entries/")) {
-        return Promise.resolve(
-          createJsonResponse({
-            id: "run-1",
-            status: "in_progress",
-            stage: null,
-            output: null,
-            error_message: null,
-            branch: null,
-            updated_at: "2026-01-01T00:00:00Z",
-          }),
-        );
-      }
-      const offset = Number(url.searchParams.get("start") ?? "0");
-      const limit = Number(url.searchParams.get("limit"));
-      const page = chain.slice(offset, offset + limit);
-      return Promise.resolve(
-        createLogEntriesResponse(page, offset, chain.length),
-      );
-    });
+    mockLogEntriesPages(
+      { status: "in_progress", branch: null },
+      (offset, limit) => createChainPage(chain, offset, limit),
+    );
     mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
 
     unwindowedService.watch({
@@ -690,34 +753,10 @@ describe("CloudTaskEngine", () => {
     const unemitted = ["gap-1", "gap-2"].map(entry);
     const chain = [entry("history-0")];
 
-    mockNetFetch.mockImplementation((input: string | URL | Request) => {
-      const url = new URL(
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url,
-      );
-      if (!url.pathname.includes("/log_entries/")) {
-        return Promise.resolve(
-          createJsonResponse({
-            id: "run-1",
-            status: "in_progress",
-            stage: null,
-            output: null,
-            error_message: null,
-            branch: null,
-            updated_at: "2026-01-01T00:00:00Z",
-          }),
-        );
-      }
-      const offset = Number(url.searchParams.get("start") ?? "0");
-      const limit = Number(url.searchParams.get("limit"));
-      const page = chain.slice(offset, offset + limit);
-      return Promise.resolve(
-        createLogEntriesResponse(page, offset, chain.length),
-      );
-    });
+    mockLogEntriesPages(
+      { status: "in_progress", branch: null },
+      (offset, limit) => createChainPage(chain, offset, limit),
+    );
     mockStreamFetch.mockResolvedValue(
       createOpenSseResponse(
         streamed
@@ -1774,60 +1813,8 @@ describe("CloudTaskEngine", () => {
     );
 
     const liveCount = TRANSCRIPT_TAIL_WINDOW + 100;
-    const chain = Array.from({ length: liveCount }, (_, i) => ({
-      type: "notification",
-      timestamp: "2026-01-01T00:00:00Z",
-      event_id: `boot-${i}`,
-      notification: {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "run-1",
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId: `tool-${i}`,
-            status: "completed",
-          },
-        },
-      },
-    }));
-    let persistedCount = 0;
-    let probes = 0;
-    mockNetFetch.mockImplementation((input: string | URL | Request) => {
-      const url = new URL(
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url,
-      );
-      if (!url.pathname.includes("/log_entries/")) {
-        return Promise.resolve(
-          createJsonResponse({
-            id: "run-1",
-            status: "in_progress",
-            stage: null,
-            output: null,
-            error_message: null,
-            branch: "main",
-            updated_at: "2026-01-01T00:00:00Z",
-          }),
-        );
-      }
-      const offset = Number(url.searchParams.get("start") ?? "0");
-      const limit = Number(url.searchParams.get("limit"));
-      if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
-        probes += 1;
-        persistedCount = probes === 1 ? 0 : chain.length;
-      }
-      const page = chain.slice(
-        offset,
-        Math.min(offset + limit, persistedCount),
-      );
-      return Promise.resolve(
-        createLogEntriesResponse(page, offset, persistedCount),
-      );
-    });
+    const chain = Array.from({ length: liveCount }, (_, i) => toolCallEntry(i));
+    mockLogEntriesPersistedAfterFirstProbe(chain);
 
     const liveFrames = chain
       .map((entry, i) => `id: ${i + 1}\ndata: ${JSON.stringify(entry)}\n\n`)
@@ -1890,62 +1877,9 @@ describe("CloudTaskEngine", () => {
       ),
     );
 
-    const entry = (i: number) => ({
-      type: "notification",
-      timestamp: "2026-01-01T00:00:00Z",
-      event_id: `boot-${i}`,
-      notification: {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "run-1",
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId: `tool-${i}`,
-            status: "completed",
-          },
-        },
-      },
-    });
-    const chain = [entry(0), entry(1), entry(2)];
+    const chain = [toolCallEntry(0), toolCallEntry(1), toolCallEntry(2)];
 
-    let persistedCount = 0;
-    let probes = 0;
-    mockNetFetch.mockImplementation((input: string | URL | Request) => {
-      const url = new URL(
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url,
-      );
-      if (!url.pathname.includes("/log_entries/")) {
-        return Promise.resolve(
-          createJsonResponse({
-            id: "run-1",
-            status: "in_progress",
-            stage: null,
-            output: null,
-            error_message: null,
-            branch: "main",
-            updated_at: "2026-01-01T00:00:00Z",
-          }),
-        );
-      }
-      const offset = Number(url.searchParams.get("start") ?? "0");
-      const limit = Number(url.searchParams.get("limit"));
-      if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
-        probes += 1;
-        persistedCount = probes === 1 ? 0 : chain.length;
-      }
-      const page = chain.slice(
-        offset,
-        Math.min(offset + limit, persistedCount),
-      );
-      return Promise.resolve(
-        createLogEntriesResponse(page, offset, persistedCount),
-      );
-    });
+    mockLogEntriesPersistedAfterFirstProbe(chain);
 
     const replays: Array<{ push: (payload: string) => void }> = [];
     mockStreamFetch
@@ -2000,7 +1934,7 @@ describe("CloudTaskEngine", () => {
         .filter((u) => (u as { kind?: string }).kind === "logs"),
     ).toEqual([]);
 
-    const fresh = entry(3);
+    const fresh = toolCallEntry(3);
     replays[replays.length - 1].push(
       `id: 10\ndata: ${JSON.stringify(fresh)}\n\n`,
     );
@@ -2037,62 +1971,9 @@ describe("CloudTaskEngine", () => {
       ),
     );
 
-    const entry = (i: number) => ({
-      type: "notification",
-      timestamp: "2026-01-01T00:00:00Z",
-      event_id: `boot-${i}`,
-      notification: {
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "run-1",
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId: `tool-${i}`,
-            status: "completed",
-          },
-        },
-      },
-    });
-    const chain = [entry(0), entry(1), entry(2)];
+    const chain = [toolCallEntry(0), toolCallEntry(1), toolCallEntry(2)];
 
-    let persistedCount = 0;
-    let probes = 0;
-    mockNetFetch.mockImplementation((input: string | URL | Request) => {
-      const url = new URL(
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url,
-      );
-      if (!url.pathname.includes("/log_entries/")) {
-        return Promise.resolve(
-          createJsonResponse({
-            id: "run-1",
-            status: "in_progress",
-            stage: null,
-            output: null,
-            error_message: null,
-            branch: "main",
-            updated_at: "2026-01-01T00:00:00Z",
-          }),
-        );
-      }
-      const offset = Number(url.searchParams.get("start") ?? "0");
-      const limit = Number(url.searchParams.get("limit"));
-      if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
-        probes += 1;
-        persistedCount = probes === 1 ? 0 : chain.length;
-      }
-      const page = chain.slice(
-        offset,
-        Math.min(offset + limit, persistedCount),
-      );
-      return Promise.resolve(
-        createLogEntriesResponse(page, offset, persistedCount),
-      );
-    });
+    mockLogEntriesPersistedAfterFirstProbe(chain);
 
     const replays: Array<{
       push: (payload: string) => void;
@@ -2163,7 +2044,7 @@ describe("CloudTaskEngine", () => {
         .filter((u) => (u as { kind?: string }).kind === "logs"),
     ).toEqual([]);
 
-    const fresh = entry(3);
+    const fresh = toolCallEntry(3);
     replays[replays.length - 1].push(
       `id: 22\ndata: ${JSON.stringify(fresh)}\n\n`,
     );
@@ -2334,30 +2215,7 @@ describe("CloudTaskEngine", () => {
       Promise.resolve(createJsonResponse({ detail: "Not found" }, 404)),
     );
 
-    let runFetchCount = 0;
-    mockNetFetch.mockImplementation((input: string | Request) => {
-      const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/log_entries/")) {
-        return Promise.resolve(createLogEntriesResponse([]));
-      }
-      runFetchCount += 1;
-      // Calls 1-3 (bootstrap, post-bootstrap verify, first legacy poll) report an
-      // active run; the second legacy poll reports terminal.
-      const terminal = runFetchCount >= 4;
-      return Promise.resolve(
-        createJsonResponse({
-          id: "run-1",
-          status: terminal ? "completed" : "in_progress",
-          stage: null,
-          output: null,
-          error_message: null,
-          branch: "main",
-          updated_at: terminal
-            ? "2026-01-01T00:00:05Z"
-            : "2026-01-01T00:00:00Z",
-        }),
-      );
-    });
+    mockRunTerminalFromFourthFetch();
 
     // The flag-off server never emits stream-end; every connection just EOFs.
     mockStreamFetch.mockImplementation(() =>
@@ -2390,75 +2248,72 @@ describe("CloudTaskEngine", () => {
     expect(mockStreamTokenFetch.mock.calls.length).toBe(1);
   });
 
-  it("a transient stream_token failure retries resolution instead of pinning to Django", async () => {
-    vi.useFakeTimers();
+  it.each([
+    { status: 503, detail: "unavailable" },
+    { status: 429, detail: "slow down" },
+  ])(
+    "retries read-target resolution after a transient $status from stream_token instead of pinning to Django",
+    async ({ status, detail }) => {
+      vi.useFakeTimers();
 
-    // The endpoint is momentarily down (503): unlike a 404, this must not cache a Django fallback.
-    // The next reconnect re-resolves and the watch upgrades to the durable proxy leg.
-    mockStreamTokenFetch
-      .mockImplementationOnce(() =>
-        Promise.resolve(createJsonResponse({ detail: "unavailable" }, 503)),
-      )
-      .mockImplementation(() =>
+      // The endpoint is momentarily down (503 or 429): unlike a 404, this must not cache a Django
+      // fallback. The next reconnect re-resolves and the watch upgrades to the durable proxy leg.
+      mockStreamTokenFetch
+        .mockImplementationOnce(() =>
+          Promise.resolve(createJsonResponse({ detail }, status)),
+        )
+        .mockImplementation(() =>
+          Promise.resolve(
+            createJsonResponse({
+              token: "fresh-token",
+              stream_base_url: "https://proxy.example",
+            }),
+          ),
+        );
+
+      mockNetFetch.mockImplementation((input: string | Request) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/log_entries/")) {
+          return Promise.resolve(createLogEntriesResponse([]));
+        }
+        return Promise.resolve(createRunResponse("in_progress", "main"));
+      });
+
+      // Django leg (transient round) just EOFs to force a reconnect; once the proxy resolves it
+      // emits stream-end so the watch completes, proving durable streaming engaged after the retry.
+      const usedProxyLeg = (input: string | Request): boolean => {
+        const url = typeof input === "string" ? input : input.url;
+        return url.includes("proxy.example");
+      };
+      mockStreamFetch.mockImplementation((input: string | Request) =>
         Promise.resolve(
-          createJsonResponse({
-            token: "fresh-token",
-            stream_base_url: "https://proxy.example",
-          }),
+          usedProxyLeg(input)
+            ? createSseResponse("event: stream-end\ndata: {}\n\n")
+            : createSseResponse(""),
         ),
       );
 
-    mockNetFetch.mockImplementation((input: string | Request) => {
-      const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/log_entries/")) {
-        return Promise.resolve(createLogEntriesResponse([]));
-      }
-      return Promise.resolve(
-        createJsonResponse({
-          id: "run-1",
-          status: "in_progress",
-          stage: null,
-          output: null,
-          error_message: null,
-          branch: "main",
-          updated_at: "2026-01-01T00:00:00Z",
-        }),
-      );
-    });
+      service.watch({
+        taskId: "task-1",
+        runId: "run-1",
+        apiHost: "https://app.example.com",
+        teamId: 2,
+      });
 
-    // Django leg (transient round) just EOFs to force a reconnect; once the proxy resolves it
-    // emits stream-end so the watch completes, proving durable streaming engaged after the retry.
-    const usedProxyLeg = (input: string | Request): boolean => {
-      const url = typeof input === "string" ? input : input.url;
-      return url.includes("proxy.example");
-    };
-    mockStreamFetch.mockImplementation((input: string | Request) =>
-      Promise.resolve(
-        usedProxyLeg(input)
-          ? createSseResponse("event: stream-end\ndata: {}\n\n")
-          : createSseResponse(""),
-      ),
-    );
+      const hasWatcher = (): boolean =>
+        (service as unknown as { watchers: Map<string, unknown> }).watchers.has(
+          "task-1:run-1",
+        );
+      await waitFor(() => !hasWatcher(), 10_000);
 
-    service.watch({
-      taskId: "task-1",
-      runId: "run-1",
-      apiHost: "https://app.example.com",
-      teamId: 2,
-    });
-
-    const hasWatcher = (): boolean =>
-      (service as unknown as { watchers: Map<string, unknown> }).watchers.has(
-        "task-1:run-1",
-      );
-    await waitFor(() => !hasWatcher(), 10_000);
-
-    // The 503 was not cached: resolution retried and the stream switched to the durable proxy leg.
-    expect(mockStreamTokenFetch.mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(
-      mockStreamFetch.mock.calls.some(([input]) => usedProxyLeg(input)),
-    ).toBe(true);
-  });
+      // The transient status was not cached: resolution retried and the stream switched to the
+      // durable proxy leg.
+      expect(mockStreamTokenFetch.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(
+        mockStreamFetch.mock.calls.some(([input]) => usedProxyLeg(input)),
+      ).toBe(true);
+    },
+  );
 
   it("proxy 401 re-resolves the read target and resumes with a fresh token", async () => {
     vi.useFakeTimers();
@@ -4215,74 +4070,6 @@ describe("CloudTaskEngine", () => {
     expect(mockStreamFetch.mock.calls.length).toBe(streamCallsAtFailure);
   });
 
-  it("treats a 429 from stream_token as transient and retries the read-target resolution", async () => {
-    vi.useFakeTimers();
-
-    // 429 is momentary like a 503: it must not cache a Django fallback. The next reconnect
-    // re-resolves and the watch upgrades to the durable proxy leg.
-    mockStreamTokenFetch
-      .mockImplementationOnce(() =>
-        Promise.resolve(createJsonResponse({ detail: "slow down" }, 429)),
-      )
-      .mockImplementation(() =>
-        Promise.resolve(
-          createJsonResponse({
-            token: "fresh-token",
-            stream_base_url: "https://proxy.example",
-          }),
-        ),
-      );
-
-    mockNetFetch.mockImplementation((input: string | Request) => {
-      const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/log_entries/")) {
-        return Promise.resolve(createLogEntriesResponse([]));
-      }
-      return Promise.resolve(
-        createJsonResponse({
-          id: "run-1",
-          status: "in_progress",
-          stage: null,
-          output: null,
-          error_message: null,
-          branch: "main",
-          updated_at: "2026-01-01T00:00:00Z",
-        }),
-      );
-    });
-
-    const usedProxyLeg = (input: string | Request): boolean => {
-      const url = typeof input === "string" ? input : input.url;
-      return url.includes("proxy.example");
-    };
-    mockStreamFetch.mockImplementation((input: string | Request) =>
-      Promise.resolve(
-        usedProxyLeg(input)
-          ? createSseResponse("event: stream-end\ndata: {}\n\n")
-          : createSseResponse(""),
-      ),
-    );
-
-    service.watch({
-      taskId: "task-1",
-      runId: "run-1",
-      apiHost: "https://app.example.com",
-      teamId: 2,
-    });
-
-    const hasWatcher = (): boolean =>
-      (service as unknown as { watchers: Map<string, unknown> }).watchers.has(
-        "task-1:run-1",
-      );
-    await waitFor(() => !hasWatcher(), 10_000);
-
-    // The 429 was not cached: resolution retried and the stream switched to the durable proxy leg.
-    expect(mockStreamTokenFetch.mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(
-      mockStreamFetch.mock.calls.some(([input]) => usedProxyLeg(input)),
-    ).toBe(true);
-  });
-
   it("caches a 403 from stream_token and falls back to Django legacy polling", async () => {
     vi.useFakeTimers();
 
@@ -4294,30 +4081,7 @@ describe("CloudTaskEngine", () => {
       Promise.resolve(createJsonResponse({ detail: "forbidden" }, 403)),
     );
 
-    let runFetchCount = 0;
-    mockNetFetch.mockImplementation((input: string | Request) => {
-      const url = typeof input === "string" ? input : input.url;
-      if (url.includes("/log_entries/")) {
-        return Promise.resolve(createLogEntriesResponse([]));
-      }
-      runFetchCount += 1;
-      // Calls 1-3 (bootstrap, post-bootstrap verify, first legacy poll) report an active run; the
-      // second legacy poll reports terminal.
-      const terminal = runFetchCount >= 4;
-      return Promise.resolve(
-        createJsonResponse({
-          id: "run-1",
-          status: terminal ? "completed" : "in_progress",
-          stage: null,
-          output: null,
-          error_message: null,
-          branch: "main",
-          updated_at: terminal
-            ? "2026-01-01T00:00:05Z"
-            : "2026-01-01T00:00:00Z",
-        }),
-      );
-    });
+    mockRunTerminalFromFourthFetch();
 
     // Legacy mode: no stream-end ever arrives, so each clean EOF triggers a status poll.
     mockStreamFetch.mockImplementation(() =>
