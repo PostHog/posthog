@@ -64,7 +64,12 @@ import {
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
-import { fetchStoredWorkflow, isLiveOnSandboxSender, readySandboxSender } from '../Channels/sandboxSender'
+import {
+    fetchStoredWorkflow,
+    isLiveOnSandboxSender,
+    publishMovesStepsToSandboxSender,
+    readySandboxSender,
+} from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -4894,8 +4899,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
             // The server judges the warning from the same copy the token covers, and refuses the confirm if
-            // a later live change moves steps onto the test sender that this dialog didn't warn about.
-            const movesToSandboxSender = !!preview.moves_to_sandbox_sender
+            // a later live change moves steps onto the test sender that this dialog didn't warn about. A worker
+            // from before that field omits it and ignores the confirm's flag, so the editor's copy decides then;
+            // the check above showed that copy matches the staged draft the token covers.
+            const movesToSandboxSender =
+                preview.moves_to_sandbox_sender ??
+                (!!values.originalWorkflow && publishMovesStepsToSandboxSender(values.originalWorkflow))
             if (movesToSandboxSender) {
                 // pinned: analytics event names and property values
                 posthog.capture('workflows sandbox sender enable warning shown', {
@@ -5041,7 +5050,7 @@ export const workflowLogic = kea<workflowLogicType>([
             const enabling = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
             if (enabling && !sandboxSenderConfirmed) {
                 // A second click while the check below runs would open a second dialog.
-                if (cache.checkingSandboxSender) {
+                if (cache.checkingSandboxSender || cache.enablingWorkflow) {
                     return
                 }
                 cache.checkingSandboxSender = true

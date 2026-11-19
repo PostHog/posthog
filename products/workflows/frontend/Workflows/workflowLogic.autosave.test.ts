@@ -822,6 +822,44 @@ describe('workflowLogic auto-save', () => {
                 opened.mockRestore()
             })
 
+            it('sends one write when Enable is clicked again while the first enable saves', async () => {
+                const loaded = loadedWith('none')
+                useMocks(activeMocks(loaded))
+                await mountEditor()
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                let markWriting: () => void = () => {}
+                const writing = new Promise<void>((resolve) => {
+                    markWriting = resolve
+                })
+                useMocks({
+                    get: { '/api/projects/:team_id/hog_flows/:id/': loaded },
+                    patch: {
+                        '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                            const body = (await request.json()) as Record<string, any>
+                            patchBodies.push(body)
+                            markWriting()
+                            await held
+                            return [200, { ...loaded, ...body }]
+                        },
+                    },
+                })
+
+                showToasts()
+
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+                await writing
+                logic.actions.saveWorkflowPartial({ status: 'active' })
+                release()
+                await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess']).toFinishAllListeners()
+
+                expect(patchBodies).toMatchObject([{ status: 'active', sandbox_sender_warned: false }])
+                expect(logic.values.originalWorkflow?.status).toBe('active')
+                expect(screen.queryByText(EDITED_ELSEWHERE)).toBeNull()
+            })
+
             it('keeps a rename typed while the enable check runs', async () => {
                 const loaded = loadedWith('none')
                 useMocks(activeMocks(loaded))
@@ -1449,15 +1487,35 @@ describe('workflowLogic auto-save', () => {
 
             // The server judges whether the publish moves steps onto the test sender; the dialog shows its answer
             // and sends back what it showed, so the server can refuse a move it didn't warn about.
-            it.each([true, false])(
-                "shows the preview's test sender warning and confirms once with it: %s",
-                async (warns) => {
+            const stagedAddingSandbox = {
+                ...staged,
+                draft: { name: 'Autosave test', ...withSandboxEmail([VALID_TRIGGER, EXIT]) },
+            } as HogFlow
+            it.each([
+                ['the preview warns', true, staged, true],
+                ['the preview does not warn', false, staged, false],
+                // A worker from before the field existed answers without it while the deploy rolls out.
+                [
+                    'an older preview omits the field and the draft adds a test sender step',
+                    undefined,
+                    stagedAddingSandbox,
+                    true,
+                ],
+                ['an older preview omits the field and the draft adds no test sender step', undefined, staged, false],
+            ] as const)(
+                'shows the test sender warning when %s, and confirms once with what it showed',
+                async (_, field, loaded, warns) => {
                     jest.mocked(LemonDialog.open).mockRestore()
+                    useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': loaded } })
+                    initKeaTests()
+                    logic = workflowLogic({ id: WORKFLOW_ID })
+                    logic.mount()
+                    await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
                     useMocks(
                         serverMocks({
                             [PUBLISH_URL]: recordPublish((body) => [
                                 200,
-                                { ...preview, moves_to_sandbox_sender: warns, published: !!body.confirm },
+                                { ...preview, moves_to_sandbox_sender: field, published: !!body.confirm },
                             ]),
                         })
                     )
