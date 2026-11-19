@@ -283,9 +283,15 @@ class _Converter:
         try:
             return self._convert()
         except _TooLarge:
-            # The source shows as text, so its markup can't render, as nothing would where Mailgun's blocks were false.
-            source = html.escape(self.text, quote=False) if self.is_html else self.text
-            return ConvertedText(text=_literal(source), has_tags=True, too_large=True)
+            return ConvertedText(text=self._as_text(self.text), has_tags=True, too_large=True)
+
+    def _as_text(self, source: str) -> str:
+        """The source as text, so its markup can't render, as nothing would where Mailgun's blocks were false."""
+        text = _literal(html.escape(source, quote=False) if self.is_html else source)
+        if len(text) <= _MAX_OUTPUT_CHARS:
+            return text
+        # Escaping makes a character at most five long, so this much of the source always fits what Liquid parses.
+        return self._as_text(source[: _MAX_OUTPUT_CHARS // 5])
 
     def _convert(self) -> ConvertedText:
         matches = _tokens(self.text)
@@ -814,10 +820,9 @@ class _Converter:
         return ""
 
     def _dropped(self) -> None:
-        # Inside a tag but outside a quoted value, the text on either side of something left out meets and could name
-        # a `<script>`, so later Go values are left for a person too.
-        if self.tag.in_tag and not self.tag.quote:
-            self.unclear_context = True
+        # The text on either side of something left out meets and could form markup, such as a `<script>`, and the tag
+        # tracking can't always tell where it is, so every later Go value is left for a person too.
+        self.unclear_context = True
 
 
 def _escaped(path: str) -> str:

@@ -178,7 +178,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         converted = convert_version({"engine": "go", "template": source})
 
         assert "printf" not in converted.html
-        assert "variables.User" in converted.html
+        assert "variables.User" not in converted.html
         assert any("left out of the email body" in note for note in converted.notes)
 
     def test_a_tag_that_cannot_convert_stays_as_text_in_the_subject(self) -> None:
@@ -189,9 +189,11 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("unconverted_tag", '<scr{{printf ""}}ipt>var x = {{.X}};</script>'),
             ("go_comment", "<scr{{/* c */}}ipt>var x = {{.X}};</script>"),
             ("handlebars_comment", "<scr{{! c }}ipt>var x = {{.X}};</script>"),
+            ("tag_after_a_quote_the_tracking_misreads", 'a<3 "<scr{{printf ""}}ipt>//" >\n{{.X}}</script>'),
+            ("comment_outside_any_tag", "{{/* c */}}<p>{{.X}}</p>"),
         ]
     )
-    def test_a_go_value_after_something_left_out_of_a_tag_name_is_left_out(self, _name: str, source: str) -> None:
+    def test_a_go_value_after_something_left_out_is_left_out(self, _name: str, source: str) -> None:
         converted = convert_text(source, engine="go")
 
         assert "variables." not in converted.text
@@ -216,6 +218,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     def test_unclosed_braces_scan_in_linear_time(self) -> None:
         assert convert_text("{{ " * 20000).text.count('{{ "{{" }}') == 20000
+
+    def test_a_too_large_template_that_escaping_makes_longer_still_fits_what_liquid_parses(self) -> None:
+        converted = convert_text("&" * 1_000_000 + "{{" * 50001)
+
+        assert converted.too_large
+        assert len(converted.text) <= 5_000_000
 
     def test_markup_in_a_template_too_large_to_convert_shows_as_text(self) -> None:
         converted = convert_text("{{#with a}}" * 101 + "<img src=x onerror=alert(1)>")
