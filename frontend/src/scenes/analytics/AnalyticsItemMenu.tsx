@@ -16,13 +16,13 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import { SidebarPinHint } from '~/layout/today/sidebar/SidebarPinHint'
 import { InsightShortId } from '~/types'
 
 import { AnalyticsCollectionMenuItems } from './AnalyticsCollectionMenuItems'
 import { isTaggableAnalyticsType } from './analyticsFeed'
 import { analyticsItemActionsLogic } from './analyticsItemActionsLogic'
 import { analyticsListLogic } from './analyticsListLogic'
-import { AnalyticsPinHint } from './AnalyticsPinHint'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 import { analyticsShareLogic, shareTargetKey } from './analyticsShareLogic'
@@ -47,7 +47,9 @@ export function AnalyticsItemMenu({ item, backUrl }: { item: AnalyticsItem; back
 
     return (
         <DropdownMenu onOpenChange={(open) => open && pinHint && hidePinHint()}>
-            {pinHint && trigger && <AnalyticsPinHint anchor={trigger} />}
+            {pinHint && trigger && (
+                <SidebarPinHint anchor={trigger} onClose={hidePinHint} dataAttr="analytics-pin-hint" />
+            )}
             <DropdownMenuTrigger
                 render={
                     <Button

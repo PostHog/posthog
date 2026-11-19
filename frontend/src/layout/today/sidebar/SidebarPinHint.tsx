@@ -1,5 +1,4 @@
-import { useActions } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import {
@@ -14,11 +13,17 @@ import {
     PopoverContent,
 } from '@posthog/quill'
 
-import { analyticsPinnedLogic } from './analyticsPinnedLogic'
-
 /** Points at a row's menu to show where an item is pinned from. A click anywhere closes it, the menu too. */
-export function AnalyticsPinHint({ anchor }: { anchor: Element }): JSX.Element {
-    const { hidePinHint } = useActions(analyticsPinnedLogic)
+export function SidebarPinHint({
+    anchor,
+    onClose,
+    dataAttr,
+}: {
+    anchor: Element
+    onClose: () => void
+    dataAttr: string
+}): JSX.Element {
+    const id = useId()
     const [open, setOpen] = useState(false)
 
     useEffect(() => {
@@ -30,7 +35,7 @@ export function AnalyticsPinHint({ anchor }: { anchor: Element }): JSX.Element {
     }, [anchor])
 
     return (
-        <Popover open={open} onOpenChange={(nextOpen) => !nextOpen && hidePinHint()}>
+        <Popover open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
             <PopoverContent
                 anchor={anchor}
                 side="left"
@@ -38,31 +43,26 @@ export function AnalyticsPinHint({ anchor }: { anchor: Element }): JSX.Element {
                 sideOffset={8}
                 initialFocus={false}
                 finalFocus={false}
-                aria-labelledby="analytics-pin-hint-title"
-                aria-describedby="analytics-pin-hint-description"
+                aria-labelledby={`${id}-title`}
+                aria-describedby={`${id}-description`}
                 // The card draws the surface, so the popover only places and animates it.
                 className="w-72 gap-0 border-0 bg-transparent p-0 shadow-none"
-                data-attr="analytics-pin-hint"
+                data-attr={dataAttr}
             >
                 <Card className="border border-[var(--border)] shadow-[var(--shadow-md)]">
                     <CardHeader>
-                        <CardTitle id="analytics-pin-hint-title">Pin items to your sidebar</CardTitle>
-                        <CardDescription id="analytics-pin-hint-description">
+                        <CardTitle id={`${id}-title`}>Pin items to your sidebar</CardTitle>
+                        <CardDescription id={`${id}-description`}>
                             Open this menu on an item, then select Pin to sidebar.
                         </CardDescription>
                         <CardAction>
-                            <Button
-                                size="icon-sm"
-                                aria-label="Close"
-                                onClick={hidePinHint}
-                                data-attr="analytics-pin-hint-close"
-                            >
+                            <Button size="icon-sm" aria-label="Close" onClick={onClose} data-attr={`${dataAttr}-close`}>
                                 <IconX />
                             </Button>
                         </CardAction>
                     </CardHeader>
                     <CardFooter className="justify-end">
-                        <Button variant="primary" onClick={hidePinHint} data-attr="analytics-pin-hint-done">
+                        <Button variant="primary" onClick={onClose} data-attr={`${dataAttr}-done`}>
                             Got it
                         </Button>
                     </CardFooter>

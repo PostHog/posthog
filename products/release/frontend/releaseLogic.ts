@@ -87,6 +87,7 @@ interface ReleaseLogicValues {
     stageFilter: ReleaseStage | null
     decisionOnly: boolean
     newReleaseOpen: boolean
+    pinHintVisible: boolean
     creatingRelease: boolean
     loadFailed: boolean
     experimentsFailed: boolean
@@ -163,6 +164,8 @@ interface ReleaseLogicActions {
     setNewReleaseOpen: (open: boolean) => { open: boolean }
     openSchedule: (flagId: number) => { flagId: number }
     closeSchedule: () => { value: true }
+    showPinHint: () => { value: true }
+    hidePinHint: () => { value: true }
     createRelease: (name: string, description: string) => { name: string; description: string }
     createReleaseDone: () => { value: true }
     updateRelease: (
@@ -327,6 +330,8 @@ export const releaseLogic = kea<releaseLogicType>([
         setNewReleaseOpen: (open: boolean) => ({ open }),
         openSchedule: (flagId: number) => ({ flagId }),
         closeSchedule: true,
+        showPinHint: true,
+        hidePinHint: true,
         createRelease: (name: string, description: string) => ({ name, description }),
         createReleaseDone: true,
         updateRelease: (
@@ -633,6 +638,8 @@ export const releaseLogic = kea<releaseLogicType>([
         stageFilter: [null as ReleaseStage | null, { setStageFilter: (_, { stage }) => stage }],
         decisionOnly: [false, { setDecisionOnly: (_, { decisionOnly }) => decisionOnly }],
         newReleaseOpen: [false, { setNewReleaseOpen: (_, { open }) => open }],
+        // The hint on the View all list's first row menu, which shows where to pin an item from.
+        pinHintVisible: [false, { showPinHint: () => true, hidePinHint: () => false }],
         creatingRelease: [false, { createRelease: () => true, createReleaseDone: () => false }],
         flagSearch: ['', { searchFlags: (_, search) => search }],
         flagSearchFailed: [false, { searchFlags: () => false, searchFlagsFailure: () => true }],
@@ -1080,6 +1087,10 @@ export const releaseLogic = kea<releaseLogicType>([
         },
         openSchedule: () => {
             posthog.capture('release schedule dialog opened')
+        },
+        showPinHint: () => {
+            // pinned: analytics event name. Renaming it breaks dashboards.
+            posthog.capture('release pin hint shown')
         },
         closeSchedule: () => {
             actions.loadScheduledChanges()
