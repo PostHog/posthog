@@ -391,28 +391,47 @@ function MarketplaceCredentialSection(): JSX.Element {
                     </AccessControlAction>
                 </div>
             )}
-            <div className="flex flex-col gap-1">
-                <p className="m-0 text-xs font-semibold text-secondary">Claude Code</p>
-                <CodeSnippet language={Language.Bash} thing="Claude Code command">
-                    {marketplaceCommand}
-                </CodeSnippet>
-                <p className="m-0 text-xs text-secondary">
-                    Run each line in Claude Code. Skills then appear as <code>/posthog-skill-store:&lt;name&gt;</code>.
-                    Claude Code disables marketplace auto-update by default. To receive new and updated skills
-                    automatically, run <code>/plugin</code>, open <b>Marketplaces</b>, select{' '}
-                    <code>posthog-skill-store-marketplace</code>, then choose <b>Enable auto-update</b>.
-                </p>
-            </div>
-            <div className="flex flex-col gap-1">
-                <p className="m-0 text-xs font-semibold text-secondary">Codex</p>
-                <CodeSnippet language={Language.Bash} thing="Codex command">
-                    {codexCommand}
-                </CodeSnippet>
-                <p className="m-0 text-xs text-secondary">
-                    Run both lines in your terminal. Then start a new Codex session before using the installed skills
-                    and tools. Open <code>/plugins</code> in Codex to review installed plugins.
-                </p>
-            </div>
+            <section className="flex flex-col gap-2">
+                <p className="m-0 text-base font-semibold">Claude Code</p>
+                <ol className="list-decimal pl-5 space-y-4 text-sm marker:font-semibold">
+                    <li className="pl-1">
+                        <p className="m-0 font-semibold">Install the plugin</p>
+                        <p className="mt-1 mb-2">Run both lines in Claude Code.</p>
+                        <CodeSnippet language={Language.Bash} thing="Claude Code command">
+                            {marketplaceCommand}
+                        </CodeSnippet>
+                    </li>
+                    <li className="pl-1">
+                        <p className="m-0 font-semibold">Enable auto-update (recommended)</p>
+                        <p className="mt-1 mb-2">
+                            Auto-update is off by default. Enable it to receive new and updated skills.
+                        </p>
+                        <p className="m-0">
+                            <code>/plugin</code> → <b>Marketplaces</b> → <code>posthog-skill-store-marketplace</code> →{' '}
+                            <b>Enable auto-update</b>
+                        </p>
+                    </li>
+                </ol>
+            </section>
+            <section className="flex flex-col gap-2">
+                <p className="m-0 text-base font-semibold">Codex</p>
+                <ol className="list-decimal pl-5 space-y-4 text-sm marker:font-semibold">
+                    <li className="pl-1">
+                        <p className="m-0 font-semibold">Install the plugin</p>
+                        <p className="mt-1 mb-2">Run both lines in your terminal.</p>
+                        <CodeSnippet language={Language.Bash} thing="Codex command">
+                            {codexCommand}
+                        </CodeSnippet>
+                    </li>
+                    <li className="pl-1">
+                        <p className="m-0 font-semibold">Start a new session</p>
+                        <p className="mt-1 mb-0">
+                            Start a new Codex session to use the skills and tools. Open <code>/plugins</code> to review
+                            installed plugins.
+                        </p>
+                    </li>
+                </ol>
+            </section>
         </>
     )
 }
