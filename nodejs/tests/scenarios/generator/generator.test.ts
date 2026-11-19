@@ -316,7 +316,7 @@ describe('drive', () => {
             20,
             [
                 { scale: 1, for: '100ms' },
-                { scale: 1, for: '100ms' },
+                { scale: 2, for: '100ms' },
             ],
             '200ms',
             true
@@ -347,7 +347,7 @@ describe('drive', () => {
             held.forEach((response) => response.writeHead(202).end('{}'))
             await jest.advanceTimersByTimeAsync(200)
 
-            expect({ live, summary: await driving }).toMatchObject({ live: 2, summary: { offeredUnits: 4 } })
+            expect({ live, summary: await driving }).toMatchObject({ live: 2, summary: { offeredUnits: 6 } })
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -605,9 +605,8 @@ describe('drive', () => {
         }
     )
 
-    it('waits for a step gate still pending when the last step ends, and fails the drive when that gate fails', async () => {
-        let fail = (_error: Error): void => undefined
-        const gate: StepGate = () => new Promise<void>((_resolve, reject) => (fail = reject))
+    it('returns when its last step ends, without waiting for a step gate still pending', async () => {
+        const gate: StepGate = () => new Promise<void>(() => undefined)
         const ramped = rampedCard(
             2,
             [
@@ -618,16 +617,12 @@ describe('drive', () => {
             true
         )
         const { driving } = startDrive(ramped, ACKNOWLEDGED, { gate })
-        const failure = driving.then(
-            () => 'the drive returned',
-            (error: Error) => error.message
-        )
+        let summary: Summary | undefined
+        void driving.then((ended) => (summary = ended))
 
-        await jest.advanceTimersByTimeAsync(2500)
-        fail(new Error('the live judge failed'))
-        await jest.advanceTimersByTimeAsync(0)
+        await jest.advanceTimersByTimeAsync(2000)
 
-        expect(await failure).toBe('the live judge failed')
+        expect(summary).toMatchObject({ targetUnits: 6, offeredUnits: 6 })
     })
 
     it('counts no acknowledgement for a step that stops on a break once that step ended, live or in the summary', async () => {
@@ -641,7 +636,7 @@ describe('drive', () => {
             4,
             [
                 { scale: 1, for: '1s' },
-                { scale: 1, for: '1s' },
+                { scale: 2, for: '1s' },
             ],
             '2s',
             true
@@ -658,7 +653,7 @@ describe('drive', () => {
         expect({ live: offered.map((count) => count()), steps: steps.map(({ offeredUnits }) => offeredUnits) }).toEqual(
             {
                 live: [0],
-                steps: [0, 4],
+                steps: [0, 8],
             }
         )
     })
@@ -667,7 +662,7 @@ describe('drive', () => {
         [
             'the gate answered in its second extra cycle',
             () => jest.advanceTimersByTimeAsync(3500),
-            { targetUnits: 19, offeredUnits: 19, held: { dueUnits: 11, offeredUnits: 11 }, burst: 1 },
+            { targetUnits: 37, offeredUnits: 37, held: { dueUnits: 21, offeredUnits: 21 }, burst: 1 },
         ],
         [
             'the event loop stalled across two extra cycles',
@@ -676,7 +671,15 @@ describe('drive', () => {
                 jest.setSystemTime(startedAt + 4600)
                 await jest.advanceTimersByTimeAsync(200)
             },
-            { targetUnits: 24, offeredUnits: 17, held: { dueUnits: 16, offeredUnits: 9 }, burst: 4 },
+            { targetUnits: 47, offeredUnits: 32, held: { dueUnits: 31, offeredUnits: 16 }, burst: 6 },
+        ],
+        [
+            'the gate answered as the event loop woke from a stall across two extra cycles',
+            async (startedAt) => {
+                await jest.advanceTimersByTimeAsync(2100)
+                jest.setSystemTime(startedAt + 4600)
+            },
+            { targetUnits: 45, offeredUnits: 25, held: { dueUnits: 29, offeredUnits: 9 }, burst: 1 },
         ],
     ])('while a step holds for the gate of the step before it, %s', async (_story, wait, expected) => {
         let answer = (): void => undefined
@@ -686,8 +689,8 @@ describe('drive', () => {
             4,
             [
                 { scale: 1, for: '1s' },
-                { scale: 1, for: '1s' },
-                { scale: 1, for: '1s' },
+                { scale: 2, for: '1s' },
+                { scale: 3, for: '1s' },
             ],
             '3s',
             true

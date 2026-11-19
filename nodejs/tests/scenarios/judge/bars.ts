@@ -30,7 +30,7 @@ export type StepPoint = { scale: number; at: string; offeredPerSecond: number }
 
 export type BreakingPoint = StepPoint & { key?: string; value: number; part: string }
 
-export type HarnessLimit = { scale: number; by: 'generator' | 'run_host' }
+export type HarnessLimit = { scale: number; by: 'run_host' }
 
 export type BarResult = {
     name: string
