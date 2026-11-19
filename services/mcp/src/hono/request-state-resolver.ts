@@ -343,7 +343,8 @@ export class RequestStateResolver {
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
         // Wrappers gate writes on the `exec` name, so they never get `exec-write`.
-        const splitWrites = props.splitWrites === true && !readOnly && clientProfile.consumer === undefined
+        const splitWrites =
+            useSingleExec && props.splitWrites === true && !readOnly && clientProfile.consumer === undefined
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []

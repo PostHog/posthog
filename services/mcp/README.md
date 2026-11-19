@@ -383,7 +383,7 @@ An explicit value always wins over the client auto-detection; any other value is
 ### Separate read and write tools in cli mode
 
 By default every cli-mode command goes through `exec`, so a client can only allow all of them or ask about each one.
-Send `split_writes=true` to list two tools in its place:
+In cli mode, send `split_writes=true` to list two tools in its place:
 
 | Tool         | Runs                                                              | `readOnlyHint` | `destructiveHint` |
 | ------------ | ----------------------------------------------------------------- | -------------- | ----------------- |

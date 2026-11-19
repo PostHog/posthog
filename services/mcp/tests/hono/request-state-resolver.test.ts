@@ -999,7 +999,7 @@ describe('RequestStateResolver MCP client contexts', () => {
             false,
         ],
         ['nothing asks for it', '', {}, false],
-        ['tools mode', '?split_writes=true&mode=tools', {}, true],
+        ['tools mode, which never lists exec-write', '?split_writes=true&mode=tools', {}, false],
         ['a read-only connection, which has no writes', '?split_writes=true&readonly=true', {}, false],
         [
             'a wrapper whose write gate only knows exec',

@@ -441,7 +441,7 @@ tools:
         scopes:
             - external_data_source:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
         title: Check Postgres CDC prerequisites
