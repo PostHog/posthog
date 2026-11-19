@@ -64,6 +64,10 @@ MAX_READY_BYTES = 128 * 1024 * 1024
 CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
+REFRESH_WORKERS = 2
+MAX_QUEUED_REFRESHES = 16
+_refresh_pool = ThreadPoolExecutor(max_workers=REFRESH_WORKERS, thread_name_prefix="dashboard-query-batch-refresh")
+_refresh_slots = BoundedSemaphore(MAX_QUEUED_REFRESHES)
 
 _FAILED = "The query failed."
 _THROTTLED = "Too many queries are running for this organization. Try again shortly."
@@ -338,7 +342,9 @@ class QueryBatch:
         if not self._to_refresh:
             return
         queries, self._to_refresh = self._to_refresh, []
-        context = self._context.copy()
+        # A refresh that finds the queue full is dropped: the stale result is already served and the next read retries.
+        if not _refresh_slots.acquire(blocking=False):
+            return
 
         def refresh_all() -> None:
             try:
@@ -346,8 +352,12 @@ class QueryBatch:
                     self._refresh_in_background(query)
             finally:
                 connections.close_all()
+                _refresh_slots.release()
 
-        Thread(target=context.run, args=(refresh_all,), daemon=True, name="dashboard-query-batch-refresh").start()
+        try:
+            _refresh_pool.submit(self._context.copy().run, refresh_all)
+        except RuntimeError:
+            _refresh_slots.release()
 
     def _refresh_in_background(self, query: ResolvedQuery) -> None:
         # The stale result is already in the response. The async path recomputes it for the next read.
