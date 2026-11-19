@@ -6,11 +6,17 @@ name: Release hog
 # deletes the changesets, which starts the workflow again: this time it builds, signs and publishes
 # the version in the hog-publish environment, which has no reviewers and admits only master. That one
 # approval in hog-release covers the release. See hog/README.md, "Releases".
+#
+# The changesets the hog changeset workflow adds for MCP and catalog changes, named pr-<number>.md, don't
+# start a release on their own: they wait for the weekly run, so they cost one approval a week. A
+# changeset a person writes, or a manual run, releases everything pending at once.
 on:
     push:
         branches: [master]
         paths:
             - 'hog/.sampo/changesets/*.md'
+    schedule:
+        - cron: '0 10 * * 2'
     workflow_dispatch:
 
 permissions:
@@ -60,6 +66,7 @@ jobs:
         timeout-minutes: 5
         outputs:
             has-changesets: ${{ steps.check.outputs.has-changesets }}
+            release-now: ${{ steps.check.outputs.release-now }}
         steps:
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -71,24 +78,35 @@ jobs:
 
             - name: Check for changesets
               id: check
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
               run: |
                   changesets=$(find hog/.sampo/changesets -name '*.md' 2>/dev/null | sort)
-                  if [ -n "$changesets" ]; then
-                      echo "has-changesets=true" >> "$GITHUB_OUTPUT"
-                      {
-                          echo "### Pending hog changesets"
-                          echo
-                          printf '%s\n' "$changesets" | sed 's/^/- /'
-                      } >> "$GITHUB_STEP_SUMMARY"
-                  else
+                  if [ -z "$changesets" ]; then
                       echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+                      echo "release-now=false" >> "$GITHUB_OUTPUT"
                       echo "No hog changesets to release"
+                      exit 0
+                  fi
+                  echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+                  {
+                      echo "### Pending hog changesets"
+                      echo
+                      printf '%s\n' "$changesets" | sed 's/^/- /'
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+                  written=$(printf '%s\n' "$changesets" | grep -Ev '/pr-[0-9]+\.md$' || true)
+                  if [ "$EVENT_NAME" != push ] || [ -n "$written" ]; then
+                      echo "release-now=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "release-now=false" >> "$GITHUB_OUTPUT"
+                      echo "Only changesets the hog changeset workflow added are pending, so they wait for the weekly release"
                   fi
 
     notify-approval-needed:
         name: Notify Slack - Approval Needed
         needs: check-changesets
-        if: needs.check-changesets.outputs.has-changesets == 'true'
+        if: needs.check-changesets.outputs.release-now == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
@@ -190,7 +208,7 @@ jobs:
         name: Prepare hog release pull request
         needs: [check-changesets, notify-approval-needed]
         # always(), so a Slack outage doesn't stop the release, while slack_ts stays available.
-        if: always() && needs.check-changesets.outputs.has-changesets == 'true'
+        if: always() && needs.check-changesets.outputs.release-now == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 30
         environment: hog-release
@@ -615,6 +633,8 @@ jobs:
     release:
         name: Identify merged hog release
         needs: check-changesets
+        # Only a merge publishes. The weekly run only prepares.
+        if: github.event_name != 'schedule'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:

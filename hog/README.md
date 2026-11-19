@@ -457,7 +457,9 @@ sampo add --package npm/hog --bump patch --message "Describe the change for the 
 
 Use `minor` or `major` instead of `patch` when it fits. Commit the file sampo writes under `hog/.sampo/changesets/`.
 
-After the pull request merges to master, the workflow:
+A changeset a person writes starts a release when its pull request merges. A changeset the `hog changeset` workflow adds, named `pr-<number>.md`, waits for the weekly run on Tuesdays at 10:00 UTC, so MCP and catalog changes cost one approval a week. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
+
+When a release starts, the workflow:
 
 1. Posts an approval request in the hog releases Slack channel, naming the pull requests whose changesets the release ships and who can't approve it.
 2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that added one of those changesets can approve. The check runs as the last release tag has `hog/release/check-approvers.sh`, so a change to the rule applies from the release after the one that ships it.
