@@ -12866,7 +12866,7 @@ export namespace Schemas {
     export type HogFlowWarningCodeEnum = "test_sender_live";
     export type HogFlowWarning = {
         /**
-         * test_sender_live: the workflow is enabled and an email step sends from the PostHog test sender, so its emails reach only verified members of the organization.
+         * test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.
          *
          * * `test_sender_live` - Test sender live
          */
