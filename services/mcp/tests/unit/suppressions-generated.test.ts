@@ -55,6 +55,7 @@ describe('Generated suppression tools', () => {
             expect(wrapped).not.toBeNull()
             expect(JSON.parse(wrapped![1]!).results).toEqual(page.results)
             expect(text).not.toContain('<instructions>')
+            expect(text.split('</email-suppression-list>')).toHaveLength(2)
         }
     )
 })

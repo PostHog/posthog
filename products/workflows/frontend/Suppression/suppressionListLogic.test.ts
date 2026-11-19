@@ -77,12 +77,17 @@ describe('suppressionListLogic', () => {
             const nextPageHeld = new Promise<void>((resolve) => {
                 releaseNextPage = resolve
             })
+            let nextPageReceived: () => void = () => {}
+            const nextPageRequested = new Promise<void>((resolve) => {
+                nextPageReceived = resolve
+            })
             useMocks({
                 get: {
                     '/api/projects/:team/messaging_suppressions/suppressions/': async ({ request }) => {
                         const params = new URL(request.url).searchParams
                         const page = Number(params.get('page') ?? 1)
                         if (page === 2) {
+                            nextPageReceived()
                             await nextPageHeld
                         }
                         const matching = listed.filter((id) => id.includes(params.get('search') ?? ''))
@@ -90,7 +95,8 @@ describe('suppressionListLogic', () => {
                             200,
                             {
                                 count: matching.length,
-                                next: null,
+                                next:
+                                    page * 2 < matching.length ? `${request.url.split('?')[0]}?page=${page + 1}` : null,
                                 previous: null,
                                 results: matching.slice((page - 1) * 2, page * 2).map((id) => suppressionRow(id)),
                             },
@@ -100,9 +106,10 @@ describe('suppressionListLogic', () => {
             })
             const logic = suppressionListLogic()
             logic.mount()
-            await waitFor(() => expect(logic.values.suppressions.results).toHaveLength(2))
+            await waitFor(() => expect(logic.values.suppressions.next).not.toBeNull())
 
             logic.actions.loadNextPage()
+            await nextPageRequested
             logic.actions.setSearchTerm('b')
             await waitFor(() => expect(logic.values.suppressions.count).toBe(1))
             releaseNextPage()
