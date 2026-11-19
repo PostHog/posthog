@@ -21,7 +21,7 @@ import { flush as flushAnalytics } from '~/common/utils/posthog'
 import { FetchResponse } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { compressRepeated } from '~/tests/helpers/compression'
+import { compressWithoutEnding } from '~/tests/helpers/compression'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -432,9 +432,9 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
         it.each([
             ['a plain notification over the size limit, with its length', 'identity', false],
             ['a plain notification over the size limit, in chunks', 'identity', true],
-            ['a gzip notification that decodes far past the size limit', 'gzip', true],
-            ['a deflate notification that decodes far past the size limit', 'deflate', true],
-            ['a br notification that decodes far past the size limit', 'br', true],
+            ['a gzip notification that decodes past the size limit before an invalid end', 'gzip', true],
+            ['a deflate notification that decodes past the size limit before an invalid end', 'deflate', true],
+            ['a br notification that decodes past the size limit before an invalid end', 'br', true],
         ] as const)('answers %s with 413', async (_case, encoding, chunked) => {
             const req = supertest(app)
                 .post('/public/m/ses_sandbox_webhook')
@@ -445,7 +445,10 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             const body =
                 encoding === 'identity'
                     ? Buffer.alloc(150 * 1024, ' ')
-                    : await compressRepeated(encoding, Buffer.alloc(1024 * 1024, ' '), 128)
+                    : Buffer.concat([
+                          await compressWithoutEnding(encoding, Buffer.alloc(64 * 1024, ' '), 64),
+                          Buffer.alloc(16, 0xff),
+                      ])
             if (chunked) {
                 req.write(body)
             }

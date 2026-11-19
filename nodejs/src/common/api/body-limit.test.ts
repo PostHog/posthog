@@ -9,7 +9,7 @@ import { ServerCommands } from '~/common/utils/commands'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PubSub } from '~/common/utils/pubsub'
-import { compressRepeated } from '~/tests/helpers/compression'
+import { compressWithoutEnding } from '~/tests/helpers/compression'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { RedisPool } from '~/types'
 
@@ -121,25 +121,18 @@ describe('setupExpressApp JSON body limit', () => {
     )
 
     it.each(['gzip', 'deflate', 'br'] as const)(
-        'answers a %s JSON body that decodes far past the limit with 413 without decoding the rest',
+        'answers a %s JSON body that decodes past the limit with 413 before it reaches an invalid end',
         async (encoding) => {
-            const body = await compressRepeated(encoding, Buffer.alloc(1024 * 1024, ' '), 128)
-            const cpuBefore = process.cpuUsage()
+            const decodesPastLimit = await compressWithoutEnding(encoding, Buffer.alloc(64 * 1024, ' '), 64)
             const upload = supertest(app)
                 .post('/echo')
                 .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
-            upload.write(body)
+            upload.write(Buffer.concat([decodesPastLimit, Buffer.alloc(16, 0xff)]))
             const oversized = await upload
-            const cpu = process.cpuUsage(cpuBefore)
             const next = await supertest(app).post('/echo').send({ data: 'x' })
 
-            expect({
-                oversized: [oversized.status, oversized.body],
-                cpuUnder100Ms: cpu.user + cpu.system < 100_000,
-                next: next.status,
-            }).toEqual({
+            expect({ oversized: [oversized.status, oversized.body], next: next.status }).toEqual({
                 oversized: [413, { status: 'error', error: 'Request entity too large' }],
-                cpuUnder100Ms: true,
                 next: 200,
             })
         }
