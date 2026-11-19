@@ -71,7 +71,7 @@ class InvalidTraceSelectionError(ValueError):
     pass
 
 
-def _shift(moment: datetime, delta: timedelta) -> datetime:
+def shift(moment: datetime, delta: timedelta) -> datetime:
     # Python adds a timedelta to the wall-clock time and resets fold, so in a repeated DST hour the result lands an
     # hour off. UTC has no repeated hour. The result goes back to the moment's zone because HogQL prints a bound in the
     # project's zone, and a bound past the last datetime there must fail here, not while the query is built.
@@ -84,7 +84,7 @@ class TraceWindow:
     end: datetime
 
     def read_bounds(self) -> "TraceWindow":
-        return TraceWindow(start=_shift(self.start, -CAPTURE_BUFFER), end=_shift(self.end, CAPTURE_BUFFER))
+        return TraceWindow(start=shift(self.start, -CAPTURE_BUFFER), end=shift(self.end, CAPTURE_BUFFER))
 
     def may_read_a_suffix_of(self, first_timestamp: datetime) -> bool:
         """Whether a trace whose earliest event inside the read bounds is at `first_timestamp` may have started before

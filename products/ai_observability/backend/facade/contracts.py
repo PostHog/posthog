@@ -1103,3 +1103,67 @@ class EvalSuggestionAccepted:
 
 class EvalSuggestionNotFoundError(Exception):
     """No suggestion with this id in the team, or it names an evaluation the user cannot read."""
+
+
+class TraceMetricKey(LabeledStrEnum):
+    COST = "cost"
+    USERS = "users"
+    SESSIONS = "sessions"
+    TRACES = "traces"
+    ERROR_RATE = "error_rate"
+    P95_LATENCY = "p95_latency"
+
+
+class TraceMetricChangeUnit(LabeledStrEnum):
+    PERCENT = "percent"
+    POINTS = "points"
+    SECONDS = "seconds"
+
+
+class TraceMetricStatus(LabeledStrEnum):
+    OK = "ok"
+    NOT_SET_UP = "not_set_up"
+
+
+class TraceMetricBucketSize(LabeledStrEnum):
+    HOUR = "hour"
+    DAY = "day"
+
+
+class TraceMetricTile(Contract):
+    key: TraceMetricKey = Field(description="The metric this tile shows.")
+    value: float | None = Field(
+        description="The metric over the date range. Cost is in USD, error rate is a fraction from 0 to 1, p95 latency "
+        "is in seconds. Null when the range has nothing to compute it from."
+    )
+    previous: float | None = Field(
+        description="The metric over the period of the same length right before the date range, or null."
+    )
+    change: float | None = Field(
+        description="How far the value moved from the previous period, in `changeUnit`. Null when either side is null, "
+        "or when a percent change has a previous value of zero."
+    )
+    change_unit: TraceMetricChangeUnit = Field(description="The unit of `change`.")
+    status: TraceMetricStatus = Field(
+        description="`not_set_up` when the project has traces in the range but none carries the data this metric "
+        "needs, such as no cost, no latency, no session or no identified user."
+    )
+
+
+class TraceMetricBucket(Contract):
+    start: datetime = Field(description="The start of the bucket, in the project's time zone.")
+    values: dict[TraceMetricKey, float | None] = Field(
+        description="The value of each metric over the traces that started in the bucket."
+    )
+
+
+class TraceMetrics(Contract):
+    date_from: datetime = Field(description="The start of the date range.")
+    date_to: datetime = Field(description="The end of the date range.")
+    previous_date_from: datetime = Field(description="The start of the previous period the tiles compare against.")
+    previous_date_to: datetime = Field(description="The end of the previous period, which is `dateFrom`.")
+    bucket_size: TraceMetricBucketSize = Field(description="The width of each bucket.")
+    tiles: list[TraceMetricTile] = Field(description="One tile for each metric.")
+    buckets: list[TraceMetricBucket] = Field(
+        description="One bucket for each hour or day of the date range, oldest first, with no gaps."
+    )

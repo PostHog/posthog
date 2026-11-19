@@ -17,35 +17,8 @@ def trace(*rows: dict[str, Any], person: PersonRow | None = None) -> Trace:
     return Trace("trace-1", [make_row(**{"uuid": f"e{index}", **row}) for index, row in enumerate(rows)], person)
 
 
-@parameterized.expand(
-    [
-        (
-            "the root trace event reports the wall clock",
-            [{"event": "$ai_trace", "latency": 9.0}, {"event": "$ai_generation", "latency": 2.0}],
-            9.0,
-        ),
-        (
-            "only generations report latency, so they are summed",
-            [
-                {"event": "$ai_generation", "latency": 1.25},
-                {"event": "$ai_generation", "latency": 2.5, "parent_id": "span"},
-                {"event": "$ai_span", "span_id": "span"},
-            ],
-            3.75,
-        ),
-        (
-            "otherwise the direct children of the trace are summed",
-            [
-                {"event": "$ai_span", "span_id": "a", "latency": 4.0},
-                {"event": "$ai_generation", "parent_id": "a", "latency": 3.0},
-                {"event": "$ai_span", "latency": 1.0},
-            ],
-            5.0,
-        ),
-    ]
-)
-def test_total_latency(_name: str, rows: list[dict[str, Any]], expected: float) -> None:
-    assert trace(*rows).totals.latency_s == expected
+def test_total_latency_reads_the_value_the_query_computed() -> None:
+    assert trace({"event": "$ai_span", "latency": 1.0, "trace_latency_s": 9.5}).totals.latency_s == 9.5
 
 
 def test_totals_count_generations_and_embeddings_only_and_keep_unknown_cost_unknown() -> None:

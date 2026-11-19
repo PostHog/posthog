@@ -6,7 +6,8 @@ from datetime import datetime
 from posthog.dataclasses import frozen
 
 from .node_ids import NodeIdResolver, NodeIds
-from .trace_queries import FEEDBACK_EVENT, METRIC_EVENT, NODE_EVENT_NAMES, FeedbackEventRow
+from .trace_expressions import NODE_EVENT_NAMES
+from .trace_queries import FEEDBACK_EVENT, METRIC_EVENT, FeedbackEventRow
 
 
 def present_value(raw_json: str) -> str | None:

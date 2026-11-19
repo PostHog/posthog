@@ -18,7 +18,8 @@ from posthog.hogql_queries.ai.ai_column_rewriter import EVENTS_FALLBACK_PROPERTY
 from posthog.hogql_queries.ai.utils import filled_property_filters
 from posthog.models import Team, User
 
-from .trace_queries import FEEDBACK_EVENT_NAMES, TRACE_EVENT_NAMES
+from .trace_expressions import EVENTS_COLUMNS, TRACE_EVENT_NAMES, grouped, trace_errored
+from .trace_queries import FEEDBACK_EVENT_NAMES
 from .trace_selection import (
     InvalidTraceSelectionError,
     QuickFilter,
@@ -267,6 +268,36 @@ def _page_aggregate(selection: TraceSelection, bounds: TracePageBounds, trace_id
     return parse_expr(f"groupArraySortedIf({{take}})({key}, {{in_page}})", placeholders=placeholders)
 
 
+def grouped_traces(team: Team, selection: TraceSelection, extra: dict[str, ast.Expr]) -> ast.SelectQuery:
+    """One row per trace the selection holds, with `trace_id`, `first_timestamp`, `last_timestamp` and the `extra`
+    per-trace aggregates. A trace belongs when it overlaps the window, so every read over it counts the same traces."""
+    query = parse_select(
+        """
+        SELECT
+            properties.$ai_trace_id AS trace_id,
+            min(timestamp) AS first_timestamp,
+            max(timestamp) AS last_timestamp
+        FROM events
+        WHERE {event_condition}
+        GROUP BY trace_id
+        HAVING countIf(event IN {trace_events}) > 0
+            AND countIf({membership}) > 0
+            AND first_timestamp <= {window_end}
+            AND last_timestamp >= {window_start}
+        """,
+        placeholders={
+            "event_condition": _event_condition(team, selection),
+            "trace_events": _events_in(TRACE_EVENT_NAMES),
+            "membership": _all(_property_filters(team, selection)),
+            "window_start": ast.Constant(value=selection.window.start),
+            "window_end": ast.Constant(value=selection.window.end),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    query.select.extend(ast.Alias(alias=name, expr=expr) for name, expr in extra.items())
+    return query
+
+
 def _selection_query(
     team: Team, selection: TraceSelection, bounds: TracePageBounds, limit: int, trace_id: str | None = None
 ) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -281,21 +312,7 @@ def _selection_query(
             {errors} AS errors,
             {feedback} AS feedback,
             {has_outside} AS has_outside
-        FROM (
-            SELECT
-                properties.$ai_trace_id AS trace_id,
-                min(timestamp) AS first_timestamp,
-                max(timestamp) AS last_timestamp,
-                countIf(properties.$ai_is_error = 'true') > 0 AS has_error,
-                countIf(event IN {feedback_events}) > 0 AS has_feedback
-            FROM events
-            WHERE {event_condition}
-            GROUP BY trace_id
-            HAVING countIf(event IN {trace_events}) > 0
-                AND countIf({membership}) > 0
-                AND first_timestamp <= {window_end}
-                AND last_timestamp >= {window_start}
-        )
+        FROM {traces}
         """,
         placeholders={
             "page": _page_aggregate(selection, bounds, trace_id, limit + 1),
@@ -303,12 +320,17 @@ def _selection_query(
             "errors": parse_expr("countIf(has_error)") if counted else ast.Constant(value=0),
             "feedback": parse_expr("countIf(has_feedback)") if counted else ast.Constant(value=0),
             "has_outside": ast.Call(name="countIf", args=[_outside_page(selection, bounds)]),
-            "feedback_events": _events_in(FEEDBACK_EVENT_NAMES),
-            "event_condition": _event_condition(team, selection),
-            "trace_events": _events_in(TRACE_EVENT_NAMES),
-            "membership": _all(_property_filters(team, selection)),
-            "window_start": ast.Constant(value=selection.window.start),
-            "window_end": ast.Constant(value=selection.window.end),
+            "traces": grouped_traces(
+                team,
+                selection,
+                {
+                    "has_error": trace_errored(EVENTS_COLUMNS, grouped),
+                    "has_feedback": parse_expr(
+                        "countIf(event IN {feedback_events}) > 0",
+                        placeholders={"feedback_events": _events_in(FEEDBACK_EVENT_NAMES)},
+                    ),
+                },
+            ),
         },
     )
 

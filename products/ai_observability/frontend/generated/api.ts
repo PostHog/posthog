@@ -20,6 +20,7 @@ import type {
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
     AiObservabilityTracesListParams,
+    AiObservabilityTracesMetricsListParams,
     AiObservabilityTracesNodesDatasetItemRetrieveParams,
     AiObservabilityTracesNodesParserTestCreateParams,
     AiObservabilityTracesNodesRawRetrieveParams,
@@ -186,6 +187,7 @@ import type {
     TraceExportFileApi,
     TraceFeedbackApi,
     TraceListApi,
+    TraceMetricsApi,
     TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
     TraceNodeParserTestApi,
@@ -1252,6 +1254,40 @@ export const aiObservabilityTracesAvailabilityCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceAvailabilityRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesMetricsListUrl = (
+    projectId: string,
+    params?: AiObservabilityTracesMetricsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/metrics/`
+}
+
+/**
+ * Six metrics for the project's traces in a date range, each compared with the period right before it, and
+ * the same metrics for each hour or day of the range.
+ */
+export const aiObservabilityTracesMetricsList = async (
+    projectId: string,
+    params?: AiObservabilityTracesMetricsListParams,
+    options?: RequestInit
+): Promise<TraceMetricsApi> => {
+    return apiMutator<TraceMetricsApi>(getAiObservabilityTracesMetricsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

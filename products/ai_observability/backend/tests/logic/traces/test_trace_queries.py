@@ -154,6 +154,25 @@ class TestLoadTrace(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         self._assert_list_row_columns(load_trace(self.team, None, "trace-1", None))
 
+    def test_trace_latency_covers_the_whole_trace(self) -> None:
+        bulk_create_ai_events(
+            [
+                self._event(
+                    _uuid(index),
+                    event="$ai_generation",
+                    timestamp=T0 + timedelta(seconds=index),
+                    properties={"$ai_latency": 1.5},
+                )
+                for index in range(5)
+            ]
+        )
+
+        with patch.object(trace_queries, "MAX_TRACE_EVENTS", 3):
+            loaded = load_trace(self.team, None, "trace-1", None)
+
+        assert len(loaded.rows) == 3
+        assert {row.trace_latency_s for row in loaded.rows} == {7.5}
+
     def test_ingested_values_read_like_the_legacy_view(self) -> None:
         self._ingest(
             "00000000-0000-0000-0000-000000000001",
@@ -480,6 +499,18 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert load_trace_search(self.team, None, "trace-1", "invoice", T0).counts == {NODE: 1}
         assert load_trace_search(self.team, None, "trace-1", "invoice", None).rows == ()
 
+    def test_trace_latency_on_events_fallback(self) -> None:
+        bulk_create_events(
+            [
+                self._event(_uuid(1), event="$ai_trace", properties={"$ai_latency": 9.0}),
+                self._event(_uuid(2), event="$ai_generation", properties={"$ai_latency": 2.0}),
+            ]
+        )
+
+        loaded = load_trace(self.team, None, "trace-1", T0)
+
+        assert {row.trace_latency_s for row in loaded.rows} == {9.0}
+
     def test_a_page_reads_traces_missing_from_ai_events_from_the_shared_table(self) -> None:
         other_team = Team.objects.create(organization=self.organization)
         bulk_create_ai_events([self._event(_uuid(1), trace_id="recent")])
@@ -531,6 +562,19 @@ class TestLoadTraceSearch(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         assert loaded.counts == {GENERATION: 2, SPAN: 1}
         assert len(loaded.rows) == 3
+
+    def test_trace_search_rows_carry_latency(self) -> None:
+        bulk_create_ai_events(
+            [
+                self._event(GENERATION, event="$ai_generation", properties={"$ai_latency": 1.0, "$ai_model": "gpt-4o"}),
+                self._event(QUIET_GENERATION, event="$ai_generation", properties={"$ai_latency": 2.0}),
+            ]
+        )
+
+        loaded = load_trace_search(self.team, None, "trace-1", "gpt-4o", None)
+
+        assert loaded.counts == {GENERATION: 1}
+        assert {row.trace_latency_s for row in loaded.rows} == {3.0}
 
     @parameterized.expand(
         [
@@ -652,6 +696,42 @@ class TestLoadTracesRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
             trace_id: (len(page.rows), page.truncated, sum(row.event == "$ai_trace" for row in page.rows))
             for trace_id, page in loaded.items()
         } == dict.fromkeys(trace_ids, (3, True, 1))
+
+    def test_page_rows_latency_covers_rows_past_the_cap(self) -> None:
+        bulk_create_ai_events(
+            [
+                self._event(
+                    _uuid(index),
+                    trace_id="big",
+                    event="$ai_generation",
+                    timestamp=T0 + timedelta(seconds=index),
+                    properties={"$ai_latency": 2.0},
+                )
+                for index in range(4)
+            ]
+        )
+
+        with patch.object(trace_queries, "PAGE_ROW_CAP_PER_TRACE", 2):
+            loaded = load_traces_rows(self.team, self.user, ["big"], WINDOW)["big"]
+
+        assert loaded.truncated and len(loaded.rows) == 2
+        assert {row.trace_latency_s for row in loaded.rows} == {8.0}
+
+    def test_each_trace_of_a_page_carries_its_own_latency(self) -> None:
+        bulk_create_ai_events(
+            [
+                self._event(_uuid(1), trace_id="fast", event="$ai_generation", properties={"$ai_latency": 1.0}),
+                self._event(_uuid(2), trace_id="slow", event="$ai_generation", properties={"$ai_latency": 6.0}),
+                self._event(_uuid(3), trace_id="slow", event="$ai_generation", properties={"$ai_latency": 2.0}),
+            ]
+        )
+
+        loaded = load_traces_rows(self.team, self.user, ["fast", "slow"], WINDOW)
+
+        assert {trace_id: {row.trace_latency_s for row in page.rows} for trace_id, page in loaded.items()} == {
+            "fast": {1.0},
+            "slow": {8.0},
+        }
 
     @parameterized.expand([("on ai_events", bulk_create_ai_events), ("on the shared table", bulk_create_events)])
     def test_an_unknown_id_is_absent_and_awkward_ids_survive(

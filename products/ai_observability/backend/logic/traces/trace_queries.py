@@ -36,9 +36,8 @@ from .error_text import error_text, is_truthy_json, parse_json
 from .events_fallback import FallbackWindow, events_filter, fallback_window, unhinted_window
 from .person import trace_distinct_id
 from .tool_calls import called_tool_names
+from .trace_expressions import AI_EVENTS_COLUMNS, NODE_EVENT_NAMES, TRACE_EVENT_NAMES, over_trace, trace_latency
 
-NODE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding")
-TRACE_EVENT_NAMES = ("$ai_trace", *NODE_EVENT_NAMES)
 _HEAVY_COLUMNS = ("input", "output", "output_choices", "input_state", "output_state", "tools")
 NODE_COLUMNS = ("uuid", "event", "timestamp", "properties", *_HEAVY_COLUMNS)
 # The largest result HogQL returns; without an explicit limit it returns 100 rows.
@@ -83,6 +82,7 @@ class TraceEventRow:
     error_text: str | None
     tools_called: tuple[str, ...]
     is_support: bool
+    trace_latency_s: float | None
 
 
 @frozen
@@ -158,6 +158,7 @@ _NATIVE_COLUMNS = (
     "latency",
     "is_error",
 )
+TRACE_LATENCY_COLUMN = "trace_latency_s"
 _SELECTED: dict[str, ast.Expr] = {
     **{column: ast.Field(chain=[column]) for column in _NATIVE_COLUMNS},
     **{f"{column}_raw": _raw_token_property(column) for column in TOKEN_PROPERTIES},
@@ -206,9 +207,45 @@ def _trace_rows_query(columns: Sequence[str] = tuple(_SELECTED)) -> ast.SelectQu
         select=_select({column: _SELECTED[column] for column in columns}),
         select_from=ai_events(),
         where=ast.And(exprs=[event_in(TRACE_EVENT_NAMES), filter_conditions()]),
-        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
+        order_by=[
+            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC"),
+            ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order="ASC"),
+        ],
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["uuid"])]),
         limit=ast.Constant(value=MAX_TRACE_EVENTS),
+    )
+
+
+def _column_name(expr: ast.Expr) -> str:
+    if isinstance(expr, ast.Alias):
+        return expr.alias
+    assert isinstance(expr, ast.Field)
+    return str(expr.chain[-1])
+
+
+def _trace_latency_column() -> ast.Alias:
+    expr = trace_latency(AI_EVENTS_COLUMNS, over_trace(ast.Field(chain=["trace_id"])))
+    return ast.Alias(alias=TRACE_LATENCY_COLUMN, expr=expr)
+
+
+def with_trace_latency(rows: ast.SelectQuery, *, limit: int | None) -> ast.SelectQuery:
+    """Wraps deduplicated rows so each carries its trace's latency, computed over every row of the trace before
+    `limit` cuts the read."""
+    columns = [_column_name(expr) for expr in rows.select]
+    trace_id = ast.Field(chain=["trace_id"])
+    inner_select = rows.select if "trace_id" in columns else [*rows.select, trace_id]
+    inner = replace(rows, select=inner_select, order_by=None, limit=None)
+    return ast.SelectQuery(
+        select=[
+            *(ast.Field(chain=[column]) for column in columns),
+            _trace_latency_column(),
+        ],
+        select_from=ast.JoinExpr(table=inner),
+        order_by=[
+            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC"),
+            ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order="ASC"),
+        ],
+        limit=ast.Constant(value=limit) if limit is not None else None,
     )
 
 
@@ -428,7 +465,7 @@ def _token_count(native: Any, raw: Any) -> int | None:
 
 
 def _trace_event_row(values: Sequence[Any]) -> TraceEventRow:
-    raw = dict(zip(_SELECTED, values))
+    raw = dict(zip([*_SELECTED, TRACE_LATENCY_COLUMN], values))
     tokens = {column: _token_count(raw[column], raw[f"{column}_raw"]) for column in TOKEN_PROPERTIES}
     return TraceEventRow(
         uuid=str(raw["uuid"]),
@@ -455,6 +492,7 @@ def _trace_event_row(values: Sequence[Any]) -> TraceEventRow:
         error_text=error_text(raw["error_raw"]),
         tools_called=called_tool_names(raw["event"], raw["tools_called"]),
         is_support=read_flag(raw["is_support"]),
+        trace_latency_s=read_number(raw[TRACE_LATENCY_COLUMN]),
     )
 
 
@@ -639,7 +677,7 @@ def load_trace(
         _trace_event_row(values)
         for values in read_trace(
             "ai_trace_rows",
-            _trace_rows_query,
+            lambda: with_trace_latency(_trace_rows_query(), limit=MAX_TRACE_EVENTS),
             team,
             user,
             trace_id,
@@ -689,7 +727,11 @@ def _page_rows_query(trace_count: int, cap: int) -> ast.SelectQuery:
         trace_rows, select=[*trace_rows.select, ast.Field(chain=["trace_id"])], order_by=None, limit=None
     )
     return ast.SelectQuery(
-        select=[ast.Field(chain=[column]) for column in (*_SELECTED, "trace_id")],
+        select=[
+            *(ast.Field(chain=[column]) for column in _SELECTED),
+            _trace_latency_column(),
+            ast.Field(chain=["trace_id"]),
+        ],
         select_from=ast.JoinExpr(table=deduplicated),
         order_by=[
             ast.OrderExpr(expr=equals("event", "$ai_trace"), order="DESC"),
@@ -1054,7 +1096,8 @@ def _trace_search_query(needles: SearchNeedles) -> ast.SelectQuery:
     ]
     match_count = reduce(lambda left, right: ast.Call(name="plus", args=[left, right]), counts)
     query = _trace_rows_query()
-    return replace(query, select=[*query.select, ast.Alias(alias="match_count", expr=match_count)])
+    counted = replace(query, select=[*query.select, ast.Alias(alias="match_count", expr=match_count)])
+    return with_trace_latency(counted, limit=MAX_TRACE_EVENTS)
 
 
 def load_trace_search(
@@ -1073,8 +1116,8 @@ def load_trace_search(
     )
     rows: list[TraceEventRow] = []
     counts: dict[str, int] = {}
-    for *values, match_count in results:
-        row = _trace_event_row(values)
+    for *values, match_count, trace_latency_s in results:
+        row = _trace_event_row([*values, trace_latency_s])
         rows.append(row)
         if match_count:
             counts[row.uuid] = int(match_count)
