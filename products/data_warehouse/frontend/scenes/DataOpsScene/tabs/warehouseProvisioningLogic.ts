@@ -89,6 +89,7 @@ export interface warehouseProvisioningLogicValues {
     teamSchemaName: string | null
     warehouseDomain: string | null
     warehouseStatus: WarehouseStatusResponseApi | null
+    warehouseStatusLoadFailed: boolean
     warehouseStatusLoading: boolean
 }
 
@@ -322,6 +323,15 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 deprovisionWarehouse: () => false,
             },
         ],
+        // Distinguishes "the status could not be loaded" from "no warehouse exists", since both
+        // leave warehouseStatus null.
+        warehouseStatusLoadFailed: [
+            false,
+            {
+                loadWarehouseStatusFailure: () => true,
+                loadWarehouseStatusSuccess: () => false,
+            },
+        ],
         pollingActive: [
             false,
             {
@@ -415,7 +425,6 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             {
                 loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.team_onboarded ?? false,
                 onboardTeamComplete: (state, { schemaName }) => (schemaName ? true : state),
-                deprovisionWarehouse: () => false,
             },
         ],
         // The schema this project's data lands in. Fixed once onboarded — it cannot be changed.
@@ -424,7 +433,6 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             {
                 loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.schema_name ?? null,
                 onboardTeamComplete: (state, { schemaName }) => schemaName ?? state,
-                deprovisionWarehouse: () => null,
             },
         ],
         // Whether this project already has a backfill configured. When true, the schema name is
@@ -434,7 +442,6 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             {
                 loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.has_backfill ?? false,
                 onboardTeamComplete: (state, { schemaName }) => (schemaName ? true : state),
-                deprovisionWarehouse: () => false,
             },
         ],
     }),
@@ -613,6 +620,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                         schema_name: schemaName,
                     })
                     lemonToast.success('This project is now part of the managed warehouse')
+                    posthog.capture('managed warehouse project onboarded')
                     actions.onboardTeamComplete(result.schema_name ?? schemaName)
                     // Refresh from the server so the read-only state reflects the now-fixed schema.
                     actions.loadWarehouseStatus()
@@ -685,6 +693,13 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 }
             },
 
+            // A transient error must not strand an in-flight provision or teardown on a stale spinner.
+            loadWarehouseStatusFailure: () => {
+                if (values.pollingActive) {
+                    actions.pollStatus()
+                }
+            },
+
             loadWarehouseStatusSuccess: ({ warehouseStatus }) => {
                 const state = warehouseStatus?.state
                 // Emit outcome telemetry only on genuine transitions, comparing against the
@@ -693,6 +708,9 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 const previousState = values.previousWarehouseState
                 if ((previousState === 'pending' || previousState === 'provisioning') && state === 'ready') {
                     posthog.capture('managed warehouse provisioned')
+                }
+                if ((previousState === 'pending' || previousState === 'provisioning') && state === 'failed') {
+                    posthog.capture('managed warehouse provision failed')
                 }
                 if (previousState === 'deleting' && state === 'deleted') {
                     posthog.capture('managed warehouse deprovisioned')

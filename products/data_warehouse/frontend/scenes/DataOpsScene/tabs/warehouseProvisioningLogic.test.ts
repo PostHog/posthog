@@ -57,6 +57,38 @@ describe('warehouseProvisioningLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', expectedAction])
     })
 
+    // A transient error mid-provisioning must not strand the "in progress" spinner until reload.
+    it.each([
+        { name: 'keeps polling after a failed poll while provisioning', state: 'provisioning', polls: true },
+        { name: 'does not start polling after a failed load once ready', state: 'ready', polls: false },
+    ] as const)('$name', async ({ state, polls }) => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(warehouseStatusFixture({ state }))
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', polls ? 'pollStatus' : 'stopPolling'])
+
+        const pollStatus = jest.spyOn(logic.actions, 'pollStatus')
+        logic.actions.loadWarehouseStatusFailure('boom')
+
+        expect(pollStatus).toHaveBeenCalledTimes(polls ? 1 : 0)
+    })
+
+    // availableTabs depends on teamOnboarded, so a deprovision click that fails must not collapse the tabs.
+    it('keeps the project onboarded when a deprovision request fails', async () => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(warehouseStatusFixture())
+        jest.spyOn(dwApi, 'dataWarehouseDeprovisionCreate').mockRejectedValue(new Error('boom'))
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+
+        logic.actions.deprovisionWarehouse()
+        await expectLogic(logic).toDispatchActions(['deprovisionWarehouseComplete'])
+
+        expect(logic.values.teamOnboarded).toBe(true)
+    })
+
     it('treats a 404 status as no warehouse', async () => {
         jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockRejectedValueOnce({ status: 404 })
 
