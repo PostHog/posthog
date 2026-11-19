@@ -112,8 +112,10 @@ from products.metrics.backend.precompute.fill import (
 from products.metrics.backend.precompute.planner import (
     ClausePlan,
     PrecomputedClauseRunner,
+    TooManyStoredPointsError,
     plan_clause,
     provenance_mode,
+    read_plan_entries,
 )
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
 from products.metrics.backend.promql import run_promql_instant, run_promql_range
@@ -463,15 +465,21 @@ def run_precomputed_metric_query(*, team: Team, request: MetricQueryRequest) -> 
     creates it and runs raw meanwhile. The result says where its buckets came from."""
     plans: list[ClausePlan] = []
     reasons: list[str] = []
+    runners: dict[str, PrecomputedClauseRunner] = {}
+    entries_cache: dict = {}
     for clause in request.clauses:
         plan = plan_clause(team, clause, request)
         if isinstance(plan, str):
             reasons.append(f"{clause.name}: {plan}")
-        else:
-            plans.append(plan)
-    series = _run_metric_query(
-        team, request, {plan.clause.name: PrecomputedClauseRunner(team, request, plan) for plan in plans}
-    )
+            continue
+        try:
+            entries = read_plan_entries(plan, entries_cache)
+        except TooManyStoredPointsError:
+            reasons.append(f"{clause.name}: too much stored data to load")
+            continue
+        plans.append(plan)
+        runners[clause.name] = PrecomputedClauseRunner(team, request, plan, entries)
+    series = _run_metric_query(team, request, runners)
     provenance = MetricQueryProvenance(
         mode=provenance_mode(plans, len(reasons), request.date_to),
         precomputed_until=min((plan.cut for plan in plans), default=None),

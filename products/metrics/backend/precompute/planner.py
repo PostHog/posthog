@@ -19,7 +19,12 @@ import re2
 
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MetricFilter, MetricQueryClause, MetricQueryRequest
+from products.metrics.backend.facade.contracts import (
+    MetricFilter,
+    MetricQueryClause,
+    MetricQueryRequest,
+    MetricQueryTooManyRowsError,
+)
 from products.metrics.backend.facade.enums import (
     FilterOp,
     MetricAggregation,
@@ -28,6 +33,7 @@ from products.metrics.backend.facade.enums import (
     PrecomputedMetricKind,
 )
 from products.metrics.backend.metric_query_runner import (
+    _ROW_LIMIT,
     MetricQueryRunner,
     _align_to_interval,
     _finite_or_none,
@@ -43,13 +49,16 @@ from products.metrics.backend.precompute.definitions import (
     leaf_for_clause,
 )
 from products.metrics.backend.precompute.fill import whole_hour_offset
-from products.metrics.backend.precompute.store import HOUR, Entry, read_entries
+from products.metrics.backend.precompute.store import HOUR, Entry, EntryKey, read_entries
 
 # A tile over a shorter range reads little raw data, so it doesn't create a precomputed metric.
 MIN_RANGE_TO_CREATE = dt.timedelta(days=1)
 # Past this, the raw tail would cost about as much as the raw query.
 MAX_RAW_TAIL = dt.timedelta(days=1)
 _LAST_USED_RESOLUTION = dt.timedelta(hours=1)
+# Stored label-set hours that one request may load. Past this, the clause runs raw under ClickHouse's limits.
+MAX_STORED_POINTS = 500_000
+_METRIC_NAME_MAX_LENGTH = MetricPrecomputedMetric._meta.get_field("metric_name").max_length
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +74,11 @@ class ClausePlan:
 
 @lru_cache(maxsize=256)
 def _compile(pattern: str) -> re2._Regexp:
-    return re2.compile(pattern)
+    """Raises `ValueError` for a pattern that RE2 rejects. A dot matches a newline, as in ClickHouse `match`."""
+    try:
+        return re2.compile(f"(?s){pattern}")
+    except re2.error as exc:
+        raise ValueError(f"The filter regex cannot be used: {exc}") from exc
 
 
 def _matches(filter: MetricFilter, value: str) -> bool:
@@ -87,9 +100,20 @@ def _is_rate(clause: MetricQueryClause) -> bool:
 
 def plan_clause(team: Team, clause: MetricQueryClause, request: MetricQueryRequest) -> ClausePlan | str:
     """Plan one clause, or return why it runs raw. The first long-range tile that needs a metric creates it."""
+    if team.parent_team_id is not None:
+        # Precomputed metrics are stored per project, but samples are per environment.
+        return "precomputing is not available in a child environment"
     leaf = leaf_for_clause(clause)
     if isinstance(leaf, str):
         return leaf
+    if _METRIC_NAME_MAX_LENGTH is not None and len(leaf.metric_name) > _METRIC_NAME_MAX_LENGTH:
+        return "the metric name is too long to precompute"
+    try:
+        for filter in clause.filters:
+            if filter.op in (FilterOp.REGEX, FilterOp.NOT_REGEX):
+                _compile(filter.value)
+    except ValueError:
+        return "a filter regex cannot be used"
     interval = _resolve_interval(request.date_from, request.date_to, request.interval)
     if _interval_step(interval) % HOUR or _interval_step(interval) < HOUR:
         return "the interval is shorter than an hour"
@@ -127,15 +151,34 @@ def _touch(precomputed_metric: MetricPrecomputedMetric) -> None:
         )
 
 
+class TooManyStoredPointsError(Exception):
+    """The stored range holds more label-set hours than one request may load."""
+
+
+StoredEntries = dict[EntryKey, Entry]
+
+
+def read_plan_entries(plan: ClausePlan, cache: dict[tuple, StoredEntries]) -> StoredEntries:
+    """The stored entries before the plan's cut, shared between clauses that read the same metric and range.
+    Raises `TooManyStoredPointsError` past `MAX_STORED_POINTS`."""
+    key = (plan.precomputed_metric.pk, plan.date_from, plan.cut)
+    if key not in cache:
+        entries = read_entries(plan.precomputed_metric, plan.date_from, plan.cut)
+        if sum(len(entry.points) for entry in entries.values()) > MAX_STORED_POINTS:
+            raise TooManyStoredPointsError
+        cache[key] = entries
+    return cache[key]
+
+
 class PrecomputedClauseRunner:
     """Rows shaped like `MetricQueryRunner.run`: stored buckets before the cut, the ordinary runner after it."""
 
-    def __init__(self, team: Team, request: MetricQueryRequest, plan: ClausePlan) -> None:
+    def __init__(self, team: Team, request: MetricQueryRequest, plan: ClausePlan, entries: StoredEntries) -> None:
         self.team = team
         self.request = request
         self.plan = plan
-        # Read here, on the caller's thread: `run` runs on a worker thread, which shouldn't take a Postgres connection.
-        self.entries = read_entries(plan.precomputed_metric, plan.date_from, plan.cut)
+        # Read by the caller, on its thread: `run` runs on a worker thread, which shouldn't take a Postgres connection.
+        self.entries = entries
 
     def _runner(self, date_from: dt.datetime, date_to: dt.datetime) -> MetricQueryRunner:
         clause = self.plan.clause
@@ -158,9 +201,12 @@ class PrecomputedClauseRunner:
         plan = self.plan
         entries = self.entries
         if plan.precomputed_metric.kind == PrecomputedMetricKind.HISTOGRAM:
+            # Quantiles group by time, so they get UTC times, which stay apart across a DST fallback.
             rows = self._runner(self.request.date_from, self.request.date_to).quantile_rows(
                 self._histogram_results(entries.values())
             )
+            for row in rows:
+                row["time"] = self._local(dt.datetime.fromisoformat(row["time"])).isoformat()
         else:
             rows = self._counter_rows(entries.values())
         if plan.cut < self.request.date_to:
@@ -175,48 +221,66 @@ class PrecomputedClauseRunner:
         return tuple(values[group.key] for group in self.plan.clause.group_by)
 
     def _bucket(self, hour: dt.datetime) -> dt.datetime:
-        tzinfo = self.team.timezone_info
-        return _align_to_interval(hour, self.plan.interval, tzinfo=tzinfo).astimezone(tzinfo)
+        """The bucket's start in UTC. A local time would make the two repeated hours of a DST fallback equal keys."""
+        return _align_to_interval(hour, self.plan.interval, tzinfo=self.team.timezone_info)
+
+    def _local(self, time: dt.datetime) -> dt.datetime:
+        return time.astimezone(self.team.timezone_info)
+
+    @staticmethod
+    def _check_row_budget(rows: dict) -> None:
+        if len(rows) >= _ROW_LIMIT:
+            raise MetricQueryTooManyRowsError(
+                "query produced too many (time bucket, series) rows; "
+                "use a coarser interval, a narrower range, an aggregation, or a lower-cardinality group_by"
+            )
 
     def _counter_rows(self, entries: Sequence[Entry] | Any) -> list[dict[str, Any]]:
         divisor = _interval_step(self.plan.interval).total_seconds() if _is_rate(self.plan.clause) else 1.0
         sums: dict[tuple[dt.datetime, tuple[str, ...]], float] = {}
-        fingerprints: dict[tuple[dt.datetime, tuple[str, ...]], set[int]] = {}
+        # An entry's fingerprints cover its whole range, so they're kept once per group, not per bucket.
+        fingerprints: dict[tuple[str, ...], set[int]] = {}
         for entry in entries:
             group = self._kept(entry)
             if group is None:
                 continue
+            fingerprints.setdefault(group, set()).update(entry.fingerprints)
             for hour, value in entry.points.items():
                 key = (self._bucket(hour), group)
+                if key not in sums:
+                    self._check_row_budget(sums)
                 sums[key] = sums.get(key, 0.0) + float(value)  # type: ignore[arg-type]
-                fingerprints.setdefault(key, set()).update(entry.fingerprints)
+        sorted_fingerprints = {group: sorted(values) for group, values in fingerprints.items()}
         group_keys = [group.key for group in self.plan.clause.group_by]
         return [
             {
-                "time": time.isoformat(),
+                "time": self._local(time).isoformat(),
                 "value": _finite_or_none(total / divisor),
                 "labels": dict(zip(group_keys, group)),
-                "series_fingerprints": sorted(fingerprints[(time, group)]),
+                "series_fingerprints": sorted_fingerprints[group],
             }
             for (time, group), total in sorted(sums.items())
         ]
 
     def _histogram_results(self, entries: Sequence[Entry] | Any) -> list[Any]:
-        """Rows shaped like `MetricQueryRunner.histogram_rows`, summed from the stored hours."""
+        """Rows shaped like `MetricQueryRunner.histogram_rows`, summed from the stored hours, with UTC times."""
         counts: dict[tuple[dt.datetime, tuple[str, ...], tuple[float, ...], str], list[float]] = {}
-        fingerprints: dict[tuple[dt.datetime, tuple[str, ...], tuple[float, ...], str], set[int]] = {}
+        fingerprints: dict[tuple[tuple[str, ...], tuple[float, ...], str], set[int]] = {}
         for entry in entries:
             group = self._kept(entry)
             if group is None:
                 continue
+            fingerprints.setdefault((group, entry.bounds, entry.metric_type), set()).update(entry.fingerprints)
             for hour, value in entry.points.items():
                 key = (self._bucket(hour), group, entry.bounds, entry.metric_type)
+                if key not in counts:
+                    self._check_row_budget(counts)
                 summed = counts.setdefault(key, [0.0] * len(value))  # type: ignore[arg-type]
                 for index, count in enumerate(value):  # type: ignore[arg-type]
                     summed[index] += count
-                fingerprints.setdefault(key, set()).update(entry.fingerprints)
+        sorted_fingerprints = {layout: sorted(values) for layout, values in fingerprints.items()}
         return [
-            (time, *group, list(bounds), summed, sorted(fingerprints[key]), metric_type)
+            (time, *group, list(bounds), summed, sorted_fingerprints[(group, bounds, metric_type)], metric_type)
             for key, summed in sorted(counts.items())
             for time, group, bounds, metric_type in [key]
         ]
