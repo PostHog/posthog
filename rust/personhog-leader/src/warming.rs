@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
+use lru::LruCache;
 use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
 use rdkafka::consumer::{Consumer, StreamConsumer};
@@ -18,7 +19,10 @@ use personhog_coordination::error::{Error as CoordError, Result as CoordResult};
 use personhog_coordination::types::ClusterEndpoint;
 use personhog_proto::personhog::types::v1::Person;
 
-use crate::cache::{CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey, Stream};
+use crate::cache::{
+    CachedPerson, DirtyIndex, DirtyMark, FillOutcome, PartitionedCache, PersonCache,
+    PersonCacheKey, Stream,
+};
 
 /// Retry policy for transient warming-metadata failures.
 #[derive(Clone, Copy)]
@@ -500,7 +504,7 @@ async fn warm_source(
     partition: u32,
     source: &WarmSource,
     committed_offset: Option<i64>,
-) -> CoordResult<u64> {
+) -> CoordResult<(u64, i64)> {
     let partition_i32 = i32::try_from(source.partition).map_err(|_| {
         CoordError::invalid_state(format!("partition {} exceeds i32::MAX", source.partition))
     })?;
@@ -561,13 +565,73 @@ async fn warm_source(
         if let Ok(consumer) = Arc::try_unwrap(consumer) {
             pools.warming.give_back(consumer);
         }
-        return Ok(0);
+        return Ok((0, start_offset.min(hwm)));
     }
 
     let span_start = Instant::now();
+    let mut consumed: u64 = 0;
+    consume_range(
+        cfg,
+        &consumer,
+        &source.topic,
+        partition_i32,
+        partition,
+        start_offset,
+        hwm,
+        |offset, cached| {
+            // An old partition also holds keys that now belong elsewhere.
+            if let Some(keep) = &source.keep {
+                if partition_for_person(cached.team_id, cached.id, keep.modulus) != keep.target {
+                    return;
+                }
+            }
+            consumed += 1;
+            let key = PersonCacheKey {
+                team_id: cached.team_id,
+                person_id: cached.id,
+            };
+            // PG may not hold a replayed record yet: mark before insert, so a
+            // miss after an eviction recovers from the changelog, not PG.
+            dirty_index.mark(
+                key.clone(),
+                DirtyMark {
+                    version: cached.version,
+                    offset,
+                    partition,
+                    stream: stream.clone(),
+                    is_deleted: cached.is_deleted,
+                },
+            );
+            cache.warm_put(partition, key, cached);
+        },
+    )
+    .await?;
+
+    record_warm_span("consume", span_start);
+
+    // Every error path above dropped the consumer: a client that just failed is not pool material.
+    if let Ok(consumer) = Arc::try_unwrap(consumer) {
+        pools.warming.give_back(consumer);
+    }
+
+    Ok((consumed, start_offset))
+}
+
+/// Deliver every record in `[start, end)`, oldest first; `end` must not pass the log's end.
+#[allow(clippy::too_many_arguments)]
+async fn consume_range(
+    cfg: &WarmingConfig,
+    consumer: &StreamConsumer,
+    topic: &str,
+    partition_i32: i32,
+    partition: u32,
+    start: i64,
+    end: i64,
+    mut on_record: impl FnMut(i64, CachedPerson),
+) -> CoordResult<()> {
     let mut assign_tpl = TopicPartitionList::new();
     assign_tpl
-        .add_partition_offset(&source.topic, partition_i32, Offset::Offset(start_offset))
+        .add_partition_offset(topic, partition_i32, Offset::Offset(start))
         .map_err(|e| CoordError::invalid_state(format!("tpl add_partition_offset: {e}")))?;
     consumer
         .assign(&assign_tpl)
@@ -578,7 +642,7 @@ async fn warm_source(
 
     // A transactionally-produced range can end in control records
     // (commit/abort markers) that `recv` never delivers, so reaching the
-    // HWM is only observable through the fetch position advancing past
+    // end is only observable through the fetch position advancing past
     // them. Poll in short slices and consult the position when quiet;
     // `cfg.recv_timeout` still bounds the total quiet time before the
     // warm is declared stalled.
@@ -625,7 +689,7 @@ async fn warm_source(
                 if quiet_since.elapsed() >= cfg.recv_timeout {
                     return Err(CoordError::invalid_state(format!(
                         "warm stalled on repeated consumer errors (last: {code:?}); \
-                         consumed {consumed} msgs, last_offset={last_offset}, hwm={hwm}",
+                         consumed {consumed} msgs, last_offset={last_offset}, end={end}",
                     )));
                 }
                 counter!(
@@ -653,14 +717,14 @@ async fn warm_source(
                 let position_reached = consumer
                     .position()
                     .map_err(|e| CoordError::invalid_state(format!("warm position: {e}")))?
-                    .find_partition(&source.topic, partition_i32)
-                    .is_some_and(|elem| matches!(elem.offset(), Offset::Offset(p) if p >= hwm));
+                    .find_partition(topic, partition_i32)
+                    .is_some_and(|elem| matches!(elem.offset(), Offset::Offset(p) if p >= end));
                 if position_reached {
                     break;
                 }
                 if quiet_since.elapsed() >= cfg.recv_timeout {
                     return Err(CoordError::invalid_state(format!(
-                        "warm timeout; consumed {consumed} msgs, last_offset={last_offset}, hwm={hwm}",
+                        "warm timeout; consumed {consumed} msgs, last_offset={last_offset}, end={end}",
                     )));
                 }
                 continue;
@@ -669,6 +733,10 @@ async fn warm_source(
         quiet_since = Instant::now();
 
         let offset = msg.offset();
+        // A range whose tail holds no records delivers the one after it.
+        if offset >= end {
+            break;
+        }
         last_offset = offset;
 
         if let Some(payload) = msg.payload() {
@@ -680,33 +748,8 @@ async fn warm_source(
                     "warm properties decode failed at offset {offset}: {e}"
                 ))
             })?;
-            let key = PersonCacheKey {
-                team_id: cached.team_id,
-                person_id: cached.id,
-            };
-            // An old partition also holds keys that now belong elsewhere.
-            if let Some(keep) = &source.keep {
-                if partition_for_person(cached.team_id, cached.id, keep.modulus) != keep.target {
-                    if offset + 1 >= hwm {
-                        break;
-                    }
-                    continue;
-                }
-            }
             consumed += 1;
-            // PG may not hold a replayed record yet: mark before insert, so a
-            // miss after an eviction recovers from the changelog, not PG.
-            dirty_index.mark(
-                key.clone(),
-                DirtyMark {
-                    version: cached.version,
-                    offset,
-                    partition,
-                    stream: stream.clone(),
-                    is_deleted: cached.is_deleted,
-                },
-            );
-            cache.warm_put(partition, key, cached);
+            on_record(offset, cached);
         } else {
             // The writer never produces null-payload (tombstone) records
             // to `personhog_updates` today. If one ever appears it would
@@ -722,24 +765,15 @@ async fn warm_source(
             );
         }
 
-        // HWM is exclusive — it's one past the last offset present.
-        if offset + 1 >= hwm {
+        // end is exclusive — it's one past the last offset present.
+        if offset + 1 >= end {
             break;
         }
         }
         Ok(())
     }
     .await;
-    consume_result?;
-
-    record_warm_span("consume", span_start);
-
-    // Every error path above dropped the consumer: a client that just failed is not pool material.
-    if let Ok(consumer) = Arc::try_unwrap(consumer) {
-        pools.warming.give_back(consumer);
-    }
-
-    Ok(consumed)
+    consume_result
 }
 
 /// Every source is sealed or fenced, so each replay runs to a known end.
@@ -750,7 +784,8 @@ pub async fn warm_from_sources(
     dirty_index: &DirtyIndex,
     partition: u32,
     sources: &[WarmSource],
-) -> CoordResult<()> {
+    track_puts: bool,
+) -> CoordResult<i64> {
     let start = Instant::now();
     // Every writer position is read before any replay: a live position read
     // after the writer left an old generation would skip records newer than
@@ -773,6 +808,9 @@ pub async fn warm_from_sources(
     }
     // The build is invisible and evicts under the serving budget until the publish.
     cache.begin_warm_partition(partition);
+    if track_puts {
+        cache.track_puts(partition);
+    }
     let mut cleanup = WarmCleanup {
         cache,
         dirty_index,
@@ -780,9 +818,13 @@ pub async fn warm_from_sources(
         armed: true,
     };
     let mut consumed = 0u64;
+    // The live source is last; its start is where a fill of this build reads up to.
+    let mut live_start = 0;
     for (source, committed) in sources.iter().zip(committed) {
-        consumed +=
+        let (records, start_offset) =
             warm_source(cfg, pools, cache, dirty_index, partition, source, committed).await?;
+        consumed += records;
+        live_start = start_offset;
     }
 
     let resident_bytes = cache.warm_usage_bytes(partition) as u64;
@@ -802,7 +844,217 @@ pub async fn warm_from_sources(
     );
     histogram!("personhog_leader_warm_duration_ms").record(elapsed.as_secs_f64() * 1000.0);
     counter!("personhog_leader_warmed_messages_total").increment(consumed);
-    Ok(())
+    Ok(live_start)
+}
+
+/// A fill leaves this much of the budget to the traffic that follows it.
+pub const FILL_ROOM_FRACTION: f64 = 0.9;
+
+/// How far back a fill reads, and in what steps.
+#[derive(Debug, Clone, Copy)]
+pub struct FillConfig {
+    pub lookback: Duration,
+    /// Offsets per backward step; a transactional topic spends about half on markers.
+    pub chunk_offsets: i64,
+    /// The fill stops once the cache holds this fraction of its budget.
+    pub room_fraction: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FillEnd {
+    /// Reached the lookback bound or the start of the log.
+    Bound,
+    Budget,
+    /// Put tracking passed its bound.
+    Stopped,
+}
+
+impl FillEnd {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Bound => "bound",
+            Self::Budget => "budget",
+            Self::Stopped => "stopped",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FillStats {
+    pub records: u64,
+    pub inserted: u64,
+    pub end: FillEnd,
+}
+
+/// The first offset written at or after `since_ms`, capped at `upper`.
+pub async fn lookback_offset(
+    cfg: &WarmingConfig,
+    pools: &WarmClientPools,
+    source: &WarmSource,
+    since_ms: i64,
+    upper: i64,
+) -> CoordResult<i64> {
+    let partition_i32 = i32::try_from(source.partition).map_err(|_| {
+        CoordError::invalid_state(format!("partition {} exceeds i32::MAX", source.partition))
+    })?;
+    let pools = pools.on(source.cluster.as_ref());
+    let consumer = pools.warming.checkout()?;
+    let topic = Arc::clone(&source.topic);
+    let timeout = cfg.fetch_watermarks_timeout;
+    let (consumer, found) = tokio::task::spawn_blocking(move || {
+        let mut tpl = TopicPartitionList::new();
+        let found = tpl
+            .add_partition_offset(&topic, partition_i32, Offset::Offset(since_ms))
+            .and_then(|()| consumer.offsets_for_times(tpl, timeout))
+            .map_err(|e| CoordError::invalid_state(format!("offsets for times: {e}")));
+        (consumer, found)
+    })
+    .await
+    .map_err(|e| CoordError::invalid_state(format!("offsets_for_times join: {e}")))?;
+    let found = found?;
+    pools.warming.give_back(consumer);
+    let offset = found
+        .find_partition(&source.topic, partition_i32)
+        .and_then(|elem| match elem.offset() {
+            Offset::Offset(offset) => Some(offset),
+            _ => None,
+        });
+    Ok(offset.map_or(upper, |offset| offset.min(upper)))
+}
+
+/// Refill a serving partition's cache from `[lower, upper)`, newest first, marking nothing.
+pub async fn fill_source(
+    cfg: &WarmingConfig,
+    fill: &FillConfig,
+    pools: &WarmClientPools,
+    cache: &PersonCache,
+    source: &WarmSource,
+    lower: i64,
+    upper: i64,
+) -> CoordResult<FillStats> {
+    let partition_i32 = i32::try_from(source.partition).map_err(|_| {
+        CoordError::invalid_state(format!("partition {} exceeds i32::MAX", source.partition))
+    })?;
+    let pools = pools.on(source.cluster.as_ref());
+
+    let mut stats = FillStats {
+        records: 0,
+        inserted: 0,
+        end: FillEnd::Bound,
+    };
+    let mut chunk_end = upper;
+    while chunk_end > lower {
+        let room = cache.free_room(fill.room_fraction);
+        if room == 0 {
+            stats.end = FillEnd::Budget;
+            break;
+        }
+        let chunk_start = lower.max(chunk_end - fill.chunk_offsets);
+        // Each person's newest record in the chunk, least recently written first.
+        let mut latest: LruCache<PersonCacheKey, CachedPerson> = LruCache::unbounded();
+        let mut buffered = 0usize;
+        let mut overflowed = false;
+        let consumer = pools.warming.checkout()?;
+        consume_range(
+            cfg,
+            &consumer,
+            &source.topic,
+            partition_i32,
+            source.partition,
+            chunk_start,
+            chunk_end,
+            |_offset, cached| {
+                stats.records += 1;
+                counter!("personhog_leader_cache_fill_records_total").increment(1);
+                let key = PersonCacheKey {
+                    team_id: cached.team_id,
+                    person_id: cached.id,
+                };
+                if cache.was_put(&key) {
+                    return;
+                }
+                buffered += cached.properties.len();
+                if let Some(replaced) = latest.put(key, cached) {
+                    buffered -= replaced.properties.len();
+                }
+                // A chunk holding more than the cache has room for keeps its newest persons.
+                while buffered > room {
+                    let Some((_, dropped)) = latest.pop_lru() else {
+                        break;
+                    };
+                    buffered -= dropped.properties.len();
+                    overflowed = true;
+                }
+            },
+        )
+        .await?;
+        pools.warming.give_back(consumer);
+
+        while let Some((key, person)) = latest.pop_mru() {
+            if cache.free_room(fill.room_fraction) == 0 {
+                stats.end = FillEnd::Budget;
+                return Ok(stats);
+            }
+            match cache.fill(key, person) {
+                FillOutcome::Inserted => {
+                    stats.inserted += 1;
+                    counter!("personhog_leader_cache_fill_inserted_total").increment(1);
+                }
+                FillOutcome::Skipped => {}
+                FillOutcome::NotTracking => {
+                    stats.end = FillEnd::Stopped;
+                    return Ok(stats);
+                }
+            }
+            // Encoding a chunk is CPU work; requests on this worker must not wait for all of it.
+            tokio::task::yield_now().await;
+        }
+        // A dropped person never reached the guard, so an older record of theirs must not be read.
+        if overflowed {
+            stats.end = FillEnd::Budget;
+            break;
+        }
+        chunk_end = chunk_start;
+    }
+    Ok(stats)
+}
+
+/// Run one partition's fill and record how it ended. `upper` is where its warm started.
+pub async fn run_fill(
+    cfg: &WarmingConfig,
+    fill: &FillConfig,
+    pools: &WarmClientPools,
+    cache: &PersonCache,
+    source: &WarmSource,
+    upper: i64,
+) {
+    let partition = source.partition;
+    let started = Instant::now();
+    let since_ms = chrono::Utc::now().timestamp_millis() - fill.lookback.as_millis() as i64;
+    let filled = async {
+        let lower = lookback_offset(cfg, pools, source, since_ms, upper).await?;
+        fill_source(cfg, fill, pools, cache, source, lower, upper).await
+    }
+    .await;
+    cache.stop_tracking_puts();
+    let (records, inserted, end) = match filled {
+        Ok(stats) => (stats.records, stats.inserted, stats.end.label()),
+        Err(e) => {
+            tracing::warn!(partition, error = %e, "cache fill failed; the partition serves without it");
+            (0, 0, "error")
+        }
+    };
+    counter!("personhog_leader_cache_fills_total", "end" => end).increment(1);
+    histogram!("personhog_leader_cache_fill_duration_ms")
+        .record(started.elapsed().as_secs_f64() * 1000.0);
+    tracing::info!(
+        partition,
+        records,
+        inserted,
+        end,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "cache fill finished"
+    );
 }
 
 #[cfg(test)]

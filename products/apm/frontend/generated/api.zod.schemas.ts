@@ -92,6 +92,67 @@ export const DependenciesResponseApi = zod.object({
 export type DependenciesResponseApi = zod.input<typeof DependenciesResponseApi>
 export type DependenciesResponseApiOutput = zod.output<typeof DependenciesResponseApi>
 
+export const DeploymentVersionApi = zod.object({
+    version: zod.string().describe('The service.version resource attribute.'),
+    first_seen: zod.iso.datetime({ offset: true }).describe('First span of this version in the window.'),
+    last_seen: zod.iso.datetime({ offset: true }).describe('Last span of this version in the window.'),
+    requests: zod.number().describe('Requests counted in the window.'),
+    error_count: zod.number().describe('Requests with an error status.'),
+    error_rate: zod.number().nullable().describe('Share of requests with an error status, 0 to 1.'),
+    p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
+    previous_version: zod
+        .string()
+        .nullable()
+        .describe('The version first seen just before this one. Null for the oldest.'),
+    error_rate_change: zod.number().nullable().describe("Error rate minus the previous version's, as a fraction."),
+    p95_change_pct: zod.number().nullable().describe('Change in p95 from the previous version, in percent.'),
+    active: zod.boolean().describe('True for the version first seen most recently.'),
+})
+
+export type DeploymentVersionApi = zod.input<typeof DeploymentVersionApi>
+export type DeploymentVersionApiOutput = zod.output<typeof DeploymentVersionApi>
+
+export const DeploymentsResponseApi = zod.object({
+    results: zod
+        .array(
+            zod.object({
+                version: zod.string().describe('The service.version resource attribute.'),
+                first_seen: zod.iso.datetime({ offset: true }).describe('First span of this version in the window.'),
+                last_seen: zod.iso.datetime({ offset: true }).describe('Last span of this version in the window.'),
+                requests: zod.number().describe('Requests counted in the window.'),
+                error_count: zod.number().describe('Requests with an error status.'),
+                error_rate: zod.number().nullable().describe('Share of requests with an error status, 0 to 1.'),
+                p95_ms: zod.number().nullable().describe('95th percentile request duration in milliseconds.'),
+                previous_version: zod
+                    .string()
+                    .nullable()
+                    .describe('The version first seen just before this one. Null for the oldest.'),
+                error_rate_change: zod
+                    .number()
+                    .nullable()
+                    .describe("Error rate minus the previous version's, as a fraction."),
+                p95_change_pct: zod
+                    .number()
+                    .nullable()
+                    .describe('Change in p95 from the previous version, in percent.'),
+                active: zod.boolean().describe('True for the version first seen most recently.'),
+            })
+        )
+        .describe('One row per version, oldest first.'),
+    service: zod.string().describe('The service the versions belong to.'),
+    environment: zod
+        .string()
+        .nullable()
+        .describe(
+            'The environment filter the rows were computed for: null for every environment, empty for spans with no environment.'
+        ),
+    date_from: zod.iso.datetime({ offset: true }).describe('Start of the window used.'),
+    date_to: zod.iso.datetime({ offset: true }).describe('End of the window used.'),
+})
+
+export type DeploymentsResponseApi = zod.input<typeof DeploymentsResponseApi>
+export type DeploymentsResponseApiOutput = zod.output<typeof DeploymentsResponseApi>
+
 export const TimeSpentComponentKindEnumApi = zod
     .enum(['service', 'inferred', 'other'])
     .describe('\* `service` - Service\n\* `inferred` - Inferred\n\* `other` - Other')
@@ -175,7 +236,19 @@ export type HealthRowApiOutput = zod.output<typeof HealthRowApi>
 
 export const EndpointHealthApi = zod.object({
     service_name: zod.string().describe('The service.name resource attribute.'),
-    endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
+    endpoint: zod
+        .string()
+        .describe(
+            'The endpoint label: the entry span name, or \"<METHOD> <route>\" when the span name is only an HTTP method and the span carries a route.'
+        ),
+    span_name: zod.string().describe('The raw entry span name the row counts, for tracing filters.'),
+    route_attribute: zod
+        .string()
+        .nullable()
+        .describe(
+            'The span attribute the route came from (http.route or url.template), or null when the label is the span name.'
+        ),
+    route: zod.string().nullable().describe('The route appended to the span name, or null.'),
     environment: zod
         .string()
         .nullable()
@@ -207,7 +280,19 @@ export const EndpointsHealthResponseApi = zod.object({
         .array(
             zod.object({
                 service_name: zod.string().describe('The service.name resource attribute.'),
-                endpoint: zod.string().describe('The entry span name, for example the HTTP route or the job name.'),
+                endpoint: zod
+                    .string()
+                    .describe(
+                        'The endpoint label: the entry span name, or \"<METHOD> <route>\" when the span name is only an HTTP method and the span carries a route.'
+                    ),
+                span_name: zod.string().describe('The raw entry span name the row counts, for tracing filters.'),
+                route_attribute: zod
+                    .string()
+                    .nullable()
+                    .describe(
+                        'The span attribute the route came from (http.route or url.template), or null when the label is the span name.'
+                    ),
+                route: zod.string().nullable().describe('The route appended to the span name, or null.'),
                 environment: zod
                     .string()
                     .nullable()

@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.bland_ai._config import BlandAISourceCon
 from products.warehouse_sources.sources.bland_ai.bland_ai import (
     BASE_URL,
     EVALS_PAGE_SIZE,
+    MAX_PAGE_SIZE,
     PAGE_SIZE,
     SMS_PAGE_SIZE,
     BlandAIResumeConfig,
@@ -316,6 +317,13 @@ class TestLookupEndpoints:
             ("inbound_numbers", "v1/inbound", "inbound_numbers", {"phone_number": "+15550001111"}, "phone_number"),
             ("voices", "v1/voices", "voices", {"id": "voice-1", "name": "Karen"}, "id"),
             ("web_agents", "v1/agents", "agents", {"agent_id": "agent-1", "voice": "Karen"}, "agent_id"),
+            (
+                "agent_test_scenarios",
+                "v1/agent-testing/scenarios",
+                "scenarios",
+                {"id": "scn-1", "name": "Booking flow"},
+                "id",
+            ),
         ]
     )
     def test_single_page_lookup_selects_rows(
@@ -327,6 +335,149 @@ class TestLookupEndpoints:
         assert len(result.rows) == 1
         assert result.rows[0][key] == row[key]
         assert result.paths == [f"/{path}"]
+
+
+class TestPaginatedLists:
+    @parameterized.expand(
+        [
+            # Offset pagination stops once `total_count` rows are read, without an extra request.
+            (
+                "agent_test_runs",
+                [
+                    ScriptedResponse(
+                        json={
+                            "runs": [{"id": f"run{i}"} for i in range(MAX_PAGE_SIZE)],
+                            "total_count": MAX_PAGE_SIZE + 1,
+                        }
+                    ),
+                    ScriptedResponse(json={"runs": [{"id": "runlast"}], "total_count": MAX_PAGE_SIZE + 1}),
+                ],
+                MAX_PAGE_SIZE + 1,
+                "offset",
+                ["0", str(MAX_PAGE_SIZE)],
+                "/v1/agent-testing/runs",
+            ),
+            # `data.total` counts items, not pages, so the walk ends on the first empty page.
+            (
+                "knowledge_bases",
+                [
+                    ScriptedResponse(json={"data": {"kbs": [{"id": "kb1"}, {"id": "kb2"}], "total": 3}}),
+                    ScriptedResponse(json={"data": {"kbs": [{"id": "kb3"}], "total": 3}}),
+                    ScriptedResponse(json={"data": {"kbs": [], "total": 3}}),
+                ],
+                3,
+                "page",
+                ["1", "2", "3"],
+                "/v1/knowledge",
+            ),
+        ]
+    )
+    def test_walks_pages_to_the_end(
+        self,
+        endpoint: str,
+        responses: list[ScriptedResponse],
+        expected_rows: int,
+        page_param: str,
+        expected_pages: list[str],
+        path: str,
+    ) -> None:
+        result = _driver().run(endpoint, responses)
+
+        assert result.raised is None
+        assert len(result.rows) == expected_rows
+        assert result.params(page_param) == expected_pages
+        assert result.params("limit") == [str(MAX_PAGE_SIZE)] * len(expected_pages)
+        assert set(result.paths) == {path}
+
+
+class TestWidgetThreads:
+    def test_fans_out_over_widgets_and_pages_each_one(self) -> None:
+        result = _driver().run(
+            "widget_threads",
+            [
+                ScriptedResponse(json={"status": 200, "data": [{"id": "w1"}, {"id": "w2"}], "errors": None}),
+                ScriptedResponse(
+                    json={
+                        "data": {
+                            "threads": [
+                                {"id": "t1", "created_at": "2026-01-01T00:00:00Z", "messages": [{"id": "m1"}]},
+                            ],
+                            "total": 1,
+                        }
+                    }
+                ),
+                ScriptedResponse(json={"data": {"threads": [], "total": 1}}),
+                # A widget with no threads yet must not break the batch.
+                ScriptedResponse(json={"data": {"threads": [], "total": 0}}),
+            ],
+        )
+
+        assert result.raised is None
+        # Thread ids aren't documented as globally unique, so the parent id must reach every row.
+        assert [(row["widget_id"], row["id"]) for row in result.rows] == [("w1", "t1")]
+        assert result.rows[0]["messages"] == [{"id": "m1"}]
+        assert result.paths == [
+            "/v1/widgets",
+            "/v1/widget/w1/threads",
+            "/v1/widget/w1/threads",
+            "/v1/widget/w2/threads",
+        ]
+        # The second widget starts again at page 1.
+        assert result.params("page") == [None, "1", "2", "1"]
+
+
+def _audit_page(ids: list[str], total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "data": {
+                "events": [{"id": i, "created_at": "2026-01-01T00:00:00.000Z"} for i in ids],
+                "total_pages": total_pages,
+            },
+            "errors": None,
+        }
+    )
+
+
+class TestAuditLogs:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None, None),
+            ("incremental", True, datetime(2026, 1, 5, tzinfo=UTC), "2026-01-05T00:00:00+00:00"),
+            # The first incremental run has no watermark yet, so it reads the whole log.
+            ("incremental_first_run", True, None, None),
+        ]
+    )
+    def test_filters_on_watermark_and_stops_at_total_pages(
+        self, _name: str, incremental: bool, last_value: datetime | None, expected_filter: str | None
+    ) -> None:
+        result = _driver().run(
+            "audit_logs",
+            [_audit_page(["e1"], 2), _audit_page(["e2"], 2)],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["e1", "e2"]
+        assert result.paths == ["/v1/audit-logs", "/v1/audit-logs"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("page_size") == [str(MAX_PAGE_SIZE)] * 2
+        assert result.params("created_after") == [expected_filter] * 2
+
+    def test_resumes_from_saved_page_and_filter(self) -> None:
+        saved_filter = "2026-01-05T00:00:00+00:00"
+        result = _driver().run(
+            "audit_logs",
+            [_audit_page(["e3"], 3)],
+            resume_state=BlandAIResumeConfig(page=3, start_date=saved_filter),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 7, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["e3"]
+        assert result.requests[0].param("page") == "3"
+        assert result.requests[0].param("created_after") == saved_filter
 
 
 class TestPathwayVersions:
@@ -423,10 +574,16 @@ class TestBlandAISourceResponse:
             ("inbound_numbers", ["phone_number"], None),
             ("personas", ["id"], None),
             ("voices", ["id"], None),
+            # Audit events always arrive newest first, so the table must not claim ascending order.
+            ("audit_logs", ["id"], ["created_at"], None),
         ]
     )
     def test_source_response_shape(
-        self, endpoint: str, primary_keys: list[str], partition_keys: list[str] | None
+        self,
+        endpoint: str,
+        primary_keys: list[str],
+        partition_keys: list[str] | None,
+        sort_mode: str | None = "asc",
     ) -> None:
         empty_responses: dict[str, Any] = {
             "calls": {"total_count": 0, "count": 0, "calls": []},
@@ -437,6 +594,7 @@ class TestBlandAISourceResponse:
             "inbound_numbers": {"inbound_numbers": []},
             "personas": {"data": []},
             "voices": {"voices": []},
+            "audit_logs": {"data": {"events": [], "total_pages": 0}},
         }
         result = _driver().run(endpoint, [ScriptedResponse(json=empty_responses[endpoint])])
 
@@ -447,5 +605,4 @@ class TestBlandAISourceResponse:
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys
         assert response.partition_mode == ("datetime" if partition_keys else None)
-        # Call listings request ascending=true&sort_by=created_at.
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == sort_mode

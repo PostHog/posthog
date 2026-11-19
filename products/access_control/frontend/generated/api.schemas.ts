@@ -664,6 +664,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
  * * `business_knowledge` - business_knowledge
+ * * `canvas` - canvas
  * * `code_review_approval` - code_review_approval
  * * `customer_analytics` - customer_analytics
  * * `customer_journey` - customer_journey
@@ -724,6 +725,7 @@ export const RuleResourceEnumApi = {
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
     BusinessKnowledge: 'business_knowledge',
+    Canvas: 'canvas',
     CodeReviewApproval: 'code_review_approval',
     CustomerAnalytics: 'customer_analytics',
     CustomerJourney: 'customer_journey',
@@ -789,6 +791,7 @@ export interface AccessControlRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
@@ -1077,6 +1080,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
@@ -1397,6 +1401,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
      * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey

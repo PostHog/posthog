@@ -1160,6 +1160,34 @@ describe('taskTrackerSceneLogic', () => {
         overrides.unmount()
     })
 
+    // Warm sandboxes are GitHub-only, and the backend rejects a GitLab integration sent with a GitHub one.
+    it('creates a GitLab task cold and gives back a warm sandbox held for GitHub', async () => {
+        const warm = taskWarmLogic({ panelId: undefined })
+        warm.mount()
+        warm.actions.setWarmLease({ key: 'k', taskId: 'warm-task', runId: 'warm-run' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().clearHistory()
+
+        await expectLogic(logic, () => {
+            logic.actions.setNewTaskData({
+                repositoryConfig: { integrationId: 7, repositoryIntegrationId: 12, repository: 'acme/platform/api' },
+            })
+            logic.actions.setNewTaskData({ description: 'fix the flaky job' })
+        })
+            .toNotHaveDispatchedActions(['noteDraft'])
+            .toFinishAllListeners()
+        expect(cancelledWarmRuns).toEqual(['warm-run'])
+
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ repository: 'acme/platform/api', repository_integration: 12 })
+        expect(createBody).not.toHaveProperty('github_integration')
+        expect(createBody).not.toHaveProperty('branch')
+        expect(runBody).toMatchObject({ branch: null })
+        expect(logic.values.persistedRepositoryConfig).toEqual({})
+        warm.unmount()
+    })
+
     it('keeps runner composer settings independent of scene overrides', () => {
         const overrides = composerOverrideLogic()
         const headlines = welcomeOverrideLogic()

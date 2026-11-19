@@ -175,11 +175,18 @@ const producedResult = (
     produced: Produced,
     invocationId: string,
     scheduledAt: Date | null,
-    replyFields: Record<string, number>
+    replyFields: Record<string, number>,
+    senderKind: SenderKind | undefined
 ): TransactionalSendResult => {
     switch (produced) {
         case 'accepted':
-            return { outcome: 'queued', invocationId, scheduledAt: scheduledAt?.toISOString() ?? null, replyFields }
+            return {
+                outcome: 'queued',
+                invocationId,
+                scheduledAt: scheduledAt?.toISOString() ?? null,
+                replyFields,
+                senderKind,
+            }
         case 'unavailable':
             return { outcome: 'intake_unavailable' }
         case 'too_large':
@@ -460,7 +467,7 @@ export class TransactionalSends {
             if (isAsync) {
                 stages.start('intake_produce')
                 const produced = await this.deps.runIntake.produce(run)
-                return producedResult(produced, invocation.id, scheduledAt, attachmentTotals)
+                return producedResult(produced, invocation.id, scheduledAt, attachmentTotals, senderKind)
             }
             stages.start('queue_insert')
             committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]

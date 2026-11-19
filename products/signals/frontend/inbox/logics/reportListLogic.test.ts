@@ -12,6 +12,7 @@ import { initKeaTests } from '~/test/init'
 import { myClaim } from '../__mocks__/inboxMocks'
 import {
     INBOX_SCOPE_CLAIMED_BY_YOU,
+    INBOX_SCOPE_NEEDS_YOU,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
@@ -244,22 +245,35 @@ describe('reportListLogic', () => {
         )
 
         // A teammate scope also names the teammate as the ranking owner, so `sort=personal` reads their ranking.
+        // A Needs you scope stored while its flag is off falls back to For you.
         it.each([
             { scope: INBOX_SCOPE_FOR_YOU, sent: { suggested_reviewers: MOCK_USER_UUID } },
             { scope: INBOX_SCOPE_CLAIMED_BY_YOU, sent: { assignee: 'mine' } },
+            { scope: INBOX_SCOPE_NEEDS_YOU, needsYouFlag: true, sent: { needs_you: 'true' } },
+            { scope: INBOX_SCOPE_NEEDS_YOU, needsYouFlag: false, sent: { suggested_reviewers: MOCK_USER_UUID } },
             {
                 scope: 'teammate:t-1',
                 sent: { suggested_reviewers: 't-1', scope: 'teammate', teammate_uuid: 't-1' },
             },
             { scope: INBOX_SCOPE_ENTIRE_PROJECT, sent: {} },
-        ] as { scope: InboxScope; sent: Record<string, string> }[])(
-            'narrows the $scope request to $sent',
-            ({ scope, sent }) => {
+        ] as { scope: InboxScope; needsYouFlag?: boolean; sent: Record<string, string> }[])(
+            'narrows the $scope request to $sent with the Needs you flag $needsYouFlag',
+            ({ scope, needsYouFlag, sent }) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_NEEDS_YOU_SCOPE], {
+                    [FEATURE_FLAGS.INBOX_NEEDS_YOU_SCOPE]: !!needsYouFlag,
+                })
                 logic.actions.setScope(scope)
-                const { suggested_reviewers, assignee, scope: sentScope, teammate_uuid } = logic.values.listApiParams
-                expect({ suggested_reviewers, assignee, scope: sentScope, teammate_uuid }).toEqual({
+                const {
+                    suggested_reviewers,
+                    assignee,
+                    needs_you,
+                    scope: sentScope,
+                    teammate_uuid,
+                } = logic.values.listApiParams
+                expect({ suggested_reviewers, assignee, needs_you, scope: sentScope, teammate_uuid }).toEqual({
                     suggested_reviewers: undefined,
                     assignee: undefined,
+                    needs_you: undefined,
                     scope: undefined,
                     teammate_uuid: undefined,
                     ...sent,

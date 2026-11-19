@@ -20,6 +20,7 @@ import { ReportPullRequest, reportPullRequests } from '../../utils/reportPullReq
 import { STATUS_LABELS } from '../badges/SignalReportStatusBadge'
 import { DetailSection } from './DetailSection'
 import { ReportDecisionRow } from './ReportDecisionRow'
+import { ReportRepositoryDecisionRow } from './ReportRepositoryDecisionRow'
 
 const PULL_REQUEST_STATES: Record<ReportPullRequest['state'], string> = {
     unknown: 'Status unavailable',
@@ -76,13 +77,17 @@ export function ReportStatusSection({
     rightSlot,
     onPriorityChange,
     prioritySaving = false,
+    onRepositoryChange,
+    repositorySaving = false,
     decisionAttributions = null,
 }: {
     report: SignalReport
     rightSlot?: ReactNode
     onPriorityChange?: (priority: ReportPriorityApi) => void
     prioritySaving?: boolean
-    /** Null while the report's history loads. */
+    onRepositoryChange?: (repository: string) => void
+    repositorySaving?: boolean
+    /** Null before the report's detail loads. */
     decisionAttributions?: ReportDecisionAttributions | null
 }): JSX.Element {
     const editableDecisions = useFeatureFlag('INBOX_REPORT_EDITABLE_DECISIONS')
@@ -96,10 +101,11 @@ export function ReportStatusSection({
                 {editableDecisions && (report.repo_slug || report.priority) && (
                     <>
                         {report.repo_slug && (
-                            <ReportDecisionRow
-                                label="Repository"
-                                value={report.repo_slug}
+                            <ReportRepositoryDecisionRow
+                                repository={report.repo_slug}
                                 attribution={decisionAttributions?.repository ?? null}
+                                onChange={onRepositoryChange}
+                                saving={repositorySaving}
                             />
                         )}
                         {report.priority && (
