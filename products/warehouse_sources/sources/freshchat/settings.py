@@ -89,11 +89,10 @@ HISTORICAL_METRICS: tuple[HistoricalMetric, ...] = (
 )
 
 HISTORICAL_METRICS_INTERVAL = "1d"
-# One request per metric per window. Freshchat documents no maximum range, so a window stays at a
-# size that returns a small series.
+# Freshchat documents no maximum range, so a window stays small.
 HISTORICAL_METRICS_WINDOW = timedelta(days=30)
-# How far back a full refresh, or the first incremental sync, reads.
 HISTORICAL_METRICS_LOOKBACK = timedelta(days=365)
+HISTORICAL_METRICS_REREAD = timedelta(days=1)
 
 INTERVAL_START_FIELD = IncrementalField(
     label="interval_start",
@@ -130,7 +129,6 @@ class FreshchatEndpointConfig:
     fanout: Optional[DependentEndpointConfig] = None
     # Two hops down, where the parent is itself a fan-out child.
     chained_fanout: Optional[FreshchatChainedFanoutConfig] = None
-    # Read with one request per metric and time window instead of a list walk.
     metrics_query: bool = False
     # Freshchat's page-size param rides in each endpoint's own params rather than through the
     # fan-out helper, so these three only satisfy the helper's structural typing.
@@ -232,7 +230,5 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     "outbound_messages": ["message_id"],
     "user_conversations": ["user_id", "id"],
     "conversation_messages": ["conversation_id", "id"],
-    # `grouping` is empty for the account-level reads, but it keeps the key unique if Freshchat ever
-    # splits a series by group or agent.
     "historical_metrics": ["metric", "grouping", "interval_start"],
 }

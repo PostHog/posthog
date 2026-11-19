@@ -1,3 +1,4 @@
+import json
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
@@ -10,6 +11,7 @@ from products.warehouse_sources.sources.freshchat.settings import (
     HISTORICAL_METRICS,
     HISTORICAL_METRICS_INTERVAL,
     HISTORICAL_METRICS_LOOKBACK,
+    HISTORICAL_METRICS_REREAD,
     HISTORICAL_METRICS_WINDOW,
     PER_PAGE,
     PRIMARY_KEYS,
@@ -35,6 +37,7 @@ from products.warehouse_sources.sources.sdk import (
     build_chained_resource,
     build_dependent_resource,
     format_datetime,
+    frozen,
     make_tracked_session,
     reach_safe_point,
     resolve_incremental_start,
@@ -246,27 +249,35 @@ def _chained_fanout_resource(
     )
 
 
-def historical_metric_windows(start: datetime, end: datetime) -> Iterator[tuple[datetime, datetime]]:
+@frozen
+class _MetricWindow:
+    start: datetime
+    end: datetime
+
+
+def historical_metric_windows(start: datetime, end: datetime) -> Iterator[_MetricWindow]:
     """Split ``[start, end]`` into windows that start at UTC midnight, so daily buckets line up with
     the incremental cursor. Each window ends 1 ms before the next one starts, so no bucket is read
     twice in one run."""
     current = start.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     while current < end:
-        window_end = min(current + HISTORICAL_METRICS_WINDOW - timedelta(milliseconds=1), end)
-        yield current, window_end
+        yield _MetricWindow(
+            start=current, end=min(current + HISTORICAL_METRICS_WINDOW - timedelta(milliseconds=1), end)
+        )
         current += HISTORICAL_METRICS_WINDOW
 
 
 def _grouping(groupings: Any) -> str:
+    # Part of the primary key, so it must be one unambiguous text for one set of pairs, in any order.
     if not isinstance(groupings, list):
         return ""
-    return ",".join(
-        f"{grouping.get('key')}={grouping.get('value')}" for grouping in groupings if isinstance(grouping, dict)
+    pairs = sorted(
+        (str(grouping.get("key")), str(grouping.get("value"))) for grouping in groupings if isinstance(grouping, dict)
     )
+    return json.dumps(pairs, separators=(",", ":")) if pairs else ""
 
 
 def _metric_value(value: Any) -> Optional[float]:
-    # Freshchat sends metric values as numeric strings, e.g. "4.0".
     if value is None or value == "":
         return None
     try:
@@ -287,12 +298,18 @@ def historical_metric_rows(body: Any, metric: HistoricalMetric) -> list[dict[str
         for bucket in group.get("series") or []:
             if not isinstance(bucket, dict):
                 continue
-            for value in bucket.get("values") or []:
-                if not isinstance(value, dict):
-                    continue
+            values = [value for value in bucket.get("values") or [] if isinstance(value, dict)]
+            for value in values:
+                name = value.get("key")
+                if not name:
+                    # A keyless value is the requested metric only when it is the bucket's single value.
+                    # Otherwise it cannot be told apart from its neighbours in the primary key.
+                    if len(values) > 1:
+                        continue
+                    name = metric.name
                 rows.append(
                     {
-                        "metric": value.get("key") or metric.name,
+                        "metric": name,
                         "grouping": grouping,
                         "aggregator": metric.aggregator,
                         "granularity": HISTORICAL_METRICS_INTERVAL,
@@ -311,12 +328,13 @@ def _historical_metrics(
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     now = datetime.now(UTC)
-    # The cursor is the start of the newest bucket, which can still be filling. Reading from it again
-    # overwrites that partial bucket with its final value.
+    # The cursor is the newest bucket, which can still be filling. Freshchat is also accurate only up
+    # to five minutes ago, so the day before the cursor can still change after midnight.
     start = resolve_incremental_start(
         should_use_incremental_field,
         db_incremental_field_last_value,
         default=HISTORICAL_METRICS_LOOKBACK,
+        lookback=HISTORICAL_METRICS_REREAD,
         now=now,
     )
     client = RESTClient(
@@ -327,13 +345,12 @@ def _historical_metrics(
         allow_redirects=False,
     )
     for metric in HISTORICAL_METRICS:
-        for window_start, window_end in historical_metric_windows(start, now):
-            # Every earlier response is already yielded, so the run can stop before this request.
+        for window in historical_metric_windows(start, now):
             reach_safe_point()
             params = {
                 "metric": metric.name,
-                "start": format_datetime(window_start, "iso_z_millis"),
-                "end": format_datetime(window_end, "iso_z_millis"),
+                "start": format_datetime(window.start, "iso_z_millis"),
+                "end": format_datetime(window.end, "iso_z_millis"),
                 "interval": HISTORICAL_METRICS_INTERVAL,
             }
             if metric.aggregator:

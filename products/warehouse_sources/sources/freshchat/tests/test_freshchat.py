@@ -195,16 +195,16 @@ class TestHistoricalMetrics:
     @pytest.mark.parametrize(
         "inputs, first_start, window_count",
         [
-            # Full refresh reads a year back, starting at UTC midnight so buckets line up with the cursor.
             ({}, "2025-03-15T00:00:00.000Z", 13),
+            # After midnight the cursor is today's bucket, but yesterday's bucket can still change.
             (
-                {"incremental_field": "interval_start", "db_incremental_field_last_value": "2026-03-10T00:00:00.000Z"},
-                "2026-03-10T00:00:00.000Z",
+                {"incremental_field": "interval_start", "db_incremental_field_last_value": "2026-03-15T00:00:00.000Z"},
+                "2026-03-14T00:00:00.000Z",
                 1,
             ),
             (
                 {"incremental_field": "interval_start", "db_incremental_field_last_value": "2026-01-20T00:00:00.000Z"},
-                "2026-01-20T00:00:00.000Z",
+                "2026-01-19T00:00:00.000Z",
                 2,
             ),
         ],
@@ -220,13 +220,11 @@ class TestHistoricalMetrics:
         for request in result.requests:
             assert request.path == "/v2/metrics/historical"
             assert request.param("interval") == "1d"
-            # Freshchat rejects an aggregator on a count metric and needs one on an aggregate metric.
             assert request.param("aggregator") == aggregators[request.param("metric") or ""]
 
         first_metric = [r for r in result.requests if r.param("metric") == HISTORICAL_METRICS[0].name]
         assert first_metric[0].param("start") == first_start
         assert first_metric[-1].param("end") == "2026-03-15T12:00:00.000Z"
-        # Each window ends 1 ms before the next starts, so no bucket is read twice in one run.
         for previous, following in zip(first_metric, first_metric[1:]):
             previous_end = datetime.fromisoformat(previous.param("end") or "")
             assert datetime.fromisoformat(following.param("start") or "") - previous_end == timedelta(milliseconds=1)
@@ -245,12 +243,11 @@ class TestHistoricalMetrics:
             "grouping": "",
             "aggregator": HISTORICAL_METRICS[0].aggregator,
             "granularity": "1d",
-            "interval_start": "2026-03-10T00:00:00.000Z",
+            "interval_start": "2026-03-09T00:00:00.000Z",
             "interval_end": "bucket-end",
             "value": 2.0,
         }
         assert len(result.rows) == len(HISTORICAL_METRICS)
-        # Rows arrive metric by metric, so an "asc" claim would lose rows after a mid-run hand-off.
         assert result.response is not None
         assert result.response.sort_mode is None
         assert result.response.supports_resume is False
@@ -272,8 +269,8 @@ class TestHistoricalMetrics:
                                     "end": "e",
                                     "values": [
                                         {"key": "csat_metrics.count_per_rating", "value": "4.5"},
-                                        {"key": "csat_metrics.count_per_rating", "value": ""},
-                                        {"value": "n/a"},
+                                        {"key": "csat_metrics.rating", "value": ""},
+                                        {"value": "1"},
                                         "junk",
                                     ],
                                 }
@@ -282,10 +279,30 @@ class TestHistoricalMetrics:
                     ]
                 },
                 [
-                    {"grouping": "group=g1,agent=a1", "metric": "csat_metrics.count_per_rating", "value": 4.5},
-                    {"grouping": "group=g1,agent=a1", "metric": "csat_metrics.count_per_rating", "value": None},
-                    # A value with no key falls back to the requested metric name.
-                    {"grouping": "group=g1,agent=a1", "metric": "requested.metric", "value": None},
+                    {
+                        "grouping": '[["agent","a1"],["group","g1"]]',
+                        "metric": "csat_metrics.count_per_rating",
+                        "value": 4.5,
+                    },
+                    {"grouping": '[["agent","a1"],["group","g1"]]', "metric": "csat_metrics.rating", "value": None},
+                ],
+            ),
+            (
+                {
+                    "data": [
+                        {
+                            "groupings": [{"key": "group", "value": "g1,agent=a1"}],
+                            "series": [{"start": "s", "end": "e", "values": [{"value": "3"}]}],
+                        },
+                        {
+                            "groupings": [{"key": "agent", "value": "a1"}, {"key": "group", "value": "g1"}],
+                            "series": [{"start": "s", "end": "e", "values": [{"value": "n/a"}]}],
+                        },
+                    ]
+                },
+                [
+                    {"grouping": '[["group","g1,agent=a1"]]', "metric": "requested.metric", "value": 3.0},
+                    {"grouping": '[["agent","a1"],["group","g1"]]', "metric": "requested.metric", "value": None},
                 ],
             ),
         ],
