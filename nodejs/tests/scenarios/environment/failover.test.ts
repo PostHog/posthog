@@ -283,45 +283,58 @@ describe('pg.failover', () => {
         expect(run.cloud.promotions).toEqual([])
     })
 
-    it('judges the reader against the minimum and idle limit its cloud profile leases into the manifest the host reads', async () => {
-        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
-        const hostRunOn = async (cloud: FakeCloud, idleMax: number): Promise<Run> => {
-            const controller = {
-                aws: cloud,
-                now: () => new Date(),
-                print: () => undefined,
-                warn: () => undefined,
-            } as unknown as Controller
-            const profile = CloudProfile.parse({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax } })
-            const runner = { file: 'runner.yaml', bytes: Buffer.from(''), sha256: '' }
-            const { runId } = await lease(
-                controller,
-                { profile, runner, inputs: [runner], card: { id: 'cyclotron-failover-under-load', failsOver: true } },
-                { owner: 'scenario-tests', commit: 'abc123' }
-            )
-            const file = path.join(dir.path, `${runId}.json`)
-            writeFileSync(file, cloud.objects.get(keyOf(runId, 'input/manifest.json'))!)
-            const manifest = runManifestOf({ SCENARIO_RUN_MANIFEST: file })!
-            return { cloud, ...cloud.runCluster(runId), manifest }
-        }
-        const cloudReading = (maxima: number[]): FakeCloud =>
-            new FakeCloud({ now: () => new Date(), failover: { takesMs: 20 }, liveReaderAcu: { maxima } })
+    const leasedHostRun = async (cloud: FakeCloud, dir: string, idleMax: number): Promise<Run> => {
+        const controller = {
+            aws: cloud,
+            now: () => new Date(),
+            print: () => undefined,
+            warn: () => undefined,
+        } as unknown as Controller
+        const profile = CloudProfile.parse({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax } })
+        const runner = { file: 'runner.yaml', bytes: Buffer.from(''), sha256: '' }
+        const { runId } = await lease(
+            controller,
+            { profile, runner, inputs: [runner], card: { id: 'cyclotron-failover-under-load', failsOver: true } },
+            { owner: 'scenario-tests', commit: 'abc123' }
+        )
+        const file = path.join(dir, `${runId}.json`)
+        writeFileSync(file, cloud.objects.get(keyOf(runId, 'input/manifest.json'))!)
+        const manifest = runManifestOf({ SCENARIO_RUN_MANIFEST: file })!
+        return { cloud, ...cloud.runCluster(runId), manifest }
+    }
 
-        const underMinimum = cloudReading([1, 0.5, 1, 1, 1])
-        await expect(failOverOn(await hostRunOn(underMinimum, 2.5))).rejects.toThrow(
+    const cloudReading = (maxima: number[]): FakeCloud =>
+        new FakeCloud({ now: () => new Date(), failover: { takesMs: 20 }, liveReaderAcu: { maxima } })
+
+    it('refuses a reader under the minimum its cloud profile leases into the manifest the host reads', async () => {
+        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
+        const cloud = cloudReading([1, 0.5, 1, 1, 1])
+
+        await expect(failOverOn(await leasedHostRun(cloud, dir.path, 2.5))).rejects.toThrow(
             /-reader's capacity read has a value below 1 at /
         )
-        expect(underMinimum.promotions).toEqual([])
-
-        const cloud = cloudReading([2, 2, 2, 2, 2])
-        const lower = await hostRunOn(cloud, 1.5)
-        await expect(failOverOn(lower)).rejects.toThrow(/was above its 1.5 ACU idle limit in its last 5 minutes: 2 at /)
         expect(cloud.promotions).toEqual([])
+    })
 
-        const higher = await hostRunOn(cloud, 2.5)
-        const actuation = await failOverOn(higher)
+    it('refuses a reader above the idle limit its cloud profile leases into the manifest the host reads', async () => {
+        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
+        const cloud = cloudReading([2, 2, 2, 2, 2])
+
+        await expect(failOverOn(await leasedHostRun(cloud, dir.path, 1.5))).rejects.toThrow(
+            /was above its 1.5 ACU idle limit in its last 5 minutes: 2 at /
+        )
+        expect(cloud.promotions).toEqual([])
+    })
+
+    it('promotes a reader inside the bounds its cloud profile leases into the manifest the host reads', async () => {
+        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
+        const cloud = cloudReading([2, 2, 2, 2, 2])
+        const run = await leasedHostRun(cloud, dir.path, 2.5)
+
+        const actuation = await failOverOn(run)
         await actuation.release()
-        expect(cloud.promotions.map(({ to }) => to)).toEqual([higher.reader, higher.writer])
+
+        expect(cloud.promotions.map(({ to }) => to)).toEqual([run.reader, run.writer])
     })
 
     it.each([
