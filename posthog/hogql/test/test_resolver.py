@@ -933,6 +933,18 @@ class TestResolver(BaseTest):
             "WITH timestamp AS t, (SELECT t) AS u SELECT u FROM events LIMIT 50000",
         )
 
+    def test_inherited_constant_alias_remains_available_to_earlier_joins(self):
+        resolved = resolve_types(
+            self._select(
+                "WITH 1 AS value SELECT (WITH value AS y SELECT y FROM numbers(1) AS n "
+                "JOIN numbers(1) AS m ON n.number = y JOIN numbers(1) AS p ON n.number = p.number)"
+            ),
+            self.context,
+            dialect="clickhouse",
+        )
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(self.context.errors, [])
+
     def test_nested_scalar_subqueries_wait_for_their_from_without_repeated_resolution(self):
         query = "SELECT 1"
         for index in range(18):

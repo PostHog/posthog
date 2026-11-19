@@ -1234,6 +1234,7 @@ class Resolver(CloningVisitor):
         self._pending_scalar_ctes[-1]["scope"] = node_type
         self._pending_scalar_ctes[-1]["has_from"] = node.select_from is not None
         self._pending_scalar_ctes[-1]["local_ctes"] = set(node.ctes or {})
+        self._pending_scalar_ctes[-1]["from_complete"] = False
         self.scopes.append(node_type)
 
         parent_ctes = self.ctes
@@ -1286,6 +1287,7 @@ class Resolver(CloningVisitor):
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1].
         new_node.select_from = self.visit(node.select_from)
+        self._pending_scalar_ctes[-1]["from_complete"] = True
 
         scalar_cte_frame = self._pending_scalar_ctes[-1]
         if scalar_cte_frame["staged"] or scalar_cte_frame["pending"]:
@@ -2345,12 +2347,7 @@ class Resolver(CloningVisitor):
                 return False
             if name in self.ctes:
                 frame = self._pending_scalar_ctes[-1]
-                if (
-                    frame["has_from"]
-                    and name not in frame["local_ctes"]
-                    and not scope.tables
-                    and not scope.anonymous_tables
-                ):
+                if frame["has_from"] and name not in frame["local_ctes"] and not frame["from_complete"]:
                     return False
                 continue
             if name in scope.aliases:
@@ -2435,6 +2432,9 @@ class Resolver(CloningVisitor):
         frame = self._pending_scalar_ctes[-1]
         while len(frame["published"]) > mark:
             name, shadowed = frame["published"].pop()
+            # Table-independent aliases remain valid in earlier JOIN conditions.
+            if id(frame["staged"][name]) not in self._scalar_cte_scopes:
+                continue
             if shadowed is _MISSING_CTE:
                 self.ctes.pop(name, None)
             else:
@@ -2443,11 +2443,11 @@ class Resolver(CloningVisitor):
     def _resolve_join_constraint(
         self, node: ast.JoinExpr, using_column_names: Optional[list[str]]
     ) -> Optional[ast.JoinConstraint]:
+        if node.next_join is None and self._pending_scalar_ctes:
+            self._pending_scalar_ctes[-1]["from_complete"] = True
+            self._stage_pending_scalar_ctes()
         if node.constraint is None:
             return None
-        if node.next_join is None:
-            # Earlier constraints have resolved; the final JOIN can now use aliases requiring its own table.
-            self._stage_pending_scalar_ctes()
         if node.constraint.constraint_type == "USING":
             return self._desugar_using_constraint(node, using_column_names)
         return self.visit_join_constraint(node.constraint)

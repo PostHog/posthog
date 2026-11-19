@@ -589,6 +589,12 @@ class TestWrappedEventJoins(SimpleTestCase):
                 "WITH '' AS properties SELECT (WITH properties AS y SELECT groupArray(y) FROM raw_persons AS t)",
                 PropertyDefinition.Type.PERSON,
             ),
+            (
+                "person_join",
+                "WITH '' AS properties SELECT (WITH properties AS y SELECT groupArray(y) "
+                "FROM numbers(1) AS n JOIN raw_persons AS t ON n.number = length(y) * 0)",
+                PropertyDefinition.Type.PERSON,
+            ),
         ]
     )
     def test_inherited_scalar_alias_does_not_hide_local_property_column(
