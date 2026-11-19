@@ -26,7 +26,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.ph_client import get_feature_flag_or_none
 
-from products.context_layer.backend.thread_context import ThreadMessage, split_thread_context
+from products.context_layer.backend.thread_context import split_thread_context
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import Task, TaskRun
 
@@ -111,19 +111,16 @@ class SelectionUnavailable(RuntimeError):
     pass
 
 
-def search_query(request: str, thread: tuple[ThreadMessage, ...], history: str) -> str:
+def search_query(request: str, subject: str, history: str) -> str:
     request = normalize_search_term(request)
     history = normalize_search_term(history)
-    budget = MAX_SEARCH_LENGTH * 3 // 4 if thread or history else MAX_SEARCH_LENGTH
+    budget = MAX_SEARCH_LENGTH * 3 // 4 if subject or history else MAX_SEARCH_LENGTH
     query = request[-budget:]
-    # A message's first line is its subject: a bot post's title, or how a person opened.
-    for message in thread:
-        room = MAX_SEARCH_LENGTH - len(query) - 3
-        first_line = next((line.strip() for line in message.body.splitlines() if line.strip()), "")
-        if room <= 0:
-            break
-        if first_line:
-            query += " / " + first_line[:room]
+    # The searches send the query in a URL, so only the thread's opening line joins it, not replies
+    # where people paste logs or keys.
+    room = MAX_SEARCH_LENGTH - len(query) - 3
+    if subject and room > 0:
+        query += " / " + subject[:room]
     room = MAX_SEARCH_LENGTH - len(query) - 1
     if history and room > 0:
         query += "\n" + history[-room:]
@@ -223,7 +220,7 @@ class ContextSelector:
         self.request = split.request
         self.thread = split.thread
         self.history = split_thread_context(selection.history).request
-        self.query = search_query(self.request, self.thread, self.history)
+        self.query = search_query(self.request, split.subject, self.history)
 
     def search(self, kind: SourceKind, deadline: float) -> list[Candidate]:
         started = time.monotonic()

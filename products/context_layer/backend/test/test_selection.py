@@ -52,6 +52,8 @@ SLACK_PROMPT = (
     "<@U01BOT|PostHog>:\n"
     "  Weekly onboarding funnel dropped below its floor\n\n"
     "  Reply in this thread and mention @PostHog to dig into this report.\n"
+    "<@U03THEO|theo>:\n"
+    "  pasted token sk_test_not_a_real_key\n"
     "<@U02ANA|ana>:\n"
     "  <original user message was here>\n"
     "</slack_thread_context>\n\n"
@@ -259,6 +261,7 @@ class TestSelection(SimpleTestCase):
             query = sent.url.params["query" if "search/" in sent.url.path else "search"]
             self.assertTrue(query.startswith(f"{request} / Weekly onboarding funnel dropped below its floor"))
             self.assertNotIn("Reply in this thread", query)
+            self.assertNotIn("sk_test", query)
         state = self.states[-1]
         self.assertEqual(state["user_request"], request)
         self.assertEqual(state["history"], f"User: \n\n{request}\nAssistant: Done.")
@@ -269,7 +272,8 @@ class TestSelection(SimpleTestCase):
                     "author": "<@U01BOT|PostHog>",
                     "body": "Weekly onboarding funnel dropped below its floor\n\n"
                     "Reply in this thread and mention @PostHog to dig into this report.",
-                }
+                },
+                {"author": "<@U03THEO|theo>", "body": "pasted token sk_test_not_a_real_key"},
             ],
         )
 

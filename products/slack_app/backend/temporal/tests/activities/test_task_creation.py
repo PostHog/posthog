@@ -854,3 +854,21 @@ def _rendered_follow_up(messages: list[SlackThreadMessage], text: str, prefix: s
 def test_context_selector_separates_rendered_thread_from_request(prompt, request_text, thread):
     split = split_thread_context(prompt)
     assert (split.request, list(split.thread)) == (request_text, thread)
+
+
+@pytest.mark.parametrize(
+    "opener,subject",
+    [
+        (SlackThreadMessage(user="PostHog", text="Funnel alert fired\nmore detail", ts="1.000"), "Funnel alert fired"),
+        (SlackThreadMessage(user="mira", user_id="U_MIRA", text="is this affected?", ts="1.000"), ""),
+    ],
+    ids=["bot_opened_thread", "requester_opened_thread"],
+)
+def test_context_selector_takes_the_search_subject_only_from_the_thread_opener(opener, subject):
+    prompt = _build_posthog_code_task_description(
+        "is this affected?",
+        [opener, SlackThreadMessage(user="theo", user_id="U_THEO", text="pasted token sk_test_x", ts="2.000")],
+        "1.000" if opener.user_id else "3.000",
+        mentioner_slack_user_id="U_MIRA",
+    )
+    assert split_thread_context(prompt).subject == subject
