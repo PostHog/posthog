@@ -426,6 +426,17 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 attachment_bytes: 0,
             })
             expect(queued).toEqual([])
+            expect(
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+                    .map(({ value }) => value)
+            ).toEqual([
+                expect.objectContaining({
+                    kind: 'transactional-email',
+                    teamId: world.team.id,
+                    job: expect.objectContaining({ id: res.body.invocation_id }),
+                }),
+            ])
         } finally {
             hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
         }
