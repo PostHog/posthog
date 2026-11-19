@@ -8,7 +8,7 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { userLogic } from 'scenes/userLogic'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { EnrichedReviewer, SignalReport } from '../../types'
+import { EnrichedReviewer, ReviewerRemoval, SignalReport } from '../../types'
 import { removeSuggestedReviewers, ReviewerSearchList } from './ReviewerSearchList'
 import { SuggestedReviewersSectionView } from './SuggestedReviewersSectionView'
 
@@ -29,13 +29,14 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         return null
     }
 
-    const removeReviewers = (targets: EnrichedReviewer[]): void =>
+    const removeReviewers = (targets: EnrichedReviewer[], removal?: ReviewerRemoval): void =>
         removeSuggestedReviewers({
             report,
             surface: 'detail_pane',
             targets,
             reviewers: baseReviewers,
             updateReviewers,
+            removal,
         })
 
     return (
@@ -59,13 +60,14 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                     overlay={<ReviewerSearchList report={report} surface="detail_pane" />}
                 >
                     <LemonButton
-                        size="small"
+                        size="xsmall"
                         type="secondary"
                         icon={<IconPlus />}
                         disabledReason={isUpdatingReviewers ? 'Updating…' : undefined}
+                        aria-label="Add reviewer"
                         onClick={() => setAddOpen((open) => !open)}
                     >
-                        Add Reviewer
+                        Add
                     </LemonButton>
                 </LemonDropdown>
             }

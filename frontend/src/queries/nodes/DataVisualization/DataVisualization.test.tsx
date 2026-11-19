@@ -16,16 +16,7 @@ import type { SqlChartProps } from './Components/Charts/SqlChart'
 import { buildPieSeries, buildPieSlices } from './Components/Charts/sqlPieGraphAdapter'
 import { DataTableVisualization } from './DataVisualization'
 
-type LemonTableMockProps = {
-    embedded?: boolean
-    allowContentScroll?: boolean
-}
-
-let mockLatestLemonTableProps: LemonTableMockProps | null = null
-const mockLemonTable = jest.fn((props: LemonTableMockProps): null => {
-    mockLatestLemonTableProps = props
-    return null
-})
+const mockLemonTable = jest.fn()
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -47,6 +38,13 @@ jest.mock('./Components/Charts/PartOfWholeChart', () => ({
     ),
 }))
 
+jest.mock('./Components/Charts/SqlChart', () => ({
+    ...jest.requireActual('./Components/Charts/SqlChart'),
+    SqlChart: ({ goalLines }: SqlChartProps): JSX.Element => (
+        <div>{`Chart with goal lines: ${(goalLines ?? []).map((line) => line.label).join(', ')}`}</div>
+    ),
+}))
+
 describe('DataTableVisualization', () => {
     const query: VisualizationNode = {
         kind: NodeKind.DataVisualizationNode,
@@ -65,7 +63,6 @@ describe('DataTableVisualization', () => {
 
     beforeEach(() => {
         initKeaTests()
-        mockLatestLemonTableProps = null
         mockLemonTable.mockClear()
     })
 
@@ -97,6 +94,7 @@ describe('DataTableVisualization', () => {
             memberAliases: alias ? [{ field: region, aliases: [{ value: 'west', label: 'West coast' }] }] : [],
         }
         renderDataVisualization({
+            embedded: true,
             context: { dashboardResultMenu: true },
             query: {
                 ...buildBIQuery(config)!.node,
@@ -127,12 +125,15 @@ describe('DataTableVisualization', () => {
                       results: [['west', 2]],
                   },
         })
-        fireEvent.click(await screen.findByText('First slice'))
+        fireEvent.contextMenu(await screen.findByText('First slice'))
         const menu = await screen.findByRole('menu')
         const link = within(menu).getByText('Open in SQL editor').closest('a')!
         const openedQuery = JSON.parse(new URL(link.href).searchParams.get('open_query')!)
         expect(openedQuery.source.query).toContain("region = 'west'")
         expect(openedQuery.source.query).not.toContain("region = 'West coast'")
+        fireEvent.click(screen.getByText('First slice'))
+        expect(screen.queryByRole('menu')).toBeNull()
+        await screen.findByText('Explore this result')
     })
 
     it.each([false, true])('opens and closes settings in the correct panel (hosted: %s)', async (hosted) => {
@@ -176,34 +177,53 @@ describe('DataTableVisualization', () => {
         expect(screen.queryByText('Conditional formatting')).toBeNull()
     })
 
-    test.each([
-        { embedded: true, expectedAllowContentScroll: true },
-        { embedded: false, expectedAllowContentScroll: false },
-    ])(
-        'sets table scroll mode to $expectedAllowContentScroll when embedded is $embedded',
-        async ({ embedded, expectedAllowContentScroll }) => {
-            render(
-                <DataTableVisualization
-                    uniqueKey={`data-visualization-scroll-${embedded}`}
-                    query={query}
-                    setQuery={jest.fn()}
-                    cachedResults={cachedResults}
-                    readOnly
-                    embedded={embedded}
-                />
-            )
-
-            await waitFor(() => {
-                if (!mockLatestLemonTableProps) {
-                    throw new Error('Expected LemonTable to render')
-                }
-            })
-
-            if (!mockLatestLemonTableProps) {
-                throw new Error('Expected LemonTable props to be recorded')
-            }
-            expect(mockLatestLemonTableProps.embedded).toBe(embedded)
-            expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
+    it('switches a read-only tile between table and chart and keeps the chart goal lines', async () => {
+        const chartQuery: VisualizationNode = {
+            ...query,
+            display: ChartDisplayType.ActionsLineGraph,
+            chartSettings: { goalLines: [{ label: 'Target', value: 1 }] },
         }
-    )
+        const renderTile = (tileQuery: VisualizationNode): JSX.Element => (
+            <DataTableVisualization
+                uniqueKey="data-visualization-switch"
+                query={tileQuery}
+                setQuery={jest.fn()}
+                cachedResults={cachedResults}
+                readOnly
+                embedded
+            />
+        )
+
+        const { rerender } = render(renderTile(query))
+        await waitFor(() => expect(mockLemonTable).toHaveBeenCalled())
+
+        rerender(renderTile(chartQuery))
+        expect(await screen.findByText('Chart with goal lines: Target')).toBeTruthy()
+
+        mockLemonTable.mockClear()
+        rerender(renderTile(query))
+        await waitFor(() => expect(mockLemonTable).toHaveBeenCalled())
+        expect(screen.queryByText(/Chart with goal lines/)).toBeNull()
+    })
+
+    test.each([
+        { display: ChartDisplayType.ActionsLineGraph, hasMore: true, warns: true },
+        { display: ChartDisplayType.ActionsLineGraph, hasMore: false, warns: false },
+        { display: ChartDisplayType.ActionsTable, hasMore: true, warns: false },
+    ])('warns=$warns for a $display with hasMore=$hasMore', async ({ display, hasMore, warns }) => {
+        render(
+            <DataTableVisualization
+                uniqueKey={`data-visualization-row-limit-${display}-${hasMore}`}
+                query={{ ...query, display }}
+                setQuery={jest.fn()}
+                cachedResults={{ ...cachedResults, hasMore, limit: 100 }}
+                readOnly
+                embedded
+            />
+        )
+        await waitFor(() =>
+            expect(mockLemonTable.mock.calls.length > 0 || !!screen.queryByText(/Chart with goal lines/)).toBe(true)
+        )
+        expect(!!screen.queryByText(/This chart shows only the first 100 rows/)).toBe(warns)
+    })
 })

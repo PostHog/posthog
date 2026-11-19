@@ -1,7 +1,9 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
 import io
+from copy import deepcopy
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 from django.db.models import Q
@@ -22,7 +24,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
@@ -31,6 +33,7 @@ from products.exports.backend.models.exported_asset import (
     save_content_from_file as _save_content_from_file,
 )
 from products.exports.backend.tasks.failure_handler import (
+    USER_QUERY_ERROR_NAMES,
     InvalidExportContext as InvalidExportContext,
     RetryableExportError as RetryableExportError,
 )
@@ -54,6 +57,8 @@ def create_export_asset_async(
     created_by: User,
     export_format: str,
     export_context: dict[str, object],
+    expires_after: datetime | None = None,
+    is_system: bool = False,
 ) -> ExportedAsset:
     if export_format not in ExportedAsset.get_supported_format_values():
         raise ValueError(f"Unsupported export format: {export_format}")
@@ -63,6 +68,9 @@ def create_export_asset_async(
         created_by=created_by,
         export_format=export_format,
         export_context=export_context,
+        is_system=is_system,
+        # None keeps the model's format-default TTL (see ExportedAsset.save).
+        expires_after=ExportedAsset.round_up_expiry(expires_after) if expires_after is not None else None,
     )
 
     async def _start() -> None:
@@ -95,6 +103,16 @@ def create_export_asset_async(
 
 def get_export_asset(*, team_id: int, asset_id: int) -> ExportedAsset | None:
     return ExportedAsset.objects.filter(team_id=team_id, id=asset_id).first()
+
+
+def is_export_failure_final(*, exception_type: str | None, failure_type: str | None) -> bool:
+    """Whether a recorded export failure is final, rather than one the export workflow retries."""
+    # Every failure the workflow records carries a failure type, so one without it comes from a workflow that never
+    # started, and nothing will retry it.
+    if failure_type is None:
+        return True
+    # Mirrors the non-retryable error types of EXPORT_RETRY_POLICY.
+    return exception_type in USER_QUERY_ERROR_NAMES
 
 
 def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -> HttpResponseBase:
@@ -244,6 +262,7 @@ def _create_png_export_asset(
     is_system: bool = False,
     expires_after: datetime | None = None,
     execution_mode: ExecutionMode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    reference_lines: list[dict[str, Any]] | None = None,
 ) -> ExportedAsset:
     if execution_mode not in _EXPORT_EXECUTION_MODES:
         raise ValueError(f"Unsupported execution mode for an export: {execution_mode}")
@@ -269,13 +288,16 @@ def _create_png_export_asset(
             raise ValueError("Insight not found")
         insight_id = insight.id
     if dashboard_id is not None:
-        dashboard = Dashboard.objects.filter(team_id=team.id, id=dashboard_id, deleted=False).first()
-        if dashboard is None or not UserAccessControl(user=created_by, team=team).check_access_level_for_object(
-            dashboard, "viewer"
+        dashboard = dashboards_api.get_dashboard(team_id=team.id, dashboard_id=dashboard_id)
+        if dashboard is None or not dashboards_api.can_access_dashboard(
+            dashboard, user_access_control=UserAccessControl(user=created_by, team=team)
         ):
             raise ValueError("Dashboard not found")
     if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
         export_context = {**(export_context or {}), "execution_mode": execution_mode.value}
+
+    if reference_lines:
+        export_context = {**(export_context or {}), "reference_lines": reference_lines}
 
     asset = ExportedAsset.objects.create(
         team=team,
@@ -328,6 +350,28 @@ def create_png_export(
     ).id
 
 
+def query_with_reference_lines(query: dict[str, Any], reference_lines: list[dict[str, Any]]) -> dict[str, Any]:
+    query = deepcopy(query)
+    target = query
+    if query.get("kind") == "InsightVizNode":
+        target = query.get("source") or {}
+    settings_key = {
+        "TrendsQuery": "trendsFilter",
+        "FunnelsQuery": "funnelsFilter",
+        "RetentionQuery": "retentionFilter",
+        "DataVisualizationNode": "chartSettings",
+        "BIVisualizationNode": "chartSettings",
+        "MetricsQuery": "display",
+    }.get(target.get("kind", ""))
+    if settings_key is None:
+        return query
+    settings = target.get(settings_key) or {}
+    target[settings_key] = settings
+    existing = settings.get("goalLines") or []
+    settings["goalLines"] = existing + [line for line in reference_lines if line not in existing]
+    return query
+
+
 def png_export_has_content(*, team_id: int, asset_id: int) -> bool:
     return (
         ExportedAsset.objects.filter(team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG)
@@ -347,6 +391,7 @@ def render_png_export(
     dashboard_id: int | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
+    reference_lines: list[dict[str, Any]] | None = None,
 ) -> tuple[ExportedAsset, bytes | None]:
     """Render a PNG export synchronously and return the asset together with its content bytes.
 
@@ -367,6 +412,7 @@ def render_png_export(
         dashboard_id=dashboard_id,
         is_system=is_system,
         expires_after=expires_after,
+        reference_lines=reference_lines,
     )
 
     async def _run() -> None:

@@ -15,17 +15,17 @@ interface NextButtonProps {
 }
 
 export const NextButton = ({ installationComplete, size = 'medium' }: NextButtonProps): JSX.Element => {
-    const { hasNextStep, currentStepProductKey, flowVariant } = useValues(onboardingLogic)
+    const { hasNextStep, currentStepProductKey } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
 
     const advance = !hasNextStep ? completeOnboarding : goToNextStep
     const skipInstallation = (): void => {
-        reportOnboardingStepSkipped(OnboardingStepKey.INSTALL, flowVariant, currentStepProductKey ?? undefined)
+        reportOnboardingStepSkipped(OnboardingStepKey.INSTALL, currentStepProductKey ?? undefined)
         advance()
     }
 
     const continueInstallation = (): void => {
-        reportOnboardingStepCompleted(OnboardingStepKey.INSTALL, flowVariant, currentStepProductKey ?? undefined)
+        reportOnboardingStepCompleted(OnboardingStepKey.INSTALL, currentStepProductKey ?? undefined)
         advance()
     }
 

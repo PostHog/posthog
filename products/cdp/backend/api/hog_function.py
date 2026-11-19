@@ -1,7 +1,10 @@
 import json
+from collections import defaultdict
+from collections.abc import Sequence
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -41,19 +44,22 @@ from posthog.helpers.trigram_search import (
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES
 from products.cdp.backend.internal_events import (
+    INTERNAL_EVENT_READ_SCOPES,
     generic_api_editable_alert_scope,
+    internal_event_read_scope,
     is_managed_alert_internal_event,
     is_reserved_internal_event,
 )
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
+    MAX_EXECUTION_ORDER,
     TYPES_THAT_CAN_RERUN,
     TYPES_WITH_EXECUTION_ORDER,
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -68,6 +74,13 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
 )
+from products.cdp.backend.services.destination_test_runs import (
+    destination_test_run_context,
+    record_test_run_request_origins,
+    sends_real_requests,
+    without_request_origins,
+)
+from products.cdp.backend.services.hog_function_content import comparable_content
 from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
@@ -187,6 +200,26 @@ def mask_config_secrets(content: dict) -> dict:
     return content
 
 
+REVISION_READ_ACTIONS = ("revisions", "revision_detail")
+# Actions that replay or show the payloads a destination handled in the past, under any earlier config.
+PAYLOAD_HISTORY_ACTIONS = frozenset({"rerun", "logs"})
+
+
+def _hog_falsy_literal(value: Any) -> bool:
+    """Whether the Hog VM reads this input value as false. It uses JavaScript truthiness, so the string "false"
+    is true, and a template string is only known when it runs, so it never counts as false here."""
+    if value is None or value is False or value == "":
+        return True
+    return isinstance(value, int | float) and not isinstance(value, bool) and value == 0
+
+
+def _event_ids(filters: Any) -> set[str]:
+    events = filters.get("events") if isinstance(filters, dict) else None
+    if not isinstance(events, list):
+        return set()
+    return {event["id"] for event in events if isinstance(event, dict) and isinstance(event.get("id"), str)}
+
+
 def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
     snapshot = {field: getattr(hog_function, field) for field in DRAFT_CONTENT_FIELDS}
     # Defensively strip: a row written before secret inputs were encrypted still has plaintext
@@ -228,48 +261,6 @@ def _worker_error_messages(response: requests.Response) -> list[str]:
                 return [str(value)]
     text = (response.text or "").strip()
     return [text] if text else [f"The worker returned {response.status_code}."]
-
-
-def _without(value: Any, keys: tuple[str, ...]) -> Any:
-    return {k: v for k, v in value.items() if k not in keys} if isinstance(value, dict) else value
-
-
-def _inputs_without_derived(inputs: Any) -> Any:
-    if not isinstance(inputs, dict):
-        return inputs
-    return {
-        key: _without(value, ("bytecode", "bytecode_contract", "transpiled", "order")) for key, value in inputs.items()
-    }
-
-
-def comparable_content(content: dict) -> dict:
-    """A config snapshot with the values validation derives from it dropped: filter and input
-    bytecode, the runtime stamp beside it, transpiled JS, input ordering.
-
-    A background re-save can change those on its own without the config changing at all — most often
-    `refresh_affected_hog_functions` recompiling filter bytecode after an action or cohort edit — so
-    comparing them would version a plain rename.
-    """
-    filter_derived = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
-    mappings = content.get("mappings")
-    return {
-        **content,
-        "filters": _without(content.get("filters"), filter_derived),
-        "inputs": _inputs_without_derived(content.get("inputs")),
-        "masking": _without(content.get("masking"), ("bytecode",)),
-        "mappings": [
-            {
-                **mapping,
-                "filters": _without(mapping.get("filters"), filter_derived),
-                "inputs": _inputs_without_derived(mapping.get("inputs")),
-            }
-            if isinstance(mapping, dict)
-            else mapping
-            for mapping in mappings
-        ]
-        if isinstance(mappings, list)
-        else mappings,
-    }
 
 
 def explicit_secret_input_keys(raw_inputs: Any) -> set[str]:
@@ -371,6 +362,15 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
+        # A PATCH makes nested serializers partial too, and masking is always stored as a whole object.
+        missing = {
+            name: [field.error_messages["required"]]
+            for name, field in self.fields.items()
+            if field.required and name not in attrs
+        }
+        if missing:
+            raise serializers.ValidationError(missing, code="required")
+
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)
@@ -646,6 +646,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
 
+            # A test run of an unsaved function takes template_id from the caller, and the template decides
+            # which reserved functions the code may call, so it gets the same check as a create.
+            is_unsaved_test = (
+                instance is None and self.context.get("view") and self.context["view"].action == "invocations"
+            )
+            if is_unsaved_test:
+                self._validate_template_is_creatable(template)
+
         if is_create:
             # Set defaults for new functions
             data["inputs_schema"] = data.get("inputs_schema") or []
@@ -762,6 +770,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if reserved:
             raise serializers.ValidationError(
                 {"filters": f"{', '.join(reserved)} is reserved for the product that emits it."}
+            )
+
+        # Debug output lands in the shared log store, which a reader without the event's read scope can query.
+        guarded = sorted(_event_ids(proposed_filters) & INTERNAL_EVENT_READ_SCOPES.keys())
+        inputs = attrs.get("inputs", instance.inputs if isinstance(instance, HogFunction) else None) or {}
+        debug_input = inputs.get("debug")
+        debug_value = debug_input.get("value") if isinstance(debug_input, dict) else debug_input
+        if guarded and not _hog_falsy_literal(debug_value):
+            raise serializers.ValidationError(
+                {"inputs": f"Destinations on {', '.join(guarded)} can't log debug output. Turn off the debug input."}
             )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
@@ -902,8 +920,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         # An in-process caller has no request to take the acting user from, so it passes
-        # `created_by` to `save()` instead.
-        validated_data["created_by"] = validated_data.get("created_by") or self.context["request"].user
+        # `created_by` to `save()` instead, or None for a function no person asked for.
+        request = self.context.get("request")
+        validated_data["created_by"] = validated_data.get("created_by") or (request.user if request else None)
 
         template_id = validated_data.get("template_id")
         if template_id:
@@ -919,8 +938,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # For transformations, we need to determine the execution_order
             if requested_order is None:
                 # If no order specified, add at the end
-                highest_order = self._get_highest_execution_order(validated_data["team"].id, validated_data["type"])
-                validated_data["execution_order"] = highest_order + 1
+                validated_data["execution_order"] = self._get_next_execution_order(
+                    validated_data["team"].id, validated_data["type"]
+                )
 
             # Create the function with the execution_order
             return super().create(validated_data=validated_data)
@@ -938,6 +958,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
         return highest_order or 0
 
+    def _get_next_execution_order(self, team_id: int, hog_type: str) -> int:
+        # Once a sibling holds the column's maximum, the function ties with it at the end of the
+        # sequence, because a higher value overflows the smallint column
+        return min(self._get_highest_execution_order(team_id, hog_type) + 1, MAX_EXECUTION_ORDER)
+
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
         # Handle undeletion or re-enabling by placing at the end when needed
         if instance.type in TYPES_WITH_EXECUTION_ORDER and (
@@ -948,8 +973,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 and "execution_order" not in validated_data
             )
         ):
-            highest_order = self._get_highest_execution_order(instance.team_id, instance.type)
-            validated_data["execution_order"] = highest_order + 1
+            validated_data["execution_order"] = self._get_next_execution_order(instance.team_id, instance.type)
 
         # `move_secret_inputs` keeps a stored secret out of the plaintext column by refusing any key
         # that still has an encrypted value, and the save has no request to tell a replacement the
@@ -1085,9 +1109,24 @@ class HogFunctionPublishResponseSerializer(serializers.Serializer):
 
 class HogFunctionRearrangeSerializer(serializers.Serializer):
     orders = serializers.DictField(
-        child=serializers.IntegerField(),
-        help_text="Map of hog function UUIDs to their new execution_order values.",
+        child=serializers.IntegerField(min_value=0, max_value=MAX_EXECUTION_ORDER),
+        help_text=f"Map of hog function UUIDs to their new execution_order values, from 0 to {MAX_EXECUTION_ORDER}.",
     )
+
+    def validate_orders(self, orders: dict[str, int]) -> dict[str, int]:
+        # Keys are compared against str(HogFunction.id) later, so they must be in canonical UUID form.
+        normalized: dict[str, int] = {}
+        for function_id, order in orders.items():
+            try:
+                canonical_id = str(UUID(function_id))
+            except ValueError:
+                raise serializers.ValidationError(f"'{function_id}' is not a valid hog function UUID.")
+            if canonical_id in normalized:
+                raise serializers.ValidationError(
+                    f"Hog function '{canonical_id}' is listed more than once. List each function once."
+                )
+            normalized[canonical_id] = order
+        return normalized
 
 
 class HogFunctionMaskedSecretSerializer(serializers.Serializer):
@@ -1178,6 +1217,50 @@ class HogFunctionViewSet(
             self._cached_editable_alert_scope = next(iter(scopes), None) if len(scopes) == 1 else None
         return self._cached_editable_alert_scope
 
+    def _internal_event_read_scopes(self, request: Request) -> list[str]:
+        """Scope objects of the product data this request lets the destination send or show."""
+        if self.action not in self.scope_object_write_actions and self.action not in PAYLOAD_HISTORY_ACTIONS:
+            return []
+        if not hasattr(self, "_cached_internal_event_read_scopes"):
+            hog_function_id = self.kwargs.get("pk")
+            event_ids = self._stored_event_ids(str(hog_function_id)) if hog_function_id else set()
+            data = getattr(request, "data", None)
+            event_ids |= _event_ids(data.get("filters") if isinstance(data, dict) else None)
+            scopes = {internal_event_read_scope(event_id) for event_id in event_ids}
+            self._cached_internal_event_read_scopes = sorted(scope for scope in scopes if scope)
+        return self._cached_internal_event_read_scopes
+
+    def _stored_event_ids(self, hog_function_id: str) -> set[str]:
+        """Events in the live config, plus the draft a publish promotes, the revision a restore copies,
+        or any revision for the actions that work on past payloads."""
+        try:
+            row = (
+                HogFunction.objects.filter(team_id=self.team_id, id=hog_function_id).values("filters", "draft").first()
+            )
+        except (ValueError, DjangoValidationError):
+            return set()
+        if row is None:
+            return set()
+        event_ids = _event_ids(row["filters"])
+        if self.action == "publish":
+            event_ids |= _event_ids((row["draft"] or {}).get("filters"))
+        if self.action != "restore_revision" and self.action not in PAYLOAD_HISTORY_ACTIONS:
+            return event_ids
+        revisions = HogFunctionRevision.objects.for_team(self.team_id).filter(hog_function_id=hog_function_id)
+        if self.action == "restore_revision":
+            version = self.kwargs.get("version")
+            content = (
+                revisions.filter(version=int(version)).values_list("content", flat=True).first() if version else None
+            )
+            event_ids |= _event_ids((content or {}).get("filters"))
+        else:
+            event_ids |= {
+                event_id
+                for event_id in INTERNAL_EVENT_READ_SCOPES
+                if revisions.filter(content__filters__events__contains=[{"id": event_id}]).exists()
+            }
+        return event_ids
+
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         alert_scope = self._editable_alert_scope()
@@ -1185,14 +1268,26 @@ class HogFunctionViewSet(
             cast(APIScopeObject, alert_scope), required_level="editor"
         ):
             raise PermissionDenied(f"Editing this alert destination requires {alert_scope} write access.")
+        for read_scope in self._internal_event_read_scopes(request):
+            if not self.user_access_control.check_access_level_for_resource(
+                cast(APIScopeObject, read_scope), required_level="viewer"
+            ):
+                raise PermissionDenied(
+                    f"This destination handles {read_scope} data, so it requires {read_scope} read access."
+                )
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
+        # Reading a deleted function's history needs write access, as an undelete does.
+        deleted_history_read = self.action in REVISION_READ_ACTIONS and self._target_is_deleted()
+        writes = self.action in self.scope_object_write_actions or deleted_history_read
+        required_scopes = ["hog_function:write" if writes else "hog_function:read"]
         # A managed alert destination is also gated by the owning product's write scope, so a
         # token that cannot configure the alert cannot redirect its notifications either.
-        required_scopes = ["hog_function:write"]
         alert_scope = self._editable_alert_scope()
         if alert_scope:
             required_scopes.append(f"{alert_scope}:write")
+        # A destination on an internal event that carries product data can send or show that data.
+        required_scopes += [f"{scope}:read" for scope in self._internal_event_read_scopes(request)]
         # Rerun re-executes stored invocations — it replays up to 30 days of
         # persisted event/person/group data through the current (possibly
         # reconfigured) function. A `hog_function:write`-only token could use
@@ -1202,7 +1297,19 @@ class HogFunctionViewSet(
         # (`hog_function:read` would be a no-op since :write already satisfies it.)
         if self.action == "rerun":
             required_scopes += ["person:read", "group:read"]
+        if deleted_history_read:
+            return required_scopes
         return required_scopes if len(required_scopes) > 1 else None
+
+    def _target_is_deleted(self) -> bool:
+        """False when scopes resolve without a URL, as OpenAPI generation does."""
+        pk = self.kwargs.get("pk")
+        if pk is None:
+            return False
+        try:
+            return HogFunction.objects.filter(team_id=self.team_id, pk=pk, deleted=True).exists()
+        except (ValueError, DjangoValidationError):
+            return False
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         if self.action == "list":
@@ -1222,6 +1329,24 @@ class HogFunctionViewSet(
             span.set_attribute("hog_function.search.result_count", results_len)
             span.set_attribute("hog_function.search.empty", results_len == 0)
         return response
+
+    def get_serializer(self, *args: Any, **kwargs: Any) -> BaseSerializer:
+        if self.action == "list" and args and isinstance(args[0], list):
+            self._attach_templates_without_fk(args[0])
+        return super().get_serializer(*args, **kwargs)
+
+    @staticmethod
+    def _attach_templates_without_fk(functions: Sequence[HogFunction]) -> None:
+        # Set in memory only, so HogFunction.template skips its per-row get_template fallback.
+        by_template_id: dict[str, list[HogFunction]] = defaultdict(list)
+        for fn in functions:
+            if fn.hog_function_template_id is None and fn.template_id:
+                by_template_id[fn.template_id].append(fn)
+        if not by_template_id:
+            return
+        for template_id, template in HogFunctionTemplate.get_latest_templates(by_template_id).items():
+            for fn in by_template_id[template_id]:
+                fn.hog_function_template = template
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
@@ -1247,11 +1372,12 @@ class HogFunctionViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
 
-        if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
-            # We only want to include deleted functions if we are un-deleting them
+        undeleting = self.action == "partial_update" and self.request.data.get("deleted") is False
+        if not undeleting and self.action not in REVISION_READ_ACTIONS:
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
+            queryset = queryset.select_related("created_by", "hog_function_template")
             search = self.request.GET.get("search")
             if search:
                 if len(search) > MAX_SEARCH_LENGTH:
@@ -1403,10 +1529,40 @@ class HogFunctionViewSet(
         # Remove the team from the config
         configuration.pop("team")
 
+        mock_async_functions = serializer.validated_data["mock_async_functions"]
+        test_run_row = None
+        if sends_real_requests(configuration, mock_async_functions=mock_async_functions):
+            # The row is written before the worker call, so a test that then fails is still recorded.
+            # Without `strict`, production drops a failed write and the test still sends real requests.
+            test_run_row = log_activity(
+                strict=True,
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+                item_id=str(hog_function.id) if hog_function else None,
+                scope="HogFunction",
+                activity="tested",
+                detail=Detail(
+                    name=configuration.get("name") or (hog_function.name if hog_function else None),
+                    type=humanize_hog_function_type(configuration.get("type")),
+                    context=destination_test_run_context(
+                        configuration, stored=hog_function, mock_async_functions=mock_async_functions
+                    ),
+                ),
+            )
+
         res = create_hog_invocation_test(
             team_id=self.team_id,
             hog_function_id=str(hog_function.id) if hog_function else "new",
             payload=serializer.validated_data,
+        )
+        record_test_run_request_origins(
+            test_run_row,
+            res,
+            secret_inputs=[hog_function.encrypted_inputs, hog_function.draft_encrypted_inputs]
+            if hog_function
+            else None,
         )
 
         if res.status_code != 200:
@@ -1414,7 +1570,7 @@ class HogFunctionViewSet(
             # caller with a bare status code and nothing to act on.
             return Response({"status": "error", "errors": _worker_error_messages(res)}, status=res.status_code)
 
-        return Response(res.json())
+        return Response(without_request_origins(res.json()))
 
     @extend_schema(
         request=HogInvocationRerunRequestSerializer,
@@ -1496,6 +1652,17 @@ class HogFunctionViewSet(
         ):
             raise exceptions.ValidationError({"enabled": CREATE_ENABLED_MESSAGE})
         serializer.save()
+        # No transaction with the save, because its post_save signal tells the workers to reload at once.
+        # A config edit that lands first writes revision 1 itself, so this must not fail on a duplicate.
+        HogFunctionRevision.objects.get_or_create(
+            team_id=self.team_id,
+            hog_function=serializer.instance,
+            version=serializer.instance.version,
+            defaults={
+                "content": snapshot_hog_function_content(serializer.instance),
+                "created_by": self.request.user if self.request.user.is_authenticated else None,
+            },
+        )
         log_activity_from_viewset(
             self,
             serializer.instance,
@@ -1628,6 +1795,12 @@ class HogFunctionViewSet(
             except HogFunction.DoesNotExist:
                 locked = None
                 before_update = None
+
+            # The serializer saves the instance it loaded before this lock. A delete that committed in
+            # between, such as a queryset update that retires an alert's destinations, would be undone
+            # by that save writing `deleted=False` back, so only an explicit undelete may proceed.
+            if locked is not None and locked.deleted and serializer.validated_data.get("deleted") is not False:
+                raise exceptions.NotFound()
 
             route_to_draft = route_to_draft and locked is not None
 
@@ -1902,7 +2075,9 @@ class HogFunctionViewSet(
     def rearrange(self, request: Request, *args, **kwargs) -> Response:
         """Update the execution order of multiple HogFunctions."""
         team = self.team
-        orders: dict[str, int] = request.data.get("orders", {})
+        rearrange_serializer = HogFunctionRearrangeSerializer(data=request.data)
+        rearrange_serializer.is_valid(raise_exception=True)
+        orders: dict[str, int] = rearrange_serializer.validated_data["orders"]
 
         if not orders:
             raise exceptions.ValidationError("No orders provided")

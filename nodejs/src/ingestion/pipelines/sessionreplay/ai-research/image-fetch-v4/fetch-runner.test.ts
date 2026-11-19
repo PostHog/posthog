@@ -6,17 +6,27 @@ import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/top
 
 import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
 import { ConfigurationPolicyService, OriginPolicyDecision } from './configuration-policy'
-import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata } from './crawl-history'
-import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED } from './fetch-runner'
+import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, PackedImageLocation } from './crawl-history'
+import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED, URL_TOO_OLD } from './fetch-runner'
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
+import type { StoredImage } from './image-sink'
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { ResponseUrlBinding } from './response-url-binding'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 const NOW_MS = 1_700_000_000_000
+const PACK: PackedImageLocation = {
+    key: 'images/url/packs/dt=2023-11-14/7/1700000000000-00000000000000aa',
+    byteStart: 0,
+    byteEnd: 99,
+    mime: 'image/png',
+    byteSize: 5,
+    storedAtMs: NOW_MS,
+}
+const PACKED_EARLIER: PackedImageLocation = { ...PACK, key: PACK.key.replace('aa', 'bb'), storedAtMs: NOW_MS - 1_000 }
 const OPTIONS: FetchRunnerOptions = {
     maxConcurrentPerRegistrableDomain: 2,
     maxInFlightRequests: 50,
@@ -57,7 +67,8 @@ interface Harness {
     check: jest.Mock<Promise<OriginPolicyDecision>, [string, Map<string, ConfigurationCacheItem>, number]>
     createPass: jest.Mock
     republish: jest.Mock<Promise<RepublishResult>, any[]>
-    publishImage: jest.Mock<Promise<void>, any[]>
+    publishImage: jest.Mock<Promise<StoredImage | null>, any[]>
+    indexStoredImage: jest.Mock<Promise<void>, any[]>
     topHogRecords: Map<string, RecordedTopHogMetric[]>
 }
 
@@ -83,7 +94,8 @@ function build(
     const createPass = jest.fn(() => ({ check }))
     const republish = jest.fn(() => Promise.resolve(republishResult))
     const createRepublishBatch = jest.fn(() => ({ republish, flush: () => Promise.resolve({ failedUrls: 0 }) }))
-    const publishImage = jest.fn(() => Promise.resolve())
+    const publishImage = jest.fn((): Promise<StoredImage | null> => Promise.resolve({}))
+    const indexStoredImage = jest.fn((): Promise<void> => Promise.resolve())
     const scheduler = {
         runImage: async (_url: URL, _deadlineMs: number, request: () => Promise<ImageFetchResult>) => ({
             ran: true as const,
@@ -110,12 +122,22 @@ function build(
         { createPass } as unknown as ConfigurationPolicyService,
         options,
         { createRepublishBatch } as unknown as FrontierPublisher,
-        { refreshIntervalMs: 7 * 24 * 60 * 60 * 1000, publishImage, refreshImage: () => Promise.resolve(true) },
+        { publishImage, refreshImage: () => Promise.resolve({}), indexStoredImage },
         { bindingFor: () => Promise.resolve(bind) },
         new ImageFetchTopHogMetrics(recordingTopHog.registry)
     )
     builtRunners.push(runner)
-    return { runner, budget, fetch, check, createPass, republish, publishImage, topHogRecords: recordingTopHog.records }
+    return {
+        runner,
+        budget,
+        fetch,
+        check,
+        createPass,
+        republish,
+        publishImage,
+        indexStoredImage,
+        topHogRecords: recordingTopHog.records,
+    }
 }
 
 describe('FetchRunner', () => {
@@ -213,6 +235,64 @@ describe('FetchRunner', () => {
         })
     })
 
+    it.each([
+        [
+            'a new image the sink packed',
+            { outcome: 'ok', bytes: Buffer.from('image'), contentType: 'image/png' },
+            { pack: PACK },
+            PACK,
+        ],
+        // The stored copy stays in place, so the history keeps naming it.
+        ['a missing response for a packed copy', { outcome: 'not_found' }, null, PACKED_EARLIER],
+        ['a packed copy after a body the sink does not store', { outcome: 'ok' }, null, PACKED_EARLIER],
+    ])('records where %s is stored', async (_case, result, published, pack) => {
+        const harness = build(result as Partial<ImageFetchResult>)
+        harness.publishImage.mockResolvedValue(published)
+        const previous = {
+            kind: 'url' as const,
+            key: candidate().originalRef,
+            nextFetchAtMs: 0,
+            storageExpiresAtMs: NOW_MS,
+            outcome: 'ok',
+            storedAtMs: PACKED_EARLIER.storedAtMs,
+            pack: PACKED_EARLIER,
+        }
+
+        const [attempt] = await harness.runner.run([candidate()], new Map([[previous.key, previous]]))
+
+        expect(attempt.history).toMatchObject({ storedAtMs: pack.storedAtMs, pack })
+    })
+
+    it.each([
+        ['a missing response', 'indexes the packed copy it keeps', { outcome: 'not_found' }, 'ok'],
+        ['a missing response', 'retries the job when that copy cannot be indexed', { outcome: 'not_found' }, 'fails'],
+        ['a body the sink does not store', 'indexes the packed copy it keeps', { outcome: 'ok' }, 'ok'],
+    ])('after %s, %s', async (_response, _case, result, indexing) => {
+        const harness = build(result as Partial<ImageFetchResult>)
+        harness.publishImage.mockResolvedValue(null)
+        if (indexing === 'fails') {
+            harness.indexStoredImage.mockRejectedValue(new Error('index unavailable'))
+        }
+        const previous = {
+            kind: 'url' as const,
+            key: candidate().originalRef,
+            nextFetchAtMs: 0,
+            storageExpiresAtMs: NOW_MS,
+            outcome: 'ok',
+            storedAtMs: PACKED_EARLIER.storedAtMs,
+            pack: PACKED_EARLIER,
+        }
+
+        const [attempt] = await harness.runner.run([candidate()], new Map([[previous.key, previous]]))
+
+        expect(harness.indexStoredImage).toHaveBeenCalledWith(
+            expect.objectContaining({ originalRef: candidate().originalRef }),
+            previous
+        )
+        expect(attempt.finished).toBe(indexing === 'ok')
+        expect(harness.republish).toHaveBeenCalledTimes(indexing === 'ok' ? 0 : 1)
+    })
+
     it('uses one worker limit across sibling origins', async () => {
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 1 })
         let releaseFirst: (() => void) | undefined
@@ -255,8 +335,8 @@ describe('FetchRunner', () => {
         let releasePublish: () => void = () => undefined
         harness.publishImage.mockImplementationOnce(
             () =>
-                new Promise<void>((resolve) => {
-                    releasePublish = resolve
+                new Promise<StoredImage>((resolve) => {
+                    releasePublish = () => resolve({})
                 })
         )
         const second = candidate({
@@ -602,7 +682,7 @@ describe('FetchRunner', () => {
     it.each([
         ['a fetch pass', OPTIONS],
         ['the pod candidate pool', POOL_OPTIONS],
-    ])('marks an image publish failure as lost after all candidate work settles in %s', async (_mode, options) => {
+    ])('retries an image publish failure through the frontier in %s', async (_mode, options) => {
         const harness = build({ bytes: Buffer.from('image'), contentType: 'image/png' }, {}, 'queued', options)
         harness.publishImage.mockRejectedValue(
             new S3ServiceException({
@@ -620,9 +700,16 @@ describe('FetchRunner', () => {
         )
 
         expect(attempts).toEqual([
-            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: true }),
-            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: true }),
+            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: false }),
+            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: false }),
         ])
+        expect(harness.republish).toHaveBeenCalledTimes(2)
+        expect(harness.republish).toHaveBeenCalledWith(
+            expect.objectContaining({ lastBlockReason: 'transient_backoff' }),
+            expect.any(Object),
+            'retry',
+            60_000
+        )
         // One log for the burst, with the error name and status and nothing that names the image.
         const logged = warn.mock.calls.filter(([, event]) => event === 'ai_research_v4_image_fetch_storage_failed')
         expect(logged).toEqual([
@@ -777,15 +864,50 @@ describe('FetchRunner', () => {
         expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), 'not_ready', 600_000)
     })
 
-    it.each([
-        ['a fetch pass', OPTIONS],
-        ['the pod candidate pool', POOL_OPTIONS],
-    ])('returns pass-deadline work directly to the frontier from %s', async (_mode, options) => {
+    it.each<[string, FetchRunnerOptions, 'none' | 'transient' | 'retry_after_1h', string, number]>([
+        ['returns pass-deadline work directly to the frontier from a fetch pass', OPTIONS, 'none', 'pass_deadline', 0],
+        [
+            'returns pass-deadline work directly to the frontier from the pod pool',
+            POOL_OPTIONS,
+            'none',
+            'pass_deadline',
+            0,
+        ],
+        [
+            'delays pass-deadline work of a backed-off domain from a fetch pass',
+            OPTIONS,
+            'transient',
+            'not_ready',
+            60_000,
+        ],
+        [
+            'delays pass-deadline work of a backed-off domain from the pod pool',
+            POOL_OPTIONS,
+            'transient',
+            'not_ready',
+            60_000,
+        ],
+        [
+            'holds pass-deadline work of a long back-off in the ten-minute tier',
+            OPTIONS,
+            'retry_after_1h',
+            'not_ready',
+            600_000,
+        ],
+    ])('%s', async (_name, options, backOff, reason, waitMs) => {
         const harness = build({}, {}, 'queued', { ...options, batchBudgetMs: -1 })
+        if (backOff !== 'none') {
+            harness.budget.recordTransientFailure(
+                'example.com',
+                NOW_MS,
+                backOff === 'retry_after_1h' ? 3_600_000 : undefined
+            )
+        }
 
         await harness.runner.run([candidate()], new Map())
 
-        expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), 'pass_deadline', 0)
+        expect(harness.fetch).not.toHaveBeenCalled()
+        expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), reason, waitMs)
     })
 
     it('finishes a retry when its last hop was the failed request', async () => {
@@ -807,11 +929,14 @@ describe('FetchRunner', () => {
         expect(attempt).toMatchObject({ outcome: HOPS_EXHAUSTED, finished: true })
     })
 
-    it('records a terminal refusal when no delay topic can hold the wait', async () => {
-        const harness = build({ outcome: 'timeout' }, {}, 'refused_delay')
+    it.each([
+        ['no delay topic can hold the wait', 'refused_delay', DELAY_TOO_LONG],
+        ['the URL is past the age limit', 'refused_age', URL_TOO_OLD],
+    ] as const)('records a terminal refusal when %s', async (_name, republishResult, outcome) => {
+        const harness = build({ outcome: 'timeout' }, {}, republishResult)
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
-        expect(attempt).toMatchObject({ outcome: DELAY_TOO_LONG, finished: true })
+        expect(attempt).toMatchObject({ outcome, finished: true, history: { outcome } })
     })
 
     it('merges a 304 response into the previous cache metadata', async () => {

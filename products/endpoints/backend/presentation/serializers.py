@@ -152,7 +152,18 @@ class EndpointResponseSerializer(serializers.Serializer):
         help_text="Whether the endpoint can be executed via the API.",
     )
     data_freshness_seconds = serializers.IntegerField(
-        help_text="How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800.",
+        help_text=(
+            "Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, "
+            "which can differ from the standard freshness choices. Other endpoints use the cache duration."
+        ),
+    )
+    plan_refresh_floor_seconds = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The fastest data freshness, in seconds, the organization's plan allows for a materialized "
+            "endpoint. A faster value can't be saved while the endpoint is materialized. Null when the "
+            "plan sets no minimum."
+        ),
     )
     endpoint_path = serializers.CharField(
         help_text="Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run).",

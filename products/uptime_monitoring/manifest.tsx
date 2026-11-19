@@ -31,7 +31,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.UNRELEASED,
             iconType: 'uptime_monitoring',
             href: urls.uptimeMonitoring(),
-            searchKeywords: ['uptime', 'status', 'health check', 'synthetics', 'ping'],
+            searchKeywords: ['status', 'health check', 'synthetics', 'ping'],
             flag: FEATURE_FLAGS.UPTIME_MONITORING,
             tags: ['alpha'],
             sceneKey: 'UptimeMonitoring',

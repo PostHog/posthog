@@ -8,6 +8,7 @@ configuration already holds in this app. The prefix names what the rows are for:
 source configures on the shared platform, rather than one product's own table.
 """
 
+from collections.abc import Collection
 from typing import Any
 from uuid import UUID
 
@@ -65,6 +66,20 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     # `posthog_user`, and creating that constraint locks a table every request writes.
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Every source kind's alert carries it, so a source's pages can show and filter on it without its own row.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        # The partial index in Meta serves user deletion, which nulls this column across every team.
+        db_index=False,
+        related_name="+",
+    )
+    # When the alert was first turned on. Null means it is still a draft. Kept for an alert with no
+    # source row, because the source's pages show it.
+    first_enabled_at = models.DateTimeField(null=True, blank=True)
 
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True, db_default=True)
@@ -118,8 +133,10 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
     )
     owner_changed_at = models.DateTimeField(null=True, blank=True)
-    # Which rows an alert's destinations live in: the source's HogFunctions, or `AlertDestination`.
-    # Separate from `owner`, because an alert moves its evaluation first and its destinations later.
+    labels = models.JSONField(default=dict, db_default={})
+    annotations = models.JSONField(default=dict, db_default={})
+    # Written and never read. A pod from an older release still reads it during a deploy, so creates
+    # keep writing it until a later release removes the field.
     destinations_owner = models.CharField(
         max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
     )
@@ -128,9 +145,17 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
 
     @property
     def destination_alert_id(self) -> UUID:
-        """The id the alert's destinations are matched on: the source row's for a copy, and the
-        configuration's own for an alert whose source keeps no row."""
+        """The alert's public id: the id its source, its clients and its destinations know it by. The
+        source row's id for a copy, and the configuration's own id for an alert with no source row."""
         return self.legacy_configuration_id or self.id
+
+    @staticmethod
+    def with_destination_alert_ids(ids: Collection[UUID]) -> models.Q:
+        """Matches the configurations whose `destination_alert_id` is one of `ids`."""
+        listed = list(ids)
+        return models.Q(legacy_configuration_id__in=listed) | models.Q(
+            legacy_configuration_id__isnull=True, id__in=listed
+        )
 
     def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
         # A copy its source owns is not logged, so its writes skip the read of the row before the update.
@@ -143,6 +168,11 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         # Pinned: the name predates this app, and removing this renames a live table.
         db_table = "alerts_platformalertconfiguration"
         indexes = [
+            models.Index(
+                fields=["created_by"],
+                name="platform_alert_cfg_creator_idx",
+                condition=models.Q(created_by__isnull=False),
+            ),
             # Discovery: enabled rows ordered by due time. Partial, because a disabled
             # configuration is never discovered and does not belong in the index.
             models.Index(
@@ -336,7 +366,7 @@ class PlatformAlertDeliveryHold(TeamScopedRootMixin, UUIDModel):
 
 
 class AlertDestination(TeamScopedRootMixin, UUIDModel):
-    """Where an alert sends, for an alert whose `destinations_owner` is the platform.
+    """Where an alert sends, beside any HogFunctions it has.
 
     One row is one destination a person sees on the alert's page. It sends through the platform's
     transport for its type.
@@ -359,6 +389,50 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
 
     # The HogFunctions this replaced, so an id issued before the move still finds the destination.
     legacy_hog_function_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    # A webhook whose receiver got its source's legacy body from the HogFunctions this replaced keeps
+    # that body, whatever the team's webhook body flags say.
+    keeps_legacy_webhook_body = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         db_table = "alerts_platformalertdestination"
+
+
+class AlertReceiver(TeamScopedRootMixin, UUIDModel):
+    """A named destination that routes send to, for every alert they match rather than one alert."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    name = models.CharField(max_length=255)
+    type = models.CharField(max_length=32, choices=DestinationType.choices)
+    config = EncryptedJSONStringField(default=dict)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    class Meta:
+        db_table = "alerts_platformalertreceiver"
+        constraints = [models.UniqueConstraint(fields=["team", "name"], name="alert_receiver_unique_name")]
+
+
+class AlertRoute(TeamScopedRootMixin, UUIDModel):
+    """Which alerts a receiver hears, by the labels on the alert's configuration.
+
+    Routes are read in `position` order. Every matching route sends, unless one with `continue_matching`
+    off stops the routes after it.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    receiver = models.ForeignKey(AlertReceiver, on_delete=models.CASCADE, related_name="routes")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # `[{"label": ..., "op": "=", "value": ...}]`, all of which must hold. An empty list matches every alert.
+    matchers = models.JSONField(default=list, db_default=[])
+    event_kinds = ArrayField(models.CharField(max_length=16), default=list)
+    position = models.PositiveIntegerField(default=0, db_default=0)
+    continue_matching = models.BooleanField(default=True, db_default=True)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    class Meta:
+        db_table = "alerts_platformalertroute"
+        indexes = [models.Index(fields=["team", "position"], name="alert_route_team_position_idx")]

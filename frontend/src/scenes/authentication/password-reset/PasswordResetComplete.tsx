@@ -6,12 +6,14 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -27,21 +29,30 @@ export function PasswordResetComplete(): JSX.Element {
     const { validatedResetToken, validatedResetTokenLoading } = useValues(passwordResetLogic)
     const invalidLink = !validatedResetTokenLoading && !validatedResetToken?.success
     return (
-        <BridgePage view="password-reset-complete">
-            {invalidLink && (
-                <div className="text-center mb-2">
-                    <IconErrorOutline className="text-secondary text-4xl" />
-                </div>
-            )}
-            <h2>{invalidLink ? 'Unable to reset' : 'Set a new password'}</h2>
-            {validatedResetTokenLoading ? (
-                <Spinner />
-            ) : !validatedResetToken?.token ? (
-                <ResetInvalid />
-            ) : (
-                <NewPasswordForm />
-            )}
-        </BridgePage>
+        <AuthScene
+            notes={
+                invalidLink ? AUTH_NOTES.passwordResetComplete.invalid : AUTH_NOTES.passwordResetComplete.newPassword
+            }
+        >
+            <AuthSceneCard>
+                {invalidLink && (
+                    <div className="text-center mb-3">
+                        <IconErrorOutline className="text-secondary text-5xl" />
+                    </div>
+                )}
+                <AuthCardTitle
+                    title={invalidLink ? 'Unable to reset' : 'Set a new password'}
+                    sub={invalidLink || validatedResetTokenLoading ? undefined : 'Make it a good one.'}
+                />
+                {validatedResetTokenLoading ? (
+                    <Spinner />
+                ) : !validatedResetToken?.token ? (
+                    <ResetInvalid />
+                ) : (
+                    <NewPasswordForm />
+                )}
+            </AuthSceneCard>
+        </AuthScene>
     )
 }
 
@@ -50,19 +61,13 @@ function NewPasswordForm(): JSX.Element {
 
     return (
         <>
-            <div className="text-center mb-4">Please enter a new password for your account.</div>
             {!isPasswordResetSubmitting && passwordResetManualErrors.generic && (
-                <LemonBanner type="error">
+                <AuthBanner variant="danger" className="mb-4">
                     {passwordResetManualErrors.generic?.detail ||
                         'Could not complete your password reset request. Please try again.'}
-                </LemonBanner>
+                </AuthBanner>
             )}
-            <Form
-                logic={passwordResetLogic}
-                formKey="passwordReset"
-                className="deprecated-space-y-4"
-                enableFormOnSubmit
-            >
+            <Form logic={passwordResetLogic} formKey="passwordReset" className="flex flex-col gap-4" enableFormOnSubmit>
                 <LemonField
                     name="password"
                     label={
@@ -79,16 +84,18 @@ function NewPasswordForm(): JSX.Element {
                         placeholder="••••••••••"
                         data-attr="password"
                         autoFocus
+                        fullWidth
                     />
                 </LemonField>
 
-                <LemonField name="passwordConfirm" label="Confirm Password">
+                <LemonField name="passwordConfirm" label="Confirm password">
                     <LemonInput
                         autoComplete="new-password"
                         type="password"
                         className="ph-ignore-input"
                         placeholder="••••••••••"
                         data-attr="password-confirm"
+                        fullWidth
                     />
                 </LemonField>
 
@@ -99,6 +106,7 @@ function NewPasswordForm(): JSX.Element {
                     htmlType="submit"
                     data-attr="password-reset-complete"
                     loading={isPasswordResetSubmitting}
+                    size="large"
                 >
                     Change my password
                 </LemonButton>
@@ -111,7 +119,7 @@ function ResetInvalid(): JSX.Element {
     const { user } = useValues(userLogic)
 
     return (
-        <div className="text-center">
+        <div className="text-center text-sm text-secondary">
             The provided link is <b>invalid or has expired</b>. Please request a new link.
             <div className="mt-4">
                 <LemonButton
@@ -119,6 +127,7 @@ function ResetInvalid(): JSX.Element {
                     type="primary"
                     center
                     data-attr="back-to-login"
+                    size="large"
                     // Scene.PasswordReset is onlyUnauthenticated, so /reset would bounce a signed-in user.
                     to={user ? urls.settings('user-profile', 'change-password') : urls.passwordReset()}
                 >

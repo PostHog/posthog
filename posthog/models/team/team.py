@@ -7,12 +7,13 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import HashIndex
+from django.contrib.postgres.indexes import GinIndex, HashIndex, OpClass
 from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
 from django.db.models.fields.json import KeyTransform
+from django.db.models.functions import Upper
 from django.db.models.signals import post_delete, post_save
 
 import pytz
@@ -20,9 +21,9 @@ import pydantic
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
+from posthog.constants import GroupTypeIndex
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.migration_helpers import deprecate_field
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import (
@@ -56,6 +57,7 @@ from .team_caching import get_team_in_cache, set_team_in_cache
 if TYPE_CHECKING:
     from posthog.schema import PathCleaningFilter
 
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.database.database import Database
 
     from posthog.models.user import User
@@ -63,6 +65,13 @@ if TYPE_CHECKING:
     from products.dashboards.backend.models.dashboard import Dashboard
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def timezone_choices() -> list[tuple[str, str]]:
+    # Callable so a pytz release that adds a zone doesn't generate a no-op migration.
+    return TIMEZONES
+
 
 # TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model
 DEPRECATED_ATTRS = (
@@ -141,22 +150,10 @@ class TeamManager(models.Manager):
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards (demo projects skip above)
-        from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415 — breaks team import cycle
+        from products.dashboards.backend.facade import api as dashboards_api  # noqa: PLC0415 — breaks team import cycle
 
-        from products.dashboards.backend.models.dashboard import Dashboard  # noqa: PLC0415 — breaks team import cycle
-        from products.dashboards.backend.models.dashboard_templates import (  # noqa: PLC0415 — breaks team import cycle
-            DashboardTemplate,
-        )
-
-        template = DashboardTemplate.default_signup_template()
-        dashboard = Dashboard.objects.db_manager(self.db).create(
-            name="Your starter dashboard",
-            pinned=True,
-            team=team,
-            description=template.dashboard_description or "",
-        )
-        create_from_template(dashboard, template)
-        team.primary_dashboard = dashboard
+        starter_dashboard = dashboards_api.create_starter_dashboard(team_id=team.id)
+        team.primary_dashboard_id = starter_dashboard.id
 
         # Create default session recording playlists
         for playlist in DEFAULT_PLAYLISTS:
@@ -288,6 +285,10 @@ class Team(UUIDTClassicModel):
                 condition=models.Q(conversations_enabled=True),
                 name="posthog_team_widget_token_idx",
             ),
+            # The admin console looks teams up by any part of their name. Django compiles icontains to
+            # UPPER(name) LIKE UPPER(pattern) on Postgres, so the index is on UPPER(name).
+            GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="posthog_team_name_trgm"),
+            models.Index(fields=["updated_at"], name="posthog_team_updated_at_idx"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -600,7 +601,7 @@ class Team(UUIDTClassicModel):
     )
 
     timezone = field_access_control(
-        models.CharField(max_length=240, choices=TIMEZONES, default="UTC"), "project", "admin"
+        models.CharField(max_length=240, choices=timezone_choices, default="UTC"), "project", "admin"
     )
     data_attributes = field_access_control(
         models.JSONField(default=get_default_data_attributes, blank=True), "project", "admin"
@@ -769,8 +770,12 @@ class Team(UUIDTClassicModel):
         # where this model loads in every process.
         from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
 
+        from posthog.models.event.new_events_schema import project_moved_to_new_events_table  # noqa: PLC0415
+
         modifiers = HogQLQueryModifiers()
         set_default_modifier_values(modifiers, self)
+        # Whether PostHog moved the project. Project settings hides the early opt-in switch once it is true.
+        modifiers.useNewEventsSchema = project_moved_to_new_events_table(self.pk)
         return modifiers.model_dump()
 
     @property
@@ -860,7 +865,9 @@ class Team(UUIDTClassicModel):
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
-    def count_persons_seen_so_far(self, database: Optional["Database"] = None) -> int:
+    def count_persons_seen_so_far(
+        self, database: Optional["Database"] = None, settings: Optional["HogQLGlobalSettings"] = None
+    ) -> int:
         from posthog.schema import HogQLQueryModifiers
 
         from posthog.hogql.context import HogQLContext
@@ -880,6 +887,7 @@ class Team(UUIDTClassicModel):
                 # The v1 pin survives a shared database: the persons table reads the dedup mode from
                 # each query's modifiers at print time, not from the database.
                 context=HogQLContext(team_id=self.pk, database=database),
+                settings=settings,
             ).results[0][0]
 
     def count_groups_seen_so_far(self, group_type_index: GroupTypeIndex, database: Optional["Database"] = None) -> int:
@@ -946,9 +954,14 @@ class Team(UUIDTClassicModel):
 
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.storage.team_metadata_signal_handlers import enqueue_retired_token_metadata_clear_on_commit
         from posthog.tasks.remote_config import update_team_remote_config
+        from posthog.tasks.team_access_cache_tasks import invalidate_team_tokens_sync
 
         self.save()
+        # The auth entries go first, because the metadata clear removes the entry they still point to.
+        transaction.on_commit(lambda: invalidate_team_tokens_sync(self.id))
+        enqueue_retired_token_metadata_clear_on_commit(self.id, old_token)
         # The post_save receiver also dispatches the plain remote config sync for this save.
         # A worker that predates the old_token argument rejects this task. That worker still
         # runs the plain sync, which writes the new token's Redis entry.
@@ -1233,8 +1246,10 @@ class Team(UUIDTClassicModel):
             else:
                 # Default "none" denies every member; only org admins and owners pass the
                 # subject's admin bypass.
-                member_user_ids = member_queryset.filter(level__gte=OrganizationMembership.Level.ADMIN).values_list(
-                    "user_id", flat=True
+                member_user_ids = (
+                    member_queryset.with_effective_level()
+                    .filter(resolved_level__gte=OrganizationMembership.Level.ADMIN)
+                    .values_list("user_id", flat=True)
                 )
             return User.objects.filter(is_active=True, id__in=member_user_ids)
 

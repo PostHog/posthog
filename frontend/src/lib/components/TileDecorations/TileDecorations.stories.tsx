@@ -2,13 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/react'
 
 import { App } from 'scenes/App'
-import __dashboard1 from 'scenes/dashboard/__mocks__/dashboard1.json'
-import __dashboards from 'scenes/dashboard/__mocks__/dashboards.json'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import type { TileBadge } from '~/types'
+
+import __dashboard1 from 'products/dashboards/frontend/__mocks__/dashboard1.json'
+import __dashboards from 'products/dashboards/frontend/__mocks__/dashboards.json'
 
 interface TileOverrides {
     badge?: TileBadge
@@ -104,7 +105,7 @@ export const CheekyHogOnHover: Story = {
         // A play function cannot move the real pointer, so no browser :hover applies. This copies the hover rule's effect.
         const hoverStyle = document.createElement('style')
         hoverStyle.textContent = `
-            .react-grid-layout.dashboard-view-mode .react-grid-item:has(> .TileDecorations__hog) { content-visibility: visible; transition: none; }
+            .react-grid-layout.dashboard-layout-static .react-grid-item:has(> .TileDecorations__hog) { content-visibility: visible; transition: none; }
             .react-grid-item .TileDecorations__hog img { transform: translateY(0); }
         `
         document.head.append(hoverStyle)

@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.jwt import PosthogJwtAudience
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
 from products.customer_analytics.backend.facade import contracts
@@ -39,7 +40,7 @@ class WorkflowCustomerTaskCreateSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         min_value=1,
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text="PostHog user ID of the assigned project member.",
     )
     due_at = serializers.DateTimeField(required=False, allow_null=True, help_text="ISO 8601 task deadline.")

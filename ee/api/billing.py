@@ -21,15 +21,14 @@ from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PARENT_LOOKUP_KWARG_PREFIX, TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -71,6 +70,8 @@ from ee.settings import BILLING_SERVICE_URL
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
+
+USER_CLAIMABLE_CAMPAIGN_SLUGS: set[str] = {"hesoyam"}
 
 
 class BillingQueryTimeout(APIException):
@@ -207,10 +208,10 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
     if not membership:
         return False
 
-    if membership.level >= OrganizationMembership.Level.OWNER:
+    if membership.effective_level >= OrganizationMembership.Level.OWNER:
         return True
 
-    if membership.level < OrganizationMembership.Level.ADMIN:
+    if membership.effective_level < OrganizationMembership.Level.ADMIN:
         return False
 
     # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
@@ -251,17 +252,17 @@ def user_has_billing_usage_spend_read_access(user: User, organization: Organizat
     if not membership:
         return False
 
-    if membership.level >= OrganizationMembership.Level.OWNER:
+    if membership.effective_level >= OrganizationMembership.Level.OWNER:
         return True
 
     # Only a confirmed disabled flag lets non-owners through. Unknown flag state fails closed to owners.
     if _owner_only_billing_enabled(user, organization) is not False:
         return False
 
-    if membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return True
 
-    if membership.level < OrganizationMembership.Level.MEMBER:
+    if membership.effective_level < OrganizationMembership.Level.MEMBER:
         return False
 
     return _member_billing_usage_spend_read_access_enabled(user, organization)
@@ -335,9 +336,36 @@ def vercel_invoices_url(organization: Organization | None) -> str | None:
     return f"{account_url}/invoices" if account_url else None
 
 
+def _find_privileged_authorizer(organization: Organization) -> Optional[User]:
+    memberships = (
+        OrganizationMembership.objects.with_effective_level()
+        .filter(organization=organization, resolved_level__gte=OrganizationMembership.Level.ADMIN)
+        .order_by("-resolved_level", "joined_at")
+        .select_related("user")
+    )
+    for membership in memberships:
+        if user_has_billing_access(membership.user, organization):
+            return membership.user
+    return None
+
+
 class BillingSerializer(serializers.Serializer):
     plan = serializers.CharField(max_length=100)
     billing_limit = serializers.IntegerField()
+
+
+class ClaimCouponSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        required=False,
+        help_text="Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access.",
+    )
+    campaign_slug = serializers.CharField(
+        required=False,
+        help_text=(
+            "Slug of a campaign to redeem. Give this or `code`, never both. "
+            "Any organization member can redeem an allowlisted campaign."
+        ),
+    )
 
 
 class BillingManagedByPartnerSerializer(serializers.Serializer):
@@ -577,6 +605,19 @@ class BillingTimeSeriesResponseSerializer(serializers.Serializer):
     total_count = serializers.IntegerField(required=False)
 
 
+class BillingSpendTimeSeriesResponseSerializer(BillingTimeSeriesResponseSerializer):
+    pricing_reset_dates = serializers.ListField(
+        child=serializers.DateField(),
+        required=False,
+        help_text=(
+            "Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period "
+            "assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on "
+            "filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list "
+            "does not establish whether a renewal occurred."
+        ),
+    )
+
+
 class BillingTeamOptionsResponseSerializer(serializers.Serializer):
     team_id_options = serializers.ListField(
         child=serializers.IntegerField(), help_text="Project ids that appear in the organization's usage reports."
@@ -663,7 +704,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
-        if self.action in self.payment_actions or scoped_billing_read:
+        scoped_startup_application = self.action == "apply_startup_program" and bool(
+            request.data.get("organization_id")
+        )
+        if self.action in self.payment_actions or scoped_startup_application or scoped_billing_read:
             serializer = BillingPaymentOrganizationSerializer(
                 data=request.query_params if scoped_billing_read else request.data
             )
@@ -671,8 +715,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Configure normal organization scope before shared permissions resolve any cached
             # routing properties. The user's current project can change in another browser tab.
             self.param_derived_from_user_current_team = None
-            parent_prefix = extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX
-            self.kwargs[f"{parent_prefix}organization_id"] = str(serializer.validated_data["organization_id"])
+            self.kwargs[f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id"] = str(
+                serializer.validated_data["organization_id"]
+            )
         super().initial(request, *args, **kwargs)
 
     def get_billing_manager(self) -> BillingManager:
@@ -888,7 +933,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return redirect(invoices_url)
         return redirect(res)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, permission_classes=[permissions.IsAuthenticated, HasBillingAccess])
     def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -1135,23 +1180,48 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @extend_schema(request=ClaimCouponSerializer)
     @action(
         methods=["POST"],
         detail=False,
         url_path="coupons/claim",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated],
     )
     def claim_coupon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
 
         code = request.data.get("code")
-        if not code:
-            raise ValidationError({"code": "This field is required."})
+        campaign_slug = request.data.get("campaign_slug")
+        if not code and not campaign_slug:
+            raise ValidationError({"detail": "Either 'code' or 'campaign_slug' is required."})
+        if code and campaign_slug:
+            raise ValidationError({"detail": "Provide 'code' or 'campaign_slug', not both."})
+        if campaign_slug is not None and not isinstance(campaign_slug, str):
+            raise ValidationError({"detail": "'campaign_slug' must be a string."})
+
+        authorizer_actor: Optional[User] = None
+        if not HasBillingAccess().has_permission(request, self):
+            if not campaign_slug or campaign_slug not in USER_CLAIMABLE_CAMPAIGN_SLUGS:
+                raise PermissionDenied(BILLING_ACCESS_DENIED_MESSAGE)
+            authorizer_actor = _find_privileged_authorizer(organization)
+            if authorizer_actor is None:
+                raise PermissionDenied("No one in this organization has billing access to authorize this claim.")
+
+        payload = {"code": code} if code else {"campaign_slug": campaign_slug}
 
         billing_manager = self.get_billing_manager()
 
         try:
-            res = billing_manager.claim_coupon(organization, {"code": code})
+            res = billing_manager.claim_coupon(organization, payload, authorizer_actor=authorizer_actor)
+            if campaign_slug:
+                report_user_action(
+                    request.user,
+                    "billing cheat code redeemed",
+                    properties={
+                        "campaign_slug": campaign_slug,
+                        "campaign_name": res.get("campaign") if isinstance(res, dict) else None,
+                    },
+                )
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
             if len(e.args) > 2:
@@ -1223,7 +1293,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="spend",
         permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
-        responses={200: BillingTimeSeriesResponseSerializer},
+        responses={200: BillingSpendTimeSeriesResponseSerializer},
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""

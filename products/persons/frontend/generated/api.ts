@@ -36,7 +36,6 @@ import type {
     PersonsPropertiesAtTimeRetrieveParams,
     PersonsPropertiesTimelineCreateParams,
     PersonsPushNotificationsListParams,
-    PersonsResetPersonDistinctIdCreateParams,
     PersonsRetrieveParams,
     PersonsSplitCreateParams,
     PersonsUpdateParams,
@@ -439,7 +438,7 @@ export const getPersonsUpdatePropertyCreateUrl = (
 export const personsUpdatePropertyCreate = async (
     projectId: string,
     id: string,
-    personUpdatePropertyRequestApi: PersonUpdatePropertyRequestApi,
+    personUpdatePropertyRequestApi?: PersonUpdatePropertyRequestApi,
     params?: PersonsUpdatePropertyCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -683,42 +682,6 @@ export const personsPropertiesAtTimeRetrieve = async (
     return apiMutator<PersonPropertiesAtTimeResponseApi>(getPersonsPropertiesAtTimeRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getPersonsResetPersonDistinctIdCreateUrl = (
-    projectId: string,
-    params?: PersonsResetPersonDistinctIdCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/reset_person_distinct_id/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/reset_person_distinct_id/`
-}
-
-/**
- * Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.
- */
-export const personsResetPersonDistinctIdCreate = async (
-    projectId: string,
-    personRecordApi?: NonReadonly<PersonRecordApi>,
-    params?: PersonsResetPersonDistinctIdCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsResetPersonDistinctIdCreateUrl(projectId, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personRecordApi),
     })
 }
 

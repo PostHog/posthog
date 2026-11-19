@@ -33,6 +33,7 @@ from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_insight import INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, CreateInsightTool
+from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantNodeName, NodePath
 
@@ -123,6 +124,40 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "month"})
         await insight.arefresh_from_db()
         self.assertEqual(insight.query, concurrent_query)
+
+    @parameterized.expand([("insight",), ("dashboard",)])
+    async def test_saved_update_accepts_patch_paths_from_read_data_schema(self, read_kind: str):
+        insight = await Insight.objects.acreate(
+            team=self.team,
+            name="Wrapped chart",
+            query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [], "interval": "day"}},
+        )
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Board")
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight)
+        read_tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=AssistantState(messages=[])
+        )
+        read_args = (
+            {"kind": "insight", "insight_id": insight.short_id}
+            if read_kind == "insight"
+            else {"kind": "dashboard", "dashboard_id": str(dashboard.id)}
+        )
+        read_output, _ = await read_tool._arun_impl({**read_args, "execute": False})
+        schema = json.loads(read_output.split("```json\n")[1].split("\n```")[0])
+        interval_path = "/source/interval" if "source" in schema else "/interval"
+
+        tool = await self._create_tool()
+        await tool._arun_impl(
+            viz_title="Chart",
+            viz_description="",
+            query_description="Change interval",
+            insight_type="trends",
+            insight_id=insight.short_id,
+            query_patch=json.dumps([{"op": "replace", "path": interval_path, "value": "week"}]),
+        )
+        await insight.arefresh_from_db()
+        assert insight.query is not None
+        self.assertEqual(insight.query["source"]["interval"], "week")
 
     async def test_saved_update_rejects_changes_after_approval_preview(self):
         tool = await self._create_tool()

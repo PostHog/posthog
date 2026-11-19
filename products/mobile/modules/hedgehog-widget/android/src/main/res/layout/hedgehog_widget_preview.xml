@@ -1,0 +1,22 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@drawable/hedgehog_widget_background"
+  android:clipToOutline="true">
+
+  <ImageView
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:scaleType="centerCrop"
+    android:src="@drawable/hoglet_garden"
+    android:importantForAccessibility="no" />
+
+  <ImageView
+    android:layout_width="@dimen/hedgehog_sprite_size"
+    android:layout_height="@dimen/hedgehog_sprite_size"
+    android:layout_gravity="bottom|center_horizontal"
+    android:layout_marginBottom="@dimen/hedgehog_floor_inset"
+    android:importantForAccessibility="no"
+    android:scaleType="fitCenter"
+    android:src="@drawable/hog_wave_10" />
+</FrameLayout>

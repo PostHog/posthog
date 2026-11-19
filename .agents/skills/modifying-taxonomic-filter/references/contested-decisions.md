@@ -7,9 +7,9 @@ Bring evidence, not seniority.
 ## Should the picker reopen on the last category used?
 
 - **Current position:** no.
-  For an ordinary selection, legacy reopens on Suggested and the rebuild reopens on its `all` scope (`comboboxAllState` in `menu/TaxonomicFilterMenu.tsx`).
-  Exceptions: with no selection the rebuild opens its top-level menu; HogQL and data warehouse selections reopen in their edit flows (`resolveSelectedOpenState` in `menu/TaxonomicFilterMenu.tsx`); legacy reopens a group in `OPEN_AS_SELF_ON_REOPEN` (`types.ts`) on itself.
-- **For changing:** about 24% of users who click a category tab click the same tab again on a later day (about 9% of legacy picker users), over 90 days to 2026-10-15.
+  For an ordinary selection, the picker reopens on Suggested.
+  Exception: it reopens a group in `OPEN_AS_SELF_ON_REOPEN` (`types.ts`) on itself.
+- **For changing:** about 24% of users who click a category tab click the same tab again on a later day (about 9% of picker users), over 90 days to 2026-10-15.
   Source: [Query 15](refreshing-product-reality.md#15-users-who-return-to-the-same-tab).
   An earlier draft said 44% and 11% with no recorded query, and no definition tried since reproduces them.
 - **Against changing:** a remembered tab is a hidden mode.
@@ -46,7 +46,6 @@ Bring evidence, not seniority.
   No data isolates power users.
 - **Implication:** removing a cheap feature saves little.
   Removing an expensive one with almost no use saves a lot.
-  Event match calls a model only for uncached empty searches, so measure its real call volume first.
 
 ## Should there be a natural-language or chat input?
 

@@ -26,7 +26,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -70,7 +69,6 @@ from products.error_tracking.backend.facade.query_utils import (
     map_issue_breakdown,
     normalize_volume_resolution,
     pick_fields,
-    trend_volume_resolution,
 )
 from products.error_tracking.backend.presentation.views.query_serializers import (
     ErrorTrackingIssueBreakdownSerializer,
@@ -80,47 +78,9 @@ from products.error_tracking.backend.presentation.views.query_serializers import
     ErrorTrackingIssueQueryRequestSerializer,
     ErrorTrackingIssuesListQueryRequestSerializer,
     ErrorTrackingIssuesListResponseSerializer,
-    IssueSummaryStatus,
 )
 
 logger = structlog.get_logger(__name__)
-
-# The wait holds a web worker. A read that times out returns `generating`, and generation continues in the background.
-ISSUE_SUMMARY_WAIT_SECONDS = 6.0
-
-
-@frozen
-class IssueSummaryRead:
-    status: IssueSummaryStatus
-    summary: contracts.ErrorTrackingIssueSummary | None
-
-
-def read_issue_summary(team_id: int, issue_id: str, user: User) -> IssueSummaryRead:
-    """Return the stored summary, or wait a bounded time for a first one. A summary failure never fails the read."""
-    try:
-        # A stale stored summary returns at once while a newer one generates in the background.
-        summary = summaries_facade.get_issue_summary(team_id, issue_id, user=user)
-        started_at = now()
-        started = summaries_facade.start_issue_summary_generation(team_id, issue_id, user=user)
-        if summary is None and not started:
-            # A worker can save the first summary between the read above and the start, which then returns False.
-            summary = summaries_facade.get_issue_summary(team_id, issue_id, user=user)
-            if summary is None:
-                return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
-        elif summary is None:
-            summary = summaries_facade.wait_for_issue_summary(
-                team_id,
-                issue_id,
-                user=user,
-                checked_after=started_at,
-                timeout_seconds=ISSUE_SUMMARY_WAIT_SECONDS,
-            )
-    except Exception as error:
-        capture_exception(error, {"team_id": team_id, "issue_id": issue_id})
-        return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
-    if summary is None:
-        return IssueSummaryRead(status=IssueSummaryStatus.GENERATING, summary=None)
-    return IssueSummaryRead(status=IssueSummaryStatus.READY, summary=summary)
 
 
 def summary_payload(summary: contracts.ErrorTrackingIssueSummary) -> dict[str, object]:
@@ -130,23 +90,49 @@ def summary_payload(summary: contracts.ErrorTrackingIssueSummary) -> dict[str, o
             "likely_cause": summary.likely_cause,
             "who_is_affected": summary.who_is_affected,
             "suggested_next_step": summary.suggested_next_step,
-            "category": summary.category.value if summary.category is not None else None,
             "generated_at": summary.generated_at.isoformat(),
         }
     )
 
 
+def external_issue_payload(reference: contracts.ErrorTrackingExternalReference) -> dict[str, object]:
+    return {
+        "id": str(reference.id),
+        "integration": {
+            "id": reference.integration.id,
+            "kind": reference.integration.kind,
+            "display_name": reference.integration.display_name,
+        },
+        "external_url": reference.external_url,
+        "external_id": reference.external_id,
+        "title": reference.title,
+    }
+
+
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
-    def _report_issue_read(self, request: ValidatedRequest, issue_id: str, endpoint: str, **properties: object) -> None:
+    def _report_issue_read(
+        self,
+        request: ValidatedRequest,
+        issue_basics: contracts.ErrorTrackingIssueBasics,
+        endpoint: str,
+        **properties: object,
+    ) -> None:
         # The frontend issue events see only the web app, so this is the one record of which issues
         # MCP, CLI and API callers read. A capture failure must not fail the read.
+        issue_id = str(issue_basics.id)
         try:
             report_user_action(
                 cast(User, request.user),
                 "error_tracking_issue_read",
-                {"issue_id": issue_id, "endpoint": endpoint, **properties},
+                {
+                    "issue_id": issue_id,
+                    "endpoint": endpoint,
+                    "issue_created_at": issue_basics.created_at.isoformat(),
+                    "issue_severity": issue_basics.severity or None,
+                    **properties,
+                },
                 team=self.team,
                 organization=self.team.organization,
                 request=request,
@@ -236,7 +222,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             issueId=issue_id,
             dateRange=DateRange(**date_range),
             filterTestAccounts=filter_test_accounts,
-            volumeResolution=trend_volume_resolution(volume_resolution),
+            volumeResolution=volume_resolution,
             limit=1,
             orderBy="last_seen",
             orderDirection="DESC",
@@ -245,7 +231,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             withLastEvent=False,
             tags={"productKey": "error_tracking"},
         )
-        data = query_facade.run_error_tracking_query(self.team, query)
+        data = query_facade.run_error_tracking_query(self.team, query, align_volume_buckets_to_midpoint=True)
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         if not raw_results:
@@ -264,6 +250,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return self._issue_response(
                 request,
                 issue_id,
+                issue_basics,
                 payload,
                 started_at=started_at,
                 include_breakdown=include_breakdown,
@@ -307,6 +294,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return self._issue_response(
             request,
             issue_id,
+            issue_basics,
             payload,
             started_at=started_at,
             include_breakdown=include_breakdown,
@@ -317,6 +305,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self,
         request: ValidatedRequest,
         issue_id: str,
+        issue_basics: contracts.ErrorTrackingIssueBasics,
         payload: dict[str, object],
         *,
         started_at: float,
@@ -324,19 +313,38 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         include_sparkline: bool,
     ) -> Response:
         summary_started_at = time.monotonic()
-        summary_read = read_issue_summary(self.team.id, issue_id, cast(User, request.user))
+        # The summary is optional, so a failed lookup still returns the issue facts.
+        try:
+            summary_read = summaries_facade.read_issue_summary(self.team.id, issue_id, user=cast(User, request.user))
+        except Exception as error:
+            capture_exception(error, {"team_id": self.team.id, "issue_id": issue_id})
+            summary_read = contracts.IssueSummaryRead(
+                status=contracts.IssueSummaryStatus.UNAVAILABLE, summary=None, reason=None
+            )
         summary_finished_at = time.monotonic()
+        # Linked work is optional too, so a failed provider lookup still returns the issue facts.
+        external_issues: list[contracts.ErrorTrackingExternalReference] | None
+        try:
+            external_issues = facade_api.list_issue_external_references(self.team.id, issue_basics.id)
+        except Exception as error:
+            capture_exception(error, {"team_id": self.team.id, "issue_id": issue_id})
+            external_issues = None
+        if external_issues is not None:
+            payload["external_issues"] = [external_issue_payload(reference) for reference in external_issues]
         if summary_read.summary is not None:
             payload["summary"] = summary_payload(summary_read.summary)
         payload["summary_status"] = summary_read.status.value
+        if summary_read.reason is not None:
+            payload["summary_reason"] = summary_read.reason.value
         self._report_issue_read(
             request,
-            issue_id,
+            issue_basics,
             "issue",
             include_breakdown=include_breakdown,
             include_sparkline=include_sparkline,
             summary_status=summary_read.status.value,
-            # Shows whether starting generation before the ClickHouse queries would shorten first reads.
+            summary_reason=summary_read.reason.value if summary_read.reason is not None else None,
+            external_issue_count=len(external_issues) if external_issues is not None else None,
             facts_ms=round((summary_started_at - started_at) * 1000),
             summary_wait_ms=round((summary_finished_at - summary_started_at) * 1000),
         )
@@ -441,7 +449,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_id = str(params["issueId"])
         limit = cast(int, params.get("limit", 1))
         offset = cast(int, params.get("offset", 0))
-        if not facade_api.issue_exists_by_id(self.team.id, issue_id):
+        issue_basics = facade_api.get_issue_basics(self.team.id, issue_id)
+        if issue_basics is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
         requested_includes = params.get("include")
@@ -491,5 +500,5 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
             payload["nextOffset"] = next_offset
-        self._report_issue_read(request, issue_id, "issue_events")
+        self._report_issue_read(request, issue_basics, "issue_events")
         return Response(payload)

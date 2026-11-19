@@ -1,52 +1,29 @@
 import { Node, NodeViewProps, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import clsx from 'clsx'
-import { useValues } from 'kea'
 
-import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
-
-import { membersLogic } from 'scenes/organization/membersLogic'
-
+import { RichContentMention } from './RichContentMention'
+import { RichContentRoleMention } from './RichContentRoleMention'
 import { RichContentNodeType } from './types'
 
+export type RichContentMentionKind = 'member' | 'role'
+
 export interface RichContentNodeMentionAttrs {
-    id?: number
+    /** A user id for a member mention, a role uuid for a role mention. */
+    id?: number | string
+    kind?: RichContentMentionKind
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const { id } = props.node.attrs as RichContentNodeMentionAttrs
+    const { id, kind } = props.node.attrs as RichContentNodeMentionAttrs
 
     return (
         <NodeViewWrapper
             as="span"
             className={clsx('RichContentEditorMention', props.selected && 'RichContentEditorMention--selected')}
         >
-            <RichContentMention id={id} />
+            {kind === 'role' ? <RichContentRoleMention id={String(id)} /> : <RichContentMention id={Number(id)} />}
         </NodeViewWrapper>
-    )
-}
-
-export const RichContentMention = ({ id }: { id?: number }): JSX.Element => {
-    const { meFirstMembers } = useValues(membersLogic)
-
-    const member = meFirstMembers.find((member) => member.user.id === id)
-
-    return (
-        <Tooltip
-            title={
-                <div className="p-2 flex items-center gap-2">
-                    <ProfilePicture user={member?.user} size="xl" />
-                    <div className="ph-no-capture">
-                        <div className="font-bold">{member?.user.first_name}</div>
-                        <div className="text-sm">{member?.user.email}</div>
-                    </div>
-                </div>
-            }
-        >
-            <span className="ph-no-capture bg-fill-highlight-100 px-1 rounded font-medium">
-                @{member?.user.first_name ?? '(Member)'}
-            </span>
-        </Tooltip>
     )
 }
 
@@ -59,12 +36,13 @@ export const RichContentNodeMention = Node.create({
     serializedText: (attrs: RichContentNodeMentionAttrs): string => {
         // mention is not a block so `getText` does not add a separator.
         // we need to add it manually
-        return `(member:${attrs.id})`
+        return `(${attrs.kind ?? 'member'}:${attrs.id})`
     },
 
     addAttributes() {
         return {
             id: { default: null },
+            kind: { default: 'member' },
         }
     },
 

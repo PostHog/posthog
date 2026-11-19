@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from temporalio.exceptions import CancelledError
 
 from posthog.models import Organization, Team
@@ -155,7 +156,15 @@ class TestUpdateExternalJobStatus:
         emitted_job = mock_emit.call_args.args[0]
         assert emitted_job.rows_synced == 500
 
-    def test_failed_status_emits_and_stamps(self):
+    @parameterized.expand(
+        [
+            ("plain text", "boom", "boom"),
+            # Raw driver/vendor text can carry a NUL byte, which Postgres text columns reject
+            # outright and would otherwise crash this save with a DataError.
+            ("nul byte stripped", "boom\x00boom", "boomboom"),
+        ]
+    )
+    def test_failed_status_emits_and_stamps(self, _name, latest_error, expected_latest_error):
         team, _source, _schema, job = _create_org_team_source_schema_job()
 
         with patch(
@@ -166,12 +175,12 @@ class TestUpdateExternalJobStatus:
                 team_id=team.pk,
                 status=ExternalDataJobStatus.FAILED,
                 logger=MagicMock(),
-                latest_error="boom",
+                latest_error=latest_error,
             )
 
         assert updated.status == ExternalDataJobStatus.FAILED
         assert updated.finished_at is not None
-        assert updated.latest_error == "boom"
+        assert updated.latest_error == expected_latest_error
         mock_emit.assert_called_once()
 
     @pytest.mark.parametrize(

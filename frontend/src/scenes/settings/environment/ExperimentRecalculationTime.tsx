@@ -14,7 +14,7 @@ import { teamLogic } from '~/scenes/teamLogic'
 import { experimentsConfigLogic } from './experimentsConfigLogic'
 
 const DEFAULT_RECALCULATION_UTC_TIME = '02:00:00'
-// Must match MIN_RECALCULATION_GAP_HOURS in products/experiments/backend/models/team_experiments_config.py
+// Must match MIN_RECALCULATION_GAP_HOURS in products/experiments/backend/facade/enums.py
 const MIN_RECALCULATION_GAP_HOURS = 6
 
 const utcHourFromTimeString = (utcTimeString: string): number => parseInt(utcTimeString.split(':')[0], 10)

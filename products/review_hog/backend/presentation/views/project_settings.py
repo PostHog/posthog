@@ -1,12 +1,13 @@
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.routing import PathParameter
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.facade.api import (
@@ -36,9 +37,9 @@ from products.review_hog.backend.facade.enums import (
 from products.review_hog.backend.presentation.views.repositories import (
     UUID_PATH_PATTERN,
     AutomaticReviewDecisionSerializer,
+    CodeReviewSettingsErrorSerializer,
     EffectiveTeamStrictManagementPermission,
     ReviewHogProjectViewSetMixin,
-    ReviewHogSettingsErrorSerializer,
     ReviewInstallationSerializer,
     ReviewProjectRefSerializer,
     ReviewRepositoryPersonRequestSerializer,
@@ -138,6 +139,10 @@ class ReviewRepositoryOverviewEntrySerializer(serializers.Serializer):
     exception = ReviewRepositoryExceptionSerializer(
         allow_null=True, help_text="This project's repository exception. Null when the repository follows the project."
     )
+    review_drafts = serializers.BooleanField(
+        help_text="Whether draft pull requests in this repository get their automatic review when they open. "
+        "Authors who turned off reviews of their drafts still get none."
+    )
     my_choice = serializers.ChoiceField(
         choices=ReviewUserRepositoryChoiceMode.choices,
         allow_null=True,
@@ -170,7 +175,7 @@ class ReviewRepositoryOverviewSerializer(serializers.Serializer):
     next_offset = serializers.IntegerField(allow_null=True, help_text="Offset of the next page, or null.")
     folded = serializers.IntegerField(
         help_text="With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out "
-        "because this project reviews them with no exception and no own choice. 0 otherwise."
+        "because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise."
     )
     folded_preview = serializers.ListField(
         child=serializers.CharField(),
@@ -206,6 +211,7 @@ def _entry_data(entry: ReviewRepositoryOverviewEntry) -> dict[str, Any]:
         "selected": entry.selected,
         "repository_id": entry.repository_id,
         "exception": exception,
+        "review_drafts": entry.review_drafts,
         "my_choice": entry.my_choice,
         "my_choice_id": entry.my_choice_id,
         "my_result": decision_data(entry.my_result),
@@ -221,10 +227,11 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
     and every change goes to the activity log.
     """
 
-    scope_object = "review_hog"
+    scope_object = "code_review"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewProjectSettingsSerializer
+    path_parameters = {"person_id": PathParameter(type=UUID, description="Id of the list entry.")}
 
     def _settings_response(self, response_status: int = status.HTTP_200_OK) -> Response:
         settings = get_review_project_settings(self.effective_team_id, self.acting_user_id)
@@ -278,7 +285,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
         summary="Add a person to a project rule list",
         description="Add a project member to the project rule's 'listed' or 'excepted' list. Project admins only.",
     )
-    @action(detail=False, methods=["POST"], url_path="project_settings/people", required_scopes=["review_hog:write"])
+    @action(detail=False, methods=["POST"], url_path="project_settings/people", required_scopes=["code_review:write"])
     def add_project_person(self, request: Request, **kwargs: Any) -> Response:
         serializer = ReviewRepositoryPersonRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -295,10 +302,9 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
         return self._settings_response(status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     @extend_schema(
-        parameters=[OpenApiParameter("person_id", str, OpenApiParameter.PATH, description="Id of the list entry.")],
         responses={
             200: OpenApiResponse(response=ReviewProjectSettingsSerializer, description="The person was removed."),
-            404: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="No such list entry."),
+            404: OpenApiResponse(response=CodeReviewSettingsErrorSerializer, description="No such list entry."),
         },
         summary="Remove a person from a project rule list",
         description="Remove one entry from the project rule's 'listed' or 'excepted' list. Project admins only.",
@@ -307,10 +313,10 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
         detail=False,
         methods=["DELETE"],
         url_path=rf"project_settings/people/(?P<person_id>{UUID_PATH_PATTERN})",
-        required_scopes=["review_hog:write"],
+        required_scopes=["code_review:write"],
     )
-    def remove_project_person(self, request: Request, person_id: str, **kwargs: Any) -> Response:
-        if not remove_review_repository_person(self.effective_team_id, self.acting_user_id, None, UUID(person_id)):
+    def remove_project_person(self, request: Request, person_id: UUID, **kwargs: Any) -> Response:
+        if not remove_review_repository_person(self.effective_team_id, self.acting_user_id, None, person_id):
             return no_such_list_entry_response()
         return self._settings_response()
 
@@ -319,7 +325,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
         responses={
             200: OpenApiResponse(response=ReviewRepositoryOverviewSerializer),
             400: OpenApiResponse(
-                response=ReviewHogSettingsErrorSerializer, description="The installation is not connected here."
+                response=CodeReviewSettingsErrorSerializer, description="The installation is not connected here."
             ),
         },
         summary="List the repositories of a GitHub installation with their review settings",

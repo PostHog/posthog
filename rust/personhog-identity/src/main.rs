@@ -4,10 +4,13 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_database::get_pool_with_config;
+use common_metrics::{ETCD_OP_LATENCY_BUCKETS_MS, ETCD_PAYLOAD_SIZE_BUCKETS_BYTES};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
+use personhog_common::grpc::{
+    tracked_tcp_incoming_until, until_incoming_ends, GrpcLoadShedLayer, GrpcMetricsLayer,
+};
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentityServer;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycleServer;
@@ -36,7 +39,9 @@ use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::pools::{IdentityPools, Lane};
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
+use personhog_identity::storage::coalesce::{CoalesceSettings, CoalescingIdentityStorage};
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
+use personhog_identity::storage::IdentityStorage;
 use personhog_identity::warnings;
 use tokio_util::sync::CancellationToken;
 
@@ -148,16 +153,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The delete saga groups its fence calls by the leaders' partition
     // count, which lives in etcd; a service that cannot read it would
     // batch wrong, so refuse to start instead.
-    let etcd_store = EtcdStore::connect(StoreConfig {
+    let etcd_store = EtcdStore::connect_with_member_failover(StoreConfig {
         endpoints: config.etcd_endpoint_list(),
         prefix: config.etcd_prefix.clone(),
     })
     .await
     .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));
-    let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
-        .await
-        .expect("Failed to load the changelog config from etcd");
+    // No signal handler is installed until the lifecycle monitor starts,
+    // so SIGTERM ends the process during this wait.
+    let Some(loaded) = load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("Failed to load the changelog config from etcd") else {
+        return Ok(());
+    };
     tracing::info!(
         num_partitions = loaded.partitions,
         epoch = loaded.epoch,
@@ -223,6 +236,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .unwrap()
         .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(Matcher::Suffix("_per_batch".into()), PER_CALL_BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_op_ms".into()),
+            ETCD_OP_LATENCY_BUCKETS_MS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_payload_bytes".into()),
+            ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
+        )
         .unwrap()
         .install_recorder()
         .expect("Failed to install metrics recorder");
@@ -295,11 +320,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-    let storage = Arc::new(PostgresIdentityStorage::new(
+    let postgres_storage = Arc::new(PostgresIdentityStorage::new(
         pools.clone(),
         config.tables(),
         outbox_writes,
     ));
+    let storage: Arc<dyn IdentityStorage> = if config.stub_create_workers == 0 {
+        postgres_storage
+    } else {
+        tracing::info!(
+            workers = config.stub_create_workers,
+            max_batch_distinct_ids = config.stub_create_max_batch_distinct_ids,
+            max_queued_calls = config.stub_create_max_queued_calls,
+            "Coalescing stub-creation transactions"
+        );
+        if config.stub_create_workers >= config.heavy_max_pg_connections as usize {
+            tracing::warn!(
+                workers = config.stub_create_workers,
+                heavy_max_pg_connections = config.heavy_max_pg_connections,
+                "STUB_CREATE_WORKERS can hold every heavy connection, which leaves none for attach, saga steps and GC"
+            );
+        }
+        Arc::new(CoalescingIdentityStorage::spawn(
+            postgres_storage,
+            CoalesceSettings {
+                workers: config.stub_create_workers,
+                max_batch_distinct_ids: config.stub_create_max_batch_distinct_ids,
+                max_queued_calls: config.stub_create_max_queued_calls,
+                max_queue_wait: Duration::from_secs(config.heavy_acquire_timeout_secs),
+            },
+        ))
+    };
     let merge_warnings = warnings::install(&config.ingestion_warnings_settings(), warnings_handle);
     let warnings_to_flush = merge_warnings.clone();
 
@@ -453,9 +504,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
     let max_concurrent_requests = config.max_concurrent_requests;
+    let load_shed_wait = config.load_shed_wait();
+    let load_shed_max_waiters = if config.load_shed_max_waiters == 0 {
+        max_concurrent_requests
+    } else {
+        config.load_shed_max_waiters
+    };
     if max_concurrent_requests > 0 {
         tracing::info!(
             limit = max_concurrent_requests,
+            wait_ms = load_shed_wait.as_millis() as u64,
+            max_waiters = load_shed_max_waiters,
             "gRPC load shedding enabled"
         );
     }
@@ -470,7 +529,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
         };
-        let incoming = tracked_tcp_incoming(listener);
+        let incoming = tracked_tcp_incoming_until(listener, grpc_handle.shutdown_token());
         let mut server = http2_windows.apply_to_server(
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
@@ -493,7 +552,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // retrying the shed on another saturated pod.
             .layer(
                 GrpcLoadShedLayer::new(max_concurrent_requests)
-                    .with_code(tonic::Code::ResourceExhausted),
+                    .with_code(tonic::Code::ResourceExhausted)
+                    .with_wait(load_shed_wait, load_shed_max_waiters),
             )
             .add_service(
                 PersonHogIdentityServer::new(service)
@@ -507,7 +567,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv),
             )
-            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, until_incoming_ends())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

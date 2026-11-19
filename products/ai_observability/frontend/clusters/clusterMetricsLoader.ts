@@ -1,6 +1,5 @@
 import api from 'lib/api'
-
-import { hogql } from '~/queries/utils'
+import { hogql } from 'lib/utils/hogql'
 
 import { Cluster, ClusterMetrics, ClusteringLevel } from './types'
 
@@ -23,6 +22,15 @@ export async function loadClusterMetrics(
     windowEnd: string,
     level: ClusteringLevel = 'trace'
 ): Promise<Record<number, ClusterMetrics>> {
+    return aggregateClusterMetrics(clusters, await loadClusterItemMetrics(clusters, windowStart, windowEnd, level))
+}
+
+export async function loadClusterItemMetrics(
+    clusters: Cluster[],
+    windowStart: string,
+    windowEnd: string,
+    level: ClusteringLevel = 'trace'
+): Promise<Record<string, ItemMetrics>> {
     // Collect all item IDs from all clusters
     const allItemIds: string[] = []
 
@@ -96,7 +104,7 @@ export async function loadClusterMetrics(
         }
     }
 
-    return aggregateClusterMetrics(clusters, itemMetrics)
+    return itemMetrics
 }
 
 export function aggregateClusterMetrics(

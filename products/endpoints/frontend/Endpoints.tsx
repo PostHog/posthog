@@ -18,7 +18,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { isHogQLQuery } from '~/queries/utils'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { AccessControlLevel, AccessControlResourceType, EndpointType } from '~/types'
 
 import { humanizeQueryKind } from './common'

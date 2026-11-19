@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
-from posthog.ingress.verify.schemes import HmacSha256, VerificationOutcome
+from posthog.ingress.verify.schemes import VerificationOutcome, standard_webhooks_scheme
 from posthog.rate_limit import IPThrottle
 
 from products.account_audits.backend.facade import api as account_audits
@@ -165,15 +165,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             signing_key = base64.b64decode(secret, validate=True)
         except (ValueError, binascii.Error):
             return False
-        scheme = HmacSha256(
-            secret_getter=lambda: signing_key,
-            signature_header="webhook-signature",
-            prefix="v1,",
-            encoding="base64",
-            signed_input="id_timestamp_body",
-            delivery_id_header="webhook-id",
-            timestamp_header="webhook-timestamp",
-            timestamp_max_age_seconds=int(SIGNATURE_TOLERANCE.total_seconds()),
-            timestamp_max_future_seconds=int(SIGNATURE_TOLERANCE.total_seconds()),
+        scheme = standard_webhooks_scheme(
+            lambda: signing_key, tolerance_seconds=int(SIGNATURE_TOLERANCE.total_seconds())
         )
         return scheme.verify(body=raw_body, headers=headers).outcome == VerificationOutcome.VERIFIED

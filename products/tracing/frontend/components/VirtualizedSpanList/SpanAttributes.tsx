@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconColumns, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import ViewRecordingButton, {
@@ -38,6 +38,9 @@ type FilterDirection = 'include' | 'exclude'
 export interface SpanAttributesProps {
     attributes: Record<string, string>
     title: string
+    /** Shown after the title in normal case, for example an event's offset from the span start. */
+    subtitle?: string
+    subtitleTooltip?: string
     emptyLabel?: string
     /** @default true */
     showFilterActions?: boolean
@@ -64,13 +67,14 @@ function ToggleColumnButton({ isColumn, onToggle }: { isColumn: boolean; onToggl
 export function SpanAttributes({
     attributes,
     title,
+    subtitle,
+    subtitleTooltip,
     emptyLabel = 'No attributes',
     showFilterActions = true,
     propertyType,
 }: SpanAttributesProps): JSX.Element {
     const { addFilter } = useActions(tracingFiltersLogic)
-    const { configuredDistinctIdKeys, configuredSessionIdKeys, correlationLinksEnabled } =
-        useValues(tracingCorrelationConfigLogic)
+    const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(tracingCorrelationConfigLogic)
     const { spanColumns } = useValues(tracingConfigLogic)
     const { setSpanColumns } = useActions(tracingConfigLogic)
     const columnKeys = useMemo(() => new Set(spanColumns.map(spanColumnKey)), [spanColumns])
@@ -79,7 +83,7 @@ export function SpanAttributes({
 
     // Person/replay links only apply to real OTel attribute tables (propertyType set), because
     // the synthetic "Span details" table repeats span metadata under conventional-looking keys.
-    const showCorrelationLinks = correlationLinksEnabled && propertyType !== undefined
+    const showCorrelationLinks = propertyType !== undefined
 
     useEffect(
         () => () => {
@@ -208,8 +212,13 @@ export function SpanAttributes({
 
     return (
         <div className="bg-primary overflow-hidden rounded border border-border">
-            <div className="px-3 py-2 bg-bg-light border-b border-border">
+            <div className="px-3 py-2 bg-bg-light border-b border-border flex flex-wrap items-baseline gap-x-2">
                 <span className="text-xs font-semibold text-muted uppercase">{title}</span>
+                {subtitle && (
+                    <Tooltip title={subtitleTooltip}>
+                        <span className="text-xs font-mono text-muted">{subtitle}</span>
+                    </Tooltip>
+                )}
             </div>
             {rows.length === 0 ? (
                 <div className="px-3 py-2 text-xs text-muted italic">{emptyLabel}</div>

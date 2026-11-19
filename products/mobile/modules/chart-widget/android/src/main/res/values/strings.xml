@@ -1,0 +1,50 @@
+<resources>
+  <string name="chart_widget_latest">Latest</string>
+  <string name="chart_widget_label">Chart</string>
+  <string name="chart_widget_description">A pinned view, with its latest value or chart.</string>
+
+  <!-- Widget states. -->
+  <string name="chart_widget_choose_pin">Choose a pin</string>
+  <string name="chart_widget_choose_pin_hint">Touch and hold to pick a pin from your Views tab</string>
+  <string name="chart_widget_signed_out_title">Sign in to see your pins</string>
+  <string name="chart_widget_signed_out_message">Open PostHog to sign in</string>
+  <string name="chart_widget_update_session">Open PostHog to update</string>
+  <string name="chart_widget_no_longer_pinned">%1$s is no longer pinned</string>
+  <string name="chart_widget_other_project_title">In another project</string>
+  <string name="chart_widget_other_project_message">Switch to %1$s in PostHog</string>
+  <string name="chart_widget_not_found">%1$s was unpinned or deleted. Touch and hold to pick another.</string>
+  <string name="chart_widget_loading">Loading…</string>
+  <string name="chart_widget_refresh_failed">Couldn\'t refresh</string>
+  <string name="chart_widget_refresh_retry">Trying again soon</string>
+  <string name="chart_widget_bad_data">Can\'t show this insight here</string>
+  <string name="chart_widget_no_result">Open it in PostHog to load this insight</string>
+  <string name="chart_widget_not_found_short">Not found</string>
+  <string name="chart_widget_this_pin">This pin</string>
+  <string name="chart_widget_ineligible">Open this view in PostHog</string>
+
+  <string name="chart_widget_empty">No data for this range</string>
+
+  <!-- Freshness, from when the server computed the numbers. -->
+  <string name="chart_widget_updated_just_now">Updated just now</string>
+  <string name="chart_widget_updated_minutes">Updated %1$d min ago</string>
+  <string name="chart_widget_updated_hours">Updated %1$d h ago</string>
+  <string name="chart_widget_updated_one_day">Updated 1 day ago</string>
+  <string name="chart_widget_updated_days">Updated %1$d days ago</string>
+
+  <!-- Configure screen. -->
+  <string name="chart_widget_configure_subtitle">This widget shows one pin. Touch and hold the widget to change it later.</string>
+  <string name="chart_widget_configure_ineligible">Can\'t show on the widget</string>
+  <string name="chart_widget_configure_extras">Also show (large widget)</string>
+  <string name="chart_widget_configure_done">Done</string>
+  <string name="chart_widget_configure_close">Close</string>
+  <string name="chart_widget_configure_signed_out">Sign in to PostHog to see your pins</string>
+  <string name="chart_widget_configure_empty">Pin a dashboard or insight in Views first</string>
+  <string name="chart_widget_configure_open_app">Open PostHog</string>
+
+  <!-- Sample data for the widget picker's preview. -->
+  <string name="chart_widget_preview_title" translatable="false">Signups</string>
+  <string name="chart_widget_preview_value" translatable="false">1,284</string>
+  <string name="chart_widget_preview_delta" translatable="false">▲ 12%</string>
+  <string name="chart_widget_preview_range" translatable="false">Last 14 days</string>
+  <string name="chart_widget_preview_updated" translatable="false">Updated 12 min ago</string>
+</resources>

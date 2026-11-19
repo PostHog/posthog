@@ -24,7 +24,7 @@ from products.replay_vision.backend.api.backfills import (
     BackfillEnumerationThrottle,
     ReplayScannerBackfillViewSet,
 )
-from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -71,7 +71,13 @@ from products.replay_vision.backend.temporal.constants import (
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import CandidateSessionPayload
 from products.replay_vision.backend.temporal.types import CreateObservationInputs
-from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend
+from products.replay_vision.backend.tests.helpers import (
+    TEST_FREE_CREDITS,
+    create_experiment,
+    seed_scanner_spend,
+    unsynced_allowance,
+    update_experiment,
+)
 
 _WINDOW_END = dt.datetime(2026, 5, 1, tzinfo=dt.UTC)
 _WINDOW_START = _WINDOW_END - dt.timedelta(days=30)
@@ -149,9 +155,9 @@ class TestBackfillQuotaCommitment:
         scanner = _make_scanner()
         ReplayScanner.objects.filter(pk=scanner.pk).update(free_only=True)
         org_id = scanner.team.organization_id
-        seed_scanner_spend(scanner, FREE_TIER_MONTHLY_CREDITS - 100)
+        seed_scanner_spend(scanner, TEST_FREE_CREDITS - 100)
         _make_backfill(scanner, total_count=100, credits_per_observation=5)
-        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             assert spend_projection(org_id).backfills_committed_credits == 100
 
     def test_paused_backfill_still_counts_as_committed(self) -> None:
@@ -160,6 +166,8 @@ class TestBackfillQuotaCommitment:
             scanner, status=BackfillStatus.PAUSED_QUOTA, total_count=10, dispatched_count=4, credits_per_observation=2
         )
         assert spend_projection(scanner.team.organization_id).backfills_committed_credits == 12
+        ReplayScanner.objects.filter(pk=scanner.pk).update(enabled=False)
+        assert spend_projection(scanner.team.organization_id).backfills_committed_credits == 0
 
 
 @pytest.mark.django_db(transaction=True)
@@ -374,7 +382,7 @@ class TestBackfillTickActivities:
     def test_prepare_pauses_when_org_quota_exhausted(self) -> None:
         scanner = _make_scanner()
         backfill = _make_backfill(scanner)
-        exhausted = MagicMock()
+        exhausted = MagicMock(awaiting_billing_sync=False)
         exhausted.would_exceed.return_value = True
         with patch(
             "products.replay_vision.backend.temporal.activities.backfill.quota_state",
@@ -384,6 +392,15 @@ class TestBackfillTickActivities:
         assert result.action == BackfillTickAction.PAUSE
         backfill.refresh_from_db()
         assert backfill.status == BackfillStatus.PAUSED_QUOTA
+
+    def test_prepare_holds_without_pausing_while_billing_has_not_synced_the_org(self) -> None:
+        backfill = _make_backfill(_make_scanner())
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+            result = prepare_backfill_tick_activity(self._tick_inputs(backfill))
+
+        backfill.refresh_from_db()
+        assert (result.action, backfill.status) == (BackfillTickAction.SKIP, BackfillStatus.RUNNING)
 
     def test_prepare_dispatches_with_budget_when_headroom_available(self) -> None:
         scanner = _make_scanner()
@@ -514,6 +531,42 @@ class TestBackfillTickActivities:
         assert not result.more_work_below_cursor
         assert result.next_cursor_end_time is None
         assert result.skipped_delta == 0
+
+    @pytest.mark.parametrize(
+        "dispatched,expected_ids,queried",
+        [
+            # A full page whose last quoted session dispatches still has to complete the backfill.
+            pytest.param(2, ["a"], True, id="quote_spent_by_this_batch"),
+            pytest.param(3, [], False, id="quote_already_spent"),
+        ],
+    )
+    def test_backfill_stops_at_its_quoted_count(self, dispatched: int, expected_ids: list[str], queried: bool) -> None:
+        scanner = _make_scanner()
+        cursor_end_time = timezone.now() - dt.timedelta(minutes=30)
+        backfill = _make_backfill(
+            scanner,
+            total_count=3,
+            dispatched_count=dispatched,
+            cursor_end_time=cursor_end_time,
+            cursor_session_id="cursor-session",
+        )
+        fetched = [
+            CandidateSession(session_id=session_id, session_end=timezone.now() - dt.timedelta(hours=hours))
+            for session_id, hours in (("a", 3), ("b", 2), ("c", 1))
+        ]
+        with patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls:
+            query_cls.return_value.run.return_value = fetched
+            result = find_backfill_candidates_activity(
+                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=3)
+            )
+        assert [c.session_id for c in result.candidates] == expected_ids
+        assert query_cls.return_value.run.called is queried
+        assert result.more_work_below_cursor is False
+        # The advance matches on these, so a completing tick that drops them leaves the backfill running.
+        assert (result.started_from_cursor_end_time, result.started_from_cursor_session_id) == (
+            cursor_end_time,
+            "cursor-session",
+        )
 
     def test_unrunnable_exposure_filter_cancels_the_backfill(self) -> None:
         # The candidate query raises PermissionDenied when the launcher was deleted or lost
@@ -706,8 +759,7 @@ class TestBackfillsApi(APIBaseTest):
         mock_query.return_value.count.return_value = 3
         experiment = create_experiment(self.team, "ended-flag", launched=True, variants=["control", "test"])
         ended_at = timezone.now() - dt.timedelta(days=3)
-        experiment.end_date = ended_at
-        experiment.save()
+        update_experiment(experiment, end_date=ended_at)
         self.scanner.scanner_type = ScannerType.EXPERIMENT
         self.scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         self.scanner.save()

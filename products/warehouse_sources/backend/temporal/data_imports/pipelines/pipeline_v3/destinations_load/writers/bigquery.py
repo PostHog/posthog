@@ -72,6 +72,12 @@ MISSING_PERMISSION_DETAIL = (
     "BigQuery Data Editor and BigQuery Job User roles on the project, then run the sync again."
 )
 
+BILLING_NOT_ENABLED_DETAIL = (
+    "Billing is not enabled on the Google Cloud project this destination writes to, and BigQuery's "
+    "free tier does not allow the DML queries this sync runs. Enable billing on the project, then "
+    "run the sync again."
+)
+
 
 # The Arrow type that loads into each BigQuery column type. A merge chunk whose column loads as a
 # different type is cast to it first, because a `MERGE` does not convert a STRING into an INT64.
@@ -119,7 +125,9 @@ def _ddl_type(field: bigquery.SchemaField) -> str:
     base = (
         f"STRUCT<{', '.join(f'{_backtick(sub.name)} {_ddl_type(sub)}' for sub in field.fields)}>"
         if field.field_type in ("RECORD", "STRUCT")
-        else field.field_type
+        # DDL only accepts the standard SQL type names: FLOAT has no DDL alias, unlike INTEGER
+        # (INT64) and BOOLEAN (BOOL), so an unmapped FLOAT fails the ALTER TABLE outright.
+        else _STANDARD_BIGQUERY_TYPE.get(field.field_type, field.field_type)
     )
     return f"ARRAY<{base}>" if field.mode == "REPEATED" else base
 
@@ -154,6 +162,16 @@ def _is_missing_permission(err: Exception) -> bool:
         return False
     message = str(err)
     return "does not have" in message and "permission" in message
+
+
+def _is_billing_not_enabled(err: Exception) -> bool:
+    """Whether Google refused a DML query because the project has no billing account.
+
+    e.g. "... 403 Billing has not been enabled for this project. ...; reason: billingNotEnabled,
+    ...". A free-tier project never gains the right to run DML on its own, so unlike a
+    quota-exceeded 403 this never recovers without the customer attaching a billing account.
+    """
+    return isinstance(err, Forbidden) and "reason: billingNotEnabled" in str(err)
 
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
@@ -208,9 +226,11 @@ class BigQueryDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
+        from posthog.integrations import IntegrationManager  # noqa: PLC0415 — avoids a model import cycle
 
-        integration = Integration.objects.get(id=self._ctx.integration_id, team_id=self._ctx.team_id)
+        integration = IntegrationManager.google_cloud_service_account.credentials.get(
+            self._ctx.team_id, self._ctx.integration_id
+        )
         google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
         if not google_cloud_integration.has_key():
             # Keyless means PostHog impersonates the team's service account instead of holding
@@ -237,6 +257,8 @@ class BigQueryDestinationWriter:
                 raise DestinationConfigurationError(self._ctx.destination_name, IMPERSONATION_DENIED_DETAIL) from err
             if _is_missing_permission(err):
                 raise DestinationConfigurationError(self._ctx.destination_name, MISSING_PERMISSION_DETAIL) from err
+            if _is_billing_not_enabled(err):
+                raise DestinationConfigurationError(self._ctx.destination_name, BILLING_NOT_ENABLED_DETAIL) from err
             raise
 
     def _table_ref(self, table: str) -> str:
@@ -279,6 +301,23 @@ class BigQueryDestinationWriter:
     def _check_owned_or_absent(self, client: bigquery.Client, table_ref: str, action: str) -> bool:
         """Whether `table_ref` does not exist yet. Raises like `_owned_table`."""
         return self._owned_table(client, table_ref, action) is None
+
+    def _claim_staging_table(self, client: bigquery.Client, staging_ref: str) -> bool:
+        """Whether `staging_ref` does not exist yet, claiming it as this run's own otherwise.
+
+        Unlike `_owned_table`, a staging table never needs the foreign-table guard: its name
+        embeds this run's own run_uuid, so nothing but an earlier attempt of this exact run
+        could have produced it. `_write_full_refresh_chunk` labels a newly created staging
+        table only after loading the first chunk into it, so a crash or a dropped connection
+        in between leaves the table unlabeled; without this, the next attempt would read that
+        gap as a foreign table and refuse to ever reuse its own staging table again.
+        """
+        try:
+            client.get_table(staging_ref)
+        except NotFound:
+            return True
+        self._mark_owned(client, staging_ref)
+        return False
 
     def _set_labels(self, client: bigquery.Client, table_ref: str, labels: dict[str, str]) -> None:
         existing = client.get_table(table_ref)
@@ -364,9 +403,15 @@ class BigQueryDestinationWriter:
             # pq.write_table needs a Table, and one record batch is one load job.
             table = pa.Table.from_batches([record_batch])
             target_ref = self._table_ref(run.table_name)
-            target_absent = self._check_owned_or_absent(client, target_ref, "append to it")
+            target = self._owned_table(client, target_ref, "append to it")
+            if target is not None:
+                # `ALLOW_FIELD_ADDITION` only covers a column the target lacks; it does not let
+                # a load job widen a column's existing type, so a batch sending a wider type
+                # than the target already has (e.g. a count turning into a fraction) fails the
+                # load outright on every retry without this.
+                table = self._align_to_target(table, target)
             self._load(client, run.table_name, table, bigquery.WriteDisposition.WRITE_APPEND)
-            if target_absent:
+            if target is None:
                 self._mark_owned(client, target_ref)
             return table.num_rows
 
@@ -387,9 +432,7 @@ class BigQueryDestinationWriter:
         table = pa.Table.from_batches([stamp_batch_index(record_batch, ctx.batch_index)])
 
         if first_chunk:
-            # The staging name is unique to this run, so a genuine collision is remote, but
-            # refusing to reuse an unrelated table costs one read and closes the gap.
-            staging_absent = self._check_owned_or_absent(client, staging_ref, "reuse it as a staging table")
+            staging_absent = self._claim_staging_table(client, staging_ref)
             if not staging_absent:
                 self._delete_batch_rows(client, staging, ctx.batch_index)
 
@@ -457,6 +500,12 @@ class BigQueryDestinationWriter:
                 continue
             try:
                 cast = pc.cast(column, arrow_type)
+                # `safe` casting still lets any nonzero number through to BOOL as `true`, because
+                # Arrow does not treat that as a loss of precision the way it does a fractional
+                # float truncated to an int. Casting back and comparing catches it the same way a
+                # retry against the live table would have, instead of silently losing the number.
+                if arrow_type == pa.bool_() and not column.equals(pc.cast(cast, column.type)):
+                    raise pa.ArrowInvalid(f"{field.name} holds a value other than 0 or 1")
             except pa.ArrowException as err:
                 raise DestinationConfigurationError(
                     self._ctx.destination_name,
@@ -506,6 +555,14 @@ class BigQueryDestinationWriter:
             source_format=bigquery.SourceFormat.PARQUET,
             write_disposition=disposition,
             autodetect=True,
+            # Without this, autodetect only ever offers NUMERIC (precision 38, scale 9) for a
+            # parquet decimal column, and a source decimal wider than that — a decimal128 with a
+            # scale above 9 is a common shape — fails the load outright instead of landing as
+            # BIGNUMERIC.
+            decimal_target_types=[
+                bigquery.enums.DecimalTargetType.NUMERIC,
+                bigquery.enums.DecimalTargetType.BIGNUMERIC,
+            ],
         )
         if disposition == bigquery.WriteDisposition.WRITE_APPEND:
             # Additive evolution: a column the source grew is added rather than rejected.

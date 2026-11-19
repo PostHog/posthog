@@ -120,6 +120,7 @@ export interface PatchedUpdateUptimeMonitorInputApi {
 export type UptimeMonitorsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

@@ -10,7 +10,7 @@ import posthog from 'posthog-js'
 // calls at runtime. `jest.mock('@posthog/lemon-ui', ...)` did not propagate through the
 // barrel's re-export chain — spying on the shared object avoids that issue.
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'

@@ -11,15 +11,15 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { SelectorMatchChangeNotice } from 'scenes/insights/SelectorMatchChangeNotice'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
+import { EditorFilters } from 'products/product_analytics/frontend/insights/editor/EditorFilters'
+
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
 import { getCachedResults } from './utils'
@@ -140,10 +140,7 @@ export function InsightViz({
                                     embedded={isEmbedded}
                                 />
                                 {!isEmbedded ? (
-                                    <div className="flex-1 max-h-full overflow-auto pb-8">
-                                        <SelectorMatchChangeNotice insightProps={insightProps} />
-                                        {display}
-                                    </div>
+                                    <div className="flex-1 max-h-full overflow-auto pb-8">{display}</div>
                                 ) : (
                                     display
                                 )}

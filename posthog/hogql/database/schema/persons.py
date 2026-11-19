@@ -24,7 +24,12 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor, top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    WhereClauseExtractor,
+    is_nondeterministic_function,
+    top_level_conjuncts,
+    unwrap_table_alias_type,
+)
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -183,10 +188,11 @@ def select_from_persons_table(
         # Skip aggregate, DISTINCT, and window-function selects too: they must see every person, and
         # the executor stamps a default LIMIT on every query, so pushing it down would cap
         # e.g. `SELECT count() FROM persons` at the page size instead of counting the whole team.
-        # HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
+        # JOIN, HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
         # rows after deduplication, so they need the full person set as well.
         can_push_to_inner = (
             node.select_from
+            and not node.select_from.next_join
             and node.select_from.type
             and hasattr(node.select_from.type, "table")
             and node.select_from.type.table
@@ -267,20 +273,16 @@ def select_from_persons_table(
     return select
 
 
-# These return different values in the subquery and in the outer query.
-_NONDETERMINISTIC_FUNCTIONS = frozenset({"rand", "rownumberinblock", "rownumberinallblocks", "nowinblock"})
-
-
 class _CopyableConjunctVisitor(TraversingVisitor):
-    def __init__(self, table_type: ast.Type):
+    def __init__(self, table_types: tuple[ast.Type, ...]):
         super().__init__()
-        self.table_type = table_type
+        self.table_types = table_types
         self.reads_table = False
         self.copyable = True
 
     def visit_field(self, node: ast.Field):
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
-        if isinstance(field_type, ast.FieldType) and field_type.table_type is self.table_type:
+        if isinstance(field_type, ast.FieldType) and any(field_type.table_type is t for t in self.table_types):
             self.reads_table = True
         else:
             self.copyable = False
@@ -293,7 +295,7 @@ class _CopyableConjunctVisitor(TraversingVisitor):
         self.copyable = False
 
     def visit_call(self, node: ast.Call):
-        if node.name.lower() in _NONDETERMINISTIC_FUNCTIONS:
+        if is_nondeterministic_function(node.name):
             self.copyable = False
         super().visit_call(node)
 
@@ -317,7 +319,9 @@ def _is_relative_sample(sample: Optional[ast.SampleExpr]) -> bool:
 
 
 def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQuery) -> Optional[Expr]:
-    """Build `id IN (SELECT person_id FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
+    """Build `id IN (SELECT <join key> FROM <left table> WHERE <conjuncts>)` for the joined persons subquery.
+
+    The join key is the join's `from_field`, so the set holds the same person ids that the join condition reads.
 
     The conjuncts are the top-level AND terms of the outer WHERE and PREWHERE that read only the left table.
     A term must read at least one left-table column, because a constant term narrows nothing.
@@ -327,12 +331,20 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     its person columns.
     Returns None unless the left table is the query's own FROM table and at least one term qualifies.
     """
-    left = node.select_from
+    # A lazy left table, such as the union of events and flag_evaluations, is already a subquery in `node`. Its recorded
+    # scan holds the FROM entry as the query wrote it.
+    scan = join_to_add.from_scan
+    left = scan.join if scan is not None else node.select_from
+    left_types: tuple[ast.Type, ...] = (
+        scan.types if scan is not None else (left.type,) if left is not None and left.type is not None else ()
+    )
     if (
         left is None
         or not isinstance(left.table, ast.Field)
         or left.table_args
-        or left.type is not join_to_add.lazy_join_type.table_type
+        or not left_types
+        or left_types[0] is not join_to_add.lazy_join_type.table_type
+        or (scan is not None and (node.select_from is None or node.select_from.alias != join_to_add.from_table))
     ):
         return None
 
@@ -342,7 +354,7 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
         if where is None:
             continue
         for conjunct in top_level_conjuncts(where):
-            visitor = _CopyableConjunctVisitor(left.type)
+            visitor = _CopyableConjunctVisitor(left_types)
             visitor.visit(conjunct)
             if visitor.copyable and visitor.reads_table:
                 conjuncts.append(cloner.visit(conjunct))
@@ -355,7 +367,7 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
         # The resolver turns this into GLOBAL IN. GLOBAL IN does not deduplicate the set that it ships to each shard.
         right=ast.SelectQuery(
             distinct=True,
-            select=[ast.Field(chain=[join_to_add.from_table, "person_id"])],
+            select=[ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field])],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=list(left.table.chain)),
                 alias=left.alias,
@@ -364,6 +376,13 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
             where=conjuncts[0] if len(conjuncts) == 1 else ast.And(exprs=conjuncts),
         ),
     )
+
+
+def _person_id_pushdown_applies(join_to_add: LazyJoinToAdd, context: HogQLContext) -> bool:
+    if context.modifiers.personIdPushdown is not None:
+        return context.modifiers.personIdPushdown
+    left = unwrap_table_alias_type(join_to_add.lazy_join_type.table_type)
+    return isinstance(left, (ast.TableType, ast.LazyTableType)) and left.table.person_id_pushdown_default
 
 
 def persons_join_is_inner(context: HogQLContext) -> bool:
@@ -399,7 +418,11 @@ def join_with_persons_table(
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from persons table")
-    pushdown = build_person_id_pushdown_predicate(join_to_add, node) if context.modifiers.personIdPushdown else None
+    pushdown = (
+        build_person_id_pushdown_predicate(join_to_add, node)
+        if _person_id_pushdown_applies(join_to_add, context)
+        else None
+    )
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node, filter=pushdown))
 
     join_expr.join_type = "INNER JOIN" if persons_join_is_inner(context) else "LEFT JOIN"
@@ -408,7 +431,7 @@ def join_with_persons_table(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=[join_to_add.from_table, "person_id"]),
+            left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
             right=ast.Field(chain=[join_to_add.to_table, "id"]),
         ),
         constraint_type="ON",

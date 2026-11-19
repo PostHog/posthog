@@ -59,8 +59,10 @@ from products.tasks.backend.logic.services.sandbox import (
     build_health_check_command,
     build_subscription_flags,
     health_check_timeout_seconds,
+    sandbox_repo_path,
     wait_for_health_check,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError, raise_startup_failure
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -86,7 +88,7 @@ AGENT_SERVER_FREE_PORT_SCRIPT = (
     'pids=$(agent_server_pids); [ -n "$pids" ] && echo "$pids" | xargs kill -KILL 2>/dev/null; true'
 )
 
-AGENT_SERVER_LAUNCH_CAPABILITIES = ("pi_runtime", "auto_publish", "exec_permission_regex")
+AGENT_SERVER_LAUNCH_CAPABILITIES = ("pi_runtime", "auto_publish", "exec_permission_regex", "launch_before_repo_ready")
 AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX = "__posthog_agent_preflight_capability="
 AGENT_SERVER_PREFLIGHT_REUSE_MARKER = "__posthog_agent_preflight_reuse=1"
 AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE = 91
@@ -339,9 +341,9 @@ class AgentServerLaunchMixin(SandboxBase):
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
         repo_ready_file: str | None = None,
+        shell_waits_for_repo: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
@@ -367,7 +369,6 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_url=event_ingest_url,
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
-            peer_messaging=peer_messaging,
             pi_acp_conversation=pi_acp_conversation,
             unset_bedrock=self.disable_direct_bedrock,
         )
@@ -401,11 +402,12 @@ class AgentServerLaunchMixin(SandboxBase):
         server_cmd = self._wrap_agent_server_command(server_cmd)
         launch_started_at = "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)"
 
-        if repo_ready_file:
+        shell_repo_ready_file = repo_ready_file if shell_waits_for_repo else None
+        if shell_repo_ready_file:
             # Keep the adapter process from inheriting a repository cwd that does not
             # exist yet, even if an overlaid agent-server mishandles its readiness flag.
             wait_for_repo = (
-                f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; "
+                f"while [ ! -f {shlex.quote(shell_repo_ready_file)} ]; do sleep 0.1; done; "
                 f"{launch_started_at}; exec {server_cmd}"
             )
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
@@ -414,7 +416,7 @@ class AgentServerLaunchMixin(SandboxBase):
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
-        launch_started_prefix = "" if repo_ready_file else f"{launch_started_at} && "
+        launch_started_prefix = "" if shell_repo_ready_file else f"{launch_started_at} && "
 
         if allowed_domains is not None:
             return (
@@ -650,6 +652,13 @@ class AgentServerLaunchMixin(SandboxBase):
         start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
         if launch_result.exit_code != 0:
             health_duration_ms = _health_duration_ms(launch_result.stdout)
+            try:
+                raise_startup_failure(launch_result.stdout, self.id)
+            except AgentServerStartupError as error:
+                error.context.update(start_and_health_ms=start_and_health_ms)
+                if wait_for_health and health_duration_ms is not None:
+                    error.context.update(health_poll_ms=health_duration_ms)
+                raise
             if wait_for_health and health_duration_ms is not None:
                 diagnostics = self._diagnose_startup_failure(allowed_domains)
                 credential_error = self._credential_unavailable_error(
@@ -716,12 +725,12 @@ class AgentServerLaunchMixin(SandboxBase):
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
+        before_launch: Callable[[], None] | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -738,10 +747,12 @@ class AgentServerLaunchMixin(SandboxBase):
         if preflight.reused:
             return 0 if wait_for_health else None
 
+        if before_launch:
+            before_launch()
+
         repo_path: str | None = None
         if repository:
-            org, repo = repository.lower().split("/")
-            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+            repo_path = sandbox_repo_path(repository)
 
         if not preflight.launch_prepared:
             self._prepare_agent_server_launch(allowed_domains)
@@ -773,6 +784,8 @@ class AgentServerLaunchMixin(SandboxBase):
             )
             exec_permission_regex = None
 
+        shell_waits_for_repo = not preflight.supports("launch_before_repo_ready")
+
         def build_command(base_branch: str | None) -> str:
             # The launch shell deletes the token file, so every launch attempt needs its own copy.
             if codex_run_token:
@@ -802,9 +815,9 @@ class AgentServerLaunchMixin(SandboxBase):
                 task_run_session_token=task_run_session_token,
                 event_ingest_url=event_ingest_url,
                 repo_ready_file=repo_ready_file,
+                shell_waits_for_repo=shell_waits_for_repo,
                 rtk_enabled=rtk_enabled,
                 benjamin_enabled=benjamin_enabled,
-                peer_messaging=peer_messaging,
                 pi_acp_conversation=pi_acp_conversation,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
@@ -986,12 +999,6 @@ class AgentServerLaunchMixin(SandboxBase):
         return wait_for_health_check(
             self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file=AGENT_SERVER_PID_FILE
         )
-
-    def read_agent_server_session_init_ms(self) -> int | None:
-        return self._read_health_session_init_ms(AGENT_SERVER_PORT)
-
-    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
-        return self._read_health_boot_phases_ms(AGENT_SERVER_PORT)
 
     def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
         return self._read_health_boot_metrics(AGENT_SERVER_PORT)

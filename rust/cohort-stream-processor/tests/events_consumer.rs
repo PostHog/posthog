@@ -28,6 +28,8 @@
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroU16;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -87,16 +89,14 @@ use tempfile::TempDir;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use support::bootstrap_servers;
+
 const TEAM: i32 = 7;
 const HASH: [u8; 16] = *b"0123456789abcdef";
 const NUM_PARTITIONS: i32 = 4;
 const PERSONS: u128 = 3;
 const EVENTS_PER_PERSON: usize = 3;
 const BASE_TS: &str = "2026-05-26 12:34:56.789000";
-
-fn bootstrap_servers() -> String {
-    std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
-}
 
 /// A team with a single `performed_event` behavioral leaf on `$pageview` — every `$pageview` enters.
 fn behavioral_catalog() -> CatalogHandle {
@@ -393,7 +393,12 @@ async fn drain_shadow_changes(topic: &str, expected: usize) -> Vec<CohortMembers
     let mut changes = Vec::new();
     let start = Instant::now();
     while changes.len() < expected && start.elapsed() < Duration::from_secs(30) {
-        match tokio::time::timeout(Duration::from_secs(2), consumer.recv()).await {
+        match tokio::time::timeout(
+            Duration::from_secs(2),
+            support::recv(&mut consumer.stream()),
+        )
+        .await
+        {
             Ok(Ok(message)) => {
                 if let Some(payload) = message.payload() {
                     changes.push(
@@ -745,7 +750,7 @@ async fn trickled_events_are_never_silently_dropped() {
     );
 }
 
-/// Blocks its first flush until released, preventing the worker from marking its offset.
+/// Holds its first produce until released, as a broker that has not acked yet would.
 struct BarrierSink {
     entered: Arc<tokio::sync::Notify>,
     release: Arc<tokio::sync::Notify>,
@@ -796,7 +801,7 @@ impl MembershipSink for BarrierSink {
 
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
-async fn does_not_commit_past_a_blocked_produce() {
+async fn commits_past_a_blocked_produce() {
     let suffix = Uuid::new_v4();
     let topic = format!("cohort_stream_events_barrier_{suffix}");
     let group = format!("cohort-stream-processor-barrier-{suffix}");
@@ -863,40 +868,26 @@ async fn does_not_commit_past_a_blocked_produce() {
         .await
         .expect("worker reached the produce barrier");
 
-    // Several commit ticks fire while the produce is blocked.
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(
-        committed_sum(&verifier, &topic),
-        0,
-        "no offset may be committed before its produce is acked",
-    );
-    assert_eq!(
-        sink.recorded_len(),
-        0,
-        "the blocked flush has recorded nothing yet",
-    );
-
-    release.notify_one();
-
+    // Live output is at most once and its state is already committed, so the commit does not
+    // wait for the ack.
     let start = Instant::now();
-    loop {
-        if committed_sum(&verifier, &topic) == 1 {
-            break;
-        }
+    while committed_sum(&verifier, &topic) != 1 {
         assert!(
             start.elapsed() < Duration::from_secs(30),
-            "offset did not advance after releasing the produce",
+            "the offset did not commit while the produce was blocked",
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    assert_eq!(sink.recorded_len(), 0, "the produce is still blocked");
+
+    release.notify_one();
+    shutdown_handle.request_shutdown();
+    task.await.expect("consumer task panicked");
     assert_eq!(
         sink.recorded_len(),
         1,
-        "the released flush recorded its change",
+        "the worker collected the released produce before it stopped",
     );
-
-    shutdown_handle.request_shutdown();
-    task.await.expect("consumer task panicked");
 }
 
 /// Whether any of the first `persons` persons has behavioral state under `partition` in `store`.

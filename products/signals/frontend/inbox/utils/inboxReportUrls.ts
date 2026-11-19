@@ -21,7 +21,14 @@ export function inboxReportDetailUrl(reportId: string, backUrl?: string): string
  * The three old report lists (`pulls`, `archived`, `not-actionable`) are sections of one list, so
  * they all resolve to it.
  */
-export function inboxTabRedirectPath(tab: string | undefined): string | null {
+export function inboxTabRedirectPath(
+    tab: string | undefined,
+    searchParams: Record<string, unknown> = {}
+): string | null {
+    // OAuth callbacks may still target the page where a source connection was started.
+    if (searchParams.setup === 'signal-sources' && (tab === undefined || tab === 'config' || tab === 'settings')) {
+        return urls.inbox('sources')
+    }
     switch (tab) {
         case 'pulls':
         case 'archived':

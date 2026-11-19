@@ -1,5 +1,5 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './TooltipSurface'
@@ -102,11 +102,7 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
     const { axis } = useChartLayout()
     const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = axis.orientation } = props
-    const resolved = useMemo(
-        () => resolveStyle(variant, style),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [variant, style?.color, style?.stroke, style?.width]
-    )
+    const resolved = resolveStyle(variant, style)
 
     const common: ResolvedProps = {
         resolved,

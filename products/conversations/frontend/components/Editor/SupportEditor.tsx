@@ -21,11 +21,10 @@ import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 
-import { IconCode, IconCopy, IconImage, IconList, IconTerminal } from '@posthog/icons'
+import { IconCode, IconCopy, IconDocument, IconImage, IconList, IconTerminal } from '@posthog/icons'
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
-import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
 import { EmojiSuggestionExtension } from 'lib/components/RichContentEditor/EmojiSuggestionExtension'
 import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
@@ -41,9 +40,13 @@ import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+
+import { MacroSuggestionExtension } from '../Macros/MacroSuggestionExtension'
 
 const lowlight = createLowlight(common)
 lowlight.register('plaintext', () => ({ contains: [] }))
@@ -117,6 +120,31 @@ const LinkShortcutExtension = Extension.create<LinkShortcutExtensionOptions>({
     },
 })
 
+type EscapeShortcutExtensionOptions = {
+    onPressEscape: () => void
+}
+
+// Lowest priority so open suggestion menus (mentions, emoji, macros) claim Escape first.
+const EscapeShortcutExtension = Extension.create<EscapeShortcutExtensionOptions>({
+    name: 'escape-shortcut',
+    priority: 1,
+
+    addOptions() {
+        return {
+            onPressEscape: () => {},
+        }
+    },
+
+    addKeyboardShortcuts() {
+        return {
+            Escape: () => {
+                this.options.onPressEscape()
+                return false
+            },
+        }
+    },
+})
+
 // Ordered list icon (not in @posthog/icons)
 function IconOrderedList(): JSX.Element {
     return (
@@ -153,17 +181,36 @@ export type SupportEditorProps = {
     onCreate?: (editor: RichContentEditorType) => void
     onUpdate?: (isEmpty: boolean) => void
     onPressCmdEnter?: () => void
+    /** Called on Escape in the text, unless an open suggestion menu takes it */
+    onPressEscape?: () => void
     /** Called when upload state changes (true = uploading, false = idle) */
     onUploadingChange?: (uploading: boolean) => void
+    /** Stores a file of any type. When set, the toolbar can attach files, which go into the message as download links. */
+    onAttachFile?: (file: File) => Promise<SupportEditorAttachment>
     disabled?: boolean
     minRows?: number
     /** Past this, the text scrolls so the toolbar and send bar stay on screen. */
     maxRows?: number
+    /** Grow the text area to fill the parent's height instead of capping it at maxRows */
+    fillHeight?: boolean
+    toolbarEnd?: React.ReactNode
     className?: string
     autoFocus?: boolean
     /** Rendered inside the editor's frame, above the text */
     header?: React.ReactNode
+    /** Slash commands that insert team macros. Off for customer-facing composers. */
+    enableMacros?: boolean
+    onInsertMacro?: (macro: TicketMacroApi) => void
 }
+
+export type SupportEditorAttachment = {
+    id: string
+    url: string
+    name: string
+}
+
+// Matches CONVERSATIONS_MAX_IMAGE_BYTES on the backend, which rejects anything larger.
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
     type: 'doc',
@@ -478,13 +525,19 @@ export function SupportEditor({
     onCreate,
     onUpdate,
     onPressCmdEnter,
+    onPressEscape,
     onUploadingChange,
+    onAttachFile,
     disabled = false,
     minRows,
     maxRows = 12,
+    fillHeight = false,
+    toolbarEnd,
     className,
     autoFocus = false,
     header,
+    enableMacros = false,
+    onInsertMacro,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -507,20 +560,22 @@ export function SupportEditor({
         linkShortcutCallbackRef.current()
     }, [])
 
-    // Extension options are fixed when the editor is created, so the shortcut reads the latest callback from a ref
-    const cmdEnterCallbackRef = useRef(onPressCmdEnter)
-    cmdEnterCallbackRef.current = onPressCmdEnter
-    const handlePressCmdEnter = useCallback(() => {
-        cmdEnterCallbackRef.current?.()
-    }, [])
+    const onInsertMacroRef = useRef(onInsertMacro)
+    onInsertMacroRef.current = onInsertMacro
+    const onPressEscapeRef = useRef(onPressEscape)
+    onPressEscapeRef.current = onPressEscape
 
     const editor = useRichContentEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter: handlePressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
+            EscapeShortcutExtension.configure({ onPressEscape: () => onPressEscapeRef.current?.() }),
+            ...(enableMacros
+                ? [MacroSuggestionExtension.configure({ getOnInsert: () => onInsertMacroRef.current })]
+                : []),
         ],
+        onPressCmdEnter,
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
         onCreate: (editor) => {
@@ -561,10 +616,42 @@ export function SupportEditor({
         linkShortcutCallbackRef.current = openLinkPopover
     }, [openLinkPopover])
 
+    const {
+        setFilesToUpload: setFilesToAttach,
+        filesToUpload: filesToAttach,
+        uploading: attaching,
+    } = useUploadFiles({
+        uploadFn: onAttachFile
+            ? async (file) => {
+                  if (file.size > MAX_ATTACHMENT_BYTES) {
+                      throw new Error('File is larger than 20 MiB')
+                  }
+                  const attachment = await onAttachFile(file)
+                  return { id: attachment.id, image_location: attachment.url, name: attachment.name }
+              }
+            : undefined,
+        onUpload: (url, fileName) => {
+            // Same shape as files that arrive from Slack, Teams and email, so every channel renders it as a link.
+            ttEditor
+                ?.chain()
+                .focus()
+                .insertContent({
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: fileName, marks: [{ type: 'link', attrs: { href: url } }] }],
+                })
+                .run()
+            posthog.capture('support reply file attached')
+        },
+        onError: (detail) => {
+            posthog.capture('support reply file attach failed', { error: detail })
+            lemonToast.error(`Error attaching file: ${detail}`)
+        },
+    })
+
     // Notify parent of upload state changes
     useEffect(() => {
-        onUploadingChange?.(uploading)
-    }, [uploading, onUploadingChange])
+        onUploadingChange?.(uploading || attaching)
+    }, [uploading, attaching, onUploadingChange])
 
     const handleDragEnter = (e: React.DragEvent): void => {
         e.preventDefault()
@@ -631,17 +718,20 @@ export function SupportEditor({
             {header}
             <EditorContent
                 editor={editor}
-                className={cn('SupportEditor__content p-2', maxRows && 'SupportEditor__content--scroll')}
+                className={cn(
+                    'SupportEditor__content p-2',
+                    fillHeight ? 'flex-1 min-h-0 overflow-y-auto' : maxRows && 'SupportEditor__content--scroll'
+                )}
                 autoFocus={autoFocus}
                 style={
                     {
                         ...(minRows ? { minHeight: `${minRows * 1.5}em` } : {}),
-                        ...(maxRows ? { '--support-editor-max-height': `${maxRows * 1.5}em` } : {}),
+                        ...(maxRows && !fillHeight ? { '--support-editor-max-height': `${maxRows * 1.5}em` } : {}),
                     } as CSSProperties
                 }
             />
-            <div className="flex justify-between p-0.5">
-                <div className="flex items-center">
+            <div className="flex justify-between items-start gap-1 p-0.5">
+                <div className="flex flex-wrap items-center min-w-0">
                     <LemonButton
                         size="small"
                         active={ttEditor?.isActive('bold')}
@@ -786,6 +876,34 @@ export function SupportEditor({
                             />
                         }
                     />
+                    {onAttachFile && (
+                        <LemonFileInput
+                            key="file-attach"
+                            accept=""
+                            multiple={false}
+                            onChange={setFilesToAttach}
+                            loading={attaching}
+                            value={filesToAttach}
+                            showUploadedFiles={false}
+                            callToAction={
+                                <LemonButton
+                                    size="small"
+                                    icon={
+                                        attaching ? (
+                                            <Spinner className="text-lg" textColored={true} />
+                                        ) : (
+                                            <IconDocument className="text-lg" />
+                                        )
+                                    }
+                                    disabledReason={
+                                        objectStorageAvailable ? undefined : 'Enable object storage to attach files'
+                                    }
+                                    tooltip={objectStorageAvailable ? 'Attach a file (max 20 MiB)' : null}
+                                    data-attr="support-editor-attach-file"
+                                />
+                            }
+                        />
+                    )}
                     <EmojiPickerPopover
                         key="emoj-picker"
                         data-attr="lemon-rich-text-editor-emoji-popover"
@@ -797,6 +915,7 @@ export function SupportEditor({
                         }}
                     />
                 </div>
+                {toolbarEnd ? <div className="shrink-0">{toolbarEnd}</div> : null}
             </div>
         </div>
     )

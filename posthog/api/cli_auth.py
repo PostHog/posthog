@@ -1,8 +1,15 @@
 """
-CLI Authentication API using OAuth2 Device Flow
+DEPRECATED: posthog-cli only. Do not add new clients to this flow.
 
-This implements the device authorization flow (RFC 8628) for the PostHog CLI.
-Users can authenticate without copying/pasting API keys.
+New clients, hog included, log in with the OAuth device authorization grant instead
+(`/oauth/device-authorization`, see `posthog/api/oauth/device.py`). That grant issues
+short-lived OAuth tokens scoped to one project. This flow mints a personal API key that never
+expires, and its codes live in the cache, not in the OAuth server. It stays only while PostHog
+supports the legacy posthog-cli. Remove it by July 1, 2027: move posthog-cli off this flow, or
+stop supporting posthog-cli, before then.
+
+CLI Authentication API, shaped like the device authorization flow (RFC 8628) but not built on
+the OAuth server. Users can authenticate without copying/pasting API keys.
 
 Flow:
 1. CLI requests device code
@@ -13,6 +20,7 @@ Flow:
 
 import string
 import secrets
+from datetime import datetime
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -26,15 +34,21 @@ from rest_framework.response import Response
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
+from posthog.helpers.two_factor_session import enforce_credential_two_factor
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.scopes.catalog import translate_renamed_scopes
+from posthog.scopes.exposure import UNPRIVILEGED_SCOPES
 
 # Device code lives for 10 minutes
 DEVICE_CODE_EXPIRY_SECONDS = 600
 
 # CLI polling interval (5 seconds)
 CLI_POLL_INTERVAL_SECONDS = 5
+
+# How long an approved key stays retrievable after the first poll that returns it, so a client
+# whose response was lost can poll again. Also the floor when a code is approved just before it expires.
+AUTHORIZED_RETRIEVAL_SECONDS = 60
 
 # Scopes granted to CLI
 CLI_SCOPES = [
@@ -64,6 +78,14 @@ def get_device_cache_key(device_code: str) -> str:
 def get_user_code_cache_key(user_code: str) -> str:
     """Get cache key for user code"""
     return f"cli_user_code:{user_code}"
+
+
+def remaining_device_code_seconds(device_data: dict) -> int:
+    created_at = device_data.get("created_at")
+    if not created_at:
+        return AUTHORIZED_RETRIEVAL_SECONDS
+    elapsed = (timezone.now() - datetime.fromisoformat(created_at)).total_seconds()
+    return max(int(DEVICE_CODE_EXPIRY_SECONDS - elapsed), AUTHORIZED_RETRIEVAL_SECONDS)
 
 
 def get_validation_error_description(error: serializers.ValidationError) -> str:
@@ -126,6 +148,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
     - POST /api/cli-auth/authorize/    (session auth required)
     - POST /api/cli-auth/poll/         (no auth required)
     """
+
+    _ip_restrictions_use_view_scope = True
 
     def get_permissions(self):
         """Authorize endpoint requires auth, others don't"""
@@ -201,7 +225,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         user_code = serializer.validated_data["user_code"]
         project_id = serializer.validated_data["project_id"]
-        scopes = serializer.validated_data.get("scopes", CLI_SCOPES)
+        scopes = translate_renamed_scopes(serializer.validated_data.get("scopes", CLI_SCOPES))
         user: User = request.user
 
         # Validate that at least one scope is provided
@@ -258,6 +282,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 {"error": "access_denied", "error_description": "You do not have access to this project"},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        enforce_credential_two_factor(request, None, [team.id])
 
         # Label max length is 40 chars, so truncate if needed
         timestamp = timezone.now().strftime("%Y-%m-%d %H:%M")
@@ -288,8 +313,9 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_data["authorized_at"] = timezone.now().isoformat()
         device_data["user_id"] = user.id
 
-        # Update cache with longer TTL to ensure CLI can poll
-        cache.set(device_cache_key, device_data, timeout=60)  # 1 minute to retrieve
+        # A client can resume polling long after the person approves, so the key stays until the
+        # code expires.
+        cache.set(device_cache_key, device_data, timeout=remaining_device_code_seconds(device_data))
 
         return Response(
             {
@@ -343,10 +369,10 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 "scopes": device_data.get("scopes", []),
             }
 
-            # Clean up - key has been retrieved
-            cache.delete(device_cache_key)
-            user_code_cache_key = get_user_code_cache_key(device_data["user_code"])
-            cache.delete(user_code_cache_key)
+            if "retrieved_at" not in device_data:
+                device_data["retrieved_at"] = timezone.now().isoformat()
+                cache.set(device_cache_key, device_data, timeout=AUTHORIZED_RETRIEVAL_SECONDS)
+                cache.delete(get_user_code_cache_key(device_data["user_code"]))
 
             response_serializer = DevicePollResponseSerializer(response_data)
             return Response(response_serializer.data, status=status.HTTP_200_OK)

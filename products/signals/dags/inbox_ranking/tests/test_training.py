@@ -30,6 +30,7 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
     REPORT_GRAIN,
     SCORING_MOMENT_GRAIN,
     Extras,
@@ -56,11 +57,22 @@ from products.signals.backend.ranking.serving_manifest import (
     serving_manifest_key,
     serving_model_prefix,
     serving_project_vectors_key,
+    serving_user_vectors_key,
 )
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import partition_object_key
-from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, PROJECT_VECTORS_TABLE, STATE_TABLE
-from products.signals.dags.inbox_ranking.dataset.project_vectors import PROJECT_VECTORS_SCHEMA_VERSION
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
+    STATE_TABLE,
+    USER_VECTORS_TABLE,
+    write_partition,
+)
+from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    PROJECT_VECTORS_SCHEMA_VERSION,
+    USER_VECTORS_SCHEMA_VERSION,
+)
+from products.signals.dags.inbox_ranking.multihead.local import report_vector_presence, report_vectors
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
     calibration_buckets,
@@ -87,6 +99,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
 from products.signals.dags.inbox_ranking.training.examples import (
     STATE_LAG_LIMIT,
     Snapshot,
+    activity_vector_as_of,
     assemble_snapshot,
     birth_day_positives,
     build_examples,
@@ -107,6 +120,7 @@ from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
     ECE_TOLERANCE,
     PromotionDecision,
+    auto_promotion_candidate,
     decide_promotion,
 )
 from products.signals.dags.inbox_ranking.training.served import (
@@ -117,6 +131,7 @@ from products.signals.dags.inbox_ranking.training.served import (
 )
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
+    DATASET_PARTITION_WRITTEN_EVENT,
     DISTINCT_ID,
     LOCAL_DISTINCT_ID,
     SERVING_MANIFEST_PUBLISHED_EVENT,
@@ -125,6 +140,7 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     capture_training_events,
     holdout_calibration_events,
     promotion_event,
+    run_times,
     unseen_calibration_events,
     unseen_head_graded_events,
     unseen_report_graded_events,
@@ -472,6 +488,47 @@ def test_holdout_mask_cuts_by_report_not_by_row():
         }
     )
     assert holdout_mask(examples, holdout_days=7).tolist() == [False, False, True, True]
+
+
+ACTIVITY_AS_OF = datetime.datetime(2026, 8, 10, 12, 0, tzinfo=datetime.UTC)
+
+
+@pytest.mark.parametrize(
+    "generated_hours_before,expected_hours_before",
+    [
+        ([], None),
+        ([72, 24, 48], 24),
+        # A summary built after the scoring moment did not exist yet.
+        ([24, -1], 24),
+        ([24 * 8], None),
+    ],
+    ids=["no_vector_yet", "newest_of_several", "vector_after_the_moment", "stale_vector"],
+)
+def test_activity_vector_as_of_reads_the_newest_vector_before_the_moment(generated_hours_before, expected_hours_before):
+    generated_ats = [ACTIVITY_AS_OF - datetime.timedelta(hours=hours) for hours in generated_hours_before]
+    vectors = pd.DataFrame(
+        {
+            "team_id": [1] * len(generated_ats) + [2, 1],
+            "user_id": [7] * len(generated_ats) + [7, 8],
+            # Another team's user 7 and another user of team 1, both fresher than any of user 7's vectors.
+            "generated_at": pd.to_datetime(
+                generated_ats + [ACTIVITY_AS_OF - datetime.timedelta(hours=1)] * 2, utc=True
+            ),
+            "embedding_small": [[float(hours)] for hours in generated_hours_before] + [[-1.0], [-2.0]],
+        }
+    )
+
+    found = activity_vector_as_of(
+        vectors, team_id=1, user_id=7, as_of=ACTIVITY_AS_OF, max_age=datetime.timedelta(days=7)
+    )
+
+    if expected_hours_before is None:
+        assert found is None
+    else:
+        assert found is not None
+        assert found.embedding == [float(expected_hours_before)]
+        assert found.age == datetime.timedelta(hours=expected_hours_before)
+        assert found.generated_at == ACTIVITY_AS_OF - found.age
 
 
 class _FakeClient:
@@ -1427,6 +1484,82 @@ def test_decide_promotion(candidate, champion, expected_promote, reason_fragment
     assert reason_fragment in decision.reason
 
 
+_AUTO_SERVED_KEY = model_key(EMBEDDINGS_MODEL_NAME, "2026-08-10")
+_AUTO_POINTER = {
+    "model_key": _AUTO_SERVED_KEY,
+    "model_name": EMBEDDINGS_MODEL_NAME,
+    "model_version": "2026-08-10",
+    "promoted_at": "2026-08-10T05:02:00+00:00",
+}
+
+
+def _decision(would_promote: bool, incumbent_key: str | None = _AUTO_SERVED_KEY) -> dict[str, Any]:
+    return {"would_promote": would_promote, "reason": "open regressed", "incumbent_key": incumbent_key}
+
+
+@pytest.mark.parametrize(
+    "decisions,today,interval_days,pause,expected_version,reason_fragment",
+    [
+        # 05:00 three calendar days after a 05:02 promotion is under 72 hours, and still due.
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, "2026-08-12", "auto: newest"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 12), 3, {}, None, "promoted 2d ago"),
+        (
+            {"2026-08-11": _decision(True), "2026-08-12": _decision(False)},
+            datetime.date(2026, 8, 13),
+            3,
+            {},
+            "2026-08-11",
+            "auto: newest",
+        ),
+        # Graded against a model that no longer serves, for example before a manual rollback.
+        (
+            {"2026-08-12": _decision(True, model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01"))},
+            datetime.date(2026, 8, 13),
+            3,
+            {},
+            None,
+            "graded against",
+        ),
+        # The run's own partition can still be training when the publish starts.
+        ({"2026-08-13": _decision(True)}, datetime.date(2026, 8, 14), 3, {}, None, "no "),
+        # A backfilled decision at or before the served version must not move the pointer back.
+        ({"2026-08-10": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, None, "no "),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 0, {}, None, "off"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {"held": True}, None, "held"),
+        (
+            {"2026-08-12": _decision(True)},
+            datetime.date(2026, 8, 13),
+            3,
+            {"served_override": model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01")},
+            None,
+            "served override",
+        ),
+    ],
+    ids=[
+        "newest_passes",
+        "interval_not_elapsed",
+        "older_passes_when_newest_fails",
+        "other_incumbent",
+        "partition_version",
+        "not_newer_than_served",
+        "interval_zero",
+        "held",
+        "served_override",
+    ],
+)
+def test_auto_promotion_candidate(decisions, today, interval_days, pause, expected_version, reason_fragment):
+    choice = auto_promotion_candidate(
+        _AUTO_POINTER,
+        decisions,
+        partition_key="2026-08-13",
+        today=today,
+        interval_days=interval_days,
+        **{"held": False, **pause},
+    )
+    assert choice.model_version == expected_version
+    assert reason_fragment in choice.reason
+
+
 def test_decide_promotion_grades_the_champion_on_the_candidate_holdout():
     candidate = _metadata("d2", open=0.66)
     champion = {**_metadata("d1", open=0.60), "promoted_at": "2026-08-10T00:00:00+00:00"}
@@ -1517,6 +1650,79 @@ def test_decide_promotion_refuses_a_worse_calibrated_candidate(candidate_ece, ch
 
 
 _REFUSED = PromotionDecision(promote=False, reason="open regressed: 0.600 vs champion 0.700", gates_passed=False)
+
+
+@pytest.mark.parametrize("with_readiness", [True, False])
+def test_candidate_events_carry_the_late_group_mask_and_the_run_times(with_readiness):
+    readiness = {
+        "enabled_feature_groups": ["content"],
+        "zeroed_feature_groups": ["already_addressed"],
+        "feature_backfill": {"batch_id": "batch-1"},
+        "network_fit": {"groups": {"content": {"carried_share": 0.9}}},
+    }
+    metadata = {
+        "model_name": STATE_MODEL_NAME,
+        "heads": [{"head": "open", "readable": True}, {"head": "action", "readable": False}],
+        "skipped_heads": ["dismiss_wrong"],
+        **({"readiness": readiness} if with_readiness else {}),
+    }
+    started = datetime.datetime(2026, 8, 26, 4, 30, tzinfo=datetime.UTC)
+
+    events = candidate_events(metadata, run_times(started, started + datetime.timedelta(hours=1)))
+
+    mask = {
+        "enabled_feature_groups": ["content"],
+        "zeroed_feature_groups": ["already_addressed"],
+        "feature_backfill_batch_id": "batch-1",
+        "content_fit_carried_share": 0.9,
+    }
+    times = {"run_started_at": "2026-08-26T04:30:00+00:00", "run_finished_at": "2026-08-26T05:30:00+00:00"}
+    assert len(events) == 3
+    for event in events:
+        assert times.items() <= event.properties.items()
+        if with_readiness:
+            assert mask.items() <= event.properties.items()
+        else:
+            assert not mask.keys() & event.properties.keys()
+
+
+class _UploadS3:
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    def upload_fileobj(self, fileobj, bucket, key, ExtraArgs=None):
+        self.objects[key] = fileobj.read()
+
+
+def test_a_dataset_partition_write_captures_counts_and_no_identifiers(monkeypatch):
+    capture = _patch_capture(monkeypatch, cloud=True, debug=False)
+    s3 = _UploadS3()
+    table = pa.table({"report_id": ["r1", "r2"], "team_id": [2, 7]})
+
+    with dagster.build_asset_context(partition_key="2026-08-25") as context:
+        write_partition(context, LABELS_TABLE, s3, "bucket", "key", table, schema_version=3)
+
+    (call,) = capture.calls
+    assert call["event"] == DATASET_PARTITION_WRITTEN_EVENT
+    properties = call["properties"]
+    # Counts only: a report id, a team id, text or a vector must never reach the event.
+    assert properties.keys() == {
+        "$process_person_profile",
+        "environment",
+        "partition",
+        "table",
+        "run_id",
+        "rows",
+        "bytes",
+        "schema_version",
+    }
+    assert (properties["table"], properties["partition"], properties["rows"], properties["schema_version"]) == (
+        LABELS_TABLE,
+        "2026-08-25",
+        2,
+        3,
+    )
+    assert properties["bytes"] == len(s3.objects["key"])
 
 
 def test_the_promotion_decided_event_never_reports_a_promotion():
@@ -1676,6 +1882,16 @@ def _model_metadata(**overrides) -> dict[str, Any]:
     return base
 
 
+def _scored_facts_metadata(**overrides) -> dict[str, Any]:
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET
+    return _model_metadata(
+        feature_set=feature_set.name,
+        feature_schema_version=feature_set.schema_version,
+        feature_names=list(feature_set.feature_names),
+        **overrides,
+    )
+
+
 @pytest.mark.parametrize(
     "metadata,expected",
     [
@@ -1686,6 +1902,10 @@ def _model_metadata(**overrides) -> dict[str, Any]:
         (_model_metadata(feature_set="mmoe_trunk"), "this build can produce"),
         (_model_metadata(feature_schema_version=99), "feature_schema_version 99"),
         (_model_metadata(feature_names=["age_hours"]), "feature_names differ"),
+        # A set with late groups records the groups its fit zeroed, so serving zeroes the same ones.
+        (_scored_facts_metadata(zeroed_feature_groups=["content"]), None),
+        (_scored_facts_metadata(), "zeroed_feature_groups"),
+        (_scored_facts_metadata(zeroed_feature_groups=["sources"]), "zeroed_feature_groups"),
     ],
 )
 def test_model_mismatch_checks_a_model_against_its_own_feature_set(metadata, expected):
@@ -1900,6 +2120,44 @@ def test_reading_a_moment_needs_the_vectors_landing_time(feature_set):
     vectors = {feature_set.extras_keys[0]: pd.DataFrame({EMBEDDING_COLUMN: [_embedding()]}, index=["a"])}
     with pytest.raises(ValueError, match=EMBEDDING_INSERTED_AT_COLUMN):
         feature_set.buildable(_state(["a"]), vectors, as_of=SNAPSHOT_END)
+
+
+@pytest.mark.parametrize("as_of", [None, SNAPSHOT_END], ids=["serving", "as_of_a_moment"])
+def test_the_light_vector_side_input_keeps_the_rows_the_vectors_keep(as_of):
+    # The nn examples step selects its rows from the vector lengths alone, so any drift from the
+    # vector frame would change the examples while no vector is ever read.
+    report_ids = ["landed", "landed_later", "no_landing_time", "tombstoned", "another_width", "twice", "twice"]
+    embeddings = pa.table(
+        {
+            "report_id": report_ids,
+            EMBEDDING_COLUMN: [_embedding(), _embedding(), _embedding(), None, [0.5] * 8, [0.5] * 8, _embedding()],
+            EMBEDDING_INSERTED_AT_COLUMN: [
+                LANDED_EARLY,
+                SNAPSHOT_END + datetime.timedelta(days=1),
+                None,
+                LANDED_EARLY,
+                LANDED_EARLY,
+                LANDED_EARLY,
+                LANDED_EARLY,
+            ],
+        },
+        schema=pa.schema(
+            [
+                ("report_id", pa.string()),
+                (EMBEDDING_COLUMN, pa.list_(pa.float32())),
+                (EMBEDDING_INSERTED_AT_COLUMN, pa.timestamp("us", tz="UTC")),
+            ]
+        ),
+    )
+    sink = io.BytesIO()
+    pq.write_table(embeddings, sink)
+    rows = _state([*report_ids[:-1], "absent"])
+    expected = [True, as_of is None, as_of is None, False, False, False, False]
+    # Two rows per batch, so a report's rows and the batches do not line up.
+    presence = report_vector_presence(pq.ParquetFile(pa.BufferReader(sink.getvalue())), batch_rows=2)
+
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, report_vectors(embeddings), as_of=as_of).tolist() == expected
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, presence, as_of=as_of).tolist() == expected
 
 
 @pytest.mark.parametrize(
@@ -2173,14 +2431,14 @@ class _AppObjectStore:
         self.metadata = dict(metadata or {})
         self.fail_on = fail_on
         self.written: list[str] = []
-        self.extras: dict[str, dict[str, str] | None] = {}
+        self.extras: dict[str, dict[str, Any] | None] = {}
 
     def head_object(self, bucket: str, file_key: str) -> dict[str, Any] | None:
         if file_key not in self.objects:
             return None
         return {"ContentLength": len(self.objects[file_key]), "Metadata": self.metadata.get(file_key, {})}
 
-    def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, str] | None) -> None:
+    def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, Any] | None) -> None:
         if self.fail_on is not None and self.fail_on in key:
             raise RuntimeError("object store write failed")
         self.objects[key] = content if isinstance(content, bytes) else content.encode()
@@ -2258,6 +2516,8 @@ def _run_serving_manifest(
 
 def _manifest_event(capture: _FakeClient) -> dict[str, Any]:
     [event] = [call["properties"] for call in capture.calls if call["event"] == SERVING_MANIFEST_PUBLISHED_EVENT]
+    # Both the published and the refused path report when the step really ran.
+    assert event["run_started_at"] <= event["run_finished_at"]
     return event
 
 
@@ -2350,6 +2610,40 @@ def test_project_vectors_are_published_before_the_manifest_that_names_them(
         assert mirror.objects == {}
 
 
+@pytest.mark.parametrize(
+    "source_present,already_published,write_fails",
+    [(True, False, False), (True, True, False), (False, False, False), (True, False, True)],
+)
+def test_user_vectors_are_published_when_present_and_never_block_the_manifest_or_reach_the_mirror(
+    monkeypatch: pytest.MonkeyPatch, source_present: bool, already_published: bool, write_fails: bool
+) -> None:
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    partition_key = "2026-08-19"
+    target = serving_user_vectors_key(prefix, partition_key)
+    store = _AppObjectStore(
+        {target: b"published before"} if already_published else None, fail_on="/user_vectors/" if write_fails else None
+    )
+    mirror = _AppObjectStore()
+    dataset = _serving_dataset_s3(prefix, partition_key)
+    if source_present:
+        dataset.objects[partition_object_key(prefix, USER_VECTORS_TABLE, partition_key)] = b"user vectors"
+    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror, dataset_client=dataset)
+
+    named = source_present and not write_fails
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert manifest.user_vectors == (target if named else None)
+    assert _manifest_event(capture)["user_vectors_key"] == manifest.user_vectors
+    assert store.written[-1] == serving_manifest_key(prefix)
+    if named and not already_published:
+        assert store.objects[target] == b"user vectors"
+        assert store.extras[target] == {
+            "Metadata": {PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(USER_VECTORS_SCHEMA_VERSION)}
+        }
+    # Per-user data stays in the deployment that owns the users.
+    assert not any("/user_vectors/" in key for key in mirror.objects)
+    assert ServingManifest.model_validate_json(mirror.objects[serving_manifest_key(prefix)]).user_vectors is None
+
+
 _MIRROR_PARTITION = "2026-08-19"
 
 
@@ -2368,6 +2662,7 @@ def _mirror_vectors_metadata(engagement_offset: int, schema_version: int = PROJE
     "mirror_days,expected_offset,skip_reason",
     [
         ({0: _mirror_vectors_metadata(1)}, 0, None),
+        ({0: _mirror_vectors_metadata(1, schema_version=1)}, 0, None),
         ({1: _mirror_vectors_metadata(2)}, 1, None),
         (
             {

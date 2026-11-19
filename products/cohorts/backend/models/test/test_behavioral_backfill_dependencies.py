@@ -3,7 +3,6 @@ from unittest import mock
 
 from django.test import override_settings
 from django.utils import timezone
-from django.utils.deprecation import RemovedInDjango60Warning
 
 from parameterized import parameterized
 
@@ -13,6 +12,12 @@ from products.cohorts.backend.models.dependencies import (
     COHORT_BACKFILL_TRIGGER_COUNTER,
     COHORT_REALTIME_STATE_ORPHANED_COUNTER,
 )
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
+from products.cohorts.backend.realtime_teams import _access_rows, is_processing_team
 
 # The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
 # `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
@@ -90,6 +95,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         return Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(window_days, person_hash=person_hash),
         )
 
@@ -138,20 +144,6 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertNotEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
         self.assertIsNone(cohort.last_backfill_events_at)
         self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
-
-    def test_positional_filter_update_persists_maintained_fields(self) -> None:
-        cohort = self._cohort(7)
-        old_hash = cohort.filters_shape_hash
-        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
-        cohort.refresh_from_db()
-
-        cohort.filters = self._filters(30)
-        with self.assertWarns(RemovedInDjango60Warning):
-            cohort.save(False, False, None, ["filters"])
-
-        cohort.refresh_from_db()
-        self.assertNotEqual(cohort.filters_shape_hash, old_hash)
-        self.assertIsNone(cohort.last_backfill_events_at)
 
     def test_non_filter_partial_save_does_not_maintain_shape(self) -> None:
         cohort = self._cohort(7)
@@ -258,6 +250,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(7),
             last_backfill_events_at=ready_at,
             last_realtime_cohort_calculation_at=ready_at,
@@ -274,6 +267,26 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
         self.assertEqual(cohort.last_realtime_cohort_calculation_at, ready_at)
         self.assertEqual(self._orphan_count(), before)
+
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
+    def test_edit_right_after_a_grant_maintains_shape_hashes(self) -> None:
+        cohort = self._cohort(7)
+        _access_rows.clear_cache()
+        self.addCleanup(_access_rows.clear_cache)
+
+        with mock.patch("posthog.cache_utils.TEST", False):
+            assert not is_processing_team(self.team.pk)
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
+            # The snapshot still predates the grant, so only a fresh read sees the team.
+            assert not is_processing_team(self.team.pk)
+
+            cohort.filters = self._filters(30)
+            cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertIsNotNone(cohort.behavioral_filters_shape_hash)
 
     def _redis(self, *set_results: bool) -> mock.Mock:
         redis = mock.Mock()
@@ -312,6 +325,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
             Cohort.objects.create(
                 team=self.team,
                 cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=timezone.now(),
                 filters=self._filters(7, windowless=True),
             )
 
@@ -331,6 +345,23 @@ class TestBehavioralBackfillDependencies(BaseTest):
         ):
             self._cohort(None, person_hash="person-a")
 
+        self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL), before)
+
+    @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
+    def test_a_cohort_with_realtime_off_enqueues_nothing_and_reports_no_refusal(self) -> None:
+        redis = self._redis()
+        before = self._refused_count(CohortBackfillKind.BEHAVIORAL)
+        with (
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            cohort = Cohort.objects.create(
+                team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(7, person_hash="person-a")
+            )
+            cohort.filters = self._filters(30, person_hash="person-b")
+            cohort.save()
+
+        enqueue.assert_not_called()
         self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL), before)
 
     def _refused_count(self, kind: CohortBackfillKind) -> float:
@@ -392,7 +423,12 @@ class TestBehavioralBackfillDependencies(BaseTest):
         # well: a pruning person run stores state valid only for the tree it pinned, and the
         # behavioral run is what nulls the events stamp flags route on. The cohort is created before
         # the trigger allowlist opens, so the create dispatches nothing real behind the edit's mocks.
-        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
+            filters=self._filters(**before),
+        )
         redis = self._redis()
         with (
             override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
@@ -462,7 +498,12 @@ class TestBehavioralBackfillDependencies(BaseTest):
         # where no behavioral run re-walks the tree. Removing the last person leaf is in this set
         # because the person run its hash change would ask for is refused: the cohort has no person
         # leaf left to pin.
-        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
+            filters=self._filters(**before),
+        )
         redis = self._redis()
         with (
             override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
@@ -659,6 +700,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         params: dict = {
             "team": self.team,
             "cohort_type": CohortType.REALTIME,
+            "realtime_enabled_at": timezone.now(),
             "filters": self._filters(7, **filter_kwargs),
             **overrides,
         }

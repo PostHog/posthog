@@ -22,7 +22,9 @@
 // Most gating workflows have only a push lane. Backend CI has two, because its master-push run
 // carries the per-commit checks while the test matrices run from an hourly `schedule` trigger.
 // Each lane gets its own streak, its own thresholds, and its own line in the incident, so a
-// green push run cannot mask a red matrix run.
+// green push run cannot mask a red matrix run. Backend CI's schedule splits again: its 3-hourly
+// run takes the full matrix and the hourly runs between take only Core, so a green Core-only run
+// cannot mask a red full-matrix run.
 //
 // Message model (chosen for UX: never lose history, never orphan a stuck message):
 //   - Anchor: one top-level message, edited silently each tick to keep the live
@@ -62,6 +64,7 @@ const RUN_INDEX_MAX_LAG_MINUTES = 180
 const SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES = 360
 // Suffix that separates a scheduled lane from its workflow's push lane in the incident.
 const SCHEDULED_LANE_LABEL = '(scheduled)'
+const FULL_MATRIX_LANE_LABEL = '(scheduled, full matrix)'
 const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
 // The workflow behind the webhook reads `properties.channel` and `properties.ts` to reply in the
@@ -98,18 +101,32 @@ function buildLanes(env) {
         // active hours.
         countNeedsActivity: false,
     }))
-    const scheduled = list(env.SCHEDULED_GATING_WORKFLOWS).map((workflowFile) => ({ workflowFile }))
+    const depotWorkflows = new Set(list(env.DEPOT_WORKFLOWS))
+    // Depot writes a split schedule as one file per cron. A GitHub-hosted workflow has a single
+    // stream of scheduled runs, so it cannot be split.
+    const fullMatrixWorkflows = new Set(
+        list(env.SCHEDULED_FULL_MATRIX_WORKFLOWS).filter((workflowFile) => depotWorkflows.has(workflowFile))
+    )
+    const scheduled = list(env.SCHEDULED_GATING_WORKFLOWS).flatMap((workflowFile) =>
+        fullMatrixWorkflows.has(workflowFile)
+            ? [
+                  { workflowFile, label: SCHEDULED_LANE_LABEL, runsFileKey: 'schedule-core-only' },
+                  { workflowFile, label: FULL_MATRIX_LANE_LABEL, runsFileKey: 'schedule-full', hoursPerTick: 3 },
+              ]
+            : [{ workflowFile, label: SCHEDULED_LANE_LABEL, runsFileKey: 'schedule' }]
+    )
     for (const source of scheduled) {
         lanes.push({
             ...source,
             event: 'schedule',
-            label: SCHEDULED_LANE_LABEL,
             maxLagMinutes: SCHEDULED_RUN_INDEX_MAX_LAG_MINUTES,
             // Own thresholds: at one run per cron tick, the push streak threshold of 5 needs five
             // hours to trip, while the push wall-clock arm pages on a single flaky run held for one
-            // tick. Both scheduled arms need more than one red tick behind them.
+            // tick. Both scheduled arms need more than one red tick behind them, so the wall-clock
+            // threshold scales with a lane's tick length.
             streakThreshold: parseInt(env.SCHEDULED_FAILURE_STREAK_THRESHOLD || '2', 10),
-            minutesThreshold: parseInt(env.SCHEDULED_FAILURE_MINUTES_THRESHOLD || '150', 10),
+            minutesThreshold:
+                parseInt(env.SCHEDULED_FAILURE_MINUTES_THRESHOLD || '150', 10) * (source.hoursPerTick || 1),
             // A cron keeps firing through a quiet weekend, so this lane's run streak needs the same
             // activity gate the wall-clock arm has, because otherwise it pages with nobody pushing.
             countNeedsActivity: true,
@@ -119,10 +136,12 @@ function buildLanes(env) {
     // file that .github/scripts/depot_backend_runs.py wrote for that trigger, which holds the runs
     // in GitHub's shape. A missing or unparseable file throws, so the lane reads as unreadable,
     // never green.
-    const depotWorkflows = new Set(list(env.DEPOT_WORKFLOWS))
     return lanes.map((lane) =>
         depotWorkflows.has(lane.workflowFile)
-            ? { ...lane, ...depotRunSource(`${env.DEPOT_RUNS_DIR}/${lane.workflowFile}-${lane.event}.json`) }
+            ? {
+                  ...lane,
+                  ...depotRunSource(`${env.DEPOT_RUNS_DIR}/${lane.workflowFile}-${lane.runsFileKey || lane.event}.json`),
+              }
             : lane
     )
 }

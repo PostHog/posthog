@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "example-release",
+    "kind": "native",
+    "runtimeVersion": "1.4.0",
+    "previousRelease": null,
+    "notes": "Describe the changes testers should verify."
+}

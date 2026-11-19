@@ -47,6 +47,8 @@ export interface LemonTabsProps<T extends string | number> {
     rightSlotClassName?: string
     /** Skip the tab bar and render only the active content, for callers that draw the bar elsewhere. */
     barHidden?: boolean
+    /** Keeps the underline in place when a tab label changes width, as in an in-place rename. */
+    trackTabSizes?: boolean
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -66,13 +68,14 @@ export function LemonTabs<T extends string | number>({
     rightSlot,
     rightSlotClassName,
     barHidden = false,
+    trackTabSizes = false,
 }: LemonTabsProps<T>): JSX.Element {
     /** Tabs with falsy entries filtered out. */
     const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
         HTMLLIElement
-    >(activeKey, 200, realTabs.map((tab) => tab.key).join('|'))
+    >(activeKey, 200, realTabs.map((tab) => tab.key).join('|'), trackTabSizes)
 
     return (
         <div

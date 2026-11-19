@@ -33,7 +33,8 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                         `0.+` resolves to the latest `0.x` release. The SDK is a pre-release, so the API can change
                         between minor versions – pin an exact version from [Maven
                         Central](https://central.sonatype.com/artifact/com.posthog/posthog-kmp) if you would rather
-                        upgrade deliberately. Kotlin/Wasm support requires `0.2.0` or higher.
+                        upgrade deliberately. The setup below requires `0.8.0` or higher. Kotlin/Wasm support requires
+                        `0.2.0` or higher.
                     </Markdown>
                 </>
             ),
@@ -72,7 +73,7 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                                                         PostHog.setup(
                                                             config = PostHogConfig(
-                                                                apiKey = "<ph_project_token>",
+                                                                projectToken = "<ph_project_token>",
                                                                 host = "<ph_client_api_host>",
                                                             ),
                                                             context = PostHogContext(this),
@@ -112,7 +113,7 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                                                     LaunchedEffect(Unit) {
                                                         PostHog.setup(
                                                             config = PostHogConfig(
-                                                                apiKey = "<ph_project_token>",
+                                                                projectToken = "<ph_project_token>",
                                                                 host = "<ph_client_api_host>",
                                                             ),
                                                             context = PostHogContext(),
@@ -142,7 +143,7 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                                                 fun main() {
                                                     PostHog.setup(
                                                         config = PostHogConfig(
-                                                            apiKey = "<ph_project_token>",
+                                                            projectToken = "<ph_project_token>",
                                                             host = "<ph_client_api_host>",
                                                         ),
                                                         context = PostHogContext(),
@@ -171,7 +172,7 @@ export const getKMPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                                                 fun main() = application {
                                                     PostHog.setup(
                                                         config = PostHogConfig(
-                                                            apiKey = "<ph_project_token>",
+                                                            projectToken = "<ph_project_token>",
                                                             host = "<ph_client_api_host>",
                                                         ),
                                                         context = PostHogContext(),

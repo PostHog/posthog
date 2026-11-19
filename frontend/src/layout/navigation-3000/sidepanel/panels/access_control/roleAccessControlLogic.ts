@@ -6,13 +6,13 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import api, { ApiConfig } from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { AccessControlResponseType, RoleType } from '~/types'
 
 import type { AvailableFeature, OrganizationMemberType } from '../../../../../types'
@@ -62,6 +62,13 @@ export interface roleAccessControlLogicActions {
         value: true
     } // membersLogic
     loadCurrentOrganization: () => any // organizationLogic
+    loadCurrentOrganizationSuccess: (
+        currentOrganization: null | import('~/types').OrganizationType,
+        payload?: any
+    ) => {
+        currentOrganization: null | import('~/types').OrganizationType
+        payload?: any
+    } // organizationLogic
     addMembersToRole: (
         role: RoleType,
         members: string[]
@@ -251,7 +258,12 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleAccessControlLogic']),
     connect(() => ({
         values: [membersLogic, ['sortedMembers'], teamLogic, ['currentProjectId'], userLogic, ['hasAvailableFeature']],
-        actions: [membersLogic, ['ensureAllMembersLoaded'], organizationLogic, ['loadCurrentOrganization']],
+        actions: [
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+            organizationLogic,
+            ['loadCurrentOrganization', 'loadCurrentOrganizationSuccess'],
+        ],
     })),
     actions({
         selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
@@ -277,11 +289,16 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         roles: [
             [] as RoleType[],
             {
                 loadRoles: async () => {
+                    if (!ApiConfig.hasCurrentOrganizationId()) {
+                        // The loadCurrentOrganizationSuccess listener runs this load again when the ID is known.
+                        cache.rolesLoadSkipped = true
+                        return values.roles
+                    }
                     const response = await api.roles.list()
                     return response?.results || []
                 },
@@ -379,7 +396,13 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        loadCurrentOrganizationSuccess: () => {
+            if (cache.rolesLoadSkipped) {
+                cache.rolesLoadSkipped = false
+                actions.loadRoles()
+            }
+        },
         createRoleWithMember: async ({ name, userUuid }) => {
             try {
                 const role = await api.roles.create(name)

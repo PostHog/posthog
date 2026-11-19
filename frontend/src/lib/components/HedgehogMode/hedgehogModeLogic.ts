@@ -15,11 +15,10 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { getToolbarRuntime } from 'lib/toolbar/toolbarRuntime'
 import { userLogic } from 'scenes/userLogic'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { toolbarFetch } from '~/toolbar/toolbarFetch'
+import { membersLogic } from '~/models/membersLogic'
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
 import type { OrganizationMemberType, UserType } from '../../../types'
@@ -124,10 +123,12 @@ export type hedgehogModeLogicType = MakeLogicType<
 
 export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     path(['hedgehog', 'hedgehogModeLogic']),
-    connect({
+    // A function, because this module is in an import cycle with userLogic. An object is built when the
+    // module loads, and userLogic is undefined then if its module is still loading.
+    connect(() => ({
         values: [userLogic, ['user'], membersLogic, ['members']],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
-    }),
+    })),
     actions({
         setHedgehogMode: (hedgeHogMode: HedgehogModeInterface) => ({ hedgeHogMode }),
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
@@ -160,15 +161,15 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
             {
                 loadRemoteConfig: async () => {
                     const endpoint = '/api/users/@me/hedgehog_config'
-                    const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
-                    if (mountedToolbarConfigLogic) {
-                        // If toolbarConfigLogic is mounted, we're inside the Toolbar.
-                        if (!mountedToolbarConfigLogic.values.isAuthenticated) {
+                    const toolbar = getToolbarRuntime()
+                    if (toolbar) {
+                        if (!toolbar.isAuthenticated()) {
                             return null
                         }
                         // The config is cosmetic - on any request failure (network, auth,
                         // non-JSON body) fall back to defaults rather than raising an error.
                         try {
+                            const { toolbarFetch } = await import('~/toolbar/shared/toolbarFetch')
                             const response = await toolbarFetch(endpoint, 'GET')
                             if (!response.ok) {
                                 return null
@@ -189,13 +190,13 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                         ...config,
                     }
 
-                    const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
-                    if (mountedToolbarConfigLogic) {
+                    const toolbar = getToolbarRuntime()
+                    if (toolbar) {
                         // Inside the Toolbar the OAuth token is scoped to `user:read` only
                         // (TOOLBAR_OAUTH_SCOPES grants no `user:write`), so persisting the hedgehog
                         // config would 403 — and toolbarFetch turns any 403 into a session reset,
                         // kicking the user out of the Toolbar. Keep the config local to this session.
-                        return mountedToolbarConfigLogic.values.isAuthenticated ? payload : null
+                        return toolbar.isAuthenticated() ? payload : null
                     }
 
                     try {

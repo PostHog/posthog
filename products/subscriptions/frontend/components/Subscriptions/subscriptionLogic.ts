@@ -20,7 +20,10 @@ import posthog from 'posthog-js'
 import { z } from 'zod'
 
 import api, { ApiError } from 'lib/api'
+import { imageSizeError } from 'lib/components/ImageSize/imageSizeUtils'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
 import { dayjs } from 'lib/dayjs'
+import { getInsightId } from 'lib/insights/getInsightId'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -28,7 +31,6 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { isEmail } from 'lib/utils/url'
-import { getInsightId } from 'scenes/insights/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -36,6 +38,7 @@ import { DashboardTile, ExportedAssetType, ExporterFormat, SubscriptionResourceT
 
 import {
     subscriptionsDeliveriesList,
+    subscriptionsTakeOwnershipCreate,
     subscriptionsTestDeliveryCreate,
 } from 'products/subscriptions/frontend/generated/api'
 import {
@@ -758,6 +761,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     dashboardTiles: DashboardTile[] | undefined,
                     storedTeamsWebhookHost: string | null
                 ) => ({
+                    delivery_config: {
+                        image_size:
+                            subscription.resource_type === SubscriptionResourceTypes.AiPrompt
+                                ? undefined
+                                : imageSizeError(subscription.delivery_config?.image_size),
+                    },
                     frequency: validateFrequency(subscription),
                     title: !subscription.title ? 'You need to give your subscription a name' : undefined,
                     interval: !subscription.interval ? 'You need to set an interval' : undefined,
@@ -904,6 +913,24 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.loadLastDelivery()
         },
         submitSubscriptionSuccess: ({ subscription }) => {
+            const pendingTakeover = cache.takeOwnershipAfterSave
+            if (pendingTakeover) {
+                cache.takeOwnershipAfterSave = undefined
+                void openTakeOwnershipDialog({
+                    resourceLabel: 'subscription',
+                    resourceId: pendingTakeover.id,
+                    owner: pendingTakeover.owner,
+                    cause: pendingTakeover.cause,
+                    takeOwnership: async () => {
+                        await subscriptionsTakeOwnershipCreate(String(getCurrentTeamId()), String(pendingTakeover.id))
+                    },
+                }).then((taken) => {
+                    if (taken) {
+                        actions.loadSubscription()
+                        subscriptionsLogic.findMounted(props)?.actions.loadAllSubscriptions()
+                    }
+                })
+            }
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
             }
@@ -991,6 +1018,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.setSubscriptionValues({ ai_prompt_config: { ...config, window } })
         },
         submitSubscriptionFailure: ({ error }) => {
+            const isResubmit = cache.takeOwnershipAfterSave !== undefined
+            if (isResubmit) {
+                // The save that was to precede the takeover failed, so put the switch back as the user left it.
+                cache.takeOwnershipAfterSave = undefined
+                actions.setSubscriptionValue('enabled', true)
+            }
             // Not every error has a field that can render it, so name the section instead.
             if (error instanceof Error && error.message === 'Validation Failed') {
                 const fields = invalidFieldNames(values.subscriptionAllErrors)
@@ -1000,6 +1033,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     resource_type: values.subscription?.resource_type,
                 })
                 lemonToast.error(blockedSaveMessage(fields))
+                return
+            }
+            const cause = ownerUnavailableCause(error)
+            if (props.id !== 'new' && cause && !isResubmit) {
+                // Enabling delivers at once, so the other edits are saved first, with the subscription still
+                // disabled, and the takeover that enables it is offered once they are in.
+                cache.takeOwnershipAfterSave = { id: props.id, cause, owner: values.subscription.created_by ?? null }
+                actions.setSubscriptionValue('enabled', false)
+                actions.submitSubscription()
                 return
             }
             const message = subscriptionSaveErrorMessage(error)
@@ -1083,6 +1125,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             try {
                 const insightId =
                     subscription.insight ??
+                    subscription.dashboard_export_insights?.[0] ??
                     (props.insightShortId ? await getInsightId(props.insightShortId) : undefined)
                 const dashboardId = subscription.dashboard ?? props.dashboardId
 
@@ -1092,6 +1135,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     ...(dashboardId ? { dashboard: dashboardId } : {}),
                     export_context: {
                         path: '',
+                        image_size: subscription.delivery_config?.image_size,
                     },
                 }
 

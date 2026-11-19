@@ -1,7 +1,7 @@
 # Live agent e2e suite
 
 Drives representative sessions **end to end** through the real adapter, the real
-binary (codex `app-server` / Claude Code CLI), and the real llm-gateway on a cheap
+binary (codex `app-server` / Claude Code CLI), and the real ai-gateway on a cheap
 model — parametrized across `claude` and `codex`. The only thing mocked is the
 host/UI client (a recording `sessionUpdate`, an auto-allow `requestPermission`,
 and real file read/write against a throwaway git repo). Nothing in the
@@ -72,8 +72,7 @@ includes `src/**`). They are opt-in and cost a couple of short model turns.
 In CI they run as the **`e2e` job in `.github/workflows/test.yml`**, on pull
 requests only, after the unit + integration jobs pass. The job is opt-in and safe
 by default: it self-skips unless the repo variable `AGENT_E2E_ENABLED` is `true`
-with an `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY` secret and an `POSTHOG_CODE_E2E_GATEWAY_URL` variable pointing at a
-gateway reachable from the runner, and it never runs for fork PRs (their secrets
+with a `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY` secret against `https://ai-gateway.us.posthog.com`, and it never runs for fork PRs (their secrets
 are withheld, which would otherwise red the fail-loud token guard). Off by
 default, so it costs nothing until explicitly enabled; the codex arm self-skips if
 the native binary isn't on the runner.
@@ -86,7 +85,7 @@ bash e2e/run-e2e.sh
 bash e2e/run-e2e.sh -t "(codex)"
 ```
 
-Prereqs: a local llm-gateway up (`./bin/start` in the posthog repo) and the
+Prereqs: a local ai-gateway up (`bin/start-ai-gateway`) and the
 native codex binary present at `apps/code/resources/codex-acp/codex` (the codex
 arm self-skips if it is missing).
 
@@ -94,8 +93,8 @@ arm self-skips if it is missing).
 
 | Var | Default | Notes |
 | --- | --- | --- |
-| `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY` | — | Required. A token the gateway accepts — the `ci` product takes a personal API key (no OAuth). Without it every arm skips. `run-e2e.sh` reads the local dev key. |
-| `POSTHOG_CODE_E2E_GATEWAY_URL` | `http://localhost:3308/ci` | Gateway base (codex appends `/v1`). `ci` accepts a personal API key; `posthog_code` is OAuth-only. |
+| `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY` | — | Required. A `phs_` key, or a `phe_` dev token from `hogli gateway:token`. Requests carry `X-PostHog-Product: ci`. Without it every arm skips. |
+| `POSTHOG_CODE_E2E_GATEWAY_URL` | `http://localhost:8080` | ai-gateway base (codex appends `/v1`). |
 | `POSTHOG_CODE_E2E_CLAUDE_MODEL` | `claude-haiku-4-5` | Override if the gateway serves a different cheap Claude id. |
 | `POSTHOG_CODE_E2E_CODEX_MODEL` | `gpt-5-mini` | Cheapest codex id the local gateway serves; override if needed. |
 | `POSTHOG_CODE_E2E_CLAUDE_STRONG_MODEL` | `claude-sonnet-4-5` | Stronger Claude id for tests the cheap model can't handle (structured output). |

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -11,10 +12,37 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 
 import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
+import { QuillFunnelsAdvanced } from './QuillFunnelsAdvanced'
 
 export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { querySource, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const quillSurface = useQuillSurface()
+
+    const exclusionStepsInfo = (
+        <ExclusionStepsInfo
+            aggregationTargetLabel={aggregationTargetLabel}
+            aggregation_group_type_index={querySource?.aggregation_group_type_index}
+        />
+    )
+    const resetAdvancedOptions = (): void => {
+        updateInsightFilter({
+            funnelOrderType: undefined,
+            funnelStepReference: undefined,
+            exclusions: undefined,
+        })
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillFunnelsAdvanced
+                stepOrderInfo={<StepOrderInfo />}
+                exclusionStepsInfo={exclusionStepsInfo}
+                showReset={!!advancedOptionsUsedCount}
+                onReset={resetAdvancedOptions}
+            />
+        )
+    }
 
     return (
         <div className="deprecated-space-y-4">
@@ -25,30 +53,13 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
                 <FunnelStepReferencePicker />
             </LemonField.Pure>
 
-            <LemonField.Pure
-                label="Exclusion steps"
-                info={
-                    <ExclusionStepsInfo
-                        aggregationTargetLabel={aggregationTargetLabel}
-                        aggregation_group_type_index={querySource?.aggregation_group_type_index}
-                    />
-                }
-            >
+            <LemonField.Pure label="Exclusion steps" info={exclusionStepsInfo}>
                 <FunnelExclusionsFilter />
             </LemonField.Pure>
 
             {!!advancedOptionsUsedCount && (
                 <div className="mt-4">
-                    <LemonButton
-                        status="danger"
-                        onClick={() => {
-                            updateInsightFilter({
-                                funnelOrderType: undefined,
-                                funnelStepReference: undefined,
-                                exclusions: undefined,
-                            })
-                        }}
-                    >
+                    <LemonButton status="danger" onClick={resetAdvancedOptions}>
                         Reset advanced options
                     </LemonButton>
                 </div>

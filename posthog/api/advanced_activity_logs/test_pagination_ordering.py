@@ -1,8 +1,12 @@
 from datetime import timedelta
+from urllib.parse import parse_qs, quote, urlparse
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.db.models import Q
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -10,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.advanced_activity_logs.viewset import activity_log_ordering
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 
@@ -56,6 +61,17 @@ class TestActivityLogCursorOrdering(APIBaseTest):
         assert idle["results"] == []
         assert idle["next"] is not None
 
+        last_seen = ActivityLog.objects.filter(team_id=self.team.id).order_by("-created_at").first()
+        assert last_seen is not None
+        ActivityLog.objects.create(
+            id=UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            scope="FeatureFlag",
+            activity="updated",
+            item_id="same-timestamp",
+            created_at=last_seen.created_at,
+        )
         ActivityLog.objects.create(
             team_id=self.team.id,
             organization_id=self.organization.id,
@@ -65,7 +81,7 @@ class TestActivityLogCursorOrdering(APIBaseTest):
             created_at=timezone.now() + timedelta(hours=1),
         )
 
-        assert [row["item_id"] for row in self.client.get(tail).json()["results"]] == ["brand-new"]
+        assert [row["item_id"] for row in self.client.get(tail).json()["results"]] == ["same-timestamp", "brand-new"]
 
     @parameterized.expand(
         [
@@ -100,6 +116,16 @@ class TestActivityLogCursorOrdering(APIBaseTest):
         default = self.client.get(base)
         assert [row["item_id"] for row in default.json()["results"]] == ["2", "1", "0"]
 
+    def test_cursor_from_one_ordering_is_rejected_under_another(self):
+        self._create_logs(3)
+        base = f"/api/projects/{self.team.id}/advanced_activity_logs/?page_size=2"
+        next_link = self.client.get(base).json()["next"]
+        cursor = parse_qs(urlparse(next_link).query)["cursor"][0]
+
+        response = self.client.get(f"{base}&ordering=created_at&cursor={quote(cursor)}")
+
+        assert response.status_code == 404
+
     def test_unknown_ordering_value_is_rejected(self):
         response = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/?ordering=scope")
 
@@ -133,3 +159,59 @@ class TestActivityLogCursorOrdering(APIBaseTest):
             url = body["next"]
 
         assert sorted(seen) == sorted(str(index) for index in range(25))
+
+    @parameterized.expand(
+        [
+            ("cursor_descending", "?page_size=3"),
+            ("cursor_ascending", "?page_size=3&ordering=created_at"),
+            ("numbered_descending", "?page=1&page_size=3"),
+            ("numbered_ascending", "?page=1&page_size=3&ordering=created_at"),
+        ]
+    )
+    @patch("posthog.api.advanced_activity_logs.viewset.POSITION_CHUNK_SIZE", 2)
+    def test_org_level_logs_page_in_order_without_loss_or_repeats(self, _name: str, query: str):
+        self.team.receive_org_level_activity_logs = True
+        self.team.save()
+        other_team = Team.objects.create(organization=self.organization)
+        stamp = timezone.now()
+        for index in range(11):
+            ActivityLog.objects.create(
+                team_id=None if index % 2 else self.team.id,
+                organization_id=self.organization.id,
+                scope="FeatureFlag",
+                activity="updated",
+                item_id=str(index),
+                created_at=stamp + timedelta(minutes=index // 2),
+            )
+        ActivityLog.objects.create(
+            team_id=other_team.id,
+            organization_id=self.organization.id,
+            scope="FeatureFlag",
+            activity="updated",
+            item_id="other-team",
+            created_at=stamp,
+        )
+
+        ordering = activity_log_ordering(Request(APIRequestFactory().get(f"/{query}")))
+        expected = list(
+            ActivityLog.objects.filter(
+                Q(team_id=self.team.id) | Q(team_id__isnull=True, organization_id=self.organization.id)
+            )
+            .order_by(*ordering)
+            .values_list("item_id", flat=True)
+        )
+
+        seen: list[str] = []
+        url: str | None = f"/api/projects/{self.team.id}/advanced_activity_logs/{query}"
+        while url:
+            response = self.client.get(url)
+            assert response.status_code == 200, response.json()
+            body = response.json()
+            if "count" in body:
+                assert body["count"] == len(expected)
+            seen.extend(row["item_id"] for row in body["results"])
+            url = body["next"]
+
+        assert {str(index) for index in range(11)} <= set(expected)
+        assert "other-team" not in expected
+        assert seen == expected

@@ -1,5 +1,5 @@
 import { formatBreakdownLabel } from 'scenes/insights/utils'
-import { getResultSeries } from 'scenes/insights/utils/resultSeries'
+import { ActionNames, getResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, InsightQueryNode } from '~/queries/schema/schema-general'
@@ -12,6 +12,7 @@ import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 
 export interface AggregatedDisplayLabelDeps {
     querySource: InsightQueryNode | null | undefined
+    actionNames?: ActionNames
     stackBreakdowns: boolean
     breakdownFilter: BreakdownFilter | null | undefined
     cohorts: CohortType[] | undefined
@@ -20,7 +21,7 @@ export interface AggregatedDisplayLabelDeps {
 
 /** Category-axis label for a single band of the aggregated (Bar chart - Total value) chart. */
 export function getAggregatedDisplayLabel(r: IndexedTrendResult, deps: AggregatedDisplayLabelDeps): string {
-    const seriesName = getResultSeriesName(getResultSeries(deps.querySource, r))
+    const seriesName = getResultSeriesName(getResultSeries(deps.querySource, r, deps.actionNames))
     if (deps.stackBreakdowns) {
         // Breakdown values within the band are distinguished by color and the tooltip.
         return seriesName ?? humanizeSeriesLabel(r.label)

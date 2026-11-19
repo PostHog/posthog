@@ -18,7 +18,17 @@ export interface ShareBarRow<T> {
 
 type ShareMeta<T> = T & { share: number }
 
-const SHARE_BAR_CONFIG: BarListConfig = { labelPosition: 'top', scale: 'total', valueDisplay: 'both', barHeight: 10 }
+const SHARE_ROW_HEIGHT_PX = 40
+// Matches the scroller's pt-2, so that the visible height ends just above the next row's label.
+const SHARE_LIST_TOP_PADDING_PX = 8
+
+const SHARE_BAR_CONFIG: BarListConfig = {
+    labelPosition: 'top',
+    scale: 'total',
+    valueDisplay: 'both',
+    barHeight: 10,
+    rowHeight: SHARE_ROW_HEIGHT_PX,
+}
 
 function formatCalls(value: number): string {
     return `${formatNumber(value)} ${value === 1 ? 'call' : 'calls'}`
@@ -29,11 +39,19 @@ export function ShareBarChart<T>({
     totalCalls,
     theme,
     tooltip,
+    fillHeight = false,
+    maxVisibleRows,
+    label,
 }: {
     rows: ShareBarRow<T>[]
     totalCalls: number
     theme: ChartTheme
     tooltip: (ctx: TooltipContext<ShareMeta<T>>) => JSX.Element | null
+    /** Fill the parent's height and scroll the rows. The parent must be a flex column. */
+    fillHeight?: boolean
+    /** Show this many rows and scroll the rest. A shorter list keeps its natural height. */
+    maxVisibleRows?: number
+    label?: string
 }): JSX.Element {
     const series = useMemo<Series<ShareMeta<T>>[]>(
         () =>
@@ -65,17 +83,50 @@ export function ShareBarChart<T>({
         },
         [rowByKey]
     )
+    const barList = (
+        <BarList
+            series={series}
+            theme={theme}
+            total={totalCalls}
+            config={SHARE_BAR_CONFIG}
+            valueFormatter={formatCalls}
+            renderLabel={renderLabel}
+            tooltip={tooltip}
+        />
+    )
+    if (maxVisibleRows !== undefined) {
+        return (
+            <div
+                className="overflow-y-auto pt-2"
+                style={{ maxHeight: SHARE_LIST_TOP_PADDING_PX + maxVisibleRows * SHARE_ROW_HEIGHT_PX }}
+                translate="no"
+                tabIndex={0}
+                role="region"
+                aria-label={label}
+            >
+                {barList}
+            </div>
+        )
+    }
+    if (!fillHeight) {
+        return (
+            <div translate="no" className="pt-2">
+                {barList}
+            </div>
+        )
+    }
+    // The absolute scroller adds no height, so the chart beside it sets the row height. Keep min-h-60 below that chart's height.
     return (
-        <div translate="no" className="pt-2">
-            <BarList
-                series={series}
-                theme={theme}
-                total={totalCalls}
-                config={SHARE_BAR_CONFIG}
-                valueFormatter={formatCalls}
-                renderLabel={renderLabel}
-                tooltip={tooltip}
-            />
+        <div className="relative min-h-60 flex-1">
+            <div
+                className="absolute inset-0 overflow-y-auto pt-2"
+                translate="no"
+                tabIndex={0}
+                role="region"
+                aria-label={label}
+            >
+                {barList}
+            </div>
         </div>
     )
 }

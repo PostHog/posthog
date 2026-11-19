@@ -54,10 +54,18 @@ class IQRDetector(BaseDetector):
         window: int - Rolling window size (default: 30)
     """
 
+    DEFAULT_MULTIPLIER = 1.5
+
+    def __init__(self, config: dict[str, Any]):
+        super().__init__(config)
+        # An explicit 0 is valid, so only a missing or None multiplier takes the default.
+        multiplier = config.get("multiplier")
+        self.multiplier: float = self.DEFAULT_MULTIPLIER if multiplier is None else multiplier
+
     def detect(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        multiplier = self.config.get("multiplier", 1.5)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        multiplier = self.multiplier
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -119,9 +127,9 @@ class IQRDetector(BaseDetector):
         )
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        multiplier = self.config.get("multiplier", 1.5)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        multiplier = self.multiplier
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -179,8 +187,8 @@ class IQRDetector(BaseDetector):
         )
 
     def fit(self, history: np.ndarray) -> DetectorArtifact:
-        multiplier = self.config.get("multiplier", 1.5)
-        window = self.config.get("window", 30)
+        multiplier = self.multiplier
+        window = self.window
         diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
         rows = self._fit_rows(history, min_rows=window + diffs_n)
         values = rows if rows.ndim == 1 else rows[:, 0]
@@ -240,6 +248,6 @@ class IQRDetector(BaseDetector):
         return {
             "type": DetectorType.IQR.value,
             "threshold": cls.DEFAULT_THRESHOLD,
-            "multiplier": 1.5,
+            "multiplier": cls.DEFAULT_MULTIPLIER,
             "window": 30,
         }

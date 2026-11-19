@@ -4,6 +4,7 @@ import { DataColorTheme, DataColorToken } from 'lib/colors'
 import type { Intervals } from 'lib/components/IntervalFilter/intervals'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
 import {
     BreakdownColorConfig,
@@ -15,7 +16,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BREAKDOWN_NULL_NUMERIC_LABEL,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -27,9 +27,10 @@ import {
     getTrendResultCustomizationColorToken,
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
-import { getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
+import { ActionNames, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
 import {
     BreakdownFilter,
     EventsNode,
@@ -78,7 +79,6 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter } from '~/queries/utils'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -167,6 +167,7 @@ export interface trendsDataLogicValues {
     trendsFilter: TrendsFilter | null | undefined // insightVizDataLogic
     vizSpecificOptions: VizSpecificOptions | null | undefined // insightVizDataLogic
     yAxisScaleType: string | null | undefined // insightVizDataLogic
+    actionNames: ActionNames
     alertSeries: EventsNode[]
     areAllSeriesVisible: boolean
     breakdownValuesLoading: boolean
@@ -176,6 +177,7 @@ export interface trendsDataLogicValues {
     getTrendsColor: (dataset: IndexedTrendResult) => string
     getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
     getTrendsHidden: (dataset: IndexedTrendResult) => boolean
+    getTrendsYAxisPosition: (dataset: IndexedTrendResult) => 'auto' | 'left' | 'right' | undefined
     hasBreakdownMore: boolean
     hasPersonsModal: boolean
     hoveredDatasetIndex: number | null
@@ -291,6 +293,7 @@ export interface trendsDataLogicMeta {
                 | null
         ) => EventsNode[]
         results: (insightData: Record<string, any>) => TrendResult[]
+        actionNames: (insightData: Record<string, any>) => ActionNames
         hasBreakdownMore: (insightData: Record<string, any>, isTrends: boolean) => boolean
         hasPersonsModal: (
             formula: string | null | undefined,
@@ -420,6 +423,24 @@ export interface trendsDataLogicMeta {
         getTrendsColor: (
             getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null]
         ) => (dataset: IndexedTrendResult) => string
+        getTrendsYAxisPosition: (
+            resultCustomizationBy: ResultCustomizationBy,
+            resultCustomizations:
+                | Record<string, ResultCustomizationByValue>
+                | Record<number, ResultCustomizationByPosition>
+                | undefined,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
+        ) => (dataset: IndexedTrendResult) => 'auto' | 'left' | 'right' | undefined
         getTrendsHidden: (
             resultCustomizationBy: ResultCustomizationBy,
             resultCustomizations:
@@ -570,6 +591,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
                 return []
             },
+        ],
+
+        actionNames: [
+            (s) => [s.insightData],
+            (insightData: Record<string, any>): ActionNames => insightData.action_names ?? {},
         ],
 
         hasBreakdownMore: [
@@ -1049,6 +1075,30 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
                 }
             },
+        ],
+        getTrendsYAxisPosition: [
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.querySource],
+            (
+                resultCustomizationBy: ResultCustomizationBy,
+                resultCustomizations:
+                    | Record<string, ResultCustomizationByValue>
+                    | Record<number, ResultCustomizationByPosition>
+                    | undefined,
+                querySource:
+                    | FunnelsQuery
+                    | LifecycleQuery
+                    | PathsQuery
+                    | PathsV2Query
+                    | RetentionQuery
+                    | StickinessQuery
+                    | TrendsQuery
+                    | WebOverviewQuery
+                    | WebStatsTableQuery
+                    | null
+            ) =>
+                (dataset: IndexedTrendResult): ResultCustomization['yAxisPosition'] =>
+                    getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations, querySource)
+                        ?.yAxisPosition,
         ],
         getTrendsHidden: [
             (s) => [s.resultCustomizationBy, s.resultCustomizations, s.querySource],

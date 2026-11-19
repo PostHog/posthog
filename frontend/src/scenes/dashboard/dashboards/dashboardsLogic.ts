@@ -8,8 +8,8 @@ import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
+import { reportDashboardMoveInitiated } from 'scenes/dashboard/dashboardEvents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -160,13 +160,6 @@ export interface dashboardsLogicActions {
             onStillSelected: (ids: number[]) => void
         }
     } // dashboardsModel
-    reportDashboardMoveInitiated: (
-        method: 'bulk' | 'single',
-        count: number
-    ) => {
-        count: number
-        method: 'bulk' | 'single'
-    } // eventUsageLogic
     openMoveToModal: (items: FileSystemEntry[]) => {
         items: FileSystemEntry[]
     } // moveToLogic
@@ -316,8 +309,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             ['bulkDeleteDashboards', 'bulkDeleteDashboardsSuccess', 'reloadDashboardsSuccess'],
             moveToLogic,
             ['openMoveToModal'],
-            eventUsageLogic,
-            ['reportDashboardMoveInitiated'],
             projectTreeDataLogic,
             ['movedItem'],
         ],
@@ -775,7 +766,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             if (moving.length === 0) {
                 return
             }
-            actions.reportDashboardMoveInitiated(method, moving.length)
+            reportDashboardMoveInitiated(method, moving.length)
             actions.openMoveToModal(moving)
             cache.awaitingMove = { ids: new Set(ids), onStillSelected }
         },

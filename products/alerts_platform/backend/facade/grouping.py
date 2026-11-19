@@ -49,8 +49,8 @@ def is_hashed_grouping_key(key: str) -> bool:
 
 
 # PostgreSQL text and JSONB reject NUL, and UTF-8 cannot encode a surrogate. Either one aborts the
-# transaction that records the whole batch.
-_UNSTORABLE: Final = re.compile("[\x00\ud800-\udfff]")
+# transaction that records the whole batch. Stdlib `re`, because re2 cannot see a lone surrogate.
+UNSTORABLE: Final = re.compile("[\x00\ud800-\udfff]")
 
 
 def bounded_grouping_key(key: str) -> str:
@@ -60,7 +60,7 @@ def bounded_grouping_key(key: str) -> str:
     Every other key is hashed. A literal key in the hash namespace is hashed too, because otherwise
     it would share a row with the long key whose digest it spells.
     """
-    if len(key) <= MAX_GROUPING_KEY_LENGTH and not is_hashed_grouping_key(key) and not _UNSTORABLE.search(key):
+    if len(key) <= MAX_GROUPING_KEY_LENGTH and not is_hashed_grouping_key(key) and not UNSTORABLE.search(key):
         return key
     return f"{_HASHED_PREFIX}{hashlib.sha256(key.encode('utf-8', 'surrogatepass')).hexdigest()}"
 
@@ -76,29 +76,41 @@ _TRUNCATED: Final = "…"
 
 def _bounded_label(value: str) -> str:
     # A label is display only, so a character the database cannot store shows as a replacement.
-    value = _UNSTORABLE.sub("\ufffd", value)
-    if _encoded_length(value) <= MAX_LABEL_BYTES:
+    return clipped_to(UNSTORABLE.sub("\ufffd", value), MAX_LABEL_BYTES)
+
+
+def clipped_to(value: str, max_bytes: int) -> str:
+    """`value` cut to at most `max_bytes` of encoded JSON, with a marker where it was cut."""
+    if encoded_length(value) <= max_bytes:
         return value
-    budget = MAX_LABEL_BYTES - _encoded_length(_TRUNCATED)
+    budget = max_bytes - encoded_length(_TRUNCATED)
     kept: list[str] = []
     for char in value:
-        budget -= _encoded_length(char)
+        budget -= encoded_length(char)
         if budget < 0:
             break
         kept.append(char)
     return "".join(kept) + _TRUNCATED
 
 
-def _encoded_length(value: str) -> int:
+def encoded_length(value: str) -> int:
     return len(json.dumps(value)) - 2
 
 
-def bounded_labels(labels: dict[str, str]) -> dict[str, str]:
-    """The labels a group may carry: the first `MAX_GROUP_LABELS`, each name and value storable and cut to size.
+def bounded_labels(labels: dict[str, str], *, first: Sequence[str] = ()) -> dict[str, str]:
+    """The labels a group may carry: `MAX_GROUP_LABELS` of them, each name and value storable and cut to size.
 
-    Display only. The grouping key is derived from the full values, so a cut label never merges two groups.
+    The names in `first` are kept before the rest, so a label routing reads survives the cut. The
+    grouping key is derived from the full values, so a cut label never merges two groups.
     """
-    return {_bounded_label(name): _bounded_label(value) for name, value in list(labels.items())[:MAX_GROUP_LABELS]}
+    kept = [name for name in dict.fromkeys(first) if name in labels][:MAX_GROUP_LABELS]
+    chosen = set(kept)
+    for name in labels:
+        if len(kept) == MAX_GROUP_LABELS:
+            break
+        if name not in chosen:
+            kept.append(name)
+    return {_bounded_label(name): _bounded_label(labels[name]) for name in kept}
 
 
 # One delivery activity sends every message it holds, to every destination, inside its timeout. An
@@ -239,6 +251,8 @@ def decide_groups(
 
     # Firing groups first, so a cap keeps the groups that announce something.
     judged.sort(key=lambda item: item[2].new_state == AlertState.NOT_FIRING)
+    # Routing sees only the labels a group keeps, so route labels go first, then the grouping keys.
+    kept_first = (*sorted(check.routed_label_names), *check.grouping.keys)
     admission = check.admit([observation.grouping_key for observation, _, _ in judged], now=now)
     verdicts = tuple(
         GroupVerdict(
@@ -252,7 +266,7 @@ def decide_groups(
                 notified=outcome.update_last_notified_at,
                 firing_episode=decide_firing_episode(snapshot, outcome, now, policy=policy),
                 value=observation.value,
-                labels=bounded_labels(observation.labels),
+                labels=bounded_labels(observation.labels, first=kept_first),
                 muted_notification=muted_value(outcome),
             ),
         )

@@ -12,6 +12,9 @@ from posthog.dataclasses import frozen
 CsvColumnKind = Literal["integer", "unsigned", "float", "decimal", "boolean", "date", "datetime"]
 CSV_COLUMN_KINDS: frozenset[str] = frozenset(get_args(CsvColumnKind))
 
+# The CSV column kinds a JSON Lines column is cast to. JSON already types numbers and booleans.
+JSON_CAST_KINDS: frozenset[str] = frozenset({"date", "datetime"})
+
 _WRAPPER = re.compile(r"^(?:Nullable|LowCardinality)\((?P<inner>.*)\)$")
 _TIMEZONE_ARGUMENT = re.compile(r"'(?P<timezone>[^']+)'")
 _DECIMAL_ARGUMENTS = re.compile(r"^\s*(?P<first>\d+)\s*(?:,\s*(?P<second>\d+)\s*)?$")
@@ -180,12 +183,23 @@ def stored_clickhouse_types(columns: Mapping[str, Any] | None) -> dict[str, str]
 
 def csv_column_types_from_columns(columns: Mapping[str, Any] | None) -> tuple[CsvColumnType, ...]:
     """The casts for a warehouse table's stored columns, in their stored order."""
+    return _column_types(columns, only_kinds=None)
+
+
+def _column_types(columns: Mapping[str, Any] | None, only_kinds: frozenset[str] | None) -> tuple[CsvColumnType, ...]:
     column_types: list[CsvColumnType] = []
     for name, clickhouse_type in stored_clickhouse_types(columns).items():
+        if only_kinds is not None and _CLICKHOUSE_KINDS.get(_unwrap(clickhouse_type).base) not in only_kinds:
+            continue
         column_type = csv_column_type(name, clickhouse_type)
         if column_type is not None:
             column_types.append(column_type)
     return tuple(column_types)
+
+
+def json_column_types_from_columns(columns: Mapping[str, Any] | None) -> tuple[CsvColumnType, ...]:
+    """The casts for the date and time columns of a warehouse table. Other JSON columns keep their JSON type."""
+    return _column_types(columns, only_kinds=JSON_CAST_KINDS)
 
 
 def _column_type_from_metadata(name: str, raw: object) -> CsvColumnType | None:

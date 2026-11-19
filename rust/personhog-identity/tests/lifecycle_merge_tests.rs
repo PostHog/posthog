@@ -358,9 +358,8 @@ async fn insert_person_with_derived_uuid(
     let insert_sql = format!(
         r#"
         INSERT INTO {}
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, $1, false, $2, 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{{}}'::jsonb, $1, false, $2, 0)
         RETURNING id
         "#,
         ctx.tables.person
@@ -462,6 +461,7 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     h.set_person(target, r#"{"a": "target"}"#, 3, false).await;
     h.set_person(source, r#"{"a": "source", "b": "source"}"#, 7, false)
         .await;
+    h.ctx.seed_retired_person_meta(source).await;
     // Satellite rows: the source's move, and a target-side hash-key
     // override that must win the dedupe.
     sqlx::query("INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES (1, $1)")
@@ -513,6 +513,7 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     assert!(is_deleted);
     assert_eq!(version, 8);
     assert_eq!(properties, json!({}));
+    assert_eq!(h.ctx.retired_person_meta(source).await, (None, None));
     let (target_deleted, target_version, _) = h.person_state(target).await;
     assert!(!target_deleted);
     assert_eq!(target_version, 3, "sync plane never writes the target");
@@ -600,6 +601,145 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     );
 
     h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// The fence stops leader writes only. A writer on the Postgres path can
+/// move a sealed source past its seal before the flip, and a tombstone at
+/// sealed + 1 would then tie or sit below the live row. A second, quiet
+/// source in the same op keeps its own sealed + 1, so the release carries
+/// one tombstone version per source.
+#[tokio::test]
+async fn a_direct_postgres_write_between_seal_and_flip_cannot_outrank_the_source_tombstone() {
+    let h = MergeHarness::new().await;
+    let target = h.ctx.insert_person_with_distinct_id("raced-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("raced-source").await;
+    let quiet = h.ctx.insert_person_with_distinct_id("raced-quiet").await;
+    h.set_person(target, r#"{"a": "target"}"#, 3, false).await;
+    h.set_person(source, r#"{"a": "source"}"#, 7, false).await;
+    h.set_person(quiet, r#"{"a": "quiet"}"#, 2, false).await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("raced-target", &["raced-source", "raced-quiet"]);
+    h.create(op_id, &request).await;
+    h.step(op_id).await.expect("started -> claimed");
+    let row = h.step(op_id).await.expect("claimed -> sources_sealed");
+    assert_eq!(row.step, "sources_sealed");
+
+    sqlx::query(&format!(
+        "UPDATE {} SET version = version + 3 WHERE team_id = $1 AND id = $2",
+        h.ctx.tables.person
+    ))
+    .bind(h.ctx.team_id as i32)
+    .bind(source)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("direct write");
+
+    h.step(op_id)
+        .await
+        .expect("sources_sealed -> document_folded");
+    h.step(op_id).await.expect("document_folded -> flipped");
+    let row = h.step(op_id).await.expect("flipped -> completed");
+    assert!(row.completed_at.is_some());
+    let outcome: MergeOutcome =
+        serde_json::from_value(row.outcome.expect("terminal outcome")).unwrap();
+
+    let (is_deleted, version, _) = h.person_state(source).await;
+    assert!(is_deleted);
+    assert_eq!(
+        version, 11,
+        "the tombstone must outrank the direct write, not just the seal"
+    );
+    let (quiet_deleted, quiet_version, _) = h.person_state(quiet).await;
+    assert!(quiet_deleted);
+    assert_eq!(
+        quiet_version, 3,
+        "an unmoved source tombstones at sealed + 1"
+    );
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 2);
+    let death_version = |person_id: i64| {
+        docs.iter()
+            .find(|doc| doc.person_id == person_id)
+            .expect("a death document per source")
+            .version
+    };
+    assert_eq!(
+        death_version(source),
+        11,
+        "the death document honors the tombstone"
+    );
+    assert_eq!(
+        death_version(quiet),
+        3,
+        "the quiet source's death document is not raised by its partner's move"
+    );
+    let survivor = outcome
+        .survivor
+        .expect("committed merges carry the survivor");
+    assert_eq!(
+        survivor["version"],
+        json!(8),
+        "the fold reads the seals, not the moved row: max(target 3, sealed 7, sealed 2) + 1"
+    );
+}
+
+/// A flip from a build before `tombstone_version` left the seal without it.
+/// The release then carries no floor and the leader falls back to sealed + 1,
+/// which is where that build tombstoned the row.
+#[tokio::test]
+async fn an_op_flipped_by_a_pre_tombstone_version_build_completes_at_the_seal() {
+    let h = MergeHarness::new().await;
+    let target = h.ctx.insert_person_with_distinct_id("upgrade-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("upgrade-source").await;
+    h.set_person(target, r#"{"a": "target"}"#, 3, false).await;
+    h.set_person(source, r#"{"a": "source"}"#, 7, false).await;
+
+    let op_id = Uuid::now_v7();
+    h.create(op_id, &merge_request("upgrade-target", &["upgrade-source"]))
+        .await;
+    h.step(op_id).await.expect("started -> claimed");
+    h.step(op_id).await.expect("claimed -> sources_sealed");
+    h.step(op_id)
+        .await
+        .expect("sources_sealed -> document_folded");
+    let row = h.step(op_id).await.expect("document_folded -> flipped");
+    assert_eq!(row.step, "flipped");
+    assert!(
+        h.op_person_sealed(op_id, source)
+            .await
+            .expect("sealed snapshot")
+            .get("tombstone_version")
+            .is_some(),
+        "this build records the tombstone version at the flip"
+    );
+
+    sqlx::query(&format!(
+        "UPDATE {} SET sealed = sealed - 'tombstone_version' WHERE op_id = $1",
+        h.ctx.tables.lifecycle_op_person
+    ))
+    .bind(op_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("strip like a pre-tombstone-version build");
+
+    let row = h.step(op_id).await.expect("flipped -> completed");
+    assert!(row.completed_at.is_some());
+    let (is_deleted, version, _) = h.person_state(source).await;
+    assert!(is_deleted);
+    assert_eq!(version, 8, "the flip tombstoned at sealed + 1");
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].version, 8, "the leader falls back to sealed + 1");
+    assert_eq!(
+        h.leader.calls().last(),
+        Some(&LeaderCall::ReleaseCommitted {
+            person_id: source,
+            sealed_version: 7,
+            mark_status_at_release: Some("sealed".to_string()),
+        }),
+        "the release carries no tombstone version to forward"
+    );
 }
 
 #[tokio::test]
@@ -1397,6 +1537,49 @@ async fn a_fold_without_a_live_target_mark_is_refused_and_the_op_aborts() {
 
 #[tokio::test]
 async fn a_leader_refusal_at_fence_aborts_instead_of_parking() {
+    a_definitive_fence_failure_aborts(semantic_refusal("injected fence refusal", "test-refusal"))
+        .await;
+}
+
+#[tokio::test]
+async fn a_source_the_leader_cannot_read_aborts_instead_of_retrying() {
+    a_definitive_fence_failure_aborts(Status::data_loss(
+        "stored person properties cannot be parsed",
+    ))
+    .await;
+}
+
+#[tokio::test]
+async fn a_target_the_leader_cannot_read_aborts_and_unfreezes_the_sources() {
+    let h = MergeHarness::new().await;
+    let team = h.ctx.team_id;
+    let source = h.ctx.insert_person_with_distinct_id("unread-source").await;
+    let target = h.ctx.insert_person_with_distinct_id("unread-target").await;
+
+    let op_id = Uuid::now_v7();
+    let request = merge_request("unread-target", &["unread-source"]);
+    h.leader.fail_next(
+        Rpc::Fold,
+        target,
+        Status::data_loss("stored person properties cannot be parsed"),
+    );
+
+    let outcome = h
+        .execute(op_id, &request)
+        .await
+        .expect("the unreadable target aborts the op cleanly");
+    assert!(outcome.aborted);
+    assert!(!parked_state(&h.ctx.pool, op_id).await.0);
+    assert!(h.leader.fence_for(source).is_none());
+    h.leader
+        .admit_write(team, source)
+        .await
+        .expect("the source unfroze");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+async fn a_definitive_fence_failure_aborts(status: Status) {
     let h = MergeHarness::new().await;
     let team = h.ctx.team_id;
     let source_a = h.ctx.insert_person_with_distinct_id("sabort-a").await;
@@ -1407,11 +1590,7 @@ async fn a_leader_refusal_at_fence_aborts_instead_of_parking() {
     let request = merge_request("sabort-target", &["sabort-a", "sabort-b"]);
     // FencePerson has no refusals of its own (this one is scripted);
     // pins the policy that any pre-flip refusal backs the op out.
-    h.leader.fail_next(
-        Rpc::Fence,
-        source_b,
-        semantic_refusal("injected fence refusal", "test-refusal"),
-    );
+    h.leader.fail_next(Rpc::Fence, source_b, status);
 
     let outcome = h
         .execute(op_id, &request)

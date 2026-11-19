@@ -7,9 +7,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.feature_flags.backend.facade.edit_history import FlagEditAuthor, flag_edits_since
+from products.feature_flags.backend.facade.edit_history import FlagEditAuthor, flag_edits_since, served_strings_in_edits
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -59,3 +60,29 @@ class TestFlagEditsSince(BaseTest):
         assert edit.author == expected
         assert edit.user_id == (self.user.id if has_user else None)
         assert edit.was_impersonated == bool(was_impersonated)
+
+
+class TestServedStringsInEdits(BaseTest):
+    def test_reads_only_the_teams_edits(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
+        for team, variant in ((self.team, "mine"), (other_team, "theirs")):
+            ActivityLog.objects.create(
+                team_id=team.id,
+                scope="FeatureFlag",
+                item_id="1",
+                activity="updated",
+                detail={
+                    "name": "beta",
+                    "changes": [
+                        {
+                            "type": "FeatureFlag",
+                            "action": "changed",
+                            "field": "filters",
+                            "before": None,
+                            "after": {"multivariate": {"variants": [{"key": variant}]}},
+                        }
+                    ],
+                },
+            )
+
+        assert served_strings_in_edits(team_id=self.team.id, flag_key="beta", excluded_flag_ids=()) == ["mine"]

@@ -1,4 +1,5 @@
-import { NODE_HEIGHT, NODE_WIDTH } from './react_flow_utils/constants'
+export const NODE_WIDTH = 120
+export const NODE_HEIGHT = 34
 
 export function setHogFlowDragImage(dataTransfer: DataTransfer, element: HTMLElement | null): void {
     if (!element || typeof dataTransfer.setDragImage !== 'function') {

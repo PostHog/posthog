@@ -7,7 +7,8 @@ import {
   Filter, ImageBinding, Policy, policyDigest, ORDERED_ALIAS, DIGEST, REVISION
 } from './shared-image'
 
-export interface PublisherBudgets extends HistoryBudgets, RegistryBudgets {
+export interface PublisherBudgets extends Omit<HistoryBudgets, 'retryDelaysMs'>, RegistryBudgets {
+  retryDelaysMs?: number[]
   maxChannels: number
   concurrency: number
   totalMs: number
@@ -162,8 +163,12 @@ export async function publishChannels(options: PublisherOptions): Promise<Channe
     const value = budgets[name]
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`Invalid publisher budget: ${name}`)
   }
+  const retryDelaysMs = budgets.retryDelaysMs === undefined ? [5000, 15000] : budgets.retryDelaysMs
+  if (!Array.isArray(retryDelaysMs) || retryDelaysMs.length !== 2 || !retryDelaysMs.every(delay => Number.isSafeInteger(delay) && delay >= 0)) {
+    throw new Error('Invalid publisher budget: retryDelaysMs')
+  }
   const deadline = Date.now() + budgets.totalMs
-  const history = new SourceHistory(options.cwd, budgets, deadline, options.policyPath)
+  const history = new SourceHistory(options.cwd, {...budgets, retryDelaysMs: [retryDelaysMs[0], retryDelaysMs[1]]}, deadline, options.policyPath)
   await history.verify(options.revision)
   if (await history.alias(options.revision) !== options.alias) throw new Error('Built ordered alias differs from verified source history')
   if (!DIGEST.test(options.digest)) throw new Error('Expected successful build digest')

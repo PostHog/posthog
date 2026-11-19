@@ -2,6 +2,7 @@ import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import { LRUCache } from 'lru-cache'
+import { readFileSync } from 'node:fs'
 import net from 'node:net'
 import { Counter, Gauge, Histogram } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
@@ -14,6 +15,7 @@ import {
     RequestInfo,
     RequestInit,
     Response,
+    buildConnector,
     request,
     errors as undiciErrors,
     fetch as undiciFetch,
@@ -24,11 +26,12 @@ import { getExternalRequestConfig } from '~/common/config'
 import { buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
 
 import { ColdStartGate } from './cold-start-gate'
+import { installedConnectionRateLimiter } from './connection-rate-limiter'
 import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
-import { noteOobDomain } from './oob-domains'
+import { checkOobDomain } from './oob-domains'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -75,45 +78,42 @@ const dnsLookupsInFlight = new Gauge({
     help: 'Number of dns.lookup() calls currently awaiting a result',
 })
 
-// 'shadow_hit_resolved' counts shadow hits whose lookup then succeeded. Enforce mode would have failed those requests
-// wrongly, so this must stay near zero before a deployment moves from shadow to enforce.
 const dnsNegativeCacheCounter = new Counter({
     name: 'node_dns_negative_cache_total',
-    help: 'Lookups the DNS negative cache skipped (hit), would have skipped in shadow mode (shadow_hit), or would have skipped although the hostname resolved (shadow_hit_resolved)',
+    help: 'Lookups the DNS negative cache skipped because the hostname recently returned ENOTFOUND',
     labelNames: ['result'],
 })
 
-const DNS_NEGATIVE_CACHE_MODES = ['off', 'shadow', 'enforce'] as const
-type DnsNegativeCacheMode = (typeof DNS_NEGATIVE_CACHE_MODES)[number]
+// Only ENOTFOUND is cached: a timeout or SERVFAIL can be the resolver's fault, and caching it would fail healthy
+// destinations while the resolver is under load. The key is the hostname, which is customer-supplied and unbounded, so
+// the entry count is capped as well as the age.
+const dnsNegativeCache = new LRUCache<string, true>({ max: 10_000, ttl: 10_000 })
 
-const dnsNegativeCacheMode = requestConfig.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE as DnsNegativeCacheMode
-if (!DNS_NEGATIVE_CACHE_MODES.includes(dnsNegativeCacheMode)) {
-    throw new Error(
-        `EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE must be one of ${DNS_NEGATIVE_CACHE_MODES.join(', ')}, got '${dnsNegativeCacheMode}'`
-    )
-}
-for (const name of [
-    'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS',
-    'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES',
-] as const) {
-    if (!Number.isInteger(requestConfig[name]) || requestConfig[name] < 1) {
-        throw new Error(`${name} must be a positive integer, got ${process.env[name]}`)
+// The hosts file matches a name exactly, so 'alias.test.' misses an 'alias.test' entry from Docker's --add-host or
+// Kubernetes hostAliases.
+function readHostsFileNames(): Set<string> {
+    try {
+        return new Set(
+            readFileSync('/etc/hosts', 'utf8')
+                .split('\n')
+                .flatMap((line) => line.replace(/#.*/, '').trim().split(/\s+/).slice(1))
+                .map((name) => name.toLowerCase())
+        )
+    } catch {
+        return new Set()
     }
 }
 
-// The key is the hostname, which is customer-supplied and unbounded, so the entry count is capped as well as the age.
-const dnsNegativeCache =
-    dnsNegativeCacheMode === 'off'
-        ? null
-        : new LRUCache<string, true>({
-              max: requestConfig.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES,
-              ttl: requestConfig.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS,
-          })
+const hostsFileNames = readHostsFileNames()
 
-// dns.lookup returns an IP literal without a DNS query. With a trailing dot it treats '1.1.1.1.' as a name, and that
-// query fails with ENOTFOUND.
+// The trailing dot skips the cluster search domains, so a missing hostname costs one query instead of one per domain.
+// A single-label name such as a Docker service name resolves only through the search domains, so it stays as given.
+// dns.lookup returns an IP literal without a DNS query, but it treats '1.1.1.1.' as a name that fails with ENOTFOUND.
 function dnsLookupName(hostname: string): string {
-    return requestConfig.EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP && !hostname.endsWith('.') && net.isIP(hostname) === 0
+    return hostname.includes('.') &&
+        !hostname.endsWith('.') &&
+        net.isIP(hostname) === 0 &&
+        !hostsFileNames.has(hostname.toLowerCase())
         ? `${hostname}.`
         : hostname
 }
@@ -135,6 +135,7 @@ export type FetchOptions = {
     // Requests with different groups never share an HTTP/2 session. APNs can reject a provider token from one developer
     // team on a session that already carried another team's token. Requires `allowH2`.
     http2ConnectionGroup?: string
+    maxResponseBytes?: number
 }
 
 export type FetchResponse = {
@@ -161,10 +162,26 @@ export class InvalidRequestError extends Error {
     }
 }
 
+export class ResponseTooLargeError extends Error {
+    constructor(maxBytes: number) {
+        super(`Response body is larger than the ${maxBytes} byte limit`)
+        this.name = 'ResponseTooLargeError'
+    }
+}
+
 export class ResolutionError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'ResolutionError'
+    }
+}
+
+export class ConnectionRateLimitError extends Error {
+    constructor(address: string) {
+        super(
+            `PostHog opened too many new connections to ${address} in a short time, so this request did not start. This usually means the destination is timing out or closing connections.`
+        )
+        this.name = 'ConnectionRateLimitError'
     }
 }
 
@@ -204,8 +221,12 @@ function validateUrl(url: string): URL {
  */
 function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void {
     // Above the early return on purpose: every caller passes `!isProdEnv()`, so a check below it
-    // would never run in a test and would reach production unexercised.
-    noteOobDomain(hostname, 'node_request', fetchAttribution.getStore())
+    // would never run in a test and would reach production unexercised. The check is cloud-only,
+    // so the escape hatch it sits above still holds off cloud.
+    if (checkOobDomain(hostname, 'node_request', fetchAttribution.getStore()) !== null) {
+        unsafeRequestCounter.inc({ reason: 'oob_domain' })
+        throw new SecureRequestError('Hostname is not allowed')
+    }
 
     if (allowUnsafe) {
         return
@@ -277,13 +298,9 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     let addrinfo: LookupAddress[]
     const validAddrinfo: LookupAddress[] = []
     const cacheKey = hostname.toLowerCase().replace(/\.$/, '')
-    const cachedFailure = dnsNegativeCache?.has(cacheKey) ?? false
-    if (cachedFailure) {
-        if (dnsNegativeCacheMode === 'enforce') {
-            dnsNegativeCacheCounter.inc({ result: 'hit' })
-            throw new ResolutionError('Invalid hostname')
-        }
-        dnsNegativeCacheCounter.inc({ result: 'shadow_hit' })
+    if (dnsNegativeCache.has(cacheKey)) {
+        dnsNegativeCacheCounter.inc({ result: 'hit' })
+        throw new ResolutionError('Invalid hostname')
     }
     const lookupStartedAt = performance.now()
     dnsLookupsInFlight.inc()
@@ -292,23 +309,15 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
         dnsLookupDuration.observe({ outcome: 'success' }, performance.now() - lookupStartedAt)
     } catch (error) {
         dnsLookupDuration.observe({ outcome: 'failure' }, performance.now() - lookupStartedAt)
-        // A shadow hit does not refresh the entry, because enforce mode would not have run this lookup. The shadow
-        // counts then match what enforce mode would skip.
-        if (!cachedFailure && (error as NodeJS.ErrnoException)?.code === 'ENOTFOUND') {
-            dnsNegativeCache?.set(cacheKey, true)
+        if ((error as NodeJS.ErrnoException)?.code === 'ENOTFOUND') {
+            dnsNegativeCache.set(cacheKey, true)
         }
         throw new ResolutionError('Invalid hostname')
     } finally {
         dnsLookupsInFlight.dec()
     }
-    if (cachedFailure) {
-        // A shadow hit keeps the entry, because enforce mode would not have run this lookup and would keep failing the
-        // hostname until the entry expires. Each later success within the TTL then counts here too.
-        dnsNegativeCacheCounter.inc({ result: 'shadow_hit_resolved' })
-    } else {
-        // A lookup that started before another one cached the failure can still succeed. The hostname resolves now.
-        dnsNegativeCache?.delete(cacheKey)
-    }
+    // A lookup that started before another one cached the failure can still succeed. The hostname resolves now.
+    dnsNegativeCache.delete(cacheKey)
     const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
@@ -351,9 +360,84 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     return validAddrinfo
 }
 
+const connectionRateLimitedCounter = new Counter({
+    name: 'node_request_connection_rate_limited_total',
+    help: 'New third-party connections over the limit for their destination IP address, by whether the limit rejected them',
+    labelNames: ['enforced'],
+})
+
+const connectionRateLimitLogged = new LRUCache<string, true>({ max: 1_000, ttl: 60_000 })
+
+// Native IPv6 skips the NAT gateway and returns null. IPv4-mapped IPv6 opens an IPv4 connection, so it counts as IPv4.
+function natAddress({ address, family }: LookupAddress): string | null {
+    if (family === 4) {
+        return address
+    }
+    if (!ipaddr.IPv6.isValid(address)) {
+        return null
+    }
+    const parsed = ipaddr.IPv6.parse(address)
+    return parsed.isIPv4MappedAddress() ? parsed.toIPv4Address().toString() : null
+}
+
+// Only a new connection resolves its hostname, so kept-alive requests never take a token. The socket may dial every
+// address it gets, so each IPv4 address takes one.
+async function admitNewConnection(hostname: string, addresses: LookupAddress[]): Promise<LookupAddress[]> {
+    const connectionRateLimiter = installedConnectionRateLimiter()
+    if (!connectionRateLimiter) {
+        return addresses
+    }
+    // The socket dials every entry, so a repeated address would open one connection per copy for one token.
+    const seen = new Set<string>()
+    const unique = addresses.filter((answer) => {
+        const key = natAddress(answer) ?? answer.address
+        if (seen.has(key)) {
+            return false
+        }
+        seen.add(key)
+        return true
+    })
+    const natAddresses = unique.map(natAddress)
+    const limited = natAddresses.filter((address): address is string => address !== null)
+    if (limited.length === 0) {
+        return unique
+    }
+    // Each team has its own budget per address, so one team cannot use up the connections of another.
+    const teamId = fetchAttribution.getStore()?.teamId
+    const hasToken = await connectionRateLimiter.tryTake(
+        limited.map((address) => (teamId === undefined ? address : `${teamId}:${address}`))
+    )
+    const admitted = new Set(limited.filter((_, index) => hasToken[index]))
+    const enforced = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
+    const address = limited.find((candidate) => !admitted.has(candidate))
+    if (address !== undefined) {
+        connectionRateLimitedCounter.inc({ enforced: String(enforced) })
+        if (!connectionRateLimitLogged.has(address)) {
+            connectionRateLimitLogged.set(address, true)
+            logger.warn('[request] New connections to a destination IP address are over the limit', {
+                hostname,
+                address,
+                enforced,
+                ...fetchAttribution.getStore(),
+            })
+        }
+    }
+    if (!enforced) {
+        return unique
+    }
+    const kept = unique.filter((_, index) => {
+        const address = natAddresses[index]
+        return address === null || admitted.has(address)
+    })
+    if (kept.length === 0) {
+        throw new ConnectionRateLimitError(limited[0])
+    }
+    return kept
+}
+
 export const httpStaticLookup: net.LookupFunction = async (hostname, _options, cb) => {
     try {
-        const addrinfo = await staticLookupAsync(hostname)
+        const addrinfo = await admitNewConnection(hostname, await staticLookupAsync(hostname))
         cb(null, addrinfo)
     } catch (err) {
         cb(err as Error, '', 4)
@@ -466,11 +550,30 @@ function makeSecureDispatcher({
         keepAliveTimeout: keepAliveTimeoutMs,
         connections,
         allowH2,
-        connect: {
-            lookup: httpStaticLookup,
-            timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-        },
+        connect: admittingConnector(allowH2),
     })
+}
+
+// undici builds this same connector from an options object. A function lets the limit see connections to an IP
+// address in the URL: Node does not call the lookup function for those, so httpStaticLookup never sees them.
+function admittingConnector(allowH2: boolean): buildConnector.connector {
+    const connect = buildConnector({
+        allowH2,
+        lookup: httpStaticLookup,
+        timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+    })
+    return (options, callback) => {
+        const literal = options.hostname.replace(/^\[(.*)\]$/, '$1')
+        const family = net.isIP(literal)
+        if (family === 0) {
+            connect(options, callback)
+            return
+        }
+        admitNewConnection(literal, [{ address: literal, family }]).then(
+            () => connect(options, callback),
+            (error) => callback(error as Error, null)
+        )
+    }
 }
 
 const sharedSecureAgent = makeSecureDispatcher({ useProxy: false, allowH2: false })
@@ -750,7 +853,18 @@ export async function _fetch(
 
     const readBody = (): Promise<string> => {
         if (!bodyPromise) {
-            bodyPromise = readAndDestroyBody(result.body).finally(() => lifecycle?.onBodyDone())
+            const maxBytes = options.maxResponseBytes
+            const read =
+                maxBytes === undefined
+                    ? readAndDestroyBody(result.body)
+                    : readCappedBody(result.body, maxBytes, false).then(({ bytes, overLimit }) => {
+                          if (overLimit) {
+                              throw new ResponseTooLargeError(maxBytes)
+                          }
+                          const text = bytes.toString('utf8')
+                          return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+                      })
+            bodyPromise = read.finally(() => lifecycle?.onBodyDone())
         }
         return bodyPromise
     }
@@ -852,8 +966,18 @@ export type StreamedResponse = {
      * Reads at most `maxBytes`, then abandons the rest. `overLimit` says the response had more, and
      * `bytes` then contains the first `maxBytes`, so parsers with a bounded-prefix rule can use it.
      */
-    read: (maxBytes: number, retainPrefixOnOverflow?: boolean) => Promise<{ bytes: Buffer; overLimit: boolean }>
+    read: (
+        maxBytes: number,
+        retainPrefixOnOverflow?: boolean,
+        head?: BodyHeadCheck
+    ) => Promise<{ bytes: Buffer; overLimit: boolean; refused?: boolean }>
     discard: () => void
+}
+
+/** `accept` gets the first `bytes` of a body, or all of a shorter one. A body it refuses is abandoned and reads as empty. */
+export interface BodyHeadCheck {
+    bytes: number
+    accept: (head: Buffer) => boolean
 }
 
 function orderedHeaderLines(raw: unknown): Array<{ name: string; value: string }> {
@@ -893,11 +1017,15 @@ function flattenHeaderLines(lines: Array<{ name: string; value: string }>): Reco
 async function readCappedBody(
     body: Dispatcher.ResponseData['body'],
     maxBytes: number,
-    retainPrefixOnOverflow: boolean
-): Promise<{ bytes: Buffer; overLimit: boolean }> {
+    retainPrefixOnOverflow: boolean,
+    head?: BodyHeadCheck
+): Promise<{ bytes: Buffer; overLimit: boolean; refused?: boolean }> {
     const chunks: Buffer[] = []
     let total = 0
     let overLimit = false
+    let unchecked = head
+    const refuses = (check: BodyHeadCheck): boolean =>
+        !check.accept(Buffer.concat(chunks, total).subarray(0, check.bytes))
     try {
         for await (const chunk of body) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
@@ -916,9 +1044,18 @@ async function readCappedBody(
             }
             chunks.push(buffer)
             total += buffer.length
+            if (unchecked && total >= unchecked.bytes) {
+                if (refuses(unchecked)) {
+                    return { bytes: Buffer.alloc(0), overLimit: false, refused: true }
+                }
+                unchecked = undefined
+            }
         }
     } finally {
         destroyBody(body)
+    }
+    if (unchecked && !overLimit && refuses(unchecked)) {
+        return { bytes: Buffer.alloc(0), overLimit: false, refused: true }
     }
     return { bytes: Buffer.concat(chunks, total), overLimit }
 }
@@ -983,12 +1120,12 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         status: result.statusCode,
         headers,
         headerLines,
-        read: async (maxBytes: number, retainPrefixOnOverflow = true) => {
+        read: async (maxBytes: number, retainPrefixOnOverflow = true, head?: BodyHeadCheck) => {
             if (settled) {
                 return { bytes: Buffer.alloc(0), overLimit: false }
             }
             try {
-                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow)
+                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow, head)
             } finally {
                 settle()
             }

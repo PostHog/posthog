@@ -17,13 +17,15 @@ sys.path.insert(0, str(_ENGINE_DIR))
 import gates  # noqa: E402
 import policy  # noqa: E402
 
-from products.stamphog.backend.logic.engine_pregate import run_engine_pregate  # noqa: E402
+from products.stamphog.backend.logic.engine_pregate import run_engine_attest, run_engine_pregate  # noqa: E402
+from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths  # noqa: E402
 from products.stamphog.backend.temporal import activities  # noqa: E402
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
     PullRequestHeadMovedError,
     _clone_pr,
     _effective_policy_files,
     _prefetch_review_blobs,
+    _review_payload_archive,
     _review_payload_command,
 )
 from products.stamphog.backend.temporal.constants import (  # noqa: E402
@@ -126,6 +128,10 @@ def test_pregate_merges_the_repo_policy_onto_the_shipped_default(path: str, deni
         }
     )
     outcome = run_engine_pregate(_pregate_context(path), {STAMPHOG_POLICY_ENTRYPOINT: repo_policy}, environment={})
+    attestation = run_engine_attest(_pregate_context(path), {STAMPHOG_POLICY_ENTRYPOINT: repo_policy})
+    assert (attestation.attested, attestation.reason) == (
+        (True, "") if denied_category is None else (False, "gate_failed")
+    )
     if denied_category is None:
         assert not outcome.final
         assert outcome.not_final_reason == "no_failing_gate"
@@ -134,6 +140,42 @@ def test_pregate_merges_the_repo_policy_onto_the_shipped_default(path: str, deni
         assert outcome.final
         assert outcome.result["final_verdict"] == "REFUSED"
         assert denied_category in outcome.result["classification"]["deny_categories"]
+
+
+_ISSUER = "tools/proof/issuer.yml"
+_ISSUER_POLICY = f"attestations:\n  - name: proof\n    issuer: {_ISSUER}\n"
+
+
+@pytest.mark.parametrize(
+    "policy_text, expected",
+    [
+        pytest.param(_ISSUER_POLICY, (_ISSUER,), id="attestations"),
+        pytest.param(f"extend_attestations:\n  - issuer: {_ISSUER}\n  - issuer: {_ISSUER}\n", (_ISSUER,), id="extend"),
+        pytest.param("attestations:\n  - name: migration_risk\n", (), id="no-issuer"),
+        pytest.param(None, (), id="no-policy"),
+        pytest.param("attestations: [unclosed", (), id="malformed"),
+        pytest.param("attestations:\n  - issuer: ../outside.yml\n", (), id="escapes-the-tree"),
+        pytest.param("attestations:\n  - issuer: /etc/passwd\n", (), id="absolute"),
+        pytest.param("attestations:\n  - issuer: tools/proof/\n", (), id="a-directory"),
+        # The worker writes the manifest into the tree its engine subprocess imports modules from.
+        pytest.param("attestations:\n  - issuer: tools/proof/argparse.py\n", (), id="not-yaml"),
+        pytest.param("attestations:\n  - issuer: tools/pr-approval-agent/x.yml\n", (), id="beside-the-engine"),
+        pytest.param("attestations:\n  - issuer: tools/owners/owners_yaml/x.yml\n", (), id="beside-owners"),
+        # A URL decodes `%2e%2e` to `..`, which would read another repository's file.
+        pytest.param("attestations:\n  - issuer: '%2e%2e/%2e%2e/victim/contents/x.yml'\n", (), id="percent-escape"),
+    ],
+)
+def test_issuer_manifest_paths_names_only_plain_files(policy_text: str | None, expected: tuple[str, ...]) -> None:
+    assert issuer_manifest_paths(policy_text) == expected
+
+
+def test_an_issuer_manifest_rides_with_the_policy_that_names_it() -> None:
+    files = {STAMPHOG_POLICY_ENTRYPOINT: _ISSUER_POLICY, _ISSUER: "paths:\n  - tools/proof/\n", "other.yml": "x"}
+
+    assert _effective_policy_files("acme/widgets", files) == {
+        STAMPHOG_POLICY_ENTRYPOINT: _ISSUER_POLICY,
+        _ISSUER: "paths:\n  - tools/proof/\n",
+    }
 
 
 def test_repo_guidance_and_steering_pass_through() -> None:
@@ -149,13 +191,43 @@ def test_repo_guidance_and_steering_pass_through() -> None:
 def test_review_payload_command_wipes_optional_paths_from_pr_head() -> None:
     # steering.md is injected only when the repo's default branch has it — so the wipe must cover it
     # regardless, or a PR head could plant a steering.md the reviewer would trust as maintainer prose.
-    command = _review_payload_command()
+    command = _review_payload_command((_ISSUER,))
 
     wipe, _, extract = command.partition("tar -xzf")
     assert ".stamphog/steering.md" in wipe
     assert ".stamphog/policy.yml" in wipe
+    # A manifest the default branch lacks must not leave the PR head's copy for the engine to trust.
+    assert _ISSUER in wipe.partition("rm -f")[2]
     assert "rm -rf tools/pr-approval-agent tools/owners" in wipe
     assert extract
+
+
+@pytest.mark.parametrize("path", ["tools/pr-approval-agent/yaml.py", "tools/owners/owners_yaml/json.py"])
+def test_review_payload_refuses_a_repository_file_beside_the_engine_modules(path: str) -> None:
+    # The engine imports from its own directory first, so such a file would run as code.
+    with pytest.raises(RuntimeError, match="engine tree"):
+        _review_payload_archive({path: "import os"}, "{}")
+
+
+@pytest.mark.parametrize("tools_is_symlink", [False, True])
+def test_review_payload_lands_only_in_a_real_tools_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tools_is_symlink: bool
+) -> None:
+    checkout = tmp_path / "checkout"
+    planted_dir = checkout / "a" / "b" / "c"
+    planted_dir.mkdir(parents=True)
+    if tools_is_symlink:
+        (checkout / "tools").symlink_to("a/b/c")
+    payload = tmp_path / "payload.tar.gz"
+    payload.write_bytes(_review_payload_archive({}, "{}"))
+    monkeypatch.setattr(activities, "STAMPHOG_SANDBOX_REPO_DIR", str(checkout))
+    monkeypatch.setattr(activities, "STAMPHOG_SANDBOX_PAYLOAD_PATH", str(payload))
+
+    result = subprocess.run(["bash", "-c", _review_payload_command()], capture_output=True, text=True)
+
+    assert (result.returncode == 0) is not tools_is_symlink
+    assert not (planted_dir / "pr-approval-agent").exists()
+    assert (checkout / "tools" / "pr-approval-agent" / "review_local.py").is_file() is not tools_is_symlink
 
 
 def test_clone_and_prefetch_carry_the_credential_on_every_github_fetch() -> None:

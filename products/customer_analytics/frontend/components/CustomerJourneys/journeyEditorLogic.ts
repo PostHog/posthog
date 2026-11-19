@@ -4,8 +4,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventNameToEventsNode'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import { EventsNode, FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 import { insightsApi } from '~/scenes/insights/utils/api'
 import { FunnelPathType } from '~/types'
 

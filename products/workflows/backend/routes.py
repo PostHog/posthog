@@ -6,12 +6,16 @@ from posthog.ingress.views import build_webhook_view
 from posthog.utils import opt_slash_path
 
 from products.workflows.backend.presentation.views import (
+    broadcast_audience_suggestions,
     email_drafts,
     hog_flow,
     hog_flow_template,
     people_imports,
+    push_token_imports,
     workflow_classifications,
     workflow_data_suggestions,
+    workflow_email_sandbox,
+    workflow_imports,
     workflow_message_opt_outs,
     workflow_scout_runs,
     workflow_sending_rules,
@@ -43,9 +47,21 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
+        r"broadcast_audience_suggestions",
+        broadcast_audience_suggestions.BroadcastAudienceSuggestionsViewSet,
+        "project_broadcast_audience_suggestions",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"workflow_sending_rules",
         workflow_sending_rules.WorkflowSendingRulesViewSet,
         "project_workflow_sending_rules",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_email_sandbox",
+        workflow_email_sandbox.WorkflowEmailSandboxViewSet,
+        "project_workflow_email_sandbox",
         ["team_id"],
     )
     routers.projects.register(
@@ -70,9 +86,21 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
+        r"workflow_imports",
+        workflow_imports.WorkflowImportViewSet,
+        "project_workflow_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"workflow_people_imports",
         people_imports.WorkflowPeopleImportViewSet,
         "project_workflow_people_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"push_token_imports",
+        push_token_imports.PushTokenImportViewSet,
+        "project_push_token_imports",
         ["team_id"],
     )
     routers.projects.register(

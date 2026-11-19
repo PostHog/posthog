@@ -1,14 +1,18 @@
 import io
 import os
+import re
 import csv
 import gzip
+import json
 import tempfile
-from datetime import UTC, datetime, timedelta
+import dataclasses
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import IO, Any, Literal, cast
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.test import override_settings
 
@@ -16,22 +20,31 @@ import boto3
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
+from botocore.awsrequest import AWSResponse
+from botocore.compat import HTTPHeaders
+from botocore.exceptions import ClientError
+from botocore.response import StreamingBody
 from botocore.stub import Stubber
-from deltalake import DeltaTable, WriterProperties, write_deltalake
+from deltalake import DeltaTable, write_deltalake
+from deltalake.exceptions import DeltaError, TableNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
+from urllib3.response import HTTPResponse
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
     delta,
+    filesystem,
     formats,
     source_base,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
     DiscoveryOptions,
+    FileFormat,
     ObjectStoreConfig,
     ObjectStoreProvider,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import CsvColumnType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
     ObjectStorageDeltaCursor,
     iter_delta_tables,
@@ -39,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
+    explain_no_tables,
     group_tables,
     resolve_table_files,
 )
@@ -47,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     BLOCKED_LOCATION_ERROR,
     FILE_PARSE_ERROR,
     INVALID_CONFIG_ERROR,
+    NO_IMPORTABLE_FILES_ERROR,
     NO_SUCH_BUCKET_ERROR,
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -58,6 +73,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStore,
     S3ObjectStore,
     StoredObject,
+    lookup_s3_bucket_region,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.formats import (
     iter_csv_tables,
@@ -69,14 +85,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     listing_digest,
     plan_mirror,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    parse_self_managed_url,
+    table_definition_for,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     JSONL_CHUNK_ROWS,
+    MAX_TABLE_OBJECTS,
     MAX_TABLES,
     PARQUET_BATCH_ROWS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     iter_table,
     validate_store_location,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
+    STORE_BUILDERS,
+    FakeObjectStorageConfig,
+    FakeObjectStorageSource,
+    PrefixScopedS3Client,
+    bucket_root_store,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
@@ -86,6 +114,22 @@ LOGGER = structlog.get_logger()
 
 def stored(path: str) -> StoredObject:
     return StoredObject(path=path, size=10, modified_at=MODIFIED_AT)
+
+
+class _FsspecLikeFile:
+    """Like an fsspec file, `readline` takes no size."""
+
+    def __init__(self, content: bytes) -> None:
+        self._buffer = io.BytesIO(content)
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        return self._buffer.read(size)
+
+    def readline(self) -> bytes:
+        return self._buffer.readline()
 
 
 def local_store(root: Path) -> ObjectStore:
@@ -407,6 +451,47 @@ class TestTableLimit:
         assert len(group_tables(objects, DiscoveryOptions(), root_name="root", max_tables=None)) == MAX_TABLES + 1
 
 
+class TestExplainNoTables:
+    @parameterized.expand(
+        [
+            ("empty_listing", [], "infer", None, "is empty or doesn't exist"),
+            ("only_folder_markers", ["exports/", "exports/2024/"], "infer", None, "is empty or doesn't exist"),
+            ("delta_without_a_log", ["exports/a.parquet"], "delta", None, "_delta_log"),
+            (
+                "delta_table_outside_the_glob",
+                ["sales/_delta_log/0.json", "sales/p.parquet"],
+                "delta",
+                "*.parquet",
+                "matches the wildcards",
+            ),
+            ("glob_matches_nothing", ["orders/a.csv"], "infer", "orders/*.parquet", "matches the wildcards"),
+            ("unknown_extensions", ["notes.md", "data/rows.txt"], "infer", None, "ends in .csv, .tsv"),
+            ("glob_matches_unknown_extensions", ["orders/a.txt", "x.csv"], "infer", "orders/*", "ends in .csv, .tsv"),
+            ("only_hidden_files", ["_SUCCESS", ".keep"], "infer", None, "though PostHog can read the bucket"),
+        ]
+    )
+    def test_names_why_discovery_found_no_table(
+        self, _name: str, paths: list[str], file_format: str, pattern: str | None, expected: str
+    ) -> None:
+        objects = [stored(path) for path in paths]
+        options = DiscoveryOptions(file_format=cast(Any, file_format))
+        assert group_tables(objects, options, root_name="root", pattern=pattern) == []
+
+        message = explain_no_tables(objects, options, pattern)
+
+        assert message.startswith(NO_IMPORTABLE_FILES_ERROR)
+        assert expected in message
+
+    def test_the_wizard_shows_the_reason(self) -> None:
+        store = MagicMock()
+        store.list_objects.return_value = [stored("exports/notes.md")]
+
+        valid, message = _source_with_store(store).validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message is not None and "ends in .csv" in message
+
+
 class TestResolveTableFiles:
     def test_a_folder_table_leaves_out_subfolders_that_are_tables_of_their_own(self, tmp_path: Path) -> None:
         for path in ("events/a.csv", "events/year=2024/b.csv", "events/clicks/c.csv"):
@@ -571,6 +656,66 @@ class TestJsonl:
             {"value": "five"},
         ]
 
+    @parameterized.expand(
+        [
+            (
+                "date",
+                CsvColumnType(name="d", kind="date"),
+                [{"d": "2024-03-01"}, {"d": None}, {"d": "2024-03-02"}],
+                [date(2024, 3, 1), None, date(2024, 3, 2)],
+                0,
+            ),
+            (
+                "datetime_in_utc",
+                CsvColumnType(name="d", kind="datetime"),
+                [{"d": "2024-03-01 10:30:00"}, {"d": "2024-03-01T10:30:00Z"}, {"d": None}],
+                [datetime(2024, 3, 1, 10, 30, tzinfo=UTC)] * 2 + [None],
+                0,
+            ),
+            (
+                "datetime_in_a_time_zone",
+                CsvColumnType(name="d", kind="datetime", timezone="America/New_York"),
+                [{"d": "2024-07-01 10:30:00"}],
+                [datetime(2024, 7, 1, 14, 30, tzinfo=UTC)],
+                0,
+            ),
+            (
+                "bad_values_become_null",
+                CsvColumnType(name="d", kind="date"),
+                [{"d": "2024-03-01"}, {"d": "not a date"}, {"d": "2024-13-45"}],
+                [date(2024, 3, 1), None, None],
+                2,
+            ),
+            (
+                "column_with_only_nulls",
+                CsvColumnType(name="d", kind="date"),
+                [{"d": None}, {"d": None}],
+                [None, None],
+                0,
+            ),
+        ]
+    )
+    def test_stored_date_types_cast_json_text(
+        self, _name: str, column_type: CsvColumnType, rows: list[dict], expected: list, nulled: int
+    ) -> None:
+        content = b"\n".join(json.dumps(row).encode() for row in rows) + b"\n"
+        logger = MagicMock()
+
+        [table] = iter_jsonl_tables(io.BytesIO(content), "x.jsonl", column_types=(column_type,), logger=logger)
+
+        assert table.schema.field("d").type == column_type.arrow_type
+        assert table.column("d").to_pylist() == expected
+        assert logger.warning.called is bool(nulled)
+
+    def test_columns_without_a_stored_type_stay_as_they_are(self) -> None:
+        content = b'{"d": "2024-03-01", "n": 1}\n'
+
+        [table] = iter_jsonl_tables(
+            io.BytesIO(content), "x.jsonl", column_types=(CsvColumnType(name="n", kind="integer"),)
+        )
+
+        assert table.to_pylist() == [{"d": "2024-03-01", "n": 1}]
+
     def test_a_too_deeply_nested_record_is_a_parse_error(self) -> None:
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
             list(iter_jsonl_tables(io.BytesIO(b"[" * 100_000 + b"]" * 100_000 + b"\n"), "deep.jsonl"))
@@ -626,18 +771,37 @@ class TestReadTable:
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
             read_rows(store, table)
 
-    @parameterized.expand([("plain", "orders.parquet", False), ("gzipped", "orders.parquet.gz", True)])
-    def test_a_parquet_file_with_one_brotli_column_is_a_parse_error(self, _name: str, path: str, gzipped: bool) -> None:
-        buffer = io.BytesIO()
-        pq.write_table(
-            pa.table({"id": ["1", "2"], "note": ["a", "b"]}),
-            buffer,
-            compression={"id": "snappy", "note": "brotli"},
-        )
-        content = gzip.compress(buffer.getvalue()) if gzipped else buffer.getvalue()
+    def test_a_row_group_with_fewer_column_chunks_than_the_schema_is_a_parse_error(self) -> None:
+        content = (Path(__file__).parent / "fixtures" / "row_group_missing_a_column_chunk.parquet").read_bytes()
 
-        with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '{path}' as Parquet: Brotli"):
-            list(iter_file_tables(io.BytesIO(content), stored(path), "parquet", CsvOptions()))
+        with pytest.raises(
+            ObjectStorageError,
+            match=f"{FILE_PARSE_ERROR} 'orders.parquet' as Parquet: The file only has 1 columns, requested metadata for column: 1",
+        ):
+            list(iter_file_tables(io.BytesIO(content), stored("orders.parquet"), "parquet", CsvOptions()))
+
+    def test_a_corrupt_parquet_block_is_a_parse_error(self) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(pa.table({"id": ["1", "2"]}), buffer)
+        buffer.seek(0)
+        # pyarrow's own decoder raises a bare OSError (not a subclass) for a page that fails its
+        # internal validation, e.g. a corrupt block. Real file content can't be made to fail that
+        # validation deterministically, so the decoder itself is the mocked boundary.
+        with (
+            patch.object(pq.ParquetFile, "iter_batches", side_effect=OSError("cannot have zero value per block")),
+            pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} 'orders.parquet' as Parquet"),
+        ):
+            list(iter_file_tables(buffer, stored("orders.parquet"), "parquet", CsvOptions()))
+
+    def test_a_transient_read_error_while_streaming_parquet_batches_is_not_a_parse_error(self) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(pa.table({"id": ["1", "2"]}), buffer)
+        buffer.seek(0)
+        with (
+            patch.object(pq.ParquetFile, "iter_batches", side_effect=ConnectionError("connection reset")),
+            pytest.raises(ConnectionError),
+        ):
+            list(iter_file_tables(buffer, stored("orders.parquet"), "parquet", CsvOptions()))
 
     def test_a_parquet_file_with_no_rows_still_yields_its_schema(self, tmp_path: Path) -> None:
         pq.write_table(pa.table({"id": pa.array([], pa.string())}), tmp_path / "empty.parquet")
@@ -681,17 +845,6 @@ class TestReadTable:
 
         assert [(table.column_names, table.num_rows) for table in tables] == [(["id"], 0)]
 
-    @parameterized.expand([("whole_snapshot", False), ("by_file", True)])
-    def test_a_delta_table_with_brotli_compression_is_a_parse_error(self, _name: str, with_file_names: bool) -> None:
-        with tempfile.TemporaryDirectory() as folder:
-            path = str(Path(folder) / "sales")
-            write_deltalake(path, pa.table({"id": [1, 2]}), writer_properties=WriterProperties(compression="BROTLI"))
-
-            read = plan_delta_read(path, {}, "sales")
-
-            with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '.+' in the Delta table 'sales': Brotli"):
-                list(read.iter_tables(with_file_names=with_file_names))
-
 
 def _append(path: str) -> None:
     write_deltalake(path, pa.table({"id": [3], "day": ["b"]}), mode="append")
@@ -734,6 +887,59 @@ def _files_and_ids(path: str, version: int | None = None) -> list[tuple[str, int
 
 
 class TestDeltaCursor:
+    @parameterized.expand(
+        [
+            ("recovers", TableNotFoundError, 2, (5.0, 10.0), None, None),
+            (
+                "stays_missing",
+                TableNotFoundError,
+                4,
+                (5.0, 10.0, 20.0),
+                ObjectStorageError,
+                "no longer at its folder",
+            ),
+            ("other_delta_error", DeltaError, 1, (), DeltaError, "other failure"),
+        ]
+    )
+    def test_open_retries_only_when_the_delta_table_is_missing(
+        self,
+        _name: str,
+        error_type: type[Exception],
+        failed_opens: int,
+        expected_delays: tuple[float, ...],
+        expected_error: type[Exception] | None,
+        expected_message: str | None,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1]}))
+            real_table = DeltaTable(path)
+            errors = [
+                error_type("other failure" if error_type is DeltaError else "missing") for _ in range(failed_opens)
+            ]
+            logger = MagicMock()
+
+            with (
+                patch.object(delta, "DeltaTable", side_effect=[*errors, real_table]) as open_table,
+                patch.object(delta.time, "sleep") as sleep,
+            ):
+                if expected_error is None:
+                    read = plan_delta_read(path, {}, "sales", logger=logger)
+                    assert [row for batch in read.iter_tables() for row in batch.to_pylist()] == [{"id": 1}]
+                else:
+                    with pytest.raises(expected_error, match=expected_message):
+                        plan_delta_read(path, {}, "sales", logger=logger)
+
+            assert open_table.call_count == failed_opens + (expected_error is None)
+            assert sleep.call_args_list == [call(delay) for delay in expected_delays]
+            retry_logs = [
+                entry for entry in logger.info.call_args_list if entry.args[0] == "Delta table not found, retrying"
+            ]
+            assert retry_logs == [
+                call("Delta table not found, retrying", table="sales", attempt=attempt)
+                for attempt in range(1, len(expected_delays) + 1)
+            ]
+
     @parameterized.expand(
         [
             ("no_cursor_reads_the_snapshot", None, [_append], False, False, [1, 2, 3], 1),
@@ -970,6 +1176,21 @@ class TestFileSelection:
         assert len(tables) == 2
         assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
 
+    @parameterized.expand(
+        [
+            ("csv", "orders.csv", b"id,name\n1,a\n2,b\n", "csv"),
+            ("jsonl", "orders.jsonl", b'{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n', "jsonl"),
+        ]
+    )
+    def test_reads_a_stream_whose_readline_takes_no_size(
+        self, _name: str, path: str, content: bytes, file_format: Literal["csv", "jsonl"]
+    ) -> None:
+        stream = cast(IO[bytes], _FsspecLikeFile(content))
+
+        tables = list(iter_file_tables(stream, stored(path), file_format, CsvOptions()))
+
+        assert [str(value) for table in tables for value in table["id"].to_pylist()] == ["1", "2"]
+
     def test_row_numbers_continue_across_the_batches_of_a_gzipped_parquet_file(self) -> None:
         rows = PARQUET_BATCH_ROWS + 3
         buffer = io.BytesIO()
@@ -990,6 +1211,17 @@ class TestLocationAndErrors:
             ("region_with_a_host", {"region": "us-east-1.evil.com"}, INVALID_CONFIG_ERROR),
             ("missing_secret", {"secret_access_key": " "}, INVALID_CONFIG_ERROR),
             ("parent_folder", {"prefix": "a/../b"}, INVALID_CONFIG_ERROR),
+            ("jurisdiction_outside_r2", {"jurisdiction": "eu"}, INVALID_CONFIG_ERROR),
+            (
+                "r2_jurisdiction_with_a_host",
+                {
+                    "provider": ObjectStoreProvider.R2,
+                    "region": "auto",
+                    "account_id": "0123456789abcdef0123456789abcdef",
+                    "jurisdiction": "eu.evil.com",
+                },
+                INVALID_CONFIG_ERROR,
+            ),
         ]
     )
     def test_config_rejects_values_that_could_retarget_the_request(
@@ -1028,6 +1260,11 @@ class TestLocationAndErrors:
                 "wrong_region",
                 OSError("An error occurred (PermanentRedirect) when calling the ListObjectsV2 operation"),
                 WRONG_REGION_ERROR,
+            ),
+            (
+                "malformed_credential_length",
+                OSError(22, "Credential access key has length 145, should be 32"),
+                INVALID_CONFIG_ERROR,
             ),
         ]
     )
@@ -1182,3 +1419,724 @@ class TestS3Listing:
 
             with pytest.raises(PermissionError):
                 _s3_store(client).list_objects("", 10)
+
+
+def _parquet_bytes(table: pa.Table) -> bytes:
+    sink = io.BytesIO()
+    pq.write_table(table, sink)
+    return sink.getvalue()
+
+
+class TestS3Open:
+    @staticmethod
+    def _store(client: Any) -> S3ObjectStore:
+        fs = filesystem.build_s3_filesystem(
+            ObjectStoreConfig(
+                provider=ObjectStoreProvider.GCS,
+                bucket="customer-data",
+                region="auto",
+                access_key_id="AKIAEXAMPLE",
+                secret_access_key="secret",
+            )
+        )
+
+        # Cloud Storage answers a HEAD for an object stored with `Content-Encoding: gzip` without its size.
+        async def head_without_size(method: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            assert method == "head_object"
+            return {"ETag": '"etag"', "LastModified": MODIFIED_AT}
+
+        fs._call_s3 = AsyncMock(side_effect=head_without_size)
+        return S3ObjectStore(
+            fs=fs,
+            root="customer-data/exports",
+            delta_uri_prefix="s3://",
+            delta_storage_options={},
+            client=client,
+            bucket="customer-data",
+            prefix="exports",
+        )
+
+    @staticmethod
+    def _client() -> Any:
+        return filesystem.build_s3_client(
+            ObjectStoreConfig(
+                provider=ObjectStoreProvider.GCS,
+                bucket="customer-data",
+                region="auto",
+                access_key_id="AKIAEXAMPLE",
+                secret_access_key="secret",
+            )
+        )
+
+    @parameterized.expand(
+        [
+            ("csv", "orders.csv", "csv", b"id,name\n1,a\n2,b\n"),
+            ("csv_gzip", "orders.csv.gz", "csv", b"id,name\n1,a\n2,b\n"),
+            ("jsonl", "orders.jsonl", "jsonl", b'{"id": 1, "name": "a"}\n{"id": 2, "name": "b"}\n'),
+            ("jsonl_gzip", "orders.jsonl.gz", "jsonl", b'{"id": 1, "name": "a"}\n{"id": 2, "name": "b"}\n'),
+            ("parquet", "orders.parquet", "parquet", _parquet_bytes(pa.table({"id": [1, 2], "name": ["a", "b"]}))),
+            (
+                "parquet_gzip",
+                "orders.parquet.gz",
+                "parquet",
+                _parquet_bytes(pa.table({"id": [1, 2], "name": ["a", "b"]})),
+            ),
+        ]
+    )
+    def test_an_object_without_a_size_is_read_with_one_plain_get(
+        self, _name: str, path: str, file_format: FileFormat, content: bytes
+    ) -> None:
+        client = self._client()
+        stored = StoredObject(path=path, size=len(content) // 2, modified_at=MODIFIED_AT)
+
+        def send(request: Any) -> AWSResponse:
+            assert request.method == "GET"
+            assert request.url.endswith(f"/exports/{path}")
+            assert "Range" not in request.headers
+            payload = gzip.compress(content) if request.headers.get("Accept-Encoding") in ("gzip", b"gzip") else content
+            headers = HTTPHeaders()
+            headers["content-length"] = str(len(payload))
+            return AWSResponse(
+                request.url,
+                200,
+                headers,
+                HTTPResponse(body=io.BytesIO(payload), preload_content=False),
+            )
+
+        with patch.object(client._endpoint.http_session, "send", side_effect=send):
+            with self._store(client).open(path) as stream:
+                tables = list(iter_file_tables(stream, stored, file_format, CsvOptions()))
+
+        rows = pa.concat_tables(tables).select(["id", "name"]).to_pylist()
+        assert [(int(row["id"]), row["name"]) for row in rows] == [(1, "a"), (2, "b")]
+
+    def test_a_sized_object_uses_the_filesystem(self, tmp_path: Path) -> None:
+        content = b"id,name\n1,a\n"
+        (tmp_path / "orders.csv").write_bytes(content)
+        store = dataclasses.replace(_s3_store(None), root=str(tmp_path))
+
+        with store.open("orders.csv") as stream:
+            assert stream.read() == content
+
+    def test_an_object_without_a_size_past_the_cap_fails_with_a_parse_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(filesystem, "MAX_UNSIZED_OBJECT_BYTES", 4)
+        client = self._client()
+        with Stubber(client) as stubber:
+            stubber.add_response(
+                "get_object",
+                {"Body": StreamingBody(io.BytesIO(b"id\n1\n2\n"), 7)},
+                {"Bucket": "customer-data", "Key": "exports/orders.csv"},
+            )
+
+            with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
+                self._store(client).open("orders.csv")
+
+    def test_a_refused_download_becomes_a_permission_error(self) -> None:
+        client = self._client()
+        with Stubber(client) as stubber:
+            stubber.add_client_error("get_object", service_error_code="AccessDenied", http_status_code=403)
+
+            with pytest.raises(PermissionError):
+                self._store(client).open("orders.csv")
+
+
+class TestS3BucketRegion:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self) -> Any:
+        lookup_s3_bucket_region.cache_clear()
+        yield
+        lookup_s3_bucket_region.cache_clear()
+
+    def _stubbed_client(self, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Stubber]:
+        client = boto3.client("s3", region_name="us-east-1")
+        monkeypatch.setattr(filesystem.boto3, "client", lambda *_args, **_kwargs: client)
+        return client, Stubber(client)
+
+    def test_a_readable_bucket_names_its_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _, stubber = self._stubbed_client(monkeypatch)
+        stubber.add_response(
+            "head_bucket",
+            {"ResponseMetadata": {"HTTPStatusCode": 200, "HTTPHeaders": {"x-amz-bucket-region": "eu-central-1"}}},
+            {"Bucket": "customer-data"},
+        )
+
+        with stubber:
+            assert lookup_s3_bucket_region("customer-data") == "eu-central-1"
+
+    @pytest.mark.parametrize(
+        "status, headers, expected",
+        [
+            # A private bucket refuses the anonymous request but still names its region.
+            (403, {"x-amz-bucket-region": "eu-central-1"}, "eu-central-1"),
+            (301, {"x-amz-bucket-region": "ap-southeast-2"}, "ap-southeast-2"),
+        ],
+    )
+    def test_an_error_answer_still_names_the_region(
+        self, monkeypatch: pytest.MonkeyPatch, status: int, headers: dict[str, str], expected: str
+    ) -> None:
+        _, stubber = self._stubbed_client(monkeypatch)
+        stubber.add_client_error(
+            "head_bucket",
+            service_error_code=str(status),
+            http_status_code=status,
+            response_meta={"HTTPHeaders": headers},
+        )
+
+        with stubber:
+            assert lookup_s3_bucket_region("customer-data") == expected
+
+    @pytest.mark.parametrize(
+        "status, error, match",
+        [
+            (404, ObjectStorageError, NO_SUCH_BUCKET_ERROR),
+            # An outage stays a retryable error, not a missing bucket.
+            (500, ClientError, "500"),
+        ],
+    )
+    def test_an_answer_without_a_region(
+        self, monkeypatch: pytest.MonkeyPatch, status: int, error: type[Exception], match: str
+    ) -> None:
+        _, stubber = self._stubbed_client(monkeypatch)
+        stubber.add_client_error("head_bucket", service_error_code=str(status), http_status_code=status)
+
+        with stubber, pytest.raises(error, match=match):
+            lookup_s3_bucket_region("customer-data")
+
+    def test_an_invalid_bucket_sends_no_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def refuse(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("no client should be built")
+
+        monkeypatch.setattr(filesystem.boto3, "client", refuse)
+
+        with pytest.raises(ObjectStorageError, match=INVALID_CONFIG_ERROR):
+            lookup_s3_bucket_region("Not_A_Bucket")
+
+
+def _source_with_store(store: ObjectStore) -> FakeObjectStorageSource:
+    source = FakeObjectStorageSource()
+    source.open_store = MagicMock(return_value=store)  # type: ignore[method-assign]
+    return source
+
+
+def _forbidden_os_error() -> OSError:
+    error = OSError("Forbidden")
+    error.__cause__ = ClientError(
+        cast(Any, {"Error": {"Code": "403", "Message": "Forbidden"}, "ResponseMetadata": {"HTTPStatusCode": 403}}),
+        "ListObjectsV2",
+    )
+    return error
+
+
+class TestAccessDeniedMessage:
+    GENERIC_WIZARD_MESSAGE = (
+        f"{ACCESS_DENIED_ERROR} 'example-bucket'. Check the access key and secret, and that the key can list "
+        "and read objects in this bucket."
+    )
+    GENERIC_SYNC_MESSAGE = (
+        "The storage provider rejected these credentials. Check the access key and secret, and that "
+        "the key can list and read the bucket, then reconnect the source."
+    )
+    PROVIDER_MESSAGE = "This provider denied access. Grant the role on the bucket, then reconnect."
+
+    @pytest.mark.parametrize(
+        "override, wizard_message, sync_message",
+        [
+            pytest.param(None, GENERIC_WIZARD_MESSAGE, GENERIC_SYNC_MESSAGE, id="default"),
+            pytest.param(PROVIDER_MESSAGE, PROVIDER_MESSAGE, PROVIDER_MESSAGE, id="provider_override"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "denial",
+        [
+            pytest.param(PermissionError("Access Denied"), id="permission_error"),
+            pytest.param(_forbidden_os_error(), id="bare_403"),
+        ],
+    )
+    def test_a_provider_can_replace_the_access_denied_text(
+        self,
+        denial: Exception,
+        override: str | None,
+        wizard_message: str,
+        sync_message: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = denial
+        source = _source_with_store(store)
+        monkeypatch.setattr(FakeObjectStorageSource, "access_denied_message", override)
+
+        valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message == wizard_message
+        assert source.get_non_retryable_errors()[ACCESS_DENIED_ERROR] == sync_message
+
+    def test_other_errors_keep_their_text_when_a_provider_overrides_the_access_denied_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = FileNotFoundError("The specified bucket does not exist")
+        source = _source_with_store(store)
+        monkeypatch.setattr(FakeObjectStorageSource, "access_denied_message", self.PROVIDER_MESSAGE)
+
+        valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message is not None and message.startswith(NO_SUCH_BUCKET_ERROR)
+
+    def test_a_sync_also_sees_a_bare_forbidden_error(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = _forbidden_os_error()
+        source = _source_with_store(store)
+
+        with pytest.raises(ObjectStorageError, match=ACCESS_DENIED_ERROR):
+            source.get_schemas(BUCKET_ROOT_CONFIG, 1)
+
+
+BUCKET_ROOT_CONFIG = FakeObjectStorageConfig(
+    values={
+        "url_pattern": "https://s3.us-east-1.amazonaws.com/example-bucket/",
+        "access_key_id": "AKIAEXAMPLE",
+        "secret_access_key": "c2VjcmV0",
+    }
+)
+ORDERS_KEYS = ["tables/orders/2024-01.csv", "tables/orders/2024-02.csv", "tables/other/x.csv"]
+MIGRATED_ORDERS = table_definition_for(
+    "orders",
+    parse_self_managed_url("https://example-bucket.s3.us-east-1.amazonaws.com/tables/orders/*.csv"),
+    "CSVWithNames",
+    {},
+    None,
+)
+DISCOVERED_ORDERS = TableDefinition(
+    name="orders",
+    kind="files",
+    path="tables/orders",
+    scope="folder",
+    file_format="csv",
+    csv=CsvOptions(),
+    pattern=None,
+    source_format="infer",
+)
+
+
+class TestDescribePinnedSchema:
+    @parameterized.expand([("migrated_glob", MIGRATED_ORDERS), ("folder", DISCOVERED_ORDERS)])
+    def test_a_key_scoped_to_the_table_prefix_reads_the_table_without_listing_the_bucket_root(
+        self, _name: str, table: TableDefinition
+    ) -> None:
+        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix="tables/orders/")
+        source = _source_with_store(bucket_root_store(client))
+
+        schema = source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "orders", table.schema_metadata())
+
+        assert schema is not None
+        assert (schema.name, schema.schema_metadata) == ("orders", table.schema_metadata())
+        assert client.listed_prefixes == ["tables/orders/"]
+        # Discovery lists the bucket root, which the same key can't do.
+        valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
+        assert not valid and message is not None and message.startswith(ACCESS_DENIED_ERROR)
+
+    @parameterized.expand(
+        [
+            ("denied", ORDERS_KEYS, "tables/other/", f"{ACCESS_DENIED_ERROR} 'example-bucket/tables/orders'"),
+            ("no_files", ["tables/other/x.csv"], "tables/", f"{NO_TABLE_FILES_ERROR} 'orders'"),
+        ]
+    )
+    def test_a_table_the_key_can_not_read_fails_with_the_sync_error(
+        self, _name: str, keys: list[str], allowed_prefix: str, expected_start: str
+    ) -> None:
+        source = _source_with_store(bucket_root_store(PrefixScopedS3Client(keys, allowed_prefix)))
+
+        with pytest.raises(ObjectStorageError) as error:
+            source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "orders", MIGRATED_ORDERS.schema_metadata())
+
+        assert str(error.value).startswith(expected_start)
+
+    @parameterized.expand([("empty", {}), ("unknown_kind", {"kind": "iceberg", "path": "x"})])
+    def test_metadata_without_a_table_definition_is_not_described(self, _name: str, metadata: dict) -> None:
+        source = _source_with_store(MagicMock())
+
+        assert source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "orders", metadata) is None
+        source.open_store.assert_not_called()  # type: ignore[attr-defined]
+
+    def test_a_delta_table_is_described_from_its_log(self, tmp_path: Path) -> None:
+        write_deltalake(str(tmp_path / "tables" / "events"), pa.table({"id": [1]}))
+        metadata: dict[str, Any] = {
+            "kind": "delta",
+            "path": "tables/events",
+            "format": "delta",
+            "pattern": None,
+            "csv": {},
+        }
+        source = _source_with_store(local_store(tmp_path))
+
+        schema = source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "events", metadata)
+
+        assert schema is not None
+        assert [field["field"] for field in schema.incremental_fields] == ["_delta_version"]
+
+    @pytest.mark.parametrize(
+        "raised, error_prefix",
+        [
+            pytest.param(None, NO_TABLE_FILES_ERROR, id="missing"),
+            pytest.param(OSError("Generic S3 error: 403 Forbidden"), ACCESS_DENIED_ERROR, id="denied"),
+        ],
+    )
+    def test_an_unreadable_delta_log_fails_with_the_sync_error(
+        self, raised: Exception | None, error_prefix: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if raised is not None:
+            monkeypatch.setattr(delta, "DeltaTable", MagicMock(side_effect=raised))
+        metadata: dict[str, Any] = {"kind": "delta", "path": "events", "format": "delta", "pattern": None, "csv": {}}
+        source = _source_with_store(local_store(tmp_path))
+
+        with pytest.raises(ObjectStorageError, match=f"^{error_prefix}"):
+            source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "events", metadata)
+
+
+EXPORTS_ROOT_CONFIG = FakeObjectStorageConfig(
+    values={**BUCKET_ROOT_CONFIG.values, "url_pattern": "https://s3.us-east-1.amazonaws.com/example-bucket/exports/"}
+)
+
+
+def _write_files(root: Path, paths: list[str]) -> None:
+    for path in paths:
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text("id\n1\n")
+
+
+class TestDefineAddedTable:
+    @pytest.mark.parametrize(
+        "_name, location, file_format, paths, expected",
+        [
+            (
+                "folder",
+                "events/",
+                "infer",
+                ["events/a.csv", "events/2026/b.csv", "events-archive/c.csv", "other/d.csv"],
+                ("files", "all", "events", None, "csv", ["events/2026/b.csv", "events/a.csv"]),
+            ),
+            (
+                "single_file",
+                "/other/d.csv",
+                "infer",
+                ["other/d.csv", "other/e.csv"],
+                ("files", "all", "other/d.csv", None, "csv", ["other/d.csv"]),
+            ),
+            (
+                "glob",
+                "events/2026/*.parquet",
+                "infer",
+                ["events/2026/a.parquet", "events/2026/b.csv", "events/2026/x/c.parquet", "events/a.parquet"],
+                ("files", "glob", "events/2026", "events/2026/*.parquet", "infer", ["events/2026/a.parquet"]),
+            ),
+            (
+                "glob_ending_at_a_folder",
+                "events/*/",
+                "infer",
+                ["events/2025/a.csv", "events/2026/x/b.csv", "events/c.csv"],
+                ("files", "glob", "events", "events/*/**", "infer", ["events/2025/a.csv", "events/2026/x/b.csv"]),
+            ),
+            (
+                "mixed_formats",
+                "events",
+                "infer",
+                ["events/a.csv", "events/b.parquet", "events/notes.md"],
+                ("files", "all", "events", None, "infer", ["events/a.csv", "events/b.parquet"]),
+            ),
+            (
+                "chosen_format_reads_every_file",
+                "events/",
+                "jsonl",
+                ["events/a.txt", "events/b.log"],
+                ("files", "all", "events", None, "jsonl", ["events/a.txt", "events/b.log"]),
+            ),
+            (
+                "full_url_into_the_source_folder",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/exports/events/",
+                "infer",
+                ["events/a.csv", "other/d.csv"],
+                ("files", "all", "events", None, "csv", ["events/a.csv"]),
+            ),
+            (
+                "full_url_with_another_region_for_the_same_bucket",
+                "https://example-bucket.s3.eu-west-1.amazonaws.com/exports/events/*.csv",
+                "infer",
+                ["events/a.csv", "events/b.json"],
+                ("files", "glob", "events", "events/*.csv", "infer", ["events/a.csv"]),
+            ),
+            (
+                "empty_path_reads_the_whole_folder",
+                "",
+                "infer",
+                ["a.csv", "events/b.csv"],
+                ("files", "all", "", None, "csv", ["a.csv", "events/b.csv"]),
+            ),
+        ],
+    )
+    def test_defines_one_table_that_the_sync_finds_again(
+        self,
+        _name: str,
+        location: str,
+        file_format: str,
+        paths: list[str],
+        expected: tuple[str, str | None, str, str | None, str, list[str]],
+        tmp_path: Path,
+    ) -> None:
+        _write_files(tmp_path, paths)
+        store = local_store(tmp_path)
+
+        table = _source_with_store(store).define_added_table(
+            EXPORTS_ROOT_CONFIG, "My_Events", location, cast(Any, file_format), allow_double_quotes=False
+        )
+
+        assert (
+            table.kind,
+            table.scope,
+            table.path,
+            table.pattern,
+            table.file_format,
+            [f.path for f in table.files],
+        ) == expected
+        assert table.name == "My_Events"
+        assert table.csv.allow_double_quotes is False
+        rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
+        assert rebuilt is not None
+        resolved = resolve_table_files(store, rebuilt)
+        assert (resolved.name, [f.path for f in resolved.files]) == ("My_Events", expected[5])
+
+    @pytest.mark.parametrize(
+        "_name, location, file_format", [("inferred", "events", "infer"), ("chosen", "events/", "delta")]
+    )
+    def test_a_delta_folder_is_a_delta_table(self, _name: str, location: str, file_format: str, tmp_path: Path) -> None:
+        write_deltalake(str(tmp_path / "events"), pa.table({"id": [1]}))
+
+        table = _source_with_store(local_store(tmp_path)).define_added_table(
+            EXPORTS_ROOT_CONFIG, "events", location, cast(Any, file_format), allow_double_quotes=True
+        )
+
+        assert (table.kind, table.path, table.pattern, table.file_format) == ("delta", "events", None, "delta")
+        assert TableDefinition.from_schema_metadata(table.name, table.schema_metadata()) == dataclasses.replace(
+            table, files=()
+        )
+
+    def test_an_inferred_delta_folder_is_found_without_listing_its_data_files(self, tmp_path: Path) -> None:
+        write_deltalake(str(tmp_path / "events"), pa.table({"id": [1]}))
+        store = local_store(tmp_path)
+        listed: list[str] = []
+        list_objects = type(store).list_objects
+
+        def list_only_the_log(self: ObjectStore, prefix: str, max_objects: int) -> list[StoredObject]:
+            listed.append(prefix)
+            if not prefix.endswith("_delta_log"):
+                return [stored(f"events/part-{index}.parquet") for index in range(MAX_TABLE_OBJECTS + 1)]
+            return list_objects(self, prefix, max_objects)
+
+        with patch.object(type(store), "list_objects", list_only_the_log):
+            table = _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+            )
+
+        assert (table.kind, table.path, listed) == ("delta", "events", ["events/_delta_log"])
+
+    def test_a_failed_delta_log_probe_that_is_not_a_denial_stops_before_listing_the_folder(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = TimeoutError("read timed out")
+
+        with pytest.raises(Exception):
+            _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+            )
+
+        assert [c.args[0] for c in store.list_objects.call_args_list] == ["events/_delta_log"]
+
+    def test_a_folder_without_a_delta_log_is_not_a_delta_table(self, tmp_path: Path) -> None:
+        _write_files(tmp_path, ["events/a.parquet"])
+
+        with pytest.raises(ObjectStorageError, match="^No Delta table is at .*_delta_log"):
+            _source_with_store(local_store(tmp_path)).define_added_table(
+                EXPORTS_ROOT_CONFIG, "events", "events", "delta", allow_double_quotes=True
+            )
+
+    @parameterized.expand(
+        [
+            (
+                "another_bucket",
+                "https://other-bucket.s3.us-east-1.amazonaws.com/exports/a.csv",
+                "infer",
+                "This path is in another bucket",
+            ),
+            ("another_provider", "gs://example-bucket/exports/a.csv", "infer", INVALID_CONFIG_ERROR),
+            (
+                "outside_the_source_folder",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/exports-old/a.csv",
+                "infer",
+                "This path is outside example-bucket/exports/. Change the source's files URL",
+            ),
+            (
+                "glob_that_reaches_outside_the_source_folder",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/exp*/a.csv",
+                "infer",
+                "This path is outside example-bucket/exports",
+            ),
+            ("parent_folder", "events/../secrets/a.csv", "infer", "can't contain '.' or '..' folders"),
+            ("encoded_parent_folder", "%2e%2e/finance/ledger", "delta", "can't contain '.' or '..' folders"),
+            ("partly_encoded_parent_folder", "events/.%2E/ledger", "delta", "can't contain '.' or '..' folders"),
+            ("encoded_current_folder", "%2E/events/a.csv", "infer", "can't contain '.' or '..' folders"),
+            ("empty_folder", "events//a.csv", "infer", "can't contain an empty folder"),
+            ("control_character", "events/\na.csv", "infer", "can't contain control characters"),
+            ("delta_glob", "events/*", "delta", "can't contain wildcards"),
+            ("unreadable_glob", "events/{a.csv", "infer", INVALID_CONFIG_ERROR),
+        ]
+    )
+    def test_refuses_a_location_outside_the_source_without_reading_the_bucket(
+        self, _name: str, location: str, file_format: str, expected: str
+    ) -> None:
+        store = MagicMock()
+
+        with pytest.raises(ObjectStorageError, match=re.escape(expected)):
+            _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, "events", location, cast(Any, file_format), allow_double_quotes=True
+            )
+
+        store.list_objects.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "_name, url, location, expected",
+        [
+            pytest.param(
+                "folder_without_a_slash", "exports", "events/", ("exports/events", None), id="folder_relative"
+            ),
+            pytest.param(
+                "folder_without_a_slash",
+                "exports",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/exports/events/*.csv",
+                ("exports/events", "exports/events/*.csv"),
+                id="folder_full_url",
+            ),
+            pytest.param(
+                "folder_without_a_slash",
+                "exports",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/other/",
+                None,
+                id="url_outside_the_folder",
+            ),
+            pytest.param("one_file", "exports/orders.csv", "events/", None, id="file_url_source"),
+            pytest.param("pattern", "exports/*.csv", "events/", None, id="pattern_url_source"),
+        ],
+    )
+    def test_a_path_stays_inside_the_files_url(
+        self, _name: str, url: str, location: str, expected: tuple[str, str | None] | None, tmp_path: Path
+    ) -> None:
+        _write_files(tmp_path, ["exports/events/a.csv", "other/b.csv"])
+        config = FakeObjectStorageConfig(
+            values={
+                **BUCKET_ROOT_CONFIG.values,
+                "url_pattern": f"https://s3.us-east-1.amazonaws.com/example-bucket/{url}",
+            }
+        )
+        source = _source_with_store(local_store(tmp_path))
+
+        if expected is None:
+            with pytest.raises(ObjectStorageError, match="outside|can't be added to it"):
+                source.define_added_table(config, "events", location, "infer", allow_double_quotes=True)
+            return
+        table = source.define_added_table(config, "events", location, "infer", allow_double_quotes=True)
+        assert (table.path, table.pattern, [f.path for f in table.files]) == (*expected, ["exports/events/a.csv"])
+
+    @pytest.mark.parametrize(
+        "_name, location, paths, expected",
+        [
+            ("nothing_there", "events/", [], "is empty or doesn't exist"),
+            ("glob_matches_nothing", "events/*.parquet", ["events/a.csv"], "matches the wildcards"),
+            ("unknown_extensions", "events/", ["events/notes.md"], "ends in .csv"),
+        ],
+    )
+    def test_a_location_without_importable_files_says_why(
+        self, _name: str, location: str, paths: list[str], expected: str, tmp_path: Path
+    ) -> None:
+        _write_files(tmp_path, paths)
+
+        with pytest.raises(ObjectStorageError, match=f"^{NO_IMPORTABLE_FILES_ERROR}.*{re.escape(expected)}"):
+            _source_with_store(local_store(tmp_path)).define_added_table(
+                EXPORTS_ROOT_CONFIG, "events", location, "infer", allow_double_quotes=True
+            )
+
+    def test_a_location_with_more_files_than_a_sync_reads_is_refused(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = lambda prefix, _max: (
+            []
+            if prefix.endswith("_delta_log")
+            else [stored(f"events/{index}.csv") for index in range(MAX_TABLE_OBJECTS + 1)]
+        )
+
+        with pytest.raises(ObjectStorageError, match=f"^{TOO_MANY_FILES_ERROR}"):
+            _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+            )
+
+    @pytest.mark.parametrize(
+        "location, allowed_prefix, exact",
+        [
+            pytest.param("tables/orders/", "tables/orders/", False, id="folder"),
+            pytest.param("tables/orders/", "tables/orders/", True, id="folder_with_a_key_for_that_prefix_only"),
+            pytest.param("tables/orders/2024-*.csv", "tables/orders/2024-", False, id="glob_with_a_key_prefix"),
+        ],
+    )
+    def test_reads_only_the_location_with_a_key_scoped_to_it(
+        self, location: str, allowed_prefix: str, exact: bool
+    ) -> None:
+        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix=allowed_prefix, exact=exact)
+        store = bucket_root_store(client)
+
+        table = _source_with_store(store).define_added_table(
+            BUCKET_ROOT_CONFIG, "orders", location, "infer", allow_double_quotes=True
+        )
+        rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
+        assert rebuilt is not None
+        resolved = resolve_table_files(store, rebuilt)
+
+        expected = ["tables/orders/2024-01.csv", "tables/orders/2024-02.csv"]
+        assert ([f.path for f in table.files], [f.path for f in resolved.files]) == (expected, expected)
+        assert all(prefix.startswith(allowed_prefix) for prefix in client.listed_prefixes)
+
+    @pytest.mark.parametrize(
+        "override, expected",
+        [
+            pytest.param(None, f"{ACCESS_DENIED_ERROR} 'example-bucket/tables/other'", id="default"),
+            pytest.param("Grant the role on the bucket.", "Grant the role on the bucket.", id="provider_override"),
+        ],
+    )
+    def test_a_location_the_key_can_not_read_fails_with_the_access_error(
+        self, override: str | None, expected: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(FakeObjectStorageSource, "access_denied_message", override)
+        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix="tables/orders/")
+
+        with pytest.raises(ObjectStorageError) as error:
+            _source_with_store(bucket_root_store(client)).define_added_table(
+                BUCKET_ROOT_CONFIG, "other", "tables/other/", "infer", allow_double_quotes=True
+            )
+
+        assert str(error.value).startswith(expected)
+
+    @pytest.mark.parametrize(
+        "provider, url, expected",
+        [
+            ("gcs", "gs://example-bucket/exports", "example-bucket/exports/"),
+            ("gcs", "gs://example-bucket/exports/", "example-bucket/exports/"),
+            ("gcs", "gs://example-bucket", "example-bucket/"),
+            ("azure", "https://exampleaccount.blob.core.windows.net/exports/2026/orders.csv", None),
+            ("r2", f"https://{'a' * 32}.r2.cloudflarestorage.com/example-bucket/exports/*.csv", None),
+        ],
+    )
+    def test_the_table_root_is_where_relative_paths_start(self, provider: str, url: str, expected: str | None) -> None:
+        source = FakeObjectStorageSource(STORE_BUILDERS[provider])
+        config = FakeObjectStorageConfig(
+            values={**BUCKET_ROOT_CONFIG.values, "url_pattern": url, "account_key": "a2V5"}
+        )
+
+        assert source.table_root(config) == expected

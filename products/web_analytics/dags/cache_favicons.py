@@ -1,7 +1,9 @@
+import datetime as dt
 from typing import cast
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.utils import timezone
 
 import httpx
 import dagster
@@ -10,6 +12,11 @@ from dagster_aws.s3 import S3Resource
 from posthog.clickhouse.client import sync_execute
 from posthog.dags.common import JobOwners
 from posthog.models.team import Team
+
+from products.aeo.backend.facade.api import list_domains_across_teams
+
+# Matches the window the AI visibility pages report on.
+AEO_CITED_DOMAINS_WINDOW = dt.timedelta(days=30)
 
 
 def get_last_cached_domains(context: dagster.AssetExecutionContext, asset_key: str) -> set[str]:
@@ -55,8 +62,8 @@ def download_favicon(
 ) -> tuple[str, bytes | None, str | None, str | None]:
     context.log.info(f"Attempting to download favicon for domain '{domain}'")
     urls = [
-        f"https://www.google.com/s2/favicons?sz=32&domain=https://{domain}",
         f"https://icons.duckduckgo.com/ip3/{domain}.ico",
+        f"https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{domain}&size=32",
     ]
 
     for url in urls:
@@ -209,6 +216,35 @@ def cache_authorized_domain_favicons(
     )
 
 
+@dagster.asset
+def cache_aeo_domain_favicons(
+    context: dagster.AssetExecutionContext, s3: S3Resource, config: CacheFaviconsConfig
+) -> dagster.MaterializeResult:
+    context.log.info("Querying AI visibility brand and cited domains.")
+    aeo_domains = list_domains_across_teams(cited_since=timezone.now() - AEO_CITED_DOMAINS_WINDOW)
+    context.log.info(f"Found {len(aeo_domains)} AI visibility domains.")
+
+    previously_cached = set() if config.force_refresh else get_last_cached_domains(context, "cache_aeo_domain_favicons")
+    if previously_cached:
+        context.log.info(f"Found {len(previously_cached)} previously cached domains.")
+
+    favicons, all_cached_domains, skipped_count = _download_and_cache_favicons(
+        context, s3, aeo_domains, previously_cached
+    )
+
+    context.log.info(f"Successfully cached {len(favicons)} new favicons, skipped {skipped_count} already cached.")
+
+    return dagster.MaterializeResult(
+        metadata={
+            "aeo_domains_queried": len(aeo_domains),
+            "favicons_cached": len(favicons),
+            "domains_skipped": skipped_count,
+            "cached_domains": list(all_cached_domains),
+            "favicons": favicons,
+        }
+    )
+
+
 cache_favicons_job = dagster.define_asset_job(
     name="cache_favicons_job",
     selection=["cache_favicons"],
@@ -218,6 +254,12 @@ cache_favicons_job = dagster.define_asset_job(
 cache_authorized_domain_favicons_job = dagster.define_asset_job(
     name="cache_authorized_domain_favicons_job",
     selection=["cache_authorized_domain_favicons"],
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+
+cache_aeo_domain_favicons_job = dagster.define_asset_job(
+    name="cache_aeo_domain_favicons_job",
+    selection=["cache_aeo_domain_favicons"],
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 
@@ -239,4 +281,14 @@ def cache_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def cache_authorized_domain_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
+    return dagster.RunRequest()
+
+
+@dagster.schedule(
+    cron_schedule="23 * * * *",  # Hourly; only domains not cached yet are downloaded
+    job=cache_aeo_domain_favicons_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def cache_aeo_domain_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
     return dagster.RunRequest()

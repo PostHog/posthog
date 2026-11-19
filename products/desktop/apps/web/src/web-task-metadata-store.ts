@@ -59,6 +59,10 @@ export const webTaskMetadataStore = {
     update(taskId, { lastViewedAt: new Date().toISOString() });
   },
 
+  markUnread(taskId: string, activityAt: number): void {
+    update(taskId, { lastViewedAt: new Date(activityAt - 1).toISOString() });
+  },
+
   markActivity(taskId: string): void {
     update(taskId, { lastActivityAt: new Date().toISOString() });
   },

@@ -58,6 +58,7 @@ renderWithInsights({
 
 `getChart()` comes from `@posthog/quill-charts/testing`.
 It reads the rendered chart through its stable DOM hooks: series count, axis ticks and titles, legend, reference lines and value labels.
+`annotationBadges()` reads the PostHog annotation badges on the chart.
 See the [quill-charts testing guide](../../../../packages/quill/packages/charts/src/docs/TESTING.md).
 
 `chart` wraps the gestures for insight charts, which render the InsightTooltip table:

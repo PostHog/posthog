@@ -1,4 +1,4 @@
-import { cn } from 'lib/utils/css-classes'
+import clsx from 'clsx'
 
 import { TraceNodeKind } from '../types'
 import { NODE_KIND_COLORS } from './nodeKindColors'
@@ -22,7 +22,9 @@ export function NodeKindGlyph({ kind, size = 'small' }: NodeKindGlyphProps): JSX
             role="img"
             aria-label={label}
             title={label}
-            className={cn(
+            // Not `cn`: its tailwind-merge does not know the custom `text-xxs` size, reads it as a text
+            // color, and drops `text-white`, which leaves dark letters on the fill in the light theme.
+            className={clsx(
                 'inline-flex shrink-0 items-center justify-center rounded font-semibold text-white',
                 NODE_KIND_COLORS[kind].glyphBg,
                 size === 'small' ? 'size-4 text-xxs' : 'size-5 text-xs'

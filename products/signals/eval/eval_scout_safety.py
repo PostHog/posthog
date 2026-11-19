@@ -7,7 +7,7 @@ references, and priority framing — the dominant emit→assign drop. `safety_fi
 trust-aware prompt for `source_product="signals_scout"`. This eval feeds it real false-positives
 (expected SAFE) and synthetic payloads (expected UNSAFE) and measures both directions.
 
-Run (needs the LLM gateway env, same as eval_grouping_e2e):
+Run (needs the AI gateway env, same as eval_grouping_e2e):
     pytest products/signals/eval/eval_scout_safety.py -xvs
     pytest products/signals/eval/eval_scout_safety.py -xvs --no-capture
 """

@@ -4,7 +4,14 @@ import { logger } from '~/common/utils/logger'
 import type { ImageFetchBlockReason } from './block-reason'
 import { FetchCandidate, MAX_HOPS, RepublishReason } from './collected-urls-record'
 import { ConfigurationPolicyPass, ConfigurationPolicyService } from './configuration-policy'
-import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
+import {
+    ConfigurationCacheItem,
+    CrawlHistoryItem,
+    HttpCacheMetadata,
+    PackedImageLocation,
+    UrlCrawlHistoryItem,
+    packOfStoredCopy,
+} from './crawl-history'
 import {
     FetchCandidatePool,
     FetchCandidatePoolAdmission,
@@ -22,14 +29,14 @@ import {
     RequestScheduleBlockReason,
     TransientFetchOutcome,
 } from './image-fetcher'
-import type { RefreshingImageSink } from './image-sink'
+import type { RefreshingImageSink, StoredImage } from './image-sink'
 import { ImageFetchPoolMetrics, ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
-import { canonicalizeUrl } from './politeness-key'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import type { ResponseUrlBinder } from './response-url-binding'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { urlHistoryExpiresAtMs, urlHistoryStorageExpiresAtMs } from './url-history-expiry'
+import { canonicalizeUrl, urlAssetOf } from './v4-native'
 
 export type ShedReason =
     | 'breaker_open'
@@ -40,6 +47,7 @@ export type ShedReason =
     | 'registrable_domain_map_full'
 export const HOPS_EXHAUSTED = 'hops_exhausted'
 export const DELAY_TOO_LONG = 'delay_too_long'
+export const URL_TOO_OLD = 'url_too_old'
 export type AttemptOutcome =
     | FetchOutcome
     | FetchRefusalReason
@@ -47,6 +55,7 @@ export type AttemptOutcome =
     | 'publish_failed'
     | typeof HOPS_EXHAUSTED
     | typeof DELAY_TOO_LONG
+    | typeof URL_TOO_OLD
 
 export interface FetchAttempt {
     candidate: FetchCandidate
@@ -72,6 +81,7 @@ export interface FetchRunnerOptions {
 
 const TRANSIENT_OUTCOMES = new Set<TransientFetchOutcome>(['timeout', 'error', 'rate_limited', 'server_error'])
 const ONE_MINUTE_MS = 60_000
+const TEN_MINUTES_MS = 10 * ONE_MINUTE_MS
 const CONFIGURATION_RETRY_MS = 60 * 60 * 1000
 const STORAGE_FAILURE_LOG_INTERVAL_MS = 10_000
 
@@ -440,7 +450,7 @@ export class FetchRunner implements FetchPass {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
         }
         if (Date.now() > deadlineMs) {
-            return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [], 'pass_deadline')
+            return await this.deferPastDeadline(republishBatch, candidate)
         }
         return await ImageFetchProcessingMetrics.runLimited(
             this.candidateWork,
@@ -454,15 +464,7 @@ export class FetchRunner implements FetchPass {
                     }
                     try {
                         if (Date.now() > deadlineMs) {
-                            return await this.republish(
-                                republishBatch,
-                                candidate,
-                                'deadline',
-                                'pass_deadline',
-                                0,
-                                [],
-                                'pass_deadline'
-                            )
+                            return await this.deferPastDeadline(republishBatch, candidate)
                         }
                         return await this.fetchOne(
                             candidate,
@@ -563,6 +565,7 @@ export class FetchRunner implements FetchPass {
                 : undefined
         const fetched = await ImageFetchProcessingMetrics.measure('candidate_fetch', () =>
             this.fetcher.fetch(candidate.currentUrl, {
+                asset: urlAssetOf(candidate.originalRef),
                 sourcePartitions: candidate.sourcePartitions,
                 maxBytes: this.options.maxBytes,
                 timeoutMs: this.options.requestTimeoutMs,
@@ -731,27 +734,33 @@ export class FetchRunner implements FetchPass {
         }
         // A missing or broken response leaves the stored image in place, so the lane keeps it alive. An opt-out does not.
         let storedAtMs = result.outcome === 'opt_out' ? undefined : previousUrl?.storedAtMs
+        let pack = result.outcome === 'opt_out' ? undefined : packOfStoredCopy(previousUrl)
+        let replaced = false
         if (result.outcome === 'ok' || result.outcome === 'not_modified') {
             releaseRegistrableDomainSlot()
-            let stored = true
+            let stored: StoredImage | null
             try {
-                if (result.outcome === 'ok') {
-                    await this.imageSink.publishImage(attemptedCandidate, result)
-                } else {
-                    // A 304 says the stored image is current, so the sink refreshes it in place.
-                    stored = await this.imageSink.refreshImage(attemptedCandidate)
-                }
+                stored =
+                    result.outcome === 'ok'
+                        ? await this.imageSink.publishImage(attemptedCandidate, result)
+                        : // A 304 says the stored image is current, so the sink refreshes it in place.
+                          await this.imageSink.refreshImage(attemptedCandidate, previousUrl)
             } catch (error) {
                 this.logStorageFailure(result.outcome === 'ok' ? 'publish' : 'refresh', error)
-                return {
-                    candidate: attemptedCandidate,
-                    outcome: 'publish_failed',
-                    finished: false,
-                    lost: true,
+                // The republish keeps the URL on the frontier, so one failed write does not fail the whole batch. The
+                // origin did nothing wrong, so its budget records no failure. The block reason is one that pods on
+                // older code can still parse, because they dead-letter a record with a reason they do not know.
+                return await this.republish(
+                    republishBatch,
+                    attemptedCandidate,
+                    'publish_failed',
+                    'retry',
+                    ONE_MINUTE_MS,
                     configurationUpdates,
-                }
+                    'transient_backoff'
+                )
             }
-            if (!stored) {
+            if (!stored && result.outcome === 'not_modified') {
                 return await this.refetchWithoutValidators(
                     republishBatch,
                     attemptedCandidate,
@@ -759,7 +768,30 @@ export class FetchRunner implements FetchPass {
                     configurationUpdates
                 )
             }
-            storedAtMs = Date.now()
+            // A 200 that stored nothing, such as a body that is not an image, leaves the earlier copy in place.
+            if (stored) {
+                pack = stored.pack
+                storedAtMs = stored.pack?.storedAtMs ?? Date.now()
+                replaced = true
+            }
+        }
+        if (!replaced && pack && previousUrl && this.imageSink.indexStoredImage) {
+            // The job's write days read the copy it keeps only through their own index rows.
+            releaseRegistrableDomainSlot()
+            try {
+                await this.imageSink.indexStoredImage(attemptedCandidate, previousUrl)
+            } catch (error) {
+                this.logStorageFailure('index', error)
+                return await this.republish(
+                    republishBatch,
+                    attemptedCandidate,
+                    'publish_failed',
+                    'retry',
+                    ONE_MINUTE_MS,
+                    configurationUpdates,
+                    'transient_backoff'
+                )
+            }
         }
         const responseCache = result.redirects > 0 ? withoutValidators(result.cache) : result.cache
         const mergedCache =
@@ -770,7 +802,8 @@ export class FetchRunner implements FetchPass {
             mergedCache,
             configurationUpdates,
             result.refusalReason,
-            storedAtMs
+            storedAtMs,
+            pack
         )
     }
 
@@ -803,11 +836,33 @@ export class FetchRunner implements FetchPass {
                 kind: 'url',
                 key: candidate.originalRef,
                 nextFetchAtMs: nowMs,
-                storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nowMs),
+                storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nowMs, nowMs),
                 outcome: 'not_stored',
                 cache: withoutValidators(previousUrl?.cache),
             },
         }
+    }
+
+    /**
+     * A URL that the pass did not reach goes back to the frontier, so the next pass can try it at once. A URL whose
+     * registrable domain is backing off would only wait in the pool until that pass ends too, and loop through the
+     * frontier until the back-off ends. It waits out the back-off in a delay tier instead. The wait stops at the
+     * 10-minute tier because the one-hour tier runs one relay pod, and a back-off can outlast every tier.
+     */
+    private async deferPastDeadline(republishBatch: RepublishBatch, candidate: FetchCandidate): Promise<FetchAttempt> {
+        const blockedMs = this.budget.blockedForMs(candidate.registrableDomain, Date.now())
+        if (blockedMs > 0) {
+            return await this.republish(
+                republishBatch,
+                candidate,
+                'backoff',
+                'not_ready',
+                Math.min(Math.max(ONE_MINUTE_MS, blockedMs), TEN_MINUTES_MS),
+                [],
+                'unknown_backoff'
+            )
+        }
+        return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [], 'pass_deadline')
     }
 
     private async republish(
@@ -857,6 +912,9 @@ export class FetchRunner implements FetchPass {
         if (result === 'refused_delay') {
             return this.terminal(candidate, DELAY_TOO_LONG, undefined, configurationUpdates)
         }
+        if (result === 'refused_age') {
+            return this.terminal(candidate, URL_TOO_OLD, undefined, configurationUpdates)
+        }
         return {
             candidate: republishedCandidate,
             outcome,
@@ -873,7 +931,8 @@ export class FetchRunner implements FetchPass {
         cache: HttpCacheMetadata | undefined,
         configurationUpdates: ConfigurationCacheItem[],
         refusalReason: FetchRefusalReason | 'none' = 'none',
-        storedAtMs?: number
+        storedAtMs?: number,
+        pack?: PackedImageLocation
     ): FetchAttempt {
         const nowMs = Date.now()
         const nextFetchAtMs = urlHistoryExpiresAtMs(nowMs, this.options.seenTtlSeconds, cache)
@@ -894,10 +953,11 @@ export class FetchRunner implements FetchPass {
                 kind: 'url',
                 key: candidate.originalRef,
                 nextFetchAtMs,
-                storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nextFetchAtMs),
+                storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nextFetchAtMs, nowMs),
                 outcome: String(outcome),
                 cache,
                 ...(storedAtMs === undefined ? {} : { storedAtMs }),
+                ...(storedAtMs === undefined || pack === undefined ? {} : { pack }),
             },
             configurationUpdates,
         }
@@ -907,7 +967,7 @@ export class FetchRunner implements FetchPass {
      * S3 and KMS fail in bursts, so this logs at most one failure per interval, with the count since the last one. The
      * error message can name the object key, so only the error name and status are logged, never the URL or the key.
      */
-    private logStorageFailure(operation: 'publish' | 'refresh', error: unknown): void {
+    private logStorageFailure(operation: 'publish' | 'refresh' | 'index', error: unknown): void {
         this.storageFailuresSinceLog += 1
         const nowMs = Date.now()
         if (nowMs - this.storageFailureLoggedAtMs < STORAGE_FAILURE_LOG_INTERVAL_MS) {

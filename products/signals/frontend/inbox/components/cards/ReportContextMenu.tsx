@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useRef } from 'react'
 
+import { canResolveReport, hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 import {
     IconArrowUpRight,
     IconCheckbox,
@@ -10,7 +11,9 @@ import {
     IconCopy,
     IconExternal,
     IconHide,
+    IconLeave,
     IconPeople,
+    IconPerson,
     IconPullRequest,
     IconUndo,
 } from '@posthog/icons'
@@ -28,9 +31,12 @@ import {
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import { InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
 import {
@@ -42,17 +48,25 @@ import {
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
-import { canCreateImplementationPr, canResolveReport, hasOpenImplementationPr } from '../../utils/reportActions'
+import {
+    canCreateImplementationPr,
+    canUnassignMe,
+    implementationClaimDisabledReason,
+    implementationClaimStep,
+} from '../../utils/reportActions'
+import { isReportClaimable, reportClaimant, teammateClaimHolder } from '../../utils/reportClaim'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
+import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
+import { openTakeOverReportDialog } from '../shell/TakeOverReportDialog'
 import { ReasonSubmenuItems } from './ReasonSubmenuItems'
 import { useReportCardSelection } from './useReportCardSelection'
 
 /**
  * Right-click menu on a report row in the flat inbox list: the report's major actions without
- * opening its detail. Create PR, Resolve, Dismiss, and Reviewers follow the same eligibility rules
+ * opening its detail. Claim, Create PR, Resolve, Dismiss, and Reviewers follow the same eligibility rules
  * as the detail pane (`utils/reportActions.ts`); a dismissed row offers Restore instead. Resolve
  * and Dismiss nest their canonical reasons, and picking one applies immediately through the owning
  * section's list logic. The dialog stays available for a note, a corrected repository, or an open
@@ -126,13 +140,19 @@ function ReportContextMenuItems({
     /** Tells the menu a dialog is opening, so its close skips the focus restore. */
     onOpenDialog: () => void
 }): JSX.Element {
-    const { dismissReport, resolveReport, restoreReport } = useActions(
+    const { dismissReport, resolveReport, restoreReport, setReportClaimed, unassignMe } = useActions(
         reportListLogic(sectionListLogicProps(sectionKey))
     )
+    const { isScopedToMe } = useValues(inboxFiltersLogic)
+    const { claimSavingReportIds } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
+    const { user } = useValues(userLogic)
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
-    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
-    const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { implementReport } = useActions(inboxTaskKickoffLogic)
+    const { createPrDisabledReason: globalPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { disabledReason: githubDisabledReason } = useValues(reportGithubAccessLogic({ report }))
+    const createPrDisabledReason =
+        globalPrDisabledReason ?? githubDisabledReason ?? implementationClaimDisabledReason(report, user?.uuid)
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)
@@ -151,6 +171,46 @@ function ReportContextMenuItems({
             </ButtonPrimitive>
         </ContextMenuItem>
     )
+
+    const currentUserUuid = user?.uuid ?? null
+    const claimant = reportClaimant(report)
+    const isMyClaim = !!claimant && claimant.uuid === currentUserUuid
+    const teammate = teammateClaimHolder(report, currentUserUuid)
+    const claimSaving = claimSavingReportIds.includes(report.id)
+
+    const claimItem = teammate ? (
+        <ContextMenuItem asChild disabled={claimSaving}>
+            <ButtonPrimitive
+                menuItem
+                onClick={() => {
+                    onOpenDialog()
+                    openTakeOverReportDialog({
+                        report,
+                        surface: 'context_menu',
+                        holder: teammate,
+                        onConfirm: () => setReportClaimed(report, true, 'context_menu', true),
+                    })
+                }}
+                disabledReasons={claimSaving ? { 'Updating…': true } : undefined}
+                data-attr="inbox-report-context-menu-takeover"
+            >
+                <IconPerson />
+                Take over
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    ) : claimant || isReportClaimable(report, currentUserUuid) ? (
+        <ContextMenuItem asChild disabled={claimSaving}>
+            <ButtonPrimitive
+                menuItem
+                onClick={() => setReportClaimed(report, !isMyClaim, 'context_menu')}
+                disabledReasons={claimSaving ? { 'Updating…': true } : undefined}
+                data-attr={isMyClaim ? 'inbox-report-context-menu-unclaim' : 'inbox-report-context-menu-claim'}
+            >
+                <IconPerson />
+                {isMyClaim ? 'Unclaim' : 'Claim'}
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    ) : null
 
     const dismissWith = (dismissal: DismissalFeedback): void => {
         const { reason, note, correctedRepository } = dismissal
@@ -258,14 +318,11 @@ function ReportContextMenuItems({
     )
 
     const onCreatePr = (): void => {
-        captureInboxReportAction({
-            report,
-            actionType: 'create_pr',
-            surface: 'context_menu',
-            extra: { has_feedback: false },
-        })
+        if (implementationClaimStep(report, user?.uuid).kind !== 'start') {
+            onOpenDialog()
+        }
         // Self-guards on AI consent (toast) and navigates to the created run.
-        createPrFromReport(report)
+        implementReport(report, undefined, 'context_menu')
     }
 
     if (isDismissed) {
@@ -293,6 +350,7 @@ function ReportContextMenuItems({
         <>
             <ContextMenuGroup>
                 {selectItem}
+                {claimItem}
                 {canCreateImplementationPr(report) && (
                     <>
                         <ContextMenuItem asChild disabled={!!createPrDisabledReason}>
@@ -371,6 +429,44 @@ function ReportContextMenuItems({
                         <ReviewerSearchList report={report} surface="context_menu" />
                     </ContextMenuSubContent>
                 </ContextMenuSub>
+                {/* The picker removes without a reason, so the common case of stepping off gets its own
+                reasons, matching the reviewer menu in the detail pane. */}
+                {canUnassignMe(report, isScopedToMe) && (
+                    <ContextMenuSub>
+                        <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-remove-yourself">
+                            <ButtonPrimitive menuItem>
+                                <IconLeave />
+                                Remove yourself
+                                <IconChevronRight className="ml-auto size-3" />
+                            </ButtonPrimitive>
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent className="max-w-80">
+                            <ContextMenuGroup>
+                                {reviewerRemovalReasonOptions(true).map((option) => (
+                                    <ContextMenuItem asChild key={option.value}>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => unassignMe(report.id, 'context_menu', option.value)}
+                                            data-attr="inbox-report-context-menu-remove-yourself-reason"
+                                        >
+                                            {option.label}
+                                        </ButtonPrimitive>
+                                    </ContextMenuItem>
+                                ))}
+                                <ContextMenuSeparator />
+                                <ContextMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => unassignMe(report.id, 'context_menu')}
+                                        data-attr="inbox-report-context-menu-remove-yourself-no-reason"
+                                    >
+                                        Without a reason
+                                    </ButtonPrimitive>
+                                </ContextMenuItem>
+                            </ContextMenuGroup>
+                        </ContextMenuSubContent>
+                    </ContextMenuSub>
+                )}
             </ContextMenuGroup>
             {browserLinkItems}
         </>

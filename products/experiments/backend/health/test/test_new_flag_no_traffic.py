@@ -19,7 +19,22 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 FULL_ACCESS = ExperimentHealthReaderAccess(
-    can_read_flag_history=True, can_query_events=True, denied_event_properties=frozenset()
+    can_read_flag_history=True,
+    can_query_events=True,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
+)
+NO_QUERIES = ExperimentHealthReaderAccess(
+    can_read_flag_history=True,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
+)
+FLAG_PROPERTY_DENIED = ExperimentHealthReaderAccess(
+    can_read_flag_history=True,
+    can_query_events=True,
+    denied_event_properties=frozenset({"$feature_flag"}),
+    restricted_properties=frozenset(),
 )
 Status = ExperimentHealthCheckStatus
 
@@ -65,6 +80,26 @@ class TestNewFlagNoTraffic(BaseTest):
                 "flag_evaluations",
                 Status.FINDING,
             ),
+            (
+                "called_for_a_reader_who_cant_query_events",
+                timezone.now(),
+                False,
+                False,
+                FlagEvaluationsMode.EVENTS,
+                "events",
+                Status.NOT_CHECKED,
+                NO_QUERIES,
+            ),
+            (
+                "called_for_a_reader_denied_the_flag_property",
+                timezone.now(),
+                False,
+                False,
+                FlagEvaluationsMode.EVENTS,
+                "events",
+                Status.NOT_CHECKED,
+                FLAG_PROPERTY_DENIED,
+            ),
         ]
     )
     def test_reads_the_flags_recorded_calls_on_a_draft(
@@ -76,6 +111,7 @@ class TestNewFlagNoTraffic(BaseTest):
         mode: FlagEvaluationsMode,
         sync_source: str,
         expected: ExperimentHealthCheckStatus,
+        reader_access: ExperimentHealthReaderAccess = FULL_ACCESS,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
@@ -101,7 +137,9 @@ class TestNewFlagNoTraffic(BaseTest):
         experiment = Experiment.objects.create(team=self.team, name="draft", feature_flag=flag)
 
         with override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE=sync_source):
-            health = get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=FULL_ACCESS)
+            health = get_experiment_health(
+                team_id=self.team.id, experiment_id=experiment.id, reader_access=reader_access, user=self.user
+            )
 
         check = next(check for check in health.checks if check.key == ExperimentHealthCheckKey.NEW_FLAG_NO_TRAFFIC)
         self.assertEqual(check.status, expected)

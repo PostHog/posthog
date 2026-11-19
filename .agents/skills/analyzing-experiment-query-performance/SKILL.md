@@ -190,7 +190,7 @@ Check enablement in the UI, or in code via `TeamExperimentsConfig.experiment_pre
 - `experiment_precompute_skip_reason` — set on reads that **never attempted** precompute:
   `override_direct`, `team_disabled`, `min_runtime`, `activation_config`, `cohort_not_calculated`,
   `data_warehouse`, `group_aggregation`
-  (the `PrecomputeSkipReason` enum in `products/experiments/backend/hogql_queries/types.py`).
+  (the `PrecomputeSkipReason` enum in `products/experiments/backend/facade/enums.py`).
   **An empty skip reason on a `direct_scan` read means precompute was attempted but the data wasn't ready**
   (build failed or too slow) — that read paid for the build _and_ the full scan.
   This is the bucket to watch; it should stay near zero.
@@ -251,18 +251,24 @@ re-check the key's scopes before anything else.
    to identify which team, experiment, and metric type is responsible.
 3. **Drill to ground truth**: for a specific `query_id`, the full `query_log` row
    (settings, replica, ProfileEvents) needs ClickHouse —
-   use the `querying-production-databases-via-metabase` skill.
+   use the `querying-production-databases` skill.
 4. **Result-consistency questions** (precomputed vs direct results diverging) are out of scope here —
    these endpoints see performance and failures, not result values.
    That's the precompute result-consistency canary's territory:
-   its Prometheus health gauges and structured divergence logs in Loki (via the Grafana MCP).
+   Use `analyzing-experiment-precompute-canary` for its health gauges and structured divergence logs through the PostHog MCP.
+   Discover names with `posthog:metric-names-list`, then send existing PromQL as written in `posthog:query-metrics`'s `query.promql`.
+   Use `query.instant: true` for current values, or a range with `query.output: "summary"`. Share the returned `_posthogUrl`.
+   Query logs with `posthog:query-logs`, filtered by discovered `service.name`, severity, and an explicit time window.
+   US and EU have separate internal PostHog projects and instances. Use each region's connection and check `environment` where present.
+   **Fallback:** People on managed devices with an existing Grafana MCP connection can use it.
+   See `tools/infra-scripts/mcp/README.md` for its setup.
 5. In any writeup, cite `query_id`, `team_id`, and `experiment_id` so others can reproduce.
 
 ## Known limitations
 
 - `slowest_queries` is a top-100 **duration ranking**, not a cost census —
   cheap-but-chatty query patterns are invisible in it; use the overview totals for volume questions.
-- `hours` is clamped to 1–168 server-side; longer lookbacks need `query_log_archive` directly (Metabase skill).
+- `hours` is clamped to 1–168 server-side; longer lookbacks need `query_log_archive` directly (`querying-production-databases` skill).
 - `organization_arr` is best-effort (billing lookup can return null).
 - These endpoints exist for the scene and have no OpenAPI schema or generated types;
   response shapes are defined by `queryPerformanceLogic.ts`.

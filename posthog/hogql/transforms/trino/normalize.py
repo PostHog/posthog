@@ -5,6 +5,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
+from posthog.hogql.errors import QueryError
+from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.asof_join import TrinoAsOfJoinLowerer
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -257,12 +259,74 @@ class TrinoScalarCTELowerer(CloningVisitor):
         return super().visit_field(node)
 
 
+class _InlineAliasCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.aliases: dict[str, ast.Expr] = {}
+
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if not node.hidden:
+            self.aliases.setdefault(node.alias, node.expr)
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        return None
+
+
+class _InlineAliasHider(TraversingVisitor):
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        node.hidden = True
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return None
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        return None
+
+
+class _QualifiedFieldFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.qualifiers: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) > 1 and isinstance(node.chain[0], str):
+            self.qualifiers.add(node.chain[0])
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+
 class TrinoSelectAliasLowerer(CloningVisitor):
-    def __init__(self, budget: TrinoCompilationBudget) -> None:
+    def __init__(self, context: HogQLContext, budget: TrinoCompilationBudget) -> None:
         super().__init__(clear_types=False)
+        self.context = context
+        self.lambda_scopes: list[ast.SelectQueryType | None] = []
         self.aliases: dict[str, ast.Expr] = {}
         self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
+        self.in_order_by = False
+        self.in_window = False
         self.expansion_budget = budget
 
     def visit(self, node: _T_AST) -> _T_AST:
@@ -272,10 +336,19 @@ class TrinoSelectAliasLowerer(CloningVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_aliases = self.aliases
         outer_alias_positions = self.alias_positions
-        self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
-        self.alias_positions = {
-            expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
-        }
+        outer_in_order_by = self.in_order_by
+        outer_in_window = self.in_window
+        self.in_order_by = False
+        self.in_window = False
+        named_projections = self._named_projections(node.select)
+        self.aliases = {name: expr.expr for name, (_, expr) in named_projections.items()}
+        # Trino can't read a name given inside a projection, as in `(id AS y) + 1 AS x`, so those expand too.
+        inline_aliases = _InlineAliasCollector()
+        for expr in node.select:
+            inline_aliases.visit(expr.expr if isinstance(expr, ast.Alias) else expr)
+        for name, expr in inline_aliases.aliases.items():
+            self.aliases.setdefault(name, expr)
+        self.alias_positions = {name: position for name, (position, _) in named_projections.items()}
         lowered = super().visit_select_query(node)
         if node.group_by is not None and lowered.group_by is not None and lowered.group_by_mode is None:
             projections = [expression_key(expr) for expr in lowered.select]
@@ -287,9 +360,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 if key in projections:
                     lowered.group_by[index] = ast.PositionalRef(index=projections.index(key) + 1)
         if node.order_by is not None and lowered.order_by is not None:
-            alias_positions = {
-                expr.alias: index + 1 for index, expr in enumerate(node.select) if isinstance(expr, ast.Alias)
-            }
+            alias_positions = self.alias_positions
             for original, order in zip(node.order_by, lowered.order_by, strict=True):
                 expr = original.expr
                 while isinstance(expr, ast.Alias) and expr.hidden:
@@ -312,17 +383,54 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 and isinstance(order_expression.chain[0], str)
                 and order_expression.chain[0] in self.aliases
                 and isinstance(order_expression.chain[-1], str)
-                and order_expression.chain[-1] in self.aliases
+                and order_expression.chain[-1] in self.alias_positions
             ):
                 order.expr = ast.PositionalRef(index=self.alias_positions[order_expression.chain[-1]])
         self.aliases = outer_aliases
         self.alias_positions = outer_alias_positions
+        self.in_order_by = outer_in_order_by
+        self.in_window = outer_in_window
         return lowered
+
+    @staticmethod
+    def _named_projections(select: list[ast.Expr]) -> dict[str, tuple[int, ast.Alias]]:
+        # The resolver names every plain column after itself with a hidden alias. A name the query gave explicitly
+        # refers to that projection, as in ClickHouse, even when a later column has the same name.
+        explicit = {expr.alias for expr in select if isinstance(expr, ast.Alias) and not expr.hidden}
+        return {
+            expr.alias: (index, expr)
+            for index, expr in enumerate(select, start=1)
+            if isinstance(expr, ast.Alias) and (not expr.hidden or expr.alias not in explicit)
+        }
+
+    def visit_order_expr(self, node: ast.OrderExpr) -> ast.OrderExpr:
+        outer_in_order_by = self.in_order_by
+        # Only a query's own ORDER BY sees output aliases; a window's OVER (ORDER BY ...) does not.
+        self.in_order_by = not self.in_window
+        try:
+            return super().visit_order_expr(node)
+        finally:
+            self.in_order_by = outer_in_order_by
+
+    def visit_window_expr(self, node: ast.WindowExpr) -> ast.WindowExpr:
+        outer_in_order_by, outer_in_window = self.in_order_by, self.in_window
+        self.in_order_by, self.in_window = False, True
+        try:
+            return super().visit_window_expr(node)
+        finally:
+            self.in_order_by, self.in_window = outer_in_order_by, outer_in_window
 
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
         if node.hidden:
             self.expansion_budget.visit(node)
-            return clone_expr(node, clear_types=False)
+            cloned = clone_expr(node, clear_types=False)
+            inner = cloned
+            while isinstance(inner.expr, ast.Alias) and inner.expr.hidden:
+                inner = inner.expr
+            qualified = self._qualified_shadowed_column(inner.expr)
+            if qualified is not None:
+                inner.expr = qualified
+            return cloned
         already_expanding = node.alias in self.expanding
         self.expanding.add(node.alias)
         try:
@@ -330,6 +438,13 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         finally:
             if not already_expanding:
                 self.expanding.remove(node.alias)
+
+    def visit_lambda(self, node: ast.Lambda) -> ast.Lambda:
+        self.lambda_scopes.append(node.type if isinstance(node.type, ast.SelectQueryType) else None)
+        try:
+            return super().visit_lambda(node)
+        finally:
+            self.lambda_scopes.pop()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         outer_aliases = self.aliases
@@ -361,10 +476,74 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             alias = node.chain[0]
             self.expanding.add(alias)
             try:
-                return self.visit(self.aliases[alias])
+                expanded = self.visit(self.aliases[alias])
             finally:
                 self.expanding.remove(alias)
+            # ClickHouse allows a projection to name a part of itself, as in `(id AS y) + 1 AS x`. The copy must
+            # not define `y` again in the same scope, while the projection it came from still does.
+            _InlineAliasHider().visit(expanded)
+            # Trino resolves ORDER BY names against output columns first, so a qualifier that is also a projection
+            # alias would read that output column. The output column itself already holds this value.
+            if self.in_order_by and self._has_qualifier_named_like_an_alias(expanded):
+                return clone_expr(node, clear_types=False)
+            return expanded
+        qualified = self._qualified_shadowed_column(node)
+        if qualified is not None:
+            return qualified
         return super().visit_field(node)
+
+    def _has_qualifier_named_like_an_alias(self, node: ast.Expr) -> bool:
+        finder = _QualifiedFieldFinder()
+        finder.visit(node)
+        return any(qualifier in self.aliases for qualifier in finder.qualifiers)
+
+    def _qualified_shadowed_column(self, node: ast.Expr) -> ast.Field | None:
+        # After alias inlining, a later resolver pass would bind a bare column named like a projection alias to the
+        # alias. Qualifying it keeps the column the first pass chose.
+        if not (
+            isinstance(node, ast.Field)
+            and len(node.chain) == 1
+            and isinstance(node.chain[0], str)
+            and node.chain[0] in self.aliases
+            and isinstance(node.type, ast.FieldType)
+        ):
+            return None
+        table_type = node.type.table_type
+        if isinstance(table_type, (ast.TableAliasType, ast.CTETableAliasType, ast.SelectQueryAliasType)):
+            qualifier = table_type.alias
+        elif isinstance(table_type, ast.CTETableType):
+            qualifier = table_type.name
+        else:
+            return None
+        if self.lambda_scopes and self._lambda_reads_qualifier_as_field(qualifier):
+            raise TrinoLoweringError(
+                "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS",
+                "a lambda reading a column shadowed by a projection alias",
+                node,
+                detail=(
+                    f"Inside a lambda, the table alias `{qualifier}` also names a column or alias, "
+                    "so the Trino query could read the wrong value. Rename the table alias."
+                ),
+            )
+        return ast.Field(
+            start=node.start,
+            end=node.end,
+            chain=[qualifier, node.chain[0]],
+            type=node.type,
+            from_asterisk=node.from_asterisk,
+        )
+
+    def _lambda_reads_qualifier_as_field(self, qualifier: str) -> bool:
+        # Inside a lambda the resolver looks up the head of a chain as a field before it tries table aliases, so the
+        # second pass would bind `qualifier.column` to a field named like the qualifier. Without a lambda scope to
+        # check, assume a collision.
+        scope = self.lambda_scopes[-1]
+        if scope is None:
+            return True
+        try:
+            return lookup_field_by_name(scope, qualifier, self.context) is not None
+        except QueryError:
+            return True
 
 
 class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
@@ -391,6 +570,50 @@ class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
             database_field = field_type.resolve_database_field(self.context)
             if isinstance(database_field, DatabaseField) and database_field.name != projection.alias:
                 projection.hidden = False
+        return lowered
+
+
+class TrinoDuplicateOutputNameLowerer(CloningVisitor):
+    """Give a later projection of a name an internal alias in a nested query.
+
+    ClickHouse names the first of two columns `id` and the second `b.id`, so an outer `id` reads the first one. Trino
+    keeps both as `id` and reports an outer reference to either as ambiguous.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(clear_types=False)
+        self.depth = 0
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        self.depth += 1
+        try:
+            lowered = super().visit_select_query(node)
+        finally:
+            self.depth -= 1
+        if self.depth == 0:
+            return lowered
+        taken = {projection.alias for projection in lowered.select if isinstance(projection, ast.Alias)}
+        holders: dict[str, ast.Alias] = {}
+        # The suffix only grows, so each taken name is probed once and a crafted query cannot make this quadratic.
+        suffix = 0
+        for index, projection in enumerate(lowered.select):
+            if not isinstance(projection, ast.Alias):
+                continue
+            holder = holders.get(projection.alias)
+            if holder is None:
+                holders[projection.alias] = projection
+                continue
+            # An outer reference binds to an explicit alias, so it is the plain column that gives up the name.
+            renamed = holder if holder.hidden and not projection.hidden else projection
+            if renamed is holder:
+                holders[projection.alias] = projection
+            suffix = max(suffix, index)
+            while (alias := f"__hogql_duplicate_{renamed.alias}_{suffix}") in taken:
+                suffix += 1
+            suffix += 1
+            taken.add(alias)
+            renamed.alias = alias
+            renamed.hidden = False
         return lowered
 
 
@@ -607,7 +830,8 @@ def normalize_trino_ast(node: ast.AST, context: HogQLContext, *, physical_names:
     lowered = TrinoAsOfJoinLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered, physical_names=physical_names)
     lowered = lower_trino_query_wrappers(lowered)
-    lowered = TrinoSelectAliasLowerer(budget).visit(lowered)
+    lowered = TrinoSelectAliasLowerer(context, budget).visit(lowered)
     lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)
+    lowered = TrinoDuplicateOutputNameLowerer().visit(lowered)
     TrinoNormalizer(context).visit(lowered)
     return lowered

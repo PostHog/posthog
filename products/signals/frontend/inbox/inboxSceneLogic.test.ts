@@ -1,7 +1,8 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { waitFor } from '@testing-library/react'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import type { CaptureOptions } from 'posthog-js'
@@ -15,7 +16,8 @@ import { initKeaTests } from '~/test/init'
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
+import { myClaim } from './__mocks__/inboxMocks'
+import { inboxSceneLogic, mergeSignalRuns, REPORT_READ_ACTIVE_MS } from './inboxSceneLogic'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
 import { SignalReport, SignalReportStatus, SignalScoutRunSummary } from './types'
@@ -99,10 +101,23 @@ describe('mergeSignalRuns', () => {
 
     it('tags kind and title per source (scout → skill_name, signal → report title)', () => {
         const [scoutRow, signalRow] = mergeSignalRuns(
-            [scoutRun({ task_id: 'scout', skill_name: 'signals-scout-surveys', created_at: '2026-06-11T11:00:00Z' })],
+            [
+                scoutRun({
+                    task_id: 'scout',
+                    skill_name: 'signals-scout-surveys',
+                    created_at: '2026-06-11T11:00:00Z',
+                    total_spend: 125.25,
+                    status: 'in_progress',
+                }),
+            ],
             [signalTask({ id: 'signal', title: 'Slow query', created_at: '2026-06-11T08:00:00Z' })]
         )
-        expect(scoutRow).toMatchObject({ kind: 'scout', title: 'signals-scout-surveys', report_id: null })
+        expect(scoutRow).toMatchObject({
+            kind: 'scout',
+            title: 'signals-scout-surveys',
+            report_id: null,
+            total_spend: 125.25,
+        })
         expect(signalRow).toMatchObject({ kind: 'signal', title: 'Slow query', report_id: 'report-1' })
     })
 
@@ -168,6 +183,64 @@ describe('inboxSceneLogic routing', () => {
         router.actions.push(urls.inbox())
         expect(logic.values.activeTab).toBe('reports')
     })
+
+    it('uses the open report title in breadcrumbs and restores the inbox title on close', () => {
+        mountLogic()
+        const inboxBreadcrumbs = logic.values.breadcrumbs
+        expect(inboxBreadcrumbs).toHaveLength(1)
+
+        logic.actions.setSelectedReportId('report-1')
+        logic.actions.loadSelectedReportSuccess({ id: 'report-1', title: 'Example report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual([...inboxBreadcrumbs, { key: 'report-1', name: 'Example report' }])
+
+        logic.actions.setSelectedReportId('report-2')
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-1', title: 'Example report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-2', title: 'Another report' } as SignalReport)
+        expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Another report')
+
+        logic.actions.setSelectedReportId(null)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-2', title: 'Another report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+    })
+
+    it.each([null, 'report', 'scout'] as const)('opens sources from %s without selecting a report', (surface) => {
+        mountLogic()
+        if (surface === 'report') {
+            router.actions.push(urls.inboxReport('reports', 'report-1'))
+        } else if (surface === 'scout') {
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+        }
+        router.actions.push(urls.inbox('sources'))
+
+        expect(router.values.location.pathname.endsWith('/inbox/sources')).toBe(true)
+        expect(logic.values.activeTab).toBe('sources')
+        expect(logic.values.selectedReportId).toBeNull()
+        expect(logic.values.selectedScoutSkillName).toBeNull()
+    })
+
+    it.each(['/inbox', '/inbox/config', '/inbox/settings', '/inbox/sources'])(
+        'preserves source setup parameters when returning to %s',
+        (path) => {
+            mountLogic()
+            const searchParams = {
+                setup: 'signal-sources',
+                signal_source: 'intercom',
+                integration_id: '7',
+                source: 'saved-filter',
+            }
+            const hashParams = { tab: 'details' }
+            router.actions.push(path, searchParams, hashParams)
+
+            expect(router.values.location.pathname.endsWith('/inbox/sources')).toBe(true)
+            expect(logic.values.activeTab).toBe('sources')
+            expect(logic.values.selectedReportId).toBeNull()
+            expect(router.values.searchParams).toEqual(searchParams)
+            expect(router.values.hashParams).toEqual(hashParams)
+        }
+    )
 
     // The scout page's tabs live in the URL, so a link to a scout's runs has to survive a reload.
     // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
@@ -318,7 +391,7 @@ describe('inboxSceneLogic routing', () => {
     })
 
     // A link PostHog wrote names its surface in `link_source`. The product filter keeps `source`. A tab that already saw the list can still
-    // open one, and the param leaves the address bar so a copied URL does not pass it on.
+    // open one, and the param leaves the address bar so a copied URL does not pass it on. `link_action` leaves it the same way.
     it.each([
         { name: 'no param', source: undefined, visitedList: false, method: 'deeplink', linkSource: null },
         { name: 'a known source', source: 'slack', visitedList: false, method: 'deeplink', linkSource: 'slack' },
@@ -338,17 +411,26 @@ describe('inboxSceneLogic routing', () => {
         },
         { name: 'a source after the list', source: 'mcp', visitedList: true, method: 'deeplink', linkSource: 'mcp' },
         { name: 'no param after the list', source: undefined, visitedList: true, method: 'click', linkSource: null },
+        {
+            name: 'the implement action',
+            source: 'slack',
+            linkAction: 'implement',
+            visitedList: false,
+            method: 'deeplink',
+            linkSource: 'slack',
+        },
     ])(
         'a report link with $name opens as $method with link source $linkSource',
-        async ({ source, visitedList, method, linkSource }) => {
+        async ({ source, linkAction, visitedList, method, linkSource }) => {
             mountLogic()
             if (visitedList) {
                 router.actions.push(urls.inbox('reports'))
             }
-            const url = combineUrl(
-                urls.inboxReport('reports', 'r1'),
-                source ? { link_source: source, source: 'github' } : { source: 'github' }
-            ).url
+            const url = combineUrl(urls.inboxReport('reports', 'r1'), {
+                source: 'github',
+                ...(source ? { link_source: source } : {}),
+                ...(linkAction ? { link_action: linkAction } : {}),
+            }).url
 
             let payload: { openMethod?: string; linkSource?: string | null } = {}
             await expectLogic(logic, () => router.actions.push(url)).toDispatchActions([
@@ -362,12 +444,24 @@ describe('inboxSceneLogic routing', () => {
             ])
             expect(payload).toMatchObject({ openMethod: method, linkSource })
             expect(router.values.searchParams).toEqual({ source: 'github' })
+            expect(logic.values.linkImplementReportId).toBe(linkAction ? 'r1' : null)
         }
     )
 
     // A rank read at open time is null on a cold load, and joins to no impression row. The event is
     // then captured after the wait, so it also has to carry the moment the report opened: a scroll
     // or an action taken during the wait would otherwise read earlier than the open.
+    // The detail pane reads the selected report. A claim from its list row must reach it, or the open report
+    // keeps offering a claim the user already holds.
+    it('shows a claim made from a list row on the open report', () => {
+        mountLogic()
+        logic.actions.loadSelectedReportSuccess({ id: 'r1', title: 'Crash on login', assignee: null } as SignalReport)
+
+        inboxBulkActionsLogic.actions.reportClaimChanged('r1', myClaim)
+
+        expect(logic.values.selectedReport?.assignee).toEqual(myClaim)
+    })
+
     it('holds `Inbox report opened` until the list answers, then reports the rank and the open time', async () => {
         const report = { id: 'r1', title: 'Crash on login' } as SignalReport
         useMocks({
@@ -483,6 +577,74 @@ describe('inboxSceneLogic routing', () => {
         captureSpy.mockRestore()
     })
 
+    // A report left open in a background tab, or opened and never scrolled, is not a read. The read
+    // fires during the open, so a tab close that drops the close event does not lose it.
+    it('sends `Inbox report read` once per open, after a scroll and enough visible time', () => {
+        const originalVisibilityState = document.visibilityState
+        const setTabVisibility = (state: 'visible' | 'hidden'): void => {
+            Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        const eventsNamed = (name: string): Record<string, any>[] =>
+            captureSpy.mock.calls.filter(([event]) => event === name).map((call) => call[1] as Record<string, any>)
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        jest.useFakeTimers()
+        try {
+            mountLogic()
+            setTabVisibility('visible')
+            logic.actions.setSelectedReportId('r1')
+            logic.actions.loadSelectedReportSuccess({ id: 'r1', title: 'Crash on login' } as SignalReport)
+
+            jest.advanceTimersByTime(2000)
+            setTabVisibility('hidden')
+            jest.advanceTimersByTime(60_000)
+            setTabVisibility('visible')
+            jest.advanceTimersByTime(REPORT_READ_ACTIVE_MS)
+            expect(eventsNamed('Inbox report read')).toHaveLength(0)
+
+            logic.actions.reportDetailScrolled()
+            expect(eventsNamed('Inbox report read')).toEqual([
+                expect.objectContaining({
+                    report_id: 'r1',
+                    active_time_ms: REPORT_READ_ACTIVE_MS + 2000,
+                    time_since_open_ms: REPORT_READ_ACTIVE_MS + 62_000,
+                }),
+            ])
+
+            setTabVisibility('hidden')
+            setTabVisibility('visible')
+            logic.actions.reportDetailScrolled()
+            jest.advanceTimersByTime(30_000)
+            expect(eventsNamed('Inbox report read')).toHaveLength(1)
+
+            logic.actions.setSelectedReportId('r2')
+            logic.actions.loadSelectedReportSuccess({ id: 'r2', title: 'Checkout times out' } as SignalReport)
+            expect(eventsNamed('Inbox report closed')[0]).toMatchObject({
+                report_id: 'r1',
+                time_spent_ms: REPORT_READ_ACTIVE_MS + 92_000,
+                active_time_ms: REPORT_READ_ACTIVE_MS + 32_000,
+            })
+
+            logic.actions.reportDetailScrolled()
+            setTabVisibility('hidden')
+            jest.advanceTimersByTime(60_000)
+            setTabVisibility('visible')
+            jest.advanceTimersByTime(REPORT_READ_ACTIVE_MS - 1)
+            expect(eventsNamed('Inbox report read')).toHaveLength(1)
+
+            jest.advanceTimersByTime(1)
+            expect(eventsNamed('Inbox report read')[1]).toMatchObject({
+                report_id: 'r2',
+                active_time_ms: REPORT_READ_ACTIVE_MS,
+                time_since_open_ms: REPORT_READ_ACTIVE_MS + 60_000,
+            })
+        } finally {
+            jest.useRealTimers()
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+            captureSpy.mockRestore()
+        }
+    })
+
     it('stops the runs poll when opening another surface closes the panel', () => {
         // Opening a report flips `isRunsOpen` false through a mutual-exclusion reducer, not
         // `setRunsOpen(false)`, so the poll teardown cannot hang off the `setRunsOpen` listener alone
@@ -588,6 +750,62 @@ describe('inboxSceneLogic routing', () => {
                 addEventListenerSpy.mockRestore()
                 removeEventListenerSpy.mockRestore()
             }
+        })
+
+        // A write that timed out or lost its response can still have saved, so the open report must not keep its
+        // local copy. A failure on another report must not refetch this one.
+        test.each([
+            { failedReportId: 'report-1', fetches: 2 },
+            { failedReportId: 'report-2', fetches: 1 },
+        ])(
+            'a failed write on $failedReportId fetches the open report $fetches times',
+            async ({ failedReportId, fetches }) => {
+                const reportGet = mockReportGet()
+                mountLogic()
+                logic.actions.setSelectedReportId('report-1')
+                await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+                inboxBulkActionsLogic.actions.reportWriteFailed([failedReportId])
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(reportGet).toHaveBeenCalledTimes(fetches)
+            }
+        )
+
+        it('keeps a claim made while a refresh is in flight, and takes the other fields from the refresh', async () => {
+            let releaseRefresh: () => void = () => {}
+            const heldRefresh = new Promise<void>((resolve) => {
+                releaseRefresh = resolve
+            })
+            let fetches = 0
+            const reportGet = jest.fn(async () => {
+                if (fetches++ === 0) {
+                    return [200, { id: 'report-1', title: 'Crash on login', status: SignalReportStatus.READY }]
+                }
+                await heldRefresh
+                return [
+                    200,
+                    { id: 'report-1', title: 'Crash on login after refresh', status: SignalReportStatus.READY },
+                ]
+            })
+            useMocks({
+                get: { '/api/projects/:team_id/signals/reports/report-1/': reportGet },
+                post: { '/api/projects/:team_id/signals/reports/:id/viewed/': [204, null] },
+            })
+            mountLogic()
+            logic.actions.setSelectedReportId('report-1')
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            setTabVisibility('visible')
+            await waitFor(() => expect(reportGet).toHaveBeenCalledTimes(2))
+            inboxBulkActionsLogic.actions.reportClaimChanged('report-1', myClaim)
+            releaseRefresh()
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            expect(logic.values.selectedReport).toMatchObject({
+                title: 'Crash on login after refresh',
+                assignee: myClaim,
+            })
         })
 
         // The lists behind the detail pane reconcile only on `reportStateChanged`, so a refresh that

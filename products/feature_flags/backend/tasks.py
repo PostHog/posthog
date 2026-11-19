@@ -24,9 +24,11 @@ from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.canary import run_local_eval_canary
 from products.feature_flags.backend.cross_region_flag_sync import sync_cross_region_flags
+from products.feature_flags.backend.flag_analytics import report_django_local_evaluation_usage
 from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
     clear_flags_cache,
+    enqueue_cohort_cache_invalidation,
     get_cache_stats,
     publish_shadow_invalidation,
     refresh_expiring_flags_caches,
@@ -34,7 +36,7 @@ from products.feature_flags.backend.flags_cache import (
 )
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
-    clear_flag_definition_caches,
+    flag_definitions_hypercache,
     update_flag_caches,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -87,10 +89,17 @@ def sync_cross_region_flags_task() -> None:
     sync_cross_region_flags()
 
 
-# Pinned: products.cohorts dispatches this by name (a static import would close a product-dependency
-# cycle), so a module move must not silently rename the registration out from under that caller.
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def report_django_local_evaluation_usage_task() -> None:
+    """Celery entrypoint for report_django_local_evaluation_usage.
+
+    On the long-running queue for the same reason as sync_cross_region_flags_task:
+    the usage-ingestion call blocks for its retries when that service stalls.
+    """
+    report_django_local_evaluation_usage()
+
+
 @shared_task(
-    name="products.feature_flags.backend.tasks.update_team_service_flags_cache",
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS.value,
 )
@@ -122,6 +131,19 @@ def update_team_service_flags_cache(team_id: int) -> None:
     # stale one, and the diff would report Python's failure as Rust drift.
     if success:
         publish_shadow_invalidation(team_id)
+
+
+# Pinned: products.cohorts dispatches this by name (a static import would close a product-dependency
+# cycle), so a module move must not silently rename the registration out from under that caller.
+@shared_task(
+    name="products.feature_flags.backend.tasks.invalidate_team_flags_cache_for_cohorts",
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+)
+def invalidate_team_flags_cache_for_cohorts(team_id: int) -> None:
+    """Raise a `cohort` invalidation of the team's flags-service cache for a caller that cannot
+    import products.feature_flags, such as the cohort backfill finalizer."""
+    enqueue_cohort_cache_invalidation(team_id)
 
 
 @shared_task(
@@ -223,11 +245,19 @@ def clear_team_evaluation_cache(team_id: int) -> None:
     clear_flags_cache(team_id)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+# The task retries because no rebuild can repair the entry once the Team row is gone.
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
 @skip_team_scope_audit
 def clear_team_definitions_cache(team_id: int) -> None:
-    """Clear the /flags/definitions local-eval cache for a specific team, enqueued by staff tooling."""
-    clear_flag_definition_caches(team_id)
+    """Clear the /flags/definitions local-eval cache for a team, on team deletion or from staff tooling."""
+    # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
+    flag_definitions_hypercache.delete_cache_entry(team_id, strict_mirror=True)
 
 
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
@@ -311,8 +341,8 @@ def cleanup_stale_flags_expiry_tracking_task(self: PushGatewayTask) -> None:
     """
     Periodic task to clean up stale entries in the flags cache expiry tracking sorted set.
 
-    Removes entries for teams that no longer exist in the database.
-    Runs daily to prevent sorted set bloat from deleted teams.
+    Deletes the cache entries of teams that no longer exist and removes their tracking members.
+    Runs daily, because a refresh can write a deleted team's entry again after the delete path cleared it.
     """
     if not settings.FLAGS_REDIS_URL:
         logger.info("Flags Redis URL not set, skipping flags expiry tracking cleanup")
@@ -523,8 +553,8 @@ def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -
     """
     Periodic task to clean up stale entries in the flag definitions cache expiry tracking sorted set.
 
-    Removes entries for teams that no longer exist in the database.
-    Runs daily to prevent sorted set bloat from deleted teams.
+    Deletes the cache entries of teams that no longer exist and removes their tracking members.
+    Runs daily, because a refresh can write a deleted team's entry again after the delete path cleared it.
     """
 
     from posthog.storage.cache_expiry_manager import cleanup_stale_expiry_tracking

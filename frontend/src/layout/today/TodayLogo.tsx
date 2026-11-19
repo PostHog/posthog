@@ -3,6 +3,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@posthog/quill'
 import { lettermarkColorIndex } from 'lib/lemon-ui/Lettermark/Lettermark'
 import { backendAssetUrl } from 'lib/utils/apiHost'
 
+import { leadingEmoji } from './leadingEmoji'
+
 /** quill's smallest avatar is 20px, so the tile and the menu row sizes override it. */
 const SIZE_CLASSES = {
     tile: 'size-7 text-xs',
@@ -18,7 +20,6 @@ export interface TodayLogoProps {
     size: keyof typeof SIZE_CLASSES
 }
 
-/** An uploaded org or project logo, or its first letter. */
 export function TodayLogo({ name, mediaId, colorSeed, size }: TodayLogoProps): JSX.Element {
     const color = colorSeed !== null ? lettermarkColorIndex(colorSeed) : null
     return (
@@ -33,7 +34,7 @@ export function TodayLogo({ name, mediaId, colorSeed, size }: TodayLogoProps): J
                         : undefined
                 }
             >
-                {name ? String.fromCodePoint(name.codePointAt(0)!).toLocaleUpperCase() : '?'}
+                {name ? (leadingEmoji(name) ?? String.fromCodePoint(name.codePointAt(0)!).toLocaleUpperCase()) : '?'}
             </AvatarFallback>
         </Avatar>
     )

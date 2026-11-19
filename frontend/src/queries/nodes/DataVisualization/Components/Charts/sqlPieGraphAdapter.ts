@@ -11,6 +11,7 @@ import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 
 export interface PieSlice {
     label: string
+    displayLabel?: string
     value: number
     color: string
 }
@@ -49,6 +50,7 @@ const seriesToSlices = (yData: SqlPieYSeries[]): PieSlice[] =>
     yData
         .map((series, index) => ({
             label: getSeriesLabel(series, index),
+            displayLabel: series.settings?.display?.label,
             value: sumValues(series.data),
             color: series.settings?.display?.color ?? getSeriesColor(index),
         }))
@@ -107,7 +109,7 @@ export const buildPieSeries = (slices: PieSlice[]): Series[] => {
         usedKeys.add(key)
         return {
             key,
-            label: slice.label,
+            label: slice.displayLabel || slice.label,
             color: slice.color,
             data: [slice.value],
         }

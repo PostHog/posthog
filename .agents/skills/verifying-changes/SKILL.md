@@ -20,7 +20,7 @@ Start with the cheapest, and move up only when the current layer cannot see what
 | 1     | Lint, format, typecheck      | `hogli verify --changed`, or `ruff check` and `pnpm --filter=@posthog/frontend typescript:check` |
 | 2     | The nearest unit test        | `hogli test <file>`, `hogli test --changed`                                                      |
 | 3     | Serializer and OpenAPI regen | `hogli up -d`, `hogli build:openapi`, then commit the generated diff                             |
-| 4     | Storybook render             | `pnpm storybook`, open the affected story, compare before and after                              |
+| 4     | Storybook render             | `STORYBOOK_STORIES=<dir> pnpm storybook`, open the affected story, compare before and after      |
 | 5     | The running stack            | `hogli up -d`, `hogli wait`, then exercise the flow                                              |
 | 6     | Playwright or a recorded run | `hogli test playwright/<spec>.spec.ts` against a running stack                                   |
 
@@ -28,6 +28,16 @@ Start with the cheapest, and move up only when the current layer cannot see what
 It does not report the diff as verified when a check was skipped, when a check only printed advice, or when no test covers the changed files.
 mypy is one of those advice-only checks. It runs repo-wide, so `hogli verify` prints its command instead of running it.
 Use `--plan` to see the classification without running anything.
+
+Each run records a stamp in the git directory: the layers that ran, passed, were skipped or were advice only, and the highest layer reached, or `none`.
+The stamp is keyed on the content of every tracked and untracked file, so any later edit makes it stale.
+The `commit-msg` hook compares the staged content with the stamp.
+`HOGLI_VERIFY_GATE` sets its mode: `observe` (the default) only reports a commit it would block, `enforce` blocks it, and `off` skips the check.
+To commit an unverified change under `enforce`, add an `Unverified: <reason>` line to the commit message.
+Start the reason with `docs`, `generated`, `config`, `trivial`, `wip`, `tooling` or `untestable`. Telemetry records only that word, or `other`.
+
+For layer 4, set `STORYBOOK_STORIES` to the directories or story files you need instead of editing the `stories` list in `main.ts`.
+`/working-with-storybook` covers starting Storybook, opening a story by URL, screenshots, and writing the story itself.
 
 ## Decision table
 

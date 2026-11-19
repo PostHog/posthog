@@ -3,9 +3,9 @@ import { useCallback, useMemo } from 'react'
 import type { TooltipContext } from '@posthog/quill-charts'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { toOpaqueHex } from 'lib/utils/colors'
 import { percentage } from 'lib/utils/numbers'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
@@ -86,7 +86,6 @@ export function TrendsTooltip({
                 breakdown_value: meta.breakdown_value,
                 compare_label: meta.compare_label,
                 date_label: meta.days?.[context.dataIndex],
-                filter: meta.filter,
             }
         })
         data.sort(

@@ -1,25 +1,22 @@
 """Batch export destination serializers: the typed config and request shape of each destination type."""
 
 import typing
-import collections.abc
 
 from django.db import models
 
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models.integration import Integration
+from posthog.integrations.fields import IntegrationReferenceField
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError
 from products.batch_exports.backend.facade.enums import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
-    OBJECT_STORAGE_DESTINATIONS,
+    BATCH_EXPORT_INTEGRATION_KINDS,
     S3_SUPPORTED_COMPRESSIONS,
     BatchExportDestinationType,
 )
-from products.batch_exports.backend.models.batch_export import BatchExportDestination
 
 
 class DatabricksDestinationConfigSerializer(serializers.Serializer):
@@ -72,9 +69,8 @@ class BigQueryDestinationConfigSerializer(serializers.Serializer):
 class PostgresDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for a PostgreSQL batch-export destination.
 
-    Connection credentials may live in a linked Integration (when one is provided) or
-    inline in this config (legacy). Mirrors the non-credential fields of
-    `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+    Connection credentials live in the linked Integration, never here. Mirrors the
+    non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
     """
 
     database = serializers.CharField(help_text="PostgreSQL database name to connect to.")
@@ -242,26 +238,9 @@ class SnowflakeDestinationConfigSerializer(serializers.Serializer):
     )
 
 
-_AWS_CREDENTIALS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "aws_access_key_id": {"type": "string"},
-        "aws_secret_access_key": {"type": "string"},
-    },
-    "required": ["aws_access_key_id", "aws_secret_access_key"],
-}
-
-
-@extend_schema_field(
-    {
-        "oneOf": [
-            {"type": "integer", "description": "ID of an aws-s3-kind Integration."},
-            _AWS_CREDENTIALS_SCHEMA,
-        ],
-    }
-)
+@extend_schema_field({"type": "integer", "description": "ID of an aws-s3-kind Integration."})
 class RedshiftCopyBucketCredentialsField(serializers.JSONField):
-    """Inline AWS credentials or the id of an aws-s3-kind Integration."""
+    """AWS S3 integration ID."""
 
     pass
 
@@ -271,12 +250,11 @@ class RedshiftCopyBucketCredentialsField(serializers.JSONField):
         "oneOf": [
             {"type": "integer", "description": "ID of an aws-s3-kind Integration."},
             {"type": "string", "description": "ARN of an IAM role attached to the Redshift cluster."},
-            _AWS_CREDENTIALS_SCHEMA,
         ],
     }
 )
 class RedshiftCopyAuthorizationField(serializers.JSONField):
-    """IAM role ARN, inline AWS credentials, or the id of an aws-s3-kind Integration."""
+    """IAM role ARN or AWS S3 integration ID."""
 
     pass
 
@@ -289,15 +267,11 @@ class RedshiftCopyInputsSerializer(serializers.Serializer):
     s3_key_prefix = serializers.CharField(help_text="Key prefix for staged files in the S3 bucket.")
     authorization = RedshiftCopyAuthorizationField(
         help_text=(
-            "Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached "
-            "to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration."
+            "Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID."
         ),
     )
     bucket_credentials = RedshiftCopyBucketCredentialsField(
-        help_text=(
-            "Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an "
-            "aws-s3-kind Integration."
-        ),
+        help_text=("AWS S3 integration ID used to stage files in the S3 bucket."),
     )
 
 
@@ -309,8 +283,7 @@ class RedshiftExportMode(models.TextChoices):
 class RedshiftDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for a Redshift batch-export destination.
 
-    Connection credentials may live in a linked Integration (when one is provided) or inline in
-    this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+    Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
     `products/batch_exports/backend/service.py`.
     """
 
@@ -506,89 +479,14 @@ class BatchExportDestinationRequestField(serializers.JSONField):
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
     S3Compatible, Snowflake, Redshift) are exposed in the schema. integration_id is required for
-    every one of them. Existing Postgres and Redshift exports created before integrations keep
-    their inline credentials and stay valid when edited. Runtime validation remains
+    every one of them. Runtime validation remains
     `BatchExportDestinationSerializer.validate_destination`.
     """
 
     pass
 
 
-# S3-family destinations that may authenticate via an Integration, mapped to
-# the linked integration's kind. Adding a future S3-family destination (e.g. a
-# first-class GCS-via-S3 type) is a one-line addition here.
-S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
-    BatchExportDestinationType.AWS_S3: Integration.IntegrationKind.AWS_S3,
-    BatchExportDestinationType.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
-}
-
-
-def _writes_compressed_parquet(config: dict[str, typing.Any]) -> bool:
-    """Whether a config produces Parquet file names that carry a compression codec."""
-    return config.get("file_format") == "Parquet" and config.get("compression") is not None
-
-
-def _uses_legacy_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> bool:
-    """Whether an export's stored config already writes the codec into its Parquet file names.
-
-    Reads through `coerce_destination_config`, because `EncryptedJSONField` stringifies
-    scalars on write and the string "False" is truthy.
-    """
-    coerced = batch_exports_api.coerce_destination_config(destination_type, stored_config)
-    stored = coerced.get("legacy_parquet_extension")
-    if stored is None:
-        # export was created before the `legacy_parquet_extension` field was added
-        # so will use the legacy extension if it writes compressed Parquet files
-        return _writes_compressed_parquet(coerced)
-    return bool(stored)
-
-
-def _set_default_parquet_extension(destination_type: str, config: dict[str, typing.Any]) -> None:
-    """Opt a newly created destination into the standard `.parquet` extension.
-
-    The workflow input dataclasses default this to `True`, so that an export whose Temporal
-    schedule predates the field keeps the same file extension as before in order to maintain
-    compatibility.
-    """
-    if destination_type in OBJECT_STORAGE_DESTINATIONS:
-        config.setdefault("legacy_parquet_extension", False)
-
-
-def _pin_existing_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> None:
-    """Record what an export's file names already look like, before a patch can change its format.
-
-    An export that predates this setting has no value for it, and a missing value reads as the
-    legacy naming. That is correct only for an export that already writes names carrying a codec,
-    which means Parquet with a compression codec set. An export on JSON Lines, or on Parquet with
-    no compression, has no such names to keep, so moving it to compressed Parquet has to produce
-    `.parquet` rather than `.parquet.zst`.
-
-    Takes the config as stored, before the incoming patch merges into it, so the value reflects
-    what the export has been running rather than what it is moving to. An explicit value in the
-    patch still wins, because the merge applies afterwards.
-    """
-    if destination_type not in OBJECT_STORAGE_DESTINATIONS:
-        return
-
-    stored_config.setdefault("legacy_parquet_extension", _writes_compressed_parquet(stored_config))
-
-
-def _coerce_integration_id(value: typing.Any) -> int | None:
-    """Return the integration id encoded in a Redshift COPY credential value, if any.
-
-    `BatchExportDestination.config` is an `EncryptedJSONField`, which stringifies scalar
-    leaves on the decrypt round trip, so an id may arrive as an int or a numeric string.
-    """
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    return None
-
-
-class BatchExportDestinationSerializer(serializers.ModelSerializer):
+class BatchExportDestinationSerializer(serializers.Serializer):
     """Serializer for an BatchExportDestination model.
 
     The `config` field is polymorphic and typed only for destinations that keep
@@ -597,6 +495,9 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
     but without a typed OpenAPI schema. Secret fields are stripped from `config` on read.
     """
 
+    type = serializers.ChoiceField(
+        choices=BatchExportDestinationType.choices, help_text="A choice of supported BatchExportDestination types."
+    )
     config = TypedBatchExportDestinationConfigField(
         help_text=(
             "Destination-specific configuration. Fields depend on `type`. Credentials for "
@@ -605,15 +506,15 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             "stripped from responses."
         ),
     )
-    integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+    integration = IntegrationReferenceField(
+        kinds=BATCH_EXPORT_INTEGRATION_KINDS,
         required=False,
         allow_null=True,
         help_text="The integration for this destination.",
     )
-    integration_id = TeamScopedPrimaryKeyRelatedField(
+    integration_id = IntegrationReferenceField(
+        kinds=BATCH_EXPORT_INTEGRATION_KINDS,
         write_only=True,
-        queryset=Integration.objects.all(),
         source="integration",
         required=False,
         allow_null=True,
@@ -623,46 +524,19 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         ),
     )
 
-    class Meta:
-        model = BatchExportDestination
-        fields = ["type", "config", "integration", "integration_id"]
-
-    def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
-        """Create a BatchExportDestination."""
-        export_destination = BatchExportDestination.objects.create(**validated_data)
-        return export_destination
-
     def validate(self, attrs: dict[str, typing.Any]) -> dict[str, typing.Any]:
         """Check the config against the destination's workflow inputs, through the facade."""
         request = self.context.get("request")
         is_patch = request is not None and request.method == "PATCH"
+        # A connection test of a saved export may leave out fields, because its stored config fills them.
+        # TODO: remove this and the context key that `run_test_step` sets once inline credentials are gone.
+        partial = is_patch or self.context.get("partial_destination_config", False)
 
         try:
             attrs["config"] = batch_exports_api.validate_destination_config(
-                attrs["type"], attrs["config"], partial=is_patch
+                attrs["type"], attrs["config"], partial=partial
             )
         except InvalidDestinationConfigError as e:
             raise serializers.ValidationError(str(e))
 
         return attrs
-
-    def to_representation(self, instance: BatchExportDestination) -> dict:
-        data = super().to_representation(instance)
-
-        def remove_secret_fields_recursive(d: dict[str, typing.Any]):
-            target = {}
-
-            for k, v in d.items():
-                if k in BatchExportDestination.secret_fields[instance.type]:
-                    continue
-                elif isinstance(v, dict):
-                    target[k] = remove_secret_fields_recursive(v)
-                else:
-                    target[k] = v
-
-            return target
-
-        config = remove_secret_fields_recursive(data["config"])
-        data["config"] = batch_exports_api.coerce_destination_config(instance.type, config)
-
-        return data

@@ -27,7 +27,7 @@ from products.experiments.backend.facade.contracts import (
     SessionAttribution,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, experiment_variants
 from products.experiments.backend.replay_linkage import (
     EXPERIMENT_HAS_NO_FLAG_MESSAGE,
     ExperimentExposureLinkage,
@@ -126,7 +126,7 @@ def variant_rollout_shares(team: Team, *, experiment_id: int) -> dict[str, float
     requestable = set(_requestable_variant_keys(experiment))
     return {
         definition["key"]: (definition.get("rollout_percentage") or 0) / 100
-        for definition in flag.variants
+        for definition in experiment_variants(experiment)
         if definition.get("key") in requestable
     }
 
@@ -147,7 +147,7 @@ def experiment_prompt_context(team: Team, *, experiment_id: int) -> ExperimentPr
             description=definition.get("name") or "",
             rollout_percentage=float(definition.get("rollout_percentage") or 0),
         )
-        for definition in flag.variants
+        for definition in experiment_variants(experiment)
         if definition.get("key") in requestable
     )
     # Saved metrics live on a junction table, classified primary/secondary by the link's

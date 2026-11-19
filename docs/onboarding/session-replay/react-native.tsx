@@ -21,14 +21,14 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'Expo',
                                 code: dedent`
-                                    npx expo install posthog-react-native expo-file-system expo-application expo-device expo-localization @posthog/react-native-plugin
+                                    npx expo install posthog-react-native@4 expo-file-system expo-application expo-device expo-localization @posthog/react-native-plugin@2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin
+                                    yarn add posthog-react-native@4 @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin@2
 
                                     # for iOS
                                     cd ios && pod install
@@ -38,7 +38,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm i -s posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin
+                                    npm i -s posthog-react-native@4 @react-native-async-storage/async-storage react-native-device-info react-native-localize @posthog/react-native-plugin@2
 
                                     # for iOS
                                     cd ios && pod install

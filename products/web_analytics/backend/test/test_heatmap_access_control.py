@@ -17,6 +17,7 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
@@ -37,6 +38,7 @@ class TestHeatmapResourceRegistration(SimpleTestCase):
 class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.enterContext(mock_anti_ssrf_dns_lookup())
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},

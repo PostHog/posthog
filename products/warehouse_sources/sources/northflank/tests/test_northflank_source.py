@@ -1,0 +1,29 @@
+from parameterized import parameterized
+
+from products.warehouse_sources.sources.northflank._config import NorthflankSourceConfig
+from products.warehouse_sources.sources.northflank.settings import ENDPOINTS
+from products.warehouse_sources.sources.northflank.source import NorthflankSource
+
+
+class TestNorthflankSource:
+    def setup_method(self):
+        self.source = NorthflankSource()
+        self.team_id = 123
+        self.config = NorthflankSourceConfig(api_token="nf-token")
+
+    @parameterized.expand(
+        [
+            ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",),
+        ]
+    )
+    def test_non_retryable_errors_ignore_transient_and_unrelated(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_only_usage_advertises_incremental(self, endpoint):
+        # Only billing usage has a server-side timestamp filter; every other table is full refresh.
+        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
+        assert schema.supports_incremental is (endpoint == "usage")
+        assert schema.supports_append is False
+        assert bool(schema.incremental_fields) is (endpoint == "usage")

@@ -19,10 +19,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, get_authenticator_client
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
@@ -30,15 +32,21 @@ from .. import libraries, logic
 from ..constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
+    BK_RERANK_REQUEST_MAX_RETRIES,
+    BK_RERANK_REQUEST_TIMEOUT,
     BK_SEARCH_DEFAULT_LIMIT,
     BK_SEARCH_MAX_LIMIT,
+    MAX_URLS_PER_SOURCE,
 )
 from ..file_parse import FileParseError
+from ..github_repos import connection_status
+from ..key_libraries import key_library_id, readable_library_id
 from ..libraries import LibraryNotFound
 from ..llm_telemetry import RetrievalTrace
 from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
+from ..usage import attach_source_citations, knowledge_usage
 from .serializers import (
     AggregatedGapSerializer,
     CreateCrawlSourceSerializer,
@@ -48,15 +56,19 @@ from .serializers import (
     GapActionSerializer,
     GapTopicActionResultSerializer,
     GapTopicActionSerializer,
+    KnowledgeAvailabilitySerializer,
     KnowledgeDocumentWindowSerializer,
     KnowledgeGapSuggestionSerializer,
     KnowledgeSearchResultSerializer,
     KnowledgeSourceDocumentSerializer,
     KnowledgeSourceSerializer,
+    KnowledgeUsageQuerySerializer,
+    KnowledgeUsageSerializer,
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
 )
 from .settings import CanonicalTeamTokenPermission, canonical_user_access_control
+from .throttles import KNOWLEDGE_THROTTLES
 
 logger = structlog.get_logger(__name__)
 
@@ -64,6 +76,14 @@ logger = structlog.get_logger(__name__)
 def _ensure_user_managed_source(source: KnowledgeSource) -> None:
     if source.is_generated:
         raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
+
+
+def _can_read_parent_knowledge(view: TeamAndOrgViewSetMixin, request: Request) -> bool:
+    # Sources live on the parent project, so a child environment's own token scope and grant are not enough.
+    return not view.team.parent_team_id or (
+        CanonicalTeamTokenPermission().has_permission(request, view)
+        and canonical_user_access_control(view).check_access_level_for_resource("business_knowledge", "viewer")
+    )
 
 
 def _requested_library_ids(team_id: int, request: Request) -> list[UUID] | None:
@@ -83,6 +103,11 @@ def _requested_library_ids(team_id: int, request: Request) -> list[UUID] | None:
     except libraries.LibraryRejected as exc:
         raise exceptions.ValidationError(exc.errors) from None
     return parsed
+
+
+class SourceDocumentsPagination(BoundedLimitOffsetPagination):
+    # The frontend reads a source's whole document list in one request, and a crawl stops at this many URLs.
+    max_limit = MAX_URLS_PER_SOURCE
 
 
 class _ConflictError(exceptions.APIException):
@@ -165,6 +190,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             unfiled=unfiled,
         )
         page = self.paginate_queryset(sources)
+        attach_source_citations(self.team_id, page if page is not None else sources)
         if page is not None:
             return self.get_paginated_response(KnowledgeSourceSerializer(instance=page, many=True).data)
         return Response(KnowledgeSourceSerializer(instance=sources, many=True).data)
@@ -440,6 +466,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 refresh_interval=serializer.validated_data.get("refresh_interval"),
                 always_include=serializer.validated_data.get("always_include"),
             )
+            if updated is not None and updated.is_refresh_claimed:
+                self._start_background_refresh(updated.source)
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
         except (logic.UrlFetchFailedError, logic.EmptyContentError):
@@ -452,7 +480,62 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
             raise exceptions.NotFound()
-        return Response(KnowledgeSourceSerializer(instance=updated).data)
+        fresh = logic.get_for_team(updated.source.id, self.team_id) or updated.source
+        return Response(KnowledgeSourceSerializer(instance=fresh).data)
+
+    @extend_schema(
+        responses={200: KnowledgeAvailabilitySerializer},
+        summary="Check whether business knowledge has content",
+        description="Whether the project has any source and whether this environment has any selected GitHub repository.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="availability",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def availability(self, request: Request, **kwargs) -> Response:
+        # A grant on one source passes this viewset's permissions, but these flags describe the whole resource.
+        if not (
+            self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer")
+            and _can_read_parent_knowledge(self, request)
+        ):
+            raise exceptions.PermissionDenied(detail="You need access to business knowledge in this project.")
+        return Response(
+            KnowledgeAvailabilitySerializer(
+                {
+                    "has_sources": logic.has_sources(self.team_id),
+                    "has_repositories": bool(connection_status(self.team)["repos"]),
+                }
+            ).data
+        )
+
+    @extend_schema(
+        parameters=[KnowledgeUsageQuerySerializer],
+        responses={200: KnowledgeUsageSerializer},
+        description=(
+            "Usage of the project's knowledge over a period: chunks ingested, searches, and how often "
+            "support agent runs cited the sources."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="usage",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def usage(self, request: Request, **kwargs) -> Response:
+        # A grant on one source passes this viewset's permissions, but usage describes the whole resource.
+        if not (
+            self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer")
+            and _can_read_parent_knowledge(self, request)
+        ):
+            raise exceptions.PermissionDenied(detail="You need access to business knowledge in this project.")
+        query = KnowledgeUsageQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        return Response(KnowledgeUsageSerializer(knowledge_usage(self.team_id, days=query.validated_data["days"])).data)
 
     @extend_schema(responses={200: KnowledgeSourceDocumentSerializer(many=True)})
     @action(
@@ -460,6 +543,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["get"],
         url_path="documents",
         required_scopes=["business_knowledge:read"],
+        pagination_class=SourceDocumentsPagination,
     )
     def documents(self, request: Request, pk: str, **kwargs) -> Response:
         try:
@@ -535,7 +619,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     source_id=str(source.id),
                     claim_id=str(source.processing_claim_id) if source.processing_claim_id else None,
                 ),
-                id=f"business-knowledge-refresh-{source.id}",
+                id=f"business-knowledge-refresh-{source.id}-{source.processing_claim_id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             )
         except Exception:
@@ -567,9 +651,12 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "business_knowledge"
     queryset = KnowledgeDocument.objects.unscoped()
     serializer_class = KnowledgeDocumentWindowSerializer
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # Every action listed here must apply the key's library limit from `key_libraries`.
+    psak_allowed_actions = ["search", "window"]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     posthog_feature_flag = "product-business-knowledge"
-    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+    throttle_classes = KNOWLEDGE_THROTTLES
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
@@ -616,13 +703,24 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # an attacker can't probe doc existence. `.unscoped()` + explicit
         # team_id filter mirrors the source viewset (the manager needs an
         # explicit team scope otherwise).
-        if not KnowledgeDocument.objects.unscoped().filter(id=document_id, team_id=self.team_id).exists():
+        # Before the document lookup, so a key whose library is gone gets one answer for every document id.
+        library_id = key_library_id(request)
+        source_ids = list(
+            KnowledgeDocument.objects.unscoped()
+            .filter(id=document_id, team_id=self.team_id)
+            .values_list("source_id", flat=True)[:1]
+        )
+        if not source_ids:
+            raise exceptions.NotFound()
+        if library_id is not None and not libraries.library_has_source(self.team_id, library_id, source_ids[0]):
             raise exceptions.NotFound()
 
         around_ordinal = self._parse_int_param(request, "around_ordinal", required=True)
         radius = self._parse_int_param(request, "radius", required=False, default=BK_DRILLDOWN_DEFAULT_RADIUS)
 
-        results = logic.get_document_window(self.team_id, document_id, around_ordinal, radius=radius)
+        results = logic.get_document_window(
+            self.team_id, document_id, around_ordinal, radius=radius, library_id=library_id
+        )
         return Response(KnowledgeDocumentWindowSerializer(instance=results, many=True).data)
 
     @extend_schema(
@@ -681,11 +779,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = self._parse_int_param(request, "limit", required=False, default=BK_SEARCH_DEFAULT_LIMIT)
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
-        # Search reads the parent project's rows, so a child environment's own token scope and grant are not enough.
-        if self.team.parent_team_id and not (
-            CanonicalTeamTokenPermission().has_permission(request, self)
-            and canonical_user_access_control(self).check_access_level_for_resource("business_knowledge", "viewer")
-        ):
+        if not _can_read_parent_knowledge(self, request):
             raise exceptions.PermissionDenied(
                 detail="You need access to business knowledge in this project to search it."
             )
@@ -696,7 +790,15 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team, query.strip(), limit=search_limit, trace=trace, library_id=library_id
         )
         if rerank:
-            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit, trace=trace)
+            results = logic.rerank_chunks(
+                self.team,
+                query.strip(),
+                results,
+                top_k=limit,
+                trace=trace,
+                timeout=BK_RERANK_REQUEST_TIMEOUT,
+                max_retries=BK_RERANK_REQUEST_MAX_RETRIES,
+            )
         # `search_knowledge` expands each anchor with its ordinal neighbours, so it
         # can return up to ~3x the anchor limit. Trim to honor the requested bound.
         results = results[:limit]
@@ -708,6 +810,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "result_count": len(results),
                     "surface": "api",
                     "library_scoped": library_id is not None,
+                    "credential_type": get_authenticator_client(request.successful_authenticator)["credential_type"],
                 },
                 groups=groups(team=self.team),
             )
@@ -717,15 +820,15 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _search_library_id(self, request: Request) -> UUID | None:
         raw = request.query_params.get("library_id")
-        if not raw:
+        requested: UUID | None = None
+        if raw:
+            try:
+                requested = UUID(raw)
+            except (ValueError, DjangoValidationError):
+                raise exceptions.ValidationError({"library_id": "Must be a library id."}) from None
+        library_id = readable_library_id(request, requested)
+        if library_id is None:
             return None
-        return self._existing_library_id(raw)
-
-    def _existing_library_id(self, raw: str) -> UUID:
-        try:
-            library_id = UUID(raw)
-        except (ValueError, DjangoValidationError):
-            raise exceptions.ValidationError({"library_id": "Must be a library id."}) from None
         try:
             libraries.get_library(self.team_id, library_id)
         except LibraryNotFound:

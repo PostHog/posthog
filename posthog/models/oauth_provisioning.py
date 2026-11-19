@@ -17,7 +17,6 @@ to an operator as a capability that was granted.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -62,9 +61,11 @@ class ProvisioningConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
+    # Every partner gate checks `active`. Staff change it, and `disabled`, by accepting or blocking
+    # the partner in PostHog Admin, which keeps the two consistent.
     active: bool = False
-    # Kill switch for a misbehaving partner. Checked separately from `active` so re-running the
-    # self-serve defaults cannot turn a partner an admin switched off back on.
+    # Set with `active` off when staff block a partner. Separate from `active` so re-running the
+    # self-serve defaults on a new registration cannot turn a blocked partner back on.
     disabled: bool = False
 
     can_create_accounts: bool = False
@@ -88,18 +89,6 @@ class ProvisioningConfig(BaseModel):
             "own billing. A provisioning partner needs private_key_jwt client authentication before it can pay."
         ),
     )
-
-    # Staff-only, so support can move one partner's deadline without a deploy.
-    unsigned_allowed_until: datetime | None = Field(
-        default=None,
-        description=(
-            "Until when this partner may send provisioning requests without a private_key_jwt signature. "
-            "Replaces the shared grace period for this partner. Blank uses the shared grace period."
-        ),
-    )
-
-    # Stamped at promotion, because the app row can predate the partnership by any amount.
-    partner_since: datetime | None = None
 
     # Per-endpoint hourly overrides, keyed by rate-limit endpoint name. An absent key
     # means the tier-derived budget applies; UNLIMITED_OVERRIDE disables the limit.
@@ -125,14 +114,6 @@ class ProvisioningConfig(BaseModel):
                 continue
             limits[str(key)] = UNLIMITED_OVERRIDE if parsed <= 0 else parsed
         return limits
-
-    @field_validator("unsigned_allowed_until", "partner_since")
-    @classmethod
-    def _read_naive_datetime_as_utc(cls, value: datetime | None) -> datetime | None:
-        # Compared with the aware current time on every request, where a naive value would raise.
-        if value is None or value.tzinfo is not None:
-            return value
-        return value.replace(tzinfo=UTC)
 
 
 PROVISIONING_CAPABILITIES: tuple[str, ...] = tuple(

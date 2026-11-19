@@ -3,6 +3,24 @@ from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.otel_metrics import OtelInstrumentFactory
 
+
+def record_membership_operation(
+    operation: str, outcome: str, count: int = 1, *, rows: int = 0, lag_seconds: float | None = None
+) -> None:
+    client = posthoganalytics.default_client
+    if client is None:
+        return
+    try:
+        client.metrics.count(
+            "customer_analytics.membership.operations", count, attributes={"operation": operation, "outcome": outcome}
+        )
+        client.metrics.count("customer_analytics.membership.rows", rows)
+        if lag_seconds is not None:
+            client.metrics.histogram("customer_analytics.membership.lag", lag_seconds, unit="s")
+    except Exception:
+        pass
+
+
 _ACCOUNT_TRACK_RULE_RUNS = Counter(
     "customer_analytics_account_track_rule_runs_total",
     "Account Track Rule runs by trigger and terminal status",

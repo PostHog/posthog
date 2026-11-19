@@ -105,13 +105,14 @@ sequenceDiagram
     participant PH as PostHog
 
     User->>VM: Click "Link Existing Account"
-    VM->>PH: GET /connect/vercel/callback (OAuth code, no state)
+    VM->>PH: GET /connect/vercel/callback (Marketplace OAuth code, no state)
+    PH->>PH: Exchange Marketplace code, keep the grant for the state (10 min TTL)
     PH-->>User: Redirect to Vercel's install page with a state, set a state cookie
     User->>VM: Continue on the install page
-    VM->>PH: GET /connect/vercel/callback (OAuth code + same state)
+    VM->>PH: GET /connect/vercel/callback (install OAuth code + same state)
     PH->>PH: Reject unless the state matches this browser's cookie
-    PH->>PH: Exchange code for access token
-    PH->>PH: Store session in cache (10 min TTL)
+    PH->>PH: Exchange install code, reject unless its Vercel user matches the Marketplace grant
+    PH->>PH: Sign a link session with the Marketplace grant (10 min TTL)
 
     PH-->>User: Show org selection page
     User->>PH: Select org, POST /api/vercel/connect/complete

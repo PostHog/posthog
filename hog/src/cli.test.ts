@@ -1,0 +1,184 @@
+import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
+
+import { EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
+import { VERSION } from '@/version'
+
+import { runHog } from './testing'
+
+describe('hog', () => {
+    test.each([
+        ['no arguments prints help', [], 'Usage: hog'],
+        ['--version prints the version', ['--version'], VERSION],
+        ['help for a command prints its usage', ['help', 'query', 'run'], 'Usage: hog query run'],
+        [
+            'help after a global option still finds the command',
+            ['-o', 'json', 'help', 'query', 'run'],
+            'Usage: hog query run',
+        ],
+        ['command help lists examples and scopes', ['query', 'run', '--help'], 'Needs the scopes: query:read'],
+        ['help for a shortcut shows the command it names', ['help', 'whoami'], 'Usage: hog auth status'],
+    ])('%s', async (_name, argv, stdout) => {
+        const result = await runHog(argv)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.stdout).toContain(stdout)
+    })
+
+    test.each([
+        ['an unknown command', ['nope'], 'unknown_command', 'hog feedback "<what happened>"'],
+        ['a name only Object.prototype has', ['constructor'], 'unknown_command', 'hog feedback "<what happened>"'],
+        ['__proto__', ['__proto__'], 'unknown_command', 'hog feedback "<what happened>"'],
+        [
+            'a missing argument',
+            ['query', 'check'],
+            'usage_error',
+            'hog feedback --area "hog query check" "<what happened>"',
+        ],
+        [
+            'a query run without a query or --wait',
+            ['query', 'run'],
+            'query_required',
+            'hog feedback --area "hog query run" "<what happened>"',
+        ],
+        [
+            'an invalid --output',
+            ['et', 'upload', 'secret-path', '-o', 'yaml'],
+            'usage_error',
+            'hog feedback --area "hog error-tracking upload" "<what happened>"',
+        ],
+    ])('%s is a usage error, reported as JSON to agents', async (_name, argv, code, feedback) => {
+        const result = await runHog(argv, { env: { CLAUDECODE: '1' } })
+        expect(result.exitCode).toBe(EXIT_USAGE)
+        expect(result.error()).toMatchObject({ code, feedback })
+        expect(result.error().message).not.toContain('undefined')
+    })
+
+    test.each([
+        ['login', ['login', 'upload'], 'Did you mean `hog auth login`?'],
+        ['sourcemap', ['sourcemap', 'upload'], '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
+        ['exp', ['exp', 'upload'], '`exp` is `hog query|endpoints|schema` in hog.'],
+        ['api skill', ['api', 'skill', 'install', 'posthog-flags'], '`skill` is `hog skills list|add` in hog.'],
+    ])('a command that moved, like %s, points to its new name', async (_name, argv, message) => {
+        const result = await runHog(argv)
+        expect(result.exitCode).toBe(EXIT_USAGE)
+        expect(result.error().message).toContain(message)
+    })
+
+    test.each([
+        ['hog alone shows a person the overview', [], true, 'Get started', 'Usage: hog'],
+        ['hog --help shows a person no exit codes', ['--help'], true, 'Usage: hog', 'Exit codes'],
+        ['hog alone shows an agent the full help', [], false, 'Exit codes', 'Get started'],
+        ['hog --help shows an agent the exit codes', ['--help'], false, 'Exit codes', 'Get started'],
+    ])('%s', async (_name, argv, person, shown, hidden) => {
+        const result = await runHog(argv, person ? { stdoutIsTTY: true, env: { NO_COLOR: '1' } } : {})
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.stdout).toContain(shown)
+        expect(result.stdout).not.toContain(hidden)
+    })
+
+    test('every command the overview names exists', async () => {
+        const overview = await runHog([], { stdoutIsTTY: true, env: { NO_COLOR: '1' } })
+        const named = [...overview.stdout.matchAll(/^ {2}hog ([a-z -]+?)(?= [<[]| {2})/gm)].map((match) => match[1]!)
+        const manifest = (await runHog(['commands'], { env: { CLAUDECODE: '1' } })).json(
+            z.object({ commands: z.array(z.object({ name: z.string() })), aliases: z.record(z.string(), z.string()) })
+        )
+        const commands = new Set(manifest.commands.map((command) => command.name))
+        const resolve = (name: string): string => {
+            const alias = Object.keys(manifest.aliases).find((key) => name === key || name.startsWith(`${key} `))
+            return alias ? manifest.aliases[alias] + name.slice(alias.length) : name
+        }
+
+        expect(named.length).toBeGreaterThan(0)
+        expect(named.filter((name) => !commands.has(resolve(name)))).toEqual([])
+    })
+
+    test('hog whoami runs hog auth status', async () => {
+        const whoami = await runHog(['whoami'])
+        const status = await runHog(['auth', 'status'])
+
+        expect({ exitCode: whoami.exitCode, stdout: whoami.stdout }).toEqual({
+            exitCode: status.exitCode,
+            stdout: status.stdout,
+        })
+        expect(whoami.stdout).toContain('"authenticated"')
+    })
+
+    test('a person sees errors as text', async () => {
+        const result = await runHog(['qury'], { stdoutIsTTY: true, env: { NO_COLOR: '1' } })
+        expect(result.stderr).toBe(
+            'Error: Unknown command \'qury\'\n(Did you mean query?)\nRun `hog --help` to see the available commands.\nSend feedback about this to the PostHog team: hog feedback "<what happened>"\n'
+        )
+    })
+
+    test('commands lists every command for agents', async () => {
+        const result = await runHog(['commands'], { env: { CLAUDECODE: '1' } })
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        const manifest = result.json(
+            z.looseObject({
+                globalOptions: z.array(z.unknown()),
+                commands: z.array(z.looseObject({ name: z.string() })),
+            })
+        )
+        expect(manifest).toMatchObject({
+            cli: 'hog',
+            agent: 'claude-code',
+            aliases: { et: 'error-tracking', whoami: 'auth status' },
+        })
+        expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
+        expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
+            name: 'query run',
+            arguments: [{ name: 'query', required: false, stdin: true }],
+            scopes: ['query:read'],
+        })
+        expect(
+            manifest.commands.filter((command) => command.refusesCI === true).map((command) => command.name)
+        ).toEqual(['setup', 'auth migrate', 'ci setup'])
+        expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
+            'setup',
+            'auth login',
+            'auth add',
+            'auth logout',
+            'auth migrate',
+            'auth status',
+            'ci setup',
+            'query run',
+            'query check',
+            'api groups',
+            'api tools',
+            'api search',
+            'api info',
+            'api schema',
+            'api call',
+            'api access',
+            'api refresh',
+            'skills',
+            'skills list',
+            'skills search',
+            'skills read',
+            'skills add',
+            'mcp add',
+            'error-tracking inject',
+            'error-tracking clone',
+            'error-tracking upload',
+            'error-tracking process',
+            'error-tracking release',
+            'error-tracking download',
+            'error-tracking extract',
+            'endpoints list',
+            'endpoints get',
+            'endpoints open',
+            'endpoints run',
+            'endpoints push',
+            'endpoints pull',
+            'endpoints diff',
+            'schema pull',
+            'schema status',
+            'config check',
+            'config schema',
+            'commands',
+            'upgrade',
+            'feedback',
+        ])
+    })
+})

@@ -2,6 +2,7 @@
 
 import uuid
 import ipaddress
+import dataclasses
 from collections.abc import Iterable
 
 from posthog.dataclasses import frozen
@@ -12,6 +13,10 @@ DOT_INSENSITIVE_DOMAINS = frozenset({"gmail.com", "googlemail.com"})
 # SMTP caps a deliverable address at 254 characters. Longer input is refused so the domain suffix expansion stays small.
 MAX_ADDRESS_LENGTH = 254
 
+LOOKALIKE_DOTS = "\u3002\uff0e\uff61\ufe52\u2024"
+HIDDEN_CHARACTERS = "\u00ad\u200b\u200c\u200d\u2060\ufeff"
+_FOLD_LOOKALIKES = str.maketrans(dict.fromkeys(LOOKALIKE_DOTS, ".") | dict.fromkeys(HIDDEN_CHARACTERS, None))
+
 
 @frozen
 class Subject:
@@ -21,6 +26,11 @@ class Subject:
     user_uuid: str | None = None
     organization_ids: frozenset[str] = frozenset()
     ip: ipaddress.IPv4Address | ipaddress.IPv6Address | None = None
+    lookalike: "Subject | None" = None
+
+
+def fold_lookalikes(value: str) -> str:
+    return value.translate(_FOLD_LOOKALIKES)
 
 
 def fold_email_root(address: str) -> str | None:
@@ -71,12 +81,24 @@ def normalize_subject(
         subject_domain = (domain or "").strip().lower().removeprefix("@") or None
     if subject_domain and len(subject_domain) > MAX_ADDRESS_LENGTH:
         subject_domain = None
-    organizations = frozenset(filter(None, (_canonical_uuid(org) for org in organization_ids)))
-    return Subject(
+    subject = Subject(
         email=address,
         email_root=fold_email_root(address) if address else None,
         domain=subject_domain,
         user_uuid=_canonical_uuid(user_uuid),
-        organization_ids=organizations,
+        organization_ids=frozenset(filter(None, (_canonical_uuid(org) for org in organization_ids))),
         ip=_parse_ip(ip),
+    )
+    folded_address = fold_lookalikes(address) if address else None
+    folded_domain = fold_lookalikes(subject_domain) if subject_domain else None
+    if folded_address == address and folded_domain == subject_domain:
+        return subject
+    return dataclasses.replace(
+        subject,
+        lookalike=dataclasses.replace(
+            subject,
+            email=folded_address,
+            email_root=fold_email_root(folded_address) if folded_address else None,
+            domain=folded_domain or None,
+        ),
     )

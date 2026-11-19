@@ -40,6 +40,7 @@ from .skill_services import (
     compute_spec_problems,
     normalize_skill_file_path,
     resolve_owner_users,
+    resolve_skill_metadata,
     resolve_skill_owners,
     seed_skill_owner,
     set_skill_owners,
@@ -221,7 +222,7 @@ class LLMSkillSearchQuerySerializer(serializers.Serializer):
         min_length=1,
         max_length=200,
         trim_whitespace=True,
-        help_text="Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.",
+        help_text="Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.",
     )
 
 
@@ -798,9 +799,18 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         help_text="User UUIDs to set as the skill's owners. Each must be a member of this project. "
         "Defaults to the creating user when omitted; pass an empty list to create with no owners.",
     )
+    version_description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        help_text="Optional note on where this skill came from, such as written from scratch or ported from "
+        "another skill. Stored on version 1 and shown in the version history.",
+    )
 
     class Meta(LLMSkillSerializer.Meta):
-        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners")]
+        read_only_fields = [
+            f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners", "version_description")
+        ]
         extra_kwargs = {
             **LLMSkillSerializer.Meta.extra_kwargs,
             "name": {
@@ -812,11 +822,15 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
 
+    def validate_version_description(self, value: str) -> str | None:
+        return value.strip() or None
+
     def create(self, validated_data: dict[str, Any]) -> LLMSkill:
         request = self.context["request"]
         team = self.context["get_team"]()
         files = validated_data.pop("files", None)
         owner_uuids = validated_data.pop("owners", None)
+        validated_data["metadata"] = resolve_skill_metadata(validated_data.get("metadata"), None)
 
         with transaction.atomic():
             # `category` is read-only on the serializer, so it can never arrive in validated_data —

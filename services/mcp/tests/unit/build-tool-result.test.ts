@@ -100,6 +100,33 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         }
     )
 
+    it.each([
+        ['the formatted table', true, FORMATTED_TABLE],
+        ['the structuredContent pointer', false, STRUCTURED_CONTENT_ONLY_TEXT],
+    ])('appends the time series block after %s when asked', (_label, withFormatted, expectedBody) => {
+        const handlerResult = queryTrendsHandlerResult(withFormatted)
+        const [series] = handlerResult.results as Record<string, unknown>[]
+        series!.days = FORMATTED_TABLE.split('\n')
+            .slice(1)
+            .map((row) => row.split('|')[0])
+
+        const payload = buildToolResultPayload({
+            handlerResult,
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            forceUiDataToMeta: true,
+            appendTimeSeriesChartData: true,
+        })
+
+        const [body, block] = payload.content[0]!.text.split('\n\n')
+        expect(body).toBe(expectedBody)
+        expect(JSON.parse(block!.split('\n')[1]!).series[0]).toMatchObject({
+            name: '$pageview',
+            data: expect.arrayContaining([['2026-04-16', 25]]),
+        })
+    })
+
     it('returns formatted table as text AND suppresses structuredContent for claude-code', () => {
         const payload = buildToolResultPayload({
             handlerResult: queryTrendsHandlerResult(),
@@ -357,7 +384,6 @@ describe('buildToolResultPayload — non-query use cases', () => {
     it.each([
         { results: [{ id: 1 }], next: null, count: 1, previous: null },
         { results: [], next: null, count: 0, previous: null },
-        { results: [{ id: 1 }], next: 'https://example.com/api/items/?cursor=next', previous: null },
     ])('unwraps optimized lists but preserves JSON and widget data: %j', (handlerResult) => {
         for (const outputFormat of ['optimized', 'json'] as const) {
             const payload = buildToolResultPayload({
@@ -373,6 +399,56 @@ describe('buildToolResultPayload — non-query use cases', () => {
             expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(handlerResult)
         }
     })
+
+    it.each([
+        {
+            handlerResult: {
+                results: [{ id: 1 }],
+                next: 'https://example.com/api/items/?cursor=cD0yMDI2&search=foo',
+                previous: null,
+            },
+            expected:
+                'Showing 1 result. More results exist: call mock-tool again with the same arguments and set cursor=cD0yMDI2 to get the next page.',
+        },
+        {
+            handlerResult: {
+                results: [{ id: 1 }, { id: 2 }],
+                next: 'https://example.com/api/items/?limit=2&offset=2',
+                count: 5,
+                previous: null,
+                _posthogUrl: 'https://example.com/items',
+            },
+            expected:
+                'Showing 2 of 5 results. More results exist: call mock-tool again with the same arguments and set offset=2 and limit=2 to get the next page.',
+        },
+    ])('tells the agent how to read the next page: $handlerResult.next', ({ handlerResult, expected }) => {
+        const payload = buildToolResultPayload({ handlerResult, toolName: 'mock-tool', params: {} })
+
+        expect(payload.content[0]!.text).toBe(`${formatResponse(handlerResult)}\n\n${expected}`)
+    })
+
+    it.each(['optimized', 'json'] as const)(
+        'keeps widget data and JSON text whole when another page exists: %s',
+        (outputFormat) => {
+            const handlerResult = {
+                results: [{ id: 1 }],
+                next: 'https://example.com/api/items/?cursor=next',
+                previous: null,
+            }
+
+            const payload = buildToolResultPayload({
+                handlerResult,
+                toolName: 'mock-tool',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+            })
+
+            if (outputFormat === 'json') {
+                expect(payload.content[0]!.text).toBe(JSON.stringify(handlerResult))
+            }
+            expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(handlerResult)
+        }
+    )
 
     it.each([
         { results: [{ id: 1 }], query: { kind: 'HogQLQuery' } },

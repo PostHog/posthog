@@ -126,14 +126,18 @@ class TestAutoMergeConfig:
 
 class TestAskJudge:
     def _ask(
-        self, result: SystemOneResult | Exception, model: JudgeModel | None = None
+        self, result: SystemOneResult | Exception | list, model: JudgeModel | None = None
     ) -> tuple[JudgeVerdict, MagicMock, MagicMock]:
         client = MagicMock()
-        if isinstance(result, Exception):
+        if isinstance(result, Exception | list):
             client.decide.side_effect = result
         else:
             client.decide.return_value = result
-        with patch(f"{JUDGE}.build_system_one_client", return_value=client) as build:
+        with (
+            patch(f"{JUDGE}.build_system_one_client", return_value=client) as build,
+            patch(f"{JUDGE}.time.sleep"),
+            patch(f"{JUDGE}.random.uniform", return_value=1),
+        ):
             if model is None:
                 verdict = ask_judge(7, "Error: a", "Error: b", timeout_seconds=3)
             else:
@@ -174,6 +178,47 @@ class TestAskJudge:
     def test_no_answer_is_unavailable(self, _name: str, result: SystemOneResult | Exception) -> None:
         with pytest.raises(JudgeUnavailableError):
             self._ask(result)
+
+    @parameterized.expand([("rate_limited", 429), ("overloaded", 529)])
+    def test_throttled_request_is_retried(self, _name: str, status_code: int) -> None:
+        answer = SystemOneResult(model=JEVK5_MODEL, answers={"same_issue": NoulAnswer(probability=0.7)}, input_tokens=1)
+
+        verdict, build, client = self._ask([SystemOneRequestFailed("throttled", status_code=status_code), answer])
+
+        assert verdict.score == pytest.approx(0.7)
+        assert client.decide.call_count == 2
+        assert build.call_args_list[1].kwargs["timeout"] < 3
+
+    @parameterized.expand([("bad_request", 400), ("transport_error", None)])
+    def test_other_failures_are_not_retried(self, _name: str, status_code: int | None) -> None:
+        client = MagicMock()
+        client.decide.side_effect = SystemOneRequestFailed("failed", status_code=status_code)
+        with (
+            patch(f"{JUDGE}.build_system_one_client", return_value=client),
+            patch(f"{JUDGE}.time.sleep") as sleep,
+            pytest.raises(JudgeUnavailableError),
+        ):
+            ask_judge(7, "Error: a", "Error: b", timeout_seconds=3)
+        assert client.decide.call_count == 1
+        sleep.assert_not_called()
+
+    def test_retries_stop_within_the_timeout(self) -> None:
+        client = MagicMock()
+        client.decide.side_effect = SystemOneRequestFailed("rate limited", status_code=429)
+        clock = [100.0]
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+
+        with (
+            patch(f"{JUDGE}.build_system_one_client", return_value=client),
+            patch(f"{JUDGE}.time.monotonic", side_effect=lambda: clock[0]),
+            patch(f"{JUDGE}.time.sleep", side_effect=sleep),
+            patch(f"{JUDGE}.random.uniform", return_value=1),
+            pytest.raises(JudgeUnavailableError),
+        ):
+            ask_judge(7, "Error: a", "Error: b", timeout_seconds=2)
+        assert client.decide.call_count == 3
 
     def test_long_documents_keep_the_message_and_the_throw_site(self) -> None:
         document = "TypeError: boom\n" + "outer frame\n" * 1000 + "throwSite in app.js line 1"

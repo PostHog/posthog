@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import uuid
 import datetime
@@ -16,11 +17,12 @@ from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
 
+import responses
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
@@ -32,13 +34,14 @@ from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_o
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
-from posthog.helpers.two_factor_session import code_based_verification_token_generator
+from posthog.helpers.two_factor_session import CodeBasedVerificationTokenGenerator
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -425,6 +428,122 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is False
         assert response.json()["is_impersonated"] is False
 
+    @parameterized.expand(
+        [
+            ("one_organization", "organization", None, True),
+            ("one_team", "team", None, True),
+            ("two_teams", "two_teams", None, False),
+            ("one_team_in_an_ip_blocked_organization", "team", "ip_restrictions", False),
+            ("one_team_in_a_domain_enforcing_organization", "team", "verified_domains", False),
+            ("one_team_where_member_keys_are_off", "team", "member_personal_api_keys_off", False),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_me_with_a_scoped_key_hides_other_organizations_and_names_a_sole_reachable_project(
+        self, _name: str, scope: str, restriction: str | None, names_the_reachable_project: bool
+    ) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.current_organization = other_organization
+        self.user.save()
+        if restriction == "ip_restrictions":
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+            )
+        elif restriction == "verified_domains":
+            self.organization.enforce_verified_domains = True
+            self.organization.save()
+            OrganizationDomain.objects.create(
+                domain="verified.example.com", organization=self.organization, verified_at=timezone.now()
+            )
+        elif restriction == "member_personal_api_keys_off":
+            self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
+            self.organization.members_can_use_personal_api_keys = False
+            self.organization.save()
+        scope_fields: dict[str, dict[str, list]] = {
+            "organization": {"scoped_organizations": [str(self.organization.id)]},
+            "team": {"scoped_teams": [self.team.id]},
+            "two_teams": {"scoped_teams": [self.team.id, self.new_project.id]},
+        }
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped key",
+            secure_value=hash_key_value(token),
+            scopes=["user:read"],
+            **scope_fields[scope],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            "/api/users/@me/", headers={"authorization": f"Bearer {token}"}, REMOTE_ADDR="198.51.100.7"
+        )
+
+        assert response.status_code == 200, response.content
+        body = response.json()
+        if names_the_reachable_project:
+            assert body["team"]["id"] == self.team.id
+            assert body["organization"]["id"] == str(self.organization.id)
+        else:
+            assert body["team"] is None
+            assert body["organization"] is None
+        assert str(other_organization.id) not in [organization["id"] for organization in body["organizations"]]
+
+    def _authenticate_with_scoped_key(self, **scope: list) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped key",
+            secure_value=hash_key_value(token),
+            scopes=["user:read", "user:write"],
+            **scope,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_team_scoped_key_cannot_reach_a_sibling_project(self) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, name="Sibling")
+        self._authenticate_with_scoped_key(scoped_teams=[self.team.id])
+
+        switch = self.client.patch("/api/users/@me/", {"set_current_team": sibling_team.id}, format="json")
+        self.user.current_team = sibling_team
+        self.user.save()
+        me = self.client.get("/api/users/@me/")
+
+        assert switch.status_code == 400, switch.content
+        assert me.status_code == 200, me.content
+        assert me.json()["team"]["id"] == self.team.id
+        assert [team["id"] for team in me.json()["organization"]["teams"]] == [self.team.id]
+
+    def test_switching_organization_with_a_team_scoped_key_picks_a_scoped_project(self) -> None:
+        other_organization, _, first_team = Organization.objects.bootstrap(self.user)
+        scoped_team = Team.objects.create(organization=other_organization, name="Scoped")
+        self._authenticate_with_scoped_key(scoped_teams=[self.team.id, scoped_team.id])
+
+        response = self.client.patch(
+            "/api/users/@me/", {"set_current_organization": str(other_organization.id)}, format="json"
+        )
+
+        assert response.status_code == 200, response.content
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == scoped_team.id
+        assert first_team.id != scoped_team.id
+
+    def test_scoped_key_of_a_staff_user_reaches_only_itself(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        other_user = create_user("other@example.com", "password12345", self.new_org)
+        self._authenticate_with_scoped_key(scoped_organizations=[str(self.organization.id)])
+
+        other = self.client.get(f"/api/users/{other_user.uuid}/")
+        listed = self.client.get("/api/users/")
+        integrations = self.client.get(f"/api/users/{other_user.uuid}/integrations/")
+
+        assert other.status_code == 403, other.content
+        assert integrations.status_code == 403, integrations.content
+        assert listed.status_code == 200, listed.content
+        assert [user["uuid"] for user in listed.json()["results"]] == [str(self.user.uuid)]
+
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.
@@ -760,6 +879,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture):
@@ -769,6 +889,7 @@ class TestUserAPI(APIBaseTest):
             {"user": 12345, "team": 12345, "dashboard": 12345, "scene": "Person"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture):
@@ -1225,14 +1346,20 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         mock_report.assert_called_once_with(self.user, field="email", reason="stale_reauth")
 
-    def test_email_change_rejected_when_new_email_is_plus_addressed(self):
+    @parameterized.expand(
+        [
+            ("plus_addressed", "alpha+alias@example.com", "plus_addressing_not_allowed"),
+            ("lookalike_dot", "alpha@ph\uff0eexample.com", "lookalike_characters_not_allowed"),
+        ]
+    )
+    def test_email_change_rejected_when_new_email_is_unsupported(self, _name, new_email, code):
         self.user.email = "alpha@example.com"
         self.user.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "alpha+alias@example.com"})
+        response = self.client.patch("/api/users/@me/", {"email": new_email})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["code"] == "plus_addressing_not_allowed"
+        assert response.json()["code"] == code
         self.user.refresh_from_db()
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
@@ -2168,8 +2295,18 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_409_CONFLICT
 
+    @override_settings(
+        CLOUD_DEPLOYMENT="US",
+        POSTHOG_HOST="https://us.posthog.com",
+        POSTHOG_PROJECT_ID=2,
+        POSTHOG_USER_DELETION_API_KEY="phs_fake_deletion_key",
+    )
+    @responses.activate
     @patch("posthoganalytics.capture")
     def test_can_delete_user_with_no_organization_memberships(self, mock_capture):
+        responses.post(
+            "https://us.posthog.com/api/projects/2/persons/bulk_delete/", json={"deletion_errors": []}, status=202
+        )
         user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
 
         self.client.force_login(user)
@@ -2182,9 +2319,18 @@ class TestUserAPI(APIBaseTest):
 
         assert not OrganizationMembership.objects.filter(user=user).exists()
 
-        response = self.client.delete(f"/api/users/@me/")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/users/@me/")
+            assert not responses.calls
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(uuid=user.uuid).exists()
+        assert len(responses.calls) == 1
+        assert responses.calls[0].request.headers["Authorization"] == "Bearer phs_fake_deletion_key"
+        assert json.loads(responses.calls[0].request.body) == {
+            "distinct_ids": [user.distinct_id],
+            "delete_events": True,
+            "delete_recordings": True,
+        }
 
         mock_capture.assert_called_once_with(
             distinct_id=user.distinct_id,
@@ -2518,6 +2664,31 @@ class TestUserAPI(APIBaseTest):
                 f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
             )
 
+    @parameterized.expand(
+        [
+            ({"mobile_push_chat_enabled": True}, True, False),
+            ({"mobile_push_loops_enabled": True}, False, True),
+            ({"mobile_push_tasks_enabled": True}, True, True),
+            ({"mobile_push_tasks_enabled": True, "mobile_push_loops_enabled": False}, True, False),
+        ]
+    )
+    def test_notification_settings_preserve_legacy_opt_outs_and_feature_independence(
+        self, update: dict[str, bool], chat: bool, loops: bool
+    ) -> None:
+        self.user.partial_notification_settings = {"mobile_push_tasks_enabled": False}
+        self.user.save(update_fields=["partial_notification_settings"])
+        current = self.client.get("/api/users/@me/").json()["notification_settings"]
+        self.assertFalse(current["mobile_push_chat_enabled"])
+        self.assertFalse(current["mobile_push_loops_enabled"])
+        response = self.client.patch("/api/users/@me/", {"notification_settings": update})
+        self.assertEqual(response.status_code, 200)
+        saved = response.json()["notification_settings"]
+        self.assertEqual(saved["mobile_push_chat_enabled"], chat)
+        self.assertEqual(saved["mobile_push_loops_enabled"], loops)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.notification_settings["mobile_push_chat_enabled"], chat)
+        self.assertEqual(self.user.notification_settings["mobile_push_loops_enabled"], loops)
+
     def test_can_update_notification_settings(self):
         response = self.client.patch(
             "/api/users/@me/",
@@ -2547,6 +2718,18 @@ class TestUserAPI(APIBaseTest):
                 "mobile_push_tasks_enabled": False,
                 "mobile_push_reports_enabled": True,
                 "mobile_push_report_updates_enabled": True,
+                "mobile_push_chat_enabled": False,
+                "mobile_push_loops_enabled": False,
+                "mobile_push_chat_attention_enabled": True,
+                "mobile_push_chat_mentions_enabled": True,
+                "mobile_push_chat_replies_enabled": True,
+                "mobile_push_chat_completions_enabled": True,
+                "mobile_push_chat_pr_outcomes_enabled": True,
+                "mobile_push_report_attention_enabled": True,
+                "mobile_push_report_completions_enabled": True,
+                "mobile_push_report_pr_ready_enabled": True,
+                "mobile_push_report_pr_outcomes_enabled": True,
+                "mobile_push_snooze_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2579,6 +2762,18 @@ class TestUserAPI(APIBaseTest):
                 "mobile_push_tasks_enabled": False,
                 "mobile_push_reports_enabled": True,
                 "mobile_push_report_updates_enabled": True,
+                "mobile_push_chat_enabled": False,
+                "mobile_push_loops_enabled": False,
+                "mobile_push_chat_attention_enabled": True,
+                "mobile_push_chat_mentions_enabled": True,
+                "mobile_push_chat_replies_enabled": True,
+                "mobile_push_chat_completions_enabled": True,
+                "mobile_push_chat_pr_outcomes_enabled": True,
+                "mobile_push_report_attention_enabled": True,
+                "mobile_push_report_completions_enabled": True,
+                "mobile_push_report_pr_ready_enabled": True,
+                "mobile_push_report_pr_outcomes_enabled": True,
+                "mobile_push_snooze_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2859,6 +3054,18 @@ class TestUserAPI(APIBaseTest):
                 "mobile_push_tasks_enabled": True,
                 "mobile_push_reports_enabled": True,
                 "mobile_push_report_updates_enabled": True,
+                "mobile_push_chat_enabled": True,
+                "mobile_push_loops_enabled": True,
+                "mobile_push_chat_attention_enabled": True,
+                "mobile_push_chat_mentions_enabled": True,
+                "mobile_push_chat_replies_enabled": True,
+                "mobile_push_chat_completions_enabled": True,
+                "mobile_push_chat_pr_outcomes_enabled": True,
+                "mobile_push_report_attention_enabled": True,
+                "mobile_push_report_completions_enabled": True,
+                "mobile_push_report_pr_ready_enabled": True,
+                "mobile_push_report_pr_outcomes_enabled": True,
+                "mobile_push_snooze_enabled": True,
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
@@ -2889,6 +3096,22 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("non_boolean_vim_mode", {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}),
             ("non_string_vimrc", {"version": 1, "sql_editor": {"vimrc": ["imap jj <Esc>"]}}),
             ("vimrc_too_long", {"version": 1, "sql_editor": {"vimrc": "x" * 10001}}),
+            ("unknown_analytics_list_sort", {"version": 1, "analytics_list": {"default_sort": "name"}}),
+            ("unknown_analytics_list_key", {"version": 1, "analytics_list": {"columns": ["owner"]}}),
+            ("non_boolean_hide_insights", {"version": 1, "analytics_list": {"hide_insights": "nope"}}),
+            ("non_list_ticket_sidebar_order", {"version": 1, "ticket_sidebar": {"order": "activity"}}),
+            (
+                "non_boolean_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "nope"}},
+            ),
+            (
+                "coercible_string_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "false"}},
+            ),
+            (
+                "coercible_int_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": 1}},
+            ),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2902,6 +3125,19 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("null", None),
             ("minimal", {"version": 1}),
             ("unknown_top_level_key", {"version": 1, "surprise": True}),
+            (
+                "analytics_list",
+                {"version": 1, "analytics_list": {"hide_insights": True, "default_sort": "-created_at"}},
+            ),
+            ("session_replay", {"version": 1, "session_replay": {"filter_test_accounts": False}}),
+            (
+                # A layout can name a widget that a later release removed. Rejecting it would block every later save.
+                "ticket_sidebar_with_removed_widget",
+                {
+                    "version": 1,
+                    "ticket_sidebar": {"order": ["removed_widget", "activity"], "hidden": ["removed_widget"]},
+                },
+            ),
             (
                 # Sidebar settings an older client stored. Rejecting them would block every later save.
                 "stored_sidebar_settings",
@@ -3361,7 +3597,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mail.outbox[0].subject, "Verify your email address")
         self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
 
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        html_message = cast(str, mail.outbox[0].alternatives[0][0])  # type: ignore
         code = re.search(r"(\d{6}) is your code\.", html_message).group(1)  # type: ignore[union-attr]
         self.validate_basic_html(html_message, "https://my.posthog.net", preheader=f"{code} is your code.")
 
@@ -3637,6 +3873,21 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": "000000"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    @parameterized.expand([("not_a_uuid", "notauuid"), ("truncated", "0199a1b2-3c4d-7e8f")])
+    def test_malformed_uuid_answers_like_an_unknown_user(self, _name, bad_uuid):
+        response = self.client.post("/api/users/verify_email/", {"uuid": bad_uuid, "code": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+
+        response = self.client.post("/api/users/request_email_verification/", {"uuid": bad_uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+    def test_request_email_verification_without_uuid_is_not_an_error(self):
+        response = self.client.post("/api/users/request_email_verification/", {})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
     def test_numeric_json_code_is_a_normal_guess(self):
         # A client that sends the six digits as a JSON number must get a 400, not a 500, and the
         # coerced string counts as an ordinary attempt.
@@ -3774,17 +4025,23 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         assert self.user.is_email_verified
         assert self.user.email != "staged@posthog.com"
 
-    def test_codes_for_different_addresses_in_the_same_second_do_not_collide(self):
-        # Two email changes in the same second must not derive the same code. The code binds to the
-        # address it authorizes. So a code mailed to an address the user owns cannot verify a
-        # different staged address.
+    @parameterized.expand(
+        [
+            ("mailboxes", "owned@example.com", "other@example.com", "", ""),
+            ("identities", "member@example.com", "member@example.com", "identity-a", "identity-b"),
+        ]
+    )
+    @time_machine.travel("2023-11-14T22:13:20Z", tick=False)
+    def test_codes_bind_to_the_mailbox_and_identity(
+        self, _name: str, target: str, other_target: str, identity: str, other_identity: str
+    ):
+        user = User.objects.create(pk=2_000_000_001, email="member@example.com", password="", is_active=True)
+        generator = CodeBasedVerificationTokenGenerator()
+        generator.secret = "example-code-binding-secret"
         issued_at = 1_700_000_000
-        code_owned = code_based_verification_token_generator.make_code(self.user, issued_at, "attacker@owns.example")
-        code_victim = code_based_verification_token_generator.make_code(self.user, issued_at, "victim@corp.example")
-        assert code_owned != code_victim
-        assert not code_based_verification_token_generator.check_code(
-            self.user, code_owned, issued_at, "victim@corp.example"
-        )
+        code = generator.make_code(user, issued_at, target, identity)
+        assert generator.check_code(user, code, issued_at, target, identity)
+        assert not generator.check_code(user, code, issued_at, other_target, other_identity)
 
     def test_code_dies_when_a_different_pending_address_is_staged(self):
         self.user.is_email_verified = True
@@ -4172,6 +4429,7 @@ class TestUserDeletionAfterOrgDeletion(NonAtomicBaseTest):
     """
 
     CLASS_DATA_LEVEL_SETUP = False
+    databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
 
     @patch("posthoganalytics.capture")
     def test_can_delete_account_after_deleting_only_organization(self, mock_capture):

@@ -1,15 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
-
-import { lemonToast } from '@posthog/lemon-ui'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
-import { errorTrackingIssuesSummaryRegenerateCreate, errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
+import { errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
 import type {
     ErrorTrackingStoredIssueSummaryApi,
     ErrorTrackingIssueSummaryResponseApi,
 } from '../../generated/api.schemas'
-import { ISSUE_SUMMARY_POLL_INTERVAL_MS, ISSUE_SUMMARY_POLL_TIMEOUT_MS, issueSummaryLogic } from './issueSummaryLogic'
+import { issuePaneSectionsLogic } from './issuePaneSectionsLogic'
+import { issueSummaryLogic } from './issueSummaryLogic'
 
 jest.mock('../../generated/api')
 
@@ -19,28 +19,33 @@ const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
     likely_cause: 'The cart is null after a session expires.',
     who_is_affected: 'Signed-in users on Safari.',
     suggested_next_step: 'Guard the null cart.',
-    category: 'own_code',
-    model: 'gpt-4.1-mini',
+    model: 'gpt-6-luna',
     generated_at: '2026-10-20T12:00:00Z',
     checked_at: '2026-10-20T12:00:00Z',
 }
-const GENERATING: ErrorTrackingIssueSummaryResponseApi = { status: 'generating', summary: null }
-const READY: ErrorTrackingIssueSummaryResponseApi = { status: 'ready', summary: SUMMARY }
-const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null }
-const NEW_SUMMARY: ErrorTrackingStoredIssueSummaryApi = { ...SUMMARY, generated_at: '2026-10-22T12:00:00Z' }
+const READY: ErrorTrackingIssueSummaryResponseApi = { status: 'ready', summary: SUMMARY, reason: null }
+const NOT_GENERATED: ErrorTrackingIssueSummaryResponseApi = { status: 'not_generated', summary: null, reason: null }
+const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null, reason: 'disabled' }
+const AI_NOT_APPROVED: ErrorTrackingIssueSummaryResponseApi = {
+    status: 'unavailable',
+    summary: null,
+    reason: 'ai_not_approved',
+}
+const RESTRICTED: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null, reason: 'restricted' }
 
 describe('issueSummaryLogic', () => {
     const retrieve = jest.mocked(errorTrackingIssuesSummaryRetrieve)
-    const regenerate = jest.mocked(errorTrackingIssuesSummaryRegenerateCreate)
     let logic: ReturnType<typeof issueSummaryLogic.build>
 
     beforeEach(() => {
         jest.useFakeTimers()
+        jest.setSystemTime(new Date('2026-11-04T12:00:00Z'))
         initKeaTests()
     })
 
     afterEach(() => {
         logic?.unmount()
+        localStorage.clear()
         jest.useRealTimers()
         jest.resetAllMocks()
     })
@@ -50,76 +55,73 @@ describe('issueSummaryLogic', () => {
     }
 
     it.each([
-        ['generation outlasts the deadline', GENERATING, 0, 'generating', 'timed_out'],
-        ['a poll answers after the deadline', GENERATING, 1500, 'generating', 'timed_out'],
-        ['no summary will be written', UNAVAILABLE, 0, 'hidden', 'hidden'],
-    ])('stops polling when %s', async (_name, response, latencyMs, viewOnLoad, viewAtDeadline) => {
-        retrieve.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(response), latencyMs)))
-        logic = issueSummaryLogic({ issueId: ISSUE_ID })
-        logic.mount()
-        await advance(latencyMs)
-        await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view: viewOnLoad })
+        ['a summary is stored', READY, null, 'ready'],
+        ['no summary is stored for an older issue', NOT_GENERATED, '2026-11-04T11:00:00Z', 'not_generated'],
+        ['no summary is stored yet for a new issue', NOT_GENERATED, '2026-11-04T11:59:00Z', 'writing'],
+        ['summaries are off for the project', UNAVAILABLE, null, 'hidden'],
+        ['the organization has not approved AI', AI_NOT_APPROVED, null, 'ai_not_approved'],
+        ['the person cannot read the summary sources', RESTRICTED, null, 'restricted'],
+    ])(
+        'shows nothing before the answer, then reads once and never polls when %s',
+        async (_name, response, firstSeen, view) => {
+            retrieve.mockResolvedValue(response)
+            logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen })
+            logic.mount()
+            expect(logic.values.view).toBe('hidden')
 
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS + latencyMs)
-        const callsAtDeadline = retrieve.mock.calls.length
-        expect(logic.values.view).toBe(viewAtDeadline)
+            await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view })
+            await advance(60_000)
+            expect(retrieve).toHaveBeenCalledTimes(1)
+        }
+    )
 
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
-        expect(retrieve.mock.calls.length).toBe(callsAtDeadline)
-    })
-
-    it('stops polling once the summary is ready', async () => {
-        retrieve.mockResolvedValueOnce(GENERATING).mockResolvedValueOnce(GENERATING).mockResolvedValue(READY)
-        logic = issueSummaryLogic({ issueId: ISSUE_ID })
-        logic.mount()
-
-        await advance(ISSUE_SUMMARY_POLL_INTERVAL_MS * 2)
-        expect(logic.values.view).toBe('ready')
-        expect(logic.values.summary).toEqual(SUMMARY)
-
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
-        expect(retrieve).toHaveBeenCalledTimes(3)
-        expect(logic.values.view).toBe('ready')
-    })
-
-    it('stops polling on a failed read and recovers on retry', async () => {
-        retrieve.mockResolvedValueOnce(GENERATING).mockRejectedValueOnce(new Error('500')).mockResolvedValue(READY)
+    it('shows nothing when the first read fails, and recovers on retry', async () => {
+        retrieve.mockRejectedValueOnce(new Error('500')).mockResolvedValue(READY)
         jest.spyOn(console, 'error').mockImplementation(() => {})
-        logic = issueSummaryLogic({ issueId: ISSUE_ID })
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
         logic.mount()
 
-        await advance(ISSUE_SUMMARY_POLL_INTERVAL_MS)
-        expect(logic.values.view).toBe('failed')
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
-        expect(retrieve).toHaveBeenCalledTimes(2)
+        await advance(0)
+        expect(logic.values.view).toBe('hidden')
+        expect(retrieve).toHaveBeenCalledTimes(1)
 
         logic.actions.loadSummary()
         await advance(0)
         expect(logic.values.view).toBe('ready')
     })
 
-    it.each([
-        ['shows the new summary once it lands', [READY, { status: 'ready', summary: NEW_SUMMARY }], NEW_SUMMARY, false],
-        ['tells the user when no new summary lands', [READY], SUMMARY, true],
-    ] as const)('regenerate %s', async (_name, reads, expectedSummary, toasts) => {
-        const info = jest.spyOn(lemonToast, 'info').mockImplementation(() => '')
-        retrieve.mockResolvedValueOnce(READY)
-        for (const read of reads.slice(0, -1)) {
-            retrieve.mockResolvedValueOnce(read)
-        }
-        retrieve.mockResolvedValue(reads[reads.length - 1])
-        regenerate.mockResolvedValue({ status: 'generating', summary: SUMMARY })
-        logic = issueSummaryLogic({ issueId: ISSUE_ID })
+    it('shows a failed check once an earlier read said summaries are on', async () => {
+        retrieve.mockResolvedValueOnce(NOT_GENERATED).mockRejectedValueOnce(new Error('500'))
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
         logic.mount()
+
+        await advance(0)
+        expect(logic.values.view).toBe('not_generated')
+
+        logic.actions.loadSummary()
+        await advance(0)
+        expect(logic.values.view).toBe('failed')
+    })
+
+    it('reports whether the summary was open when viewed, and sends the rating', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        retrieve.mockResolvedValue(READY)
+        issuePaneSectionsLogic.mount()
+        issuePaneSectionsLogic.actions.setSummaryOpen(true)
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
+        logic.mount()
+
         await expectLogic(logic).toDispatchActions(['loadSummarySuccess'])
+        logic.actions.sendFeedback('bad')
 
-        logic.actions.regenerateSummary()
-        await advance(ISSUE_SUMMARY_POLL_INTERVAL_MS)
-        expect(logic.values.regenerating).toBe(true)
-
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
-        expect(logic.values.regenerating).toBe(false)
-        expect(logic.values.summary).toEqual(expectedSummary)
-        expect(info).toHaveBeenCalledTimes(toasts ? 1 : 0)
+        expect(capture).toHaveBeenCalledWith(
+            'error_tracking_issue_summary_viewed',
+            expect.objectContaining({ issue_id: ISSUE_ID, summary_open: true })
+        )
+        expect(capture).toHaveBeenCalledWith(
+            'error_tracking_issue_summary_feedback',
+            expect.objectContaining({ issue_id: ISSUE_ID, feedback: 'bad', generated_at: SUMMARY.generated_at })
+        )
     })
 })

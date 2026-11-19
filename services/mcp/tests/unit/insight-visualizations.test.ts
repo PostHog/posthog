@@ -232,9 +232,8 @@ describe('insight visualizations', () => {
         })
 
         describe('getSeriesLabel', () => {
-            it('prefers label, then action name, then a positional fallback', () => {
-                expect(getSeriesLabel({ label: 'Pageviews', action: { name: '$pageview' } }, 0)).toBe('Pageviews')
-                expect(getSeriesLabel({ action: { name: '$pageview' } }, 0)).toBe('$pageview')
+            it('prefers label, then a positional fallback', () => {
+                expect(getSeriesLabel({ label: 'Pageviews' }, 0)).toBe('Pageviews')
                 expect(getSeriesLabel({}, 2)).toBe('Series 3')
             })
         })

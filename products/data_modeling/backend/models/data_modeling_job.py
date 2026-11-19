@@ -3,24 +3,21 @@ from django.utils import timezone
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
+from products.data_modeling.backend.facade.enums import (
+    DataModelingJobEngine,
+    DataModelingJobRunMode,
+    DataModelingJobStatus,
+)
 
-class DataModelingJobStatus(models.TextChoices):
-    CANCELLED = "Cancelled", "Cancelled"
-    COMPLETED = "Completed", "Completed"
-    FAILED = "Failed", "Failed"
-    RUNNING = "Running", "Running"
-    SKIPPED = "Skipped", "Skipped"
-
-
-class DataModelingJobEngine(models.TextChoices):
-    CLICKHOUSE = "clickhouse", "ClickHouse"
-    LEGACY_DUCKGRES = "duckgres", "Duckgres"
-    MANAGED_WAREHOUSE = "managed_warehouse", "Managed warehouse"
-
-
-class DataModelingJobRunMode(models.TextChoices):
-    FULL_REFRESH = "full_refresh", "Full refresh"
-    INCREMENTAL = "incremental", "Incremental"
+# Once a job reaches one of these, later activities must not overwrite its status or error.
+TERMINAL_JOB_STATUSES = frozenset(
+    {
+        DataModelingJobStatus.CANCELLED,
+        DataModelingJobStatus.COMPLETED,
+        DataModelingJobStatus.FAILED,
+        DataModelingJobStatus.SKIPPED,
+    }
+)
 
 
 class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -30,10 +27,10 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.SET_NULL, null=True)
     saved_query = models.ForeignKey("data_modeling.DataWarehouseSavedQuery", on_delete=models.SET_NULL, null=True)
-    status = models.CharField(max_length=400, choices=Status, default=Status.RUNNING)
-    engine = models.CharField(max_length=20, choices=Engine, default=Engine.CLICKHOUSE)
+    status = models.CharField(max_length=400, choices=Status.choices, default=Status.RUNNING.value)
+    engine = models.CharField(max_length=20, choices=Engine.choices, default=Engine.CLICKHOUSE.value)
     # Null: recorded before run modes existed, or the run failed before the write plan resolved.
-    run_mode = models.CharField(max_length=20, choices=RunMode, null=True, blank=True)
+    run_mode = models.CharField(max_length=20, choices=RunMode.choices, null=True, blank=True)
     full_refresh_reason = models.CharField(max_length=200, null=True, blank=True)
     rows_materialized = models.IntegerField(default=0)
     error = models.TextField(null=True, blank=True)

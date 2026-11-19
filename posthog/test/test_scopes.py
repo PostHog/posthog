@@ -1,29 +1,17 @@
 import re
-import runpy
 from pathlib import Path
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.scopes import (
-    ALL_SCOPES,
-    ALWAYS_ALLOWED_SCOPES,
-    API_SCOPE_ACTIONS,
-    API_SCOPE_OBJECTS,
-    INTERNAL_API_SCOPE_OBJECTS,
+from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, translate_renamed_scopes
+from posthog.scopes.ceilings import (
     MIN_SCOPES_BEFORE_TRUNCATION,
-    OAUTH_HIDDEN_SCOPE_OBJECTS,
-    OAUTH_SCOPES_HIDDEN,
-    PRIVILEGED_SCOPES,
-    PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
-    UNPRIVILEGED_SCOPES,
     clamp_scopes_to_ceiling,
-    downgrade_scopes_to_read_only,
     effective_ceiling,
+    filter_self_registered_ceiling,
     filter_to_unprivileged_scopes,
-    get_oauth_scopes_supported,
-    get_scope_descriptions,
     grantable_ceiling,
     is_truncated_scope_request,
     narrow_scopes_to_ceiling,
@@ -31,6 +19,20 @@ from posthog.scopes import (
     scopes_outside_ceiling,
     scopes_within_ceiling,
 )
+from posthog.scopes.checks import downgrade_scopes_to_read_only
+from posthog.scopes.exposure import (
+    ALL_SCOPES,
+    INTERNAL_API_SCOPE_OBJECTS,
+    OAUTH_HIDDEN_SCOPE_OBJECTS,
+    OAUTH_SCOPES_HIDDEN,
+    PRIVILEGED_SCOPES,
+    RISKY_SCOPE_WARNINGS,
+    UNPRIVILEGED_SCOPES,
+    get_scope_descriptions,
+)
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, OAUTH_SCOPES_SUPPORTED
+from posthog.scopes.project_secret_api_key import PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
+from posthog.scopes_projection import load_scopes_without_django
 
 
 class TestDowngradeScopesToReadOnly(SimpleTestCase):
@@ -118,30 +120,26 @@ class TestScopeSets(SimpleTestCase):
         # Spot-check: a generic OAuth client should be able to request these.
         self.assertIn(scope, UNPRIVILEGED_SCOPES)
 
-    def test_scopes_module_loadable_via_runpy_like_mcp_codegen(self) -> None:
-        # The MCP scope projection at posthog/scopes_projection.py loads this module via
-        # runpy.run_path (bypassing posthog/__init__.py which pulls in Django).
-        # Mirror that mechanism here so the test actually catches a regression
-        # where someone adds a Django-requiring import to posthog/scopes.py.
-        # `import posthog.scopes` would not catch it — that runs __init__.py too.
-        scopes_path = Path(__file__).resolve().parent.parent / "scopes.py"
-        loaded = runpy.run_path(str(scopes_path))
-        self.assertIn("UNPRIVILEGED_SCOPES", loaded)
-        self.assertTrue(loaded["UNPRIVILEGED_SCOPES"])
-        self.assertIn("llm_gateway:read", loaded["PRIVILEGED_SCOPES"])
+    def test_scopes_package_loads_by_path_like_the_projection(self) -> None:
+        # posthog/scopes_projection.py loads the package by file path to skip posthog/__init__.py,
+        # so an absolute import inside posthog/scopes/ breaks the build even though tests pass.
+        modules = load_scopes_without_django()
+
+        self.assertTrue(modules["exposure"].UNPRIVILEGED_SCOPES)
+        self.assertIn("llm_gateway:read", modules["exposure"].PRIVILEGED_SCOPES)
 
     def test_oauth_scopes_supported_excludes_privileged_and_hidden(self) -> None:
         # Discovery metadata (/.well-known/oauth-authorization-server) must not
         # advertise privileged scopes (llm_gateway:*, admin-granted only) or
         # OAUTH_HIDDEN scopes — an OAuth client can't obtain them self-serve.
-        supported = set(get_oauth_scopes_supported())
+        supported = set(OAUTH_SCOPES_SUPPORTED)
         self.assertTrue(supported.isdisjoint(PRIVILEGED_SCOPES))
         self.assertTrue(supported.isdisjoint(OAUTH_SCOPES_HIDDEN))
         self.assertNotIn("llm_gateway:read", supported)
         self.assertNotIn("llm_gateway:write", supported)
 
     def test_oauth_scopes_supported_includes_always_allowed_and_unprivileged(self) -> None:
-        supported = set(get_oauth_scopes_supported())
+        supported = set(OAUTH_SCOPES_SUPPORTED)
         self.assertEqual(supported - ALWAYS_ALLOWED_SCOPES, UNPRIVILEGED_SCOPES)
 
     def test_project_secret_api_keys_exclude_user_bound_customer_task_scopes(self) -> None:
@@ -157,18 +155,18 @@ class TestScopeSets(SimpleTestCase):
             self.assertLessEqual(len(scope), 100, f"{scope} exceeds OAuthApplication.scopes CharField max_length=100")
 
 
-class TestGetOAuthScopesSupported(SimpleTestCase):
+class TestOAuthScopesSupported(SimpleTestCase):
     def test_signal_scout_internal_write_is_not_advertised(self) -> None:
         # Security invariant — the scout sandbox token carries `signal_scout_internal:write`
         # but is minted by direct DB insert (posthog/temporal/oauth.py), never via /authorize.
         # Advertising it in OAuth metadata would let any OAuth client request it via user
         # consent, a durable prompt-injection vector (scratchpad rows are read verbatim into
         # every subsequent run's prompt). It must NOT appear in the advertised scope set.
-        assert "signal_scout_internal:write" not in get_oauth_scopes_supported()
-        assert "signal_scout_internal:read" not in get_oauth_scopes_supported()
+        assert "signal_scout_internal:write" not in OAUTH_SCOPES_SUPPORTED
+        assert "signal_scout_internal:read" not in OAUTH_SCOPES_SUPPORTED
 
     def test_internal_scopes_are_not_advertised(self) -> None:
-        advertised = set(get_oauth_scopes_supported())
+        advertised = set(OAUTH_SCOPES_SUPPORTED)
         for obj in INTERNAL_API_SCOPE_OBJECTS:
             for action in ("read", "write"):
                 assert f"{obj}:{action}" not in advertised, (
@@ -181,7 +179,7 @@ class TestGetOAuthScopesSupported(SimpleTestCase):
         # metadata that omits one under-reports what the token carries. Clients such as
         # ChatGPT compare the scopes they asked for against `scopes_supported` and warn
         # the user that consent was only partly granted.
-        advertised = set(get_oauth_scopes_supported())
+        advertised = set(OAUTH_SCOPES_SUPPORTED)
         for scope in ALWAYS_ALLOWED_SCOPES:
             assert scope in advertised, (
                 f"{scope} is granted on every token via ALWAYS_ALLOWED_SCOPES but is missing from "
@@ -363,6 +361,7 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
             ("empty_ceiling_is_noop", ["query:read", "insight:write"], [], ["query:read", "insight:write"]),
             ("narrows_to_tightened_ceiling", ["query:read", "insight:write"], ["query:read"], ["query:read"]),
             ("no_overlap_returns_none", ["insight:write"], ["query:read"], None),
+            ("read_half_of_a_write_ceiling_survives", ["insight:read"], ["insight:write"], ["insight:read"]),
             ("wildcard_left_untouched", ["*"], ["query:read"], ["*"]),
             (
                 "always_allowed_survive_narrowing",
@@ -385,6 +384,19 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
                 ["query:read", "llm_gateway:read", "wizard_session:read"],
                 ["@default", "llm_gateway:read"],
                 ["llm_gateway:read", "query:read"],
+            ),
+            # A token stored before the code review rename refreshes under the new names.
+            (
+                "renamed_token_scope_meets_new_ceiling",
+                ["stamphog:read"],
+                ["code_review_approval:read"],
+                ["code_review_approval:read"],
+            ),
+            (
+                "token_holding_both_names_keeps_one",
+                ["stamphog:read", "code_review_approval:read"],
+                ["stamphog:read", "code_review_approval:read"],
+                ["code_review_approval:read"],
             ),
         ]
     )
@@ -457,6 +469,27 @@ class TestClampScopesToCeiling(SimpleTestCase):
             assert scopes_within_ceiling(clamped, app_scopes, allow_wildcard_under_empty_ceiling=True)
 
 
+class TestTranslateRenamedScopes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Shipped desktop builds still request the old object names.
+            (
+                "renamed_objects_translate_to_new_names",
+                ["query:read", "review_hog:write", "stamphog:read"],
+                ["query:read", "code_review:write", "code_review_approval:read"],
+            ),
+            (
+                "both_names_collapse_to_one",
+                ["stamphog:read", "code_review_approval:read"],
+                ["code_review_approval:read"],
+            ),
+            ("bare_old_object_name_is_not_a_scope", ["stamphog", "*"], ["stamphog", "*"]),
+        ]
+    )
+    def test_translation(self, _name: str, given: list[str], expected: list[str]) -> None:
+        assert translate_renamed_scopes(given) == expected
+
+
 def _real_scopes(count: int) -> list[str]:
     return sorted(ALL_SCOPES)[:count]
 
@@ -513,6 +546,34 @@ class TestFilterToUnprivilegedScopes(SimpleTestCase):
         ]
 
 
+class TestFilterSelfRegisteredCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("oidc_only_kept", ["openid", "profile", "email"], ["openid", "profile", "email"]),
+            ("oidc_only_deduped", ["email", "openid", "email"], ["email", "openid"]),
+            ("oidc_dropped_next_to_resource", ["openid", "insight:read"], ["insight:read"]),
+            ("oidc_kept_when_resources_all_dropped", ["openid", "llm_gateway:read"], ["openid"]),
+            ("introspection_is_not_an_identity_scope", ["introspection"], []),
+            ("nothing_grantable", ["llm_gateway:read", "garbage"], []),
+            ("empty_in_empty_out", [], []),
+            # CIMD and DCR metadata written before the code review rename keeps code review access.
+            (
+                "renamed_scopes_translated",
+                ["stamphog:read", "insight:read"],
+                ["code_review_approval:read", "insight:read"],
+            ),
+            ("only_renamed_scopes", ["review_hog:read", "review_hog:write"], ["code_review:read", "code_review:write"]),
+        ]
+    )
+    def test_resolution(self, _name: str, given: list[str], expected: list[str]) -> None:
+        assert filter_self_registered_ceiling(given) == expected
+
+    def test_oidc_only_ceiling_grants_no_resource_scope(self) -> None:
+        ceiling = filter_self_registered_ceiling(["openid", "profile", "email"])
+        assert effective_ceiling(ceiling) == frozenset({"openid", "profile", "email"})
+        assert clamp_scopes_to_ceiling({"openid", "email", "insight:read"}, ceiling) == ["email", "openid"]
+
+
 class TestProjectSecretAPIKeyScopeParity(SimpleTestCase):
     # The settings scope picker builds its checkboxes from the frontend copy of this list,
     # so a scope added on the backend alone is allowed by the API but has no UI to grant it.
@@ -528,3 +589,10 @@ class TestProjectSecretAPIKeyScopeParity(SimpleTestCase):
         frontend_scopes = set(re.findall(r"'([a-z_]+:[a-z]+)'", match.group(1)))
         backend_scopes = {f"{obj}:{action}" for obj, action in PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION}
         assert frontend_scopes == backend_scopes
+
+
+class TestRiskyScopeWarnings(SimpleTestCase):
+    def test_every_risky_scope_warning_names_a_grantable_scope(self) -> None:
+        stale = sorted(set(RISKY_SCOPE_WARNINGS) - UNPRIVILEGED_SCOPES)
+
+        assert not stale, f"{stale} have a risky-scope warning but are no longer grantable. Remove them."

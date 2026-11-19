@@ -8,13 +8,16 @@ from django.utils import timezone
 import structlog
 import dns.resolver
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.dns_utils import dnssec_resolver
+from posthog.helpers.email_utils import email_domain
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, saml_configured_q
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.utils import UUIDTModel
+from posthog.security.oob_domains import matched_oob_domain
 from posthog.utils import get_instance_available_sso_providers
 
 if TYPE_CHECKING:
@@ -41,7 +44,9 @@ class OrganizationDomainManager(models.Manager):
         Returns an `OrganizationDomain` configuration for a specific email address (if it exists and is verified),
         using the domain of the email address
         """
-        domain = email[email.index("@") + 1 :]
+        domain = email_domain(email)
+        if domain is None:
+            return None
         return self.verified_domains().filter(domain__iexact=domain).first()
 
     def get_sso_enforcement_for_email_address(
@@ -51,7 +56,9 @@ class OrganizationDomainManager(models.Manager):
         Returns the specific `sso_enforcement` applicable for an email address or an `OrganizationDomain` objects.
         Validates SSO providers are properly configured and all the proper licenses exist.
         """
-        domain = email[email.index("@") + 1 :]
+        domain = email_domain(email)
+        if domain is None:
+            return None
         queryset = self.verified_domains().filter(domain__iexact=domain).exclude(sso_enforcement="")
 
         if organization is not None:
@@ -108,9 +115,9 @@ class OrganizationDomainManager(models.Manager):
 
     def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
         """Whether the domain of `email` is a verified domain owned by `organization`."""
-        if "@" not in email:
+        domain = email_domain(email)
+        if domain is None:
             return False
-        domain = email[email.index("@") + 1 :]
         return self.verified_domains().filter(organization=organization, domain__iexact=domain).exists()
 
     def is_email_blocked_by_domain_enforcement(self, email: str, organization: Organization) -> bool:
@@ -257,6 +264,12 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         """
         Performs a DNS verification for a specific domain.
         """
+        if is_cloud() and (oob_domain := matched_oob_domain(self.domain)) is not None:
+            logger.info("security.oob_domain_seen", host=self.domain, domain=oob_domain, guard="organization_domain")
+            self.last_verification_retry = timezone.now()
+            self.save()
+            return (self, False)
+
         try:
             dns_response = dnssec_resolver().resolve(f"_posthog-challenge.{self.domain}", "TXT")
         except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):

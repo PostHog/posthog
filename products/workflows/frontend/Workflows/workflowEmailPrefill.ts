@@ -1,4 +1,7 @@
+import { EmailBrand, applyEmailBrand } from '../MessageAudience/emailBrand'
 import { MessageDraft, messageDraftEmail } from '../MessageAudience/messageDrafts'
+import type { TeamUtmDefaults } from './hogflows/steps/components/utmDefaults'
+import { needsSandboxSender, toSandboxAction } from './hogflows/steps/email/emailStepVariants'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
 import type { WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
@@ -114,4 +117,44 @@ export function withEmailSender(workflow: HogFlow, integrationId: number): { wor
         } as HogFlowAction
     })
     return { workflow: filled ? { ...workflow, actions } : workflow, filled }
+}
+
+export function withSandboxSender(workflow: HogFlow, teamUtmDefaults: TeamUtmDefaults): HogFlow {
+    let switched = false
+    const actions = workflow.actions.map((action) => {
+        if (!needsSandboxSender(action, true, teamUtmDefaults)) {
+            return action
+        }
+        switched = true
+        return toSandboxAction(action)
+    })
+    return switched ? { ...workflow, actions } : workflow
+}
+
+/** The prefilled email step inside the brand's design, or the workflow unchanged when the brand doesn't fit. */
+export function withEmailBrand(workflow: HogFlow, brand: EmailBrand | null): HogFlow {
+    if (!brand) {
+        return workflow
+    }
+    let branded = false
+    const actions = workflow.actions.map((action) => {
+        if (action.id !== EMAIL_ACTION_ID) {
+            return action
+        }
+        const config = action.config as Record<string, any>
+        const value = config.inputs?.email?.value
+        const content = value ? applyEmailBrand(value, brand) : null
+        if (!content) {
+            return action
+        }
+        branded = true
+        return {
+            ...action,
+            config: {
+                ...config,
+                inputs: { ...config.inputs, email: { ...config.inputs.email, value: { ...value, ...content } } },
+            },
+        } as HogFlowAction
+    })
+    return branded ? { ...workflow, actions } : workflow
 }

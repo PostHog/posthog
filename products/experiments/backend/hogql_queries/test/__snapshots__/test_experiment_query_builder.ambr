@@ -77,7 +77,7 @@
   '''
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_exposures_precompute_write.1
-  '8d3cae031c3db3ed052cc58b07ab25c013527a7324e761853e73006011310c58'
+  '8e6e3c90ada6dae75e8cf2aaa75537d8cb3c04e9c0c4c9bfa887dca6ce80b611'
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_activation_drops_cuped
   '''
@@ -149,6 +149,66 @@
      FROM base_events
      INNER JOIN first_exposures ON equals(base_events.entity_id, first_exposures.entity_id)
      GROUP BY base_events.entity_id)
+  SELECT entity_metrics.variant AS variant,
+         count(entity_metrics.entity_id) AS num_users,
+         countIf(equals(entity_metrics.value.1, 2)) AS total_sum,
+         countIf(equals(entity_metrics.value.1, 2)) AS total_sum_of_squares,
+         sum(entity_metrics.covariate_value) AS covariate_sum,
+         sum(power(entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
+         sum(multiply(if(equals(entity_metrics.value.1, 2), 1, 0), entity_metrics.covariate_value)) AS covariate_sum_product,
+         tuple(countIf(greaterOrEquals(entity_metrics.value.1, 1)), countIf(greaterOrEquals(entity_metrics.value.1, 2))) AS step_counts
+  FROM entity_metrics
+  WHERE notEmpty(variant)
+  GROUP BY entity_metrics.variant
+  LIMIT 50000
+  '''
+# ---
+# name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_cuped_precompute_write
+  '''
+  SELECT person_id AS entity_id,
+         timestamp AS timestamp,
+         uuid AS event_uuid,
+                 $session_id AS session_id,
+                 [_toUInt8(if(and(and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), 1, 0)),
+                  _toUInt8(if(equals(event, '$pageview'), 1, 0)),
+                  _toUInt8(if(equals(event, 'purchase'), 1, 0))] AS steps
+  FROM events
+  WHERE and(greaterOrEquals(timestamp, '__TIME_WINDOW_MIN__'), less(timestamp, '__TIME_WINDOW_MAX__'), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, '__EXPERIMENT_DATE_TO__'), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(14))), lessOrEquals(timestamp, plus('__EXPERIMENT_DATE_TO__', toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase')))))
+  '''
+# ---
+# name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_cuped_precompute_write.1
+  'ab8d34bdb5aea0b55d710a16b70ef0eb82e5bea1d5c15a672695ee8c866625a2'
+# ---
+# name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_cuped_precomputed
+  '''
+  WITH exposures AS
+    (SELECT toUUID(t.entity_id) AS entity_id,
+            if(greater(uniqExact(t.variant), 1), '$multiple', argMin(t.variant, t.first_exposure_time)) AS variant,
+            min(t.first_exposure_time) AS first_exposure_time,
+            max(t.last_exposure_time) AS last_exposure_time,
+            argMin(t.exposure_event_uuid, t.first_exposure_time) AS exposure_event_uuid,
+            argMin(t.exposure_session_id, t.first_exposure_time) AS exposure_session_id
+     FROM experiment_exposures_preaggregated AS t
+     WHERE and(in(t.job_id, ['00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000e2']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2024-01-20 12:00:00'))))
+     GROUP BY entity_id),
+       metric_events AS
+    (SELECT toUUID(t.entity_id) AS entity_id,
+            t.timestamp AS timestamp,
+            t.event_uuid AS uuid,
+            if(and(equals(arrayElement(t.steps, 1), 1), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00')))), 1, 0) AS step_0,
+            arrayElement(t.steps, 2) AS step_1,
+            arrayElement(t.steps, 3) AS step_2
+     FROM experiment_metric_events_preaggregated AS t
+     WHERE and(in(t.job_id, ['00000000-0000-0000-0000-0000000000a1']), equals(t.team_id, 99999), greaterOrEquals(t.timestamp, minus(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(14))), lessOrEquals(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))))),
+       entity_metrics AS
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(greaterOrEquals(result.1, 0), greater(length(result.4), result.1)), if(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 604800, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(toFloat(metric_events.timestamp), metric_events.uuid, array(''), arrayFilter(x -> greater(x, 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1] AS value,
+            coalesce(maxIf(1, and(equals(metric_events.step_2, 1), and(greaterOrEquals(metric_events.timestamp, minus(exposures.first_exposure_time, toIntervalDay(14))), less(metric_events.timestamp, exposures.first_exposure_time)))), 0) AS covariate_value
+     FROM exposures
+     LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+     GROUP BY exposures.entity_id,
+              exposures.variant)
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          countIf(equals(entity_metrics.value.1, 2)) AS total_sum,
@@ -342,7 +402,7 @@
   '''
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_precompute_write.1
-  '99b0aa3d82a91602b532e3fbcde19359a8f566487aac41f3600327eea84aa2dc'
+  'e3401f5b5536c49e54822c1d831cdf92fc81e82fd36773b30cb96c3a7eff84c9'
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_precomputed
   '''
@@ -614,6 +674,62 @@
   LIMIT 50000
   '''
 # ---
+# name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_mean_cuped_precompute_write
+  '''
+  SELECT person_id AS entity_id,
+         timestamp AS timestamp,
+         uuid AS event_uuid,
+                 $session_id AS session_id,
+                 coalesce(toFloat(properties.amount), 0) AS numeric_value
+  FROM events
+  WHERE and(greaterOrEquals(timestamp, '__TIME_WINDOW_MIN__'), less(timestamp, '__TIME_WINDOW_MAX__'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(14))), less(timestamp, plus('__EXPERIMENT_DATE_TO__', toIntervalSecond(604800))), equals(event, 'purchase'))
+  '''
+# ---
+# name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_mean_cuped_precompute_write.1
+  'c3a4480d3cc411f12c368c3cf76d626fc6d584230040007abb75b460c1772dce'
+# ---
+# name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_mean_cuped_precomputed
+  '''
+  WITH exposures AS
+    (SELECT toUUID(t.entity_id) AS entity_id,
+            if(greater(uniqExact(t.variant), 1), '$multiple', argMin(t.variant, t.first_exposure_time)) AS variant,
+            min(t.first_exposure_time) AS first_exposure_time,
+            max(t.last_exposure_time) AS last_exposure_time,
+            argMin(t.exposure_event_uuid, t.first_exposure_time) AS exposure_event_uuid,
+            argMin(t.exposure_session_id, t.first_exposure_time) AS exposure_session_id
+     FROM experiment_exposures_preaggregated AS t
+     WHERE and(in(t.job_id, ['00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000e2']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2024-01-20 12:00:00'))))
+     GROUP BY entity_id),
+       metric_events AS
+    (SELECT toUUID(t.entity_id) AS entity_id,
+            t.timestamp AS timestamp,
+            any(t.numeric_value) AS value
+     FROM experiment_metric_events_preaggregated AS t
+     WHERE and(in(t.job_id, ['00000000-0000-0000-0000-0000000000a1']), equals(t.team_id, 99999), greaterOrEquals(t.timestamp, minus(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(14))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))))
+     GROUP BY toUUID(t.entity_id),
+              t.timestamp,
+              t.event_uuid),
+       entity_metrics AS
+    (SELECT exposures.entity_id AS entity_id,
+            exposures.variant AS variant,
+            sum(coalesce(toFloat(if(and(greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time), less(metric_events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(604800)))), metric_events.value, NULL)), 0)) AS value,
+            sum(coalesce(toFloat(if(and(greaterOrEquals(metric_events.timestamp, minus(exposures.first_exposure_time, toIntervalDay(14))), less(metric_events.timestamp, exposures.first_exposure_time)), metric_events.value, NULL)), 0)) AS covariate_value
+     FROM exposures
+     LEFT JOIN metric_events ON and(equals(exposures.entity_id, metric_events.entity_id), or(and(greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time), less(metric_events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(604800)))), and(greaterOrEquals(metric_events.timestamp, minus(exposures.first_exposure_time, toIntervalDay(14))), less(metric_events.timestamp, exposures.first_exposure_time))))
+     GROUP BY exposures.entity_id,
+              exposures.variant)
+  SELECT entity_metrics.variant AS variant,
+         count(entity_metrics.entity_id) AS num_users,
+         sum(entity_metrics.value) AS total_sum,
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         sum(entity_metrics.covariate_value) AS covariate_sum,
+         sum(power(entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
+         sum(multiply(entity_metrics.value, entity_metrics.covariate_value)) AS covariate_sum_product
+  FROM entity_metrics
+  GROUP BY entity_metrics.variant
+  LIMIT 50000
+  '''
+# ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_mean_data_warehouse
   '''
   WITH exposures AS
@@ -804,7 +920,7 @@
   '''
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_mean_precompute_write.1
-  '7943f0cc2626c567a5bdfec5c7d9edcab47714f2b71b073441d23d2a4df5fbc8'
+  'c5ca6f2977715faffdaf77ba6b17040979db027db022ad1c73b0cbf1fb722a46'
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_mean_precomputed
   '''
@@ -824,7 +940,7 @@
             any(t.numeric_value) AS value
      FROM experiment_metric_events_preaggregated AS t
      WHERE and(in(t.job_id, ['00000000-0000-0000-0000-0000000000a1']), equals(t.team_id, 99999), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))))
-     GROUP BY t.entity_id,
+     GROUP BY toUUID(t.entity_id),
               t.timestamp,
               t.event_uuid),
        entity_metrics AS
@@ -962,6 +1078,60 @@
          sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
+  LIMIT 50000
+  '''
+# ---
+# name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_quantile_events
+  '''
+  WITH exposures AS
+    (SELECT person_id AS entity_id,
+            if(greater(uniqExact(properties.$feature_flag_response), 1), '$multiple', any(properties.$feature_flag_response)) AS variant,
+            min(timestamp) AS first_exposure_time,
+            max(timestamp) AS last_exposure_time,
+            argMin(uuid, timestamp) AS exposure_event_uuid,
+            argMin($session_id, timestamp) AS exposure_session_id
+     FROM events
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
+    (SELECT person_id AS entity_id,
+            timestamp AS timestamp,
+            toFloat(properties.app_ready_ms) AS value
+     FROM events
+     WHERE and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))), equals(event, 'app_ready'))),
+       variant_events AS
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            metric_events.value AS value
+     FROM metric_events
+     JOIN exposures ON equals(exposures.entity_id, metric_events.entity_id)
+     WHERE and(and(greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time), less(metric_events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(604800)))), notEquals(metric_events.value, NULL))),
+       variant_quantiles AS
+    (SELECT variant_events.variant AS variant,
+            quantilesExact(0.9, 0.8412010805, 0.9587989195, 0.8584228853, 0.9415771147, 0.8706005402, 0.9293994598, 0.8792114426, 0.9207885574, 0.8853002701, 0.9146997299, 0.8896057213, 0.9103942787, 0.8926501351, 0.9073498649, 0.8948028607, 0.9051971393, 0.8963250675, 0.9036749325, 0.8974014303, 0.9025985697, 0.8981625338, 0.9018374662, 0.8987007152, 0.9012992848, 0.8990812669, 0.9009187331, 0.8993503576, 0.9006496424, 0.8995406334, 0.9004593666, 0.8996751788, 0.9003248212, 0.8997703167, 0.9002296833, 0.8998375894, 0.9001624106, 0.8998851584, 0.9001148416, 0.8999187947, 0.9000812053)(variant_events.value) AS quantile_grid
+     FROM variant_events
+     GROUP BY variant_events.variant),
+       entity_stats AS
+    (SELECT variant_events.variant AS variant,
+            variant_events.entity_id AS entity_id,
+            countIf(lessOrEquals(variant_events.value, variant_quantiles.quantile_grid[1])) AS events_below_quantile,
+            count() AS event_count,
+            any(variant_quantiles.quantile_grid) AS quantile_grid
+     FROM variant_events
+     JOIN variant_quantiles ON equals(variant_events.variant, variant_quantiles.variant)
+     GROUP BY variant_events.variant,
+              variant_events.entity_id)
+  SELECT exposures.variant AS variant,
+         count(exposures.entity_id) AS num_users,
+         sum(coalesce(entity_stats.events_below_quantile, 0)) AS total_sum,
+         sum(power(coalesce(entity_stats.events_below_quantile, 0), 2)) AS total_sum_of_squares,
+         sum(coalesce(entity_stats.event_count, 0)) AS denominator_sum,
+         sum(power(coalesce(entity_stats.event_count, 0), 2)) AS denominator_sum_squares,
+         sum(multiply(coalesce(entity_stats.events_below_quantile, 0), coalesce(entity_stats.event_count, 0))) AS numerator_denominator_sum_product,
+         anyIf(entity_stats.quantile_grid, notEmpty(entity_stats.quantile_grid)) AS quantile_grid
+  FROM exposures
+  LEFT JOIN entity_stats ON and(equals(exposures.entity_id, entity_stats.entity_id), equals(exposures.variant, entity_stats.variant))
+  GROUP BY exposures.variant
   LIMIT 50000
   '''
 # ---
@@ -1478,7 +1648,7 @@
   '''
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_retention_precompute_write.1
-  '66967bfa1dbb70d9709f161467a74c51924604649d2e8493dfc73482fd0007d3'
+  '8e613e029fb5165c9f2b0cb575e1b31f575a1efbbbcc16dee53102f09ff98e05'
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_retention_precomputed
   '''

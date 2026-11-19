@@ -12,10 +12,11 @@ import {
 } from '@posthog/quill-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { percentage } from 'lib/utils/numbers'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,11 +25,14 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { getStackBreakdownValues, hasBreakdownFilter } from '~/queries/utils'
+import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { RequestedAnomalyScoreOverlay } from 'products/product_analytics/frontend/insights/anomalies/RequestedAnomalyScoreOverlay'
+import { RetentionDeletionOverlay } from 'products/product_analytics/frontend/insights/dataRetention/RetentionDeletionOverlay'
 import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -37,7 +41,6 @@ import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
-import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
 import {
@@ -45,8 +48,10 @@ import {
     handleTrendsChartClick,
     type TrendsChartClickDeps,
 } from '../shared/handleTrendsChartClick'
+import { withHighlightedSeries } from '../shared/highlightedSeries'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
+import { TrendsAxisSettings } from '../shared/TrendsAxisSettings'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
@@ -115,9 +120,11 @@ export function TrendsBarChart({
         isStickiness,
         labelGroupType,
         hasPersonsModal,
+        actionNames,
         querySource,
         getTrendsColor,
         getTrendsHidden,
+        getTrendsYAxisPosition,
         goalLines,
         showValuesOnSeries,
         showMultipleYAxes,
@@ -130,8 +137,8 @@ export function TrendsBarChart({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const seriesIdentification = useMemo(
@@ -164,18 +171,20 @@ export function TrendsBarChart({
         (r: IndexedTrendResult): string =>
             getAggregatedDisplayLabelFn(r, {
                 querySource,
+                actionNames,
                 stackBreakdowns,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
             }),
-        [querySource, stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [querySource, actionNames, stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -184,6 +193,7 @@ export function TrendsBarChart({
             }),
         [
             querySource,
+            actionNames,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -192,10 +202,20 @@ export function TrendsBarChart({
         ]
     )
 
+    const isSeriesHighlighted = context?.isSeriesHighlighted
+    const getColor = useMemo(
+        () => withHighlightedSeries(getTrendsColor, indexedResults ?? [], isSeriesHighlighted),
+        [getTrendsColor, indexedResults, isSeriesHighlighted]
+    )
+
+    const yAxisPositions = useMemo(
+        () => (isGrouped && !isPercentStackView ? indexedResults?.map(getTrendsYAxisPosition) : undefined),
+        [isGrouped, isPercentStackView, indexedResults, getTrendsYAxisPosition]
+    )
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-                getColor: getTrendsColor,
+                getColor,
                 getHidden: getTrendsHidden,
                 buildMeta,
                 stackBreakdowns,
@@ -203,13 +223,14 @@ export function TrendsBarChart({
             })
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-            getColor: getTrendsColor,
+            getColor,
             // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
             // instead of being dropped here, so the legend can restore them.
             getHidden: undefined,
             getLabel,
             buildMeta,
             showMultipleYAxes: applyMultipleYAxes,
+            yAxisPositions,
         })
         // Bands are keyed by these strings, so they must be unique per point. Display labels
         // are not (week and hour labels omit the year), which folds a multi-year range's bars
@@ -224,7 +245,7 @@ export function TrendsBarChart({
     }, [
         isAggregated,
         indexedResults,
-        getTrendsColor,
+        getColor,
         getTrendsHidden,
         isStickiness,
         currentPeriodResult?.days,
@@ -234,6 +255,7 @@ export function TrendsBarChart({
         getLabel,
         buildMeta,
         applyMultipleYAxes,
+        yAxisPositions,
     ])
 
     const valueLabelFormatter = useCallback(
@@ -263,9 +285,10 @@ export function TrendsBarChart({
                 hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
+                yAxisPositions,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
             }),
             // Interactive legend (toggle callbacks, context menu) is a component concern, kept out
             // of the pure transform so the builder stays free of React state.
@@ -277,11 +300,11 @@ export function TrendsBarChart({
             isPercentStackView,
             isGrouped,
             yAxisScaleType,
+            yAxisPositions,
             interval,
             timezone,
             currentPeriodResult?.days,
             hideAxes,
-            context?.dashboardResultMenu,
             trendsFilter?.xAxisLabel,
             trendsFilter?.yAxisLabel,
             goalLines,
@@ -312,7 +335,7 @@ export function TrendsBarChart({
         }
         return {
             showGrid: true,
-            tooltip: { ...AGGREGATED_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+            tooltip: AGGREGATED_TOOLTIP_CONFIG,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
@@ -333,7 +356,6 @@ export function TrendsBarChart({
             bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
-        context?.dashboardResultMenu,
         hideAxes,
         yAxisScaleType,
         aggregatedYTickFormatter,
@@ -469,6 +491,7 @@ export function TrendsBarChart({
                 theme={theme}
                 tooltip={renderTooltip}
                 onPointClick={canHandleClick ? onPointClick : undefined}
+                onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
                 className="BarGraph"
                 dataAttr="trend-bar-value-graph"
                 onError={handleChartError}
@@ -486,6 +509,7 @@ export function TrendsBarChart({
                     />
                 )}
                 {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {context?.chartOverlay}
             </BarChart>
         )
     }
@@ -511,17 +535,39 @@ export function TrendsBarChart({
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-bar-graph"
             onError={handleChartError}
         >
+            {!embedded &&
+                !inSharedMode &&
+                !context?.hideAxes &&
+                querySource?.kind === 'TrendsQuery' &&
+                !isPercentStackView &&
+                isGrouped && <TrendsAxisSettings insightProps={insightProps} />}
+            <RetentionDeletionOverlay
+                isStickiness={isStickiness}
+                querySource={querySource}
+                compareFilter={compareFilter}
+            />
             {insight.id && (
                 <TrendsAlertOverlays
                     insightId={insight.id}
                     insightProps={insightProps}
                     indexedResults={indexedResults}
                     getColor={getTrendsColor}
+                    getYAxisId={getYAxisId}
+                    isHidden={getTrendsHidden}
+                />
+            )}
+            {insight.id && (
+                <RequestedAnomalyScoreOverlay
+                    insightId={insight.id}
+                    dateFrom={insightData?.resolved_date_range?.date_from}
+                    dateTo={insightData?.resolved_date_range?.date_to}
+                    indexedResults={indexedResults}
                     getYAxisId={getYAxisId}
                     isHidden={getTrendsHidden}
                 />
@@ -535,6 +581,7 @@ export function TrendsBarChart({
                     previousSeriesKey={previousSeriesKey}
                 />
             )}
+            {context?.chartOverlay}
         </TimeSeriesBarChart>
     )
 }

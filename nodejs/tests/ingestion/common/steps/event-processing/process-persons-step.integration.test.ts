@@ -55,6 +55,7 @@ describe('createProcessPersonsStep', () => {
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
         PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: false,
+        PERSON_MERGE_NOT_APPLIED_WAIT_MS: 0,
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
@@ -126,8 +127,6 @@ describe('createProcessPersonsStep', () => {
     async function createPersonWithDistinctIds(distinctId: string, ...extraDistinctIds: string[]) {
         const result = await personRepository.createPerson(
             DateTime.utc(),
-            {},
-            {},
             {},
             teamId,
             null,
@@ -316,8 +315,6 @@ describe('createProcessPersonsStep', () => {
             const created = await personRepository.createPerson(
                 DateTime.utc(),
                 {},
-                {},
-                {},
                 teamId,
                 null,
                 true,
@@ -416,17 +413,9 @@ describe('createProcessPersonsStep', () => {
         })
         const enabledTeam = (await getTeam(infra.postgres, enabledTeamId))!
 
-        await personRepository.createPerson(
-            DateTime.utc(),
-            {},
-            {},
-            {},
-            enabledTeamId,
-            null,
-            false,
-            new UUIDT().toString(),
-            { distinctId: 'my_id' }
-        )
+        await personRepository.createPerson(DateTime.utc(), {}, enabledTeamId, null, false, new UUIDT().toString(), {
+            distinctId: 'my_id',
+        })
 
         const futureTimestamp = DateTime.utc().plus({ hours: 2 })
         const laterEvent: PluginEvent = {
@@ -575,8 +564,6 @@ describe('createProcessPersonsStep', () => {
             const result = await personRepository.createPerson(
                 DateTime.utc(),
                 properties,
-                {},
-                {},
                 teamId,
                 null,
                 isIdentified,
@@ -872,8 +859,6 @@ describe('createProcessPersonsStep', () => {
             const source = await personRepository.createPerson(
                 olderCreatedAt,
                 { email: 'old@example.com', plan: 'pro' },
-                {},
-                {},
                 teamId,
                 null,
                 true,
@@ -883,8 +868,6 @@ describe('createProcessPersonsStep', () => {
             const survivor = await personRepository.createPerson(
                 DateTime.fromISO('2026-09-01T00:00:00Z', { zone: 'utc' }),
                 { email: 'new@example.com' },
-                {},
-                {},
                 teamId,
                 null,
                 false,

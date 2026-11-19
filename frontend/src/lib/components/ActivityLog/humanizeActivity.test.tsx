@@ -10,7 +10,6 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
-import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
@@ -19,6 +18,7 @@ import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescribe
 import { ActivityScope } from '~/types'
 
 import { actionActivityDescriber } from 'products/actions/frontend/actionActivityDescriber'
+import { dashboardActivityDescriber } from 'products/dashboards/frontend/dashboardActivityDescriber'
 import { insightActivityDescriber } from 'products/product_analytics/frontend/insights/activityDescriptions'
 
 describe('humanizeActivity', () => {
@@ -166,6 +166,87 @@ describe('humanizeActivity', () => {
 
             expect(render(<>{describer(logItem).summary?.action}</>).container.textContent).toBe(expected)
         }
+    })
+
+    it.each<{ reason: string; changes: Partial<ActivityChange>[]; action: string; description: string }>([
+        {
+            reason: 'staff_set',
+            changes: [
+                { field: 'email_sending_tier', before: 2, after: 3 },
+                { field: 'email_sending_tier_pinned', before: false, after: true },
+            ],
+            action: 'Set the workflow email sending tier from 2 to 3 and pinned it there',
+            description: 'A user set the workflow email sending tier on Example from 2 to 3 and pinned it there',
+        },
+        {
+            reason: 'clean_and_used',
+            changes: [{ field: 'email_sending_tier', before: 1, after: 2 }],
+            action: 'Moved the workflow email sending tier from 1 to 2',
+            description: 'A user moved the workflow email sending tier on Example from 1 to 2 (reason: clean_and_used)',
+        },
+        {
+            reason: 'staff_set',
+            changes: [{ field: 'email_sending_tier_pinned', before: true, after: false }],
+            action: 'Unpinned the workflow email sending tier',
+            description: 'A user unpinned the workflow email sending tier on Example',
+        },
+    ])('describes an email sending tier change: $action', ({ reason, changes, action, description }) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.TEAM,
+            activity: 'email_sending_tier_changed',
+            detail: {
+                merge: null,
+                trigger: null,
+                name: 'Example',
+                context: { reason },
+                changes: changes.map((change) => ({ type: ActivityScope.TEAM, action: 'changed', ...change })),
+            },
+        })
+        const result = teamActivityDescriber(logItem)
+        const text = (value: Description | undefined): string =>
+            (render(<>{value}</>).container.textContent || '').replace(/\s+/g, ' ').trim()
+
+        expect(text(result.description)).toBe(description)
+        expect(text(result.summary?.action)).toBe(action)
+    })
+
+    it.each<{ activity: string; isSystem?: boolean; jobType?: string; action: string; description: string }>([
+        {
+            activity: 'stopped_ingesting',
+            action: 'Stopped ingesting the event and scheduled its deletion',
+            description: 'A user stopped ingesting event spam_event and scheduled its deletion',
+        },
+        {
+            activity: 'deleted',
+            isSystem: true,
+            jobType: 'scheduled_event_definition_deletion',
+            action: 'Deleted the event definition after its ingestion was stopped',
+            description: 'PostHog deleted event definition spam_event after its ingestion was stopped',
+        },
+        {
+            activity: 'deleted',
+            action: 'Deleted the event definition',
+            description: 'A user deleted event definition spam_event',
+        },
+    ])('describes an event definition $action', ({ activity, isSystem, jobType, action, description }) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.EVENT_DEFINITION,
+            activity,
+            is_system: isSystem,
+            detail: {
+                merge: null,
+                trigger: jobType ? { job_type: jobType, job_id: 'abc', payload: {} } : null,
+                changes: null,
+                name: 'spam_event',
+            },
+        })
+        const result = dataManagementActivityDescriber(logItem)
+        const text = (value: Description | undefined): string =>
+            (render(<>{value}</>).container.textContent || '').replace(/\s+/g, ' ').trim()
+
+        expect(text(result.description)).toBe(description)
+        expect(text(result.summary?.action)).toBe(action)
+        expect(text(result.summary?.target)).toBe('spam_event')
     })
 
     it.each([

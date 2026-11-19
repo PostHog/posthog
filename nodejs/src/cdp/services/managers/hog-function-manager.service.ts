@@ -29,6 +29,8 @@ const HOG_FUNCTION_FIELDS = [
     'batch_export_id',
     'created_at',
     'updated_at',
+    // Only the transformer reads the source, so other types skip the text.
+    "CASE WHEN type = 'transformation' THEN hog END AS hog",
 ]
 
 export type HogFunctionTeamInfo = Pick<HogFunctionType, 'id' | 'team_id' | 'type'>

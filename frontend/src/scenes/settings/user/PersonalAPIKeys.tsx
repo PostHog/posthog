@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { IconInfo, IconPlus } from '@posthog/icons'
 import {
@@ -25,14 +25,16 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { API_KEY_SCOPE_PRESETS, DEFAULT_MAX_API_KEYS_PER_USER } from 'lib/scopes'
+import { userLogic } from 'scenes/userLogic'
 
 import { PersonalAPIKeyType } from '~/types'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
 import { KeyExpirationOption, expiresAtForOption, isExpired, personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
+import { ScopeGroupSummary } from './scopes/ScopeGroupSummary'
 
 interface EditKeyModalProps {
     zIndex?: LemonModalProps['zIndex']
@@ -311,9 +313,14 @@ function openRollKeyDialog(
     })
 }
 
-type TagListProps = { onMoreClick?: () => void; tags: string[] }
+type TagListProps = {
+    onMoreClick?: () => void
+    tags: string[]
+    /** Content of the "+N more" tooltip. Defaults to the hidden tags, comma separated. */
+    tooltip?: ReactNode
+}
 
-export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
+export function TagList({ tags, onMoreClick, tooltip }: TagListProps): JSX.Element {
     return (
         <span className="flex flex-wrap gap-1">
             {tags.slice(0, 4).map((x) => (
@@ -322,7 +329,7 @@ export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
                 </>
             ))}
             {tags.length > 4 && (
-                <Tooltip title={tags.slice(4).join(', ')}>
+                <Tooltip title={tooltip ?? tags.slice(4).join(', ')}>
                     <LemonTag onClick={onMoreClick} forceClickable={!!onMoreClick}>
                         +{tags.length - 4} more
                     </LemonTag>
@@ -605,7 +612,11 @@ function PersonalAPIKeysTable(): JSX.Element {
                     key.scopes[0] === '*' ? (
                         <LemonTag type="warning">All access</LemonTag>
                     ) : (
-                        <TagList tags={key.scopes} onMoreClick={() => setEditingKeyId(key.id)} />
+                        <TagList
+                            tags={key.scopes}
+                            tooltip={<ScopeGroupSummary scopes={key.scopes} />}
+                            onMoreClick={() => setEditingKeyId(key.id)}
+                        />
                     )
                 }
                 extraColumnsAfterLabel={[statusColumn]}
@@ -618,6 +629,8 @@ function PersonalAPIKeysTable(): JSX.Element {
 export function PersonalAPIKeys(): JSX.Element {
     const { keys, canUsePersonalApiKeys } = useValues(personalAPIKeysLogic)
     const { setEditingKeyId } = useActions(personalAPIKeysLogic)
+    const { user } = useValues(userLogic)
+    const keysLimit = user?.personal_api_keys_limit ?? DEFAULT_MAX_API_KEYS_PER_USER
 
     return (
         <>
@@ -628,8 +641,8 @@ export function PersonalAPIKeys(): JSX.Element {
                 disabledReason={
                     !canUsePersonalApiKeys
                         ? 'Your organization does not allow members using personal API keys.'
-                        : keys.length >= MAX_API_KEYS_PER_USER
-                          ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
+                        : keys.length >= keysLimit
+                          ? `You can only have ${keysLimit} personal API keys. Remove an existing key before creating a new one.`
                           : false
                 }
             >

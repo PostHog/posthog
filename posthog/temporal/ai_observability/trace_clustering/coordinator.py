@@ -41,6 +41,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         record_teams_discovered,
     )
     from posthog.temporal.ai_observability.shared_activities import (
+        CLUSTERING_OPT_IN_PATCH_ID,
         FetchAllClusteringFiltersInput,
         FetchAllClusteringJobsInput,
         JobConfig,
@@ -201,6 +202,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     team_jobs=team_jobs,
                     analysis_level=inputs.analysis_level,
                     legacy_event_filters=per_team_filters.get(team_id, []),
+                    allow_legacy_fallback=not temporalio.workflow.patched(CLUSTERING_OPT_IN_PATCH_ID),
                 )
                 if not level_jobs:
                     logger.info(

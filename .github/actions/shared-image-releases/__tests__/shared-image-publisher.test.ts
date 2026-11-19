@@ -110,7 +110,7 @@ describe('shared-image publication', () => {
     const text = 'version: 1\nimages:\n  posthog-cloud:\n    channels:\n      worker:\n        repository: workers/worker\n        filter: worker\nfilters:\n  worker:\n    - |+\n      worker/**\n\n\n'
     put(POLICY_PATH, text)
     git('add', '-A'); git('update-index', '--chmod=+x', POLICY_PATH); git('commit', '-m', 'policy bytes')
-    const current = await new SourceHistory(repo, options.budgets).current(git('rev-parse', 'HEAD'))
+    const current = await new SourceHistory(repo, {...options.budgets, retryDelaysMs: [0, 0]}).current(git('rev-parse', 'HEAD'))
     expect(current.filters.worker).toEqual(['worker/**\n\n\n'])
     expect(policyDigest(current.filters.worker)).toBe(policyDigest(loadPolicy(text).filters.worker))
   })
@@ -468,9 +468,50 @@ describe('shared-image publication', () => {
     expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires')
   })
 
-  test.each([0, -1, 1.5, Infinity])('invalid budget %s rejects before commands', async value => {
-    build(); options.budgets.registryMs = value
-    await expect(publishChannels(options)).rejects.toThrow('Invalid publisher budget: registryMs')
+  test('omitted retry delays wait five and fifteen seconds before the third policy blob fetch publishes', async () => {
+    put('worker/run.py', 'changed'); commit(); build()
+    delete options.budgets.retryDelaysMs
+    const policyBlob = git('rev-parse', `${options.revision}:${POLICY_PATH}`)
+    let fetchAttempts = 0
+    external.mockImplementation(async (executable, args, configuration) => {
+      if (executable === 'git') {
+        if (args[0] === 'cat-file' && args[1] === '-e' && args[2] === policyBlob && fetchAttempts < 3) {
+          throw new Error('policy blob is missing')
+        }
+        if (args[0] === 'fetch') {
+          if (++fetchAttempts < 3) throw new Error('transient policy blob fetch failure')
+          return ''
+        }
+        return execFileSync('git', args, {
+          cwd: repo, env: {...process.env, ...configuration.env}, input: configuration.input, encoding: 'utf8'
+        })
+      }
+      return invoke(executable, args, configuration)
+    })
+    jest.useFakeTimers()
+    const waits = jest.spyOn(global, 'setTimeout')
+    try {
+      const result = publishChannels(options).catch((error: unknown) => error)
+      await jest.runAllTimersAsync()
+      expect(waits.mock.calls.map(([, delay]) => delay)).toEqual([5000, 15000])
+      expect(fetchAttempts).toBe(3)
+      expect(await result).toContainEqual(expect.objectContaining({
+        channel: 'posthog-cloud/worker', decision: 'published', outcome: 'present-at-expected-digest'
+      }))
+      expect(tags.get('workers/worker')!.get(options.alias)).toBe(options.digest)
+    } finally {
+      waits.mockRestore()
+      jest.useRealTimers()
+    }
+  })
+
+  test.each([
+    ...[0, -1, 1.5, Infinity].map(value => ['registryMs', value] as const),
+    ...[null, 0, '5 15', [], [0], [0, 0, 0], [-1, 0], [0, 1.5], [0, Infinity], [0, Number.MAX_SAFE_INTEGER + 1], [0, '15']]
+      .map(value => ['retryDelaysMs', value] as const)
+  ])('invalid budget %s=%j rejects before commands', async (name, value) => {
+    build(); Object.assign(options.budgets, {[name]: value})
+    await expect(publishChannels(options)).rejects.toThrow(`Invalid publisher budget: ${name}`)
     expect(external).not.toHaveBeenCalled()
   })
 
@@ -534,19 +575,67 @@ describe('shared-image publication', () => {
     build()
     if (mode === 'symlink policy') { git('rm', POLICY_PATH); git('update-index', '--add', '--cacheinfo', `120000,${git('hash-object', '-w', '--stdin')},${POLICY_PATH}`); git('commit', '-m', 'symlink') }
     if (mode === 'missing policy') { git('rm', POLICY_PATH); commit() }
-    const history = new SourceHistory(repo, options.budgets)
+    const history = new SourceHistory(repo, {...options.budgets, retryDelaysMs: [0, 0]})
     if (mode.startsWith('ordinal')) external.mockImplementation(async (exe, args, config) => args.includes('--count') ? mode === 'ordinal zero' ? '0' : '1000000000000' : invoke(exe, args, config))
     const result = mode === 'missing policy' || mode === 'symlink policy' ? history.current(git('rev-parse', 'HEAD')) : history.alias(mode === 'short revision' ? 'abcdef' : options.revision)
     await expect(result).rejects.toThrow(mode === 'short revision' ? 'Expected full source revision' : mode.startsWith('ordinal') ? 'Source ordinal is out of range' : mode === 'missing policy' ? 'policy is missing' : 'expected a regular policy file')
   })
 
-  test.each(['destination', 'fan-out', 'alias', 'digest'])('%s errors fail before any channel copy', async mode => {
+  test.each([40, 41])('bounds publication with %i configured channels', async channelCount => {
+    const configured = loadPolicy(policy())
+    const channels = Object.fromEntries(Array.from({length: channelCount}, (_, index) => {
+      const name = `worker-${index + 1}`
+      return [name, {repository: `workers/${name}`, filter: 'worker'}]
+    }))
+    configured.images['posthog-cloud'].channels = channels
+    put(POLICY_PATH, yaml.dump(configured))
+    const frontier = commit()
+    const frontierTag = alias(frontier)
+    const frontierDigest = image(frontier)
+    for (const {repository} of Object.values(channels)) {
+      tags.set(repository, new Map([[frontierTag, frontierDigest]]))
+    }
+    put('worker/run.py', 'changed')
+    commit()
+    build()
+    options.budgets.maxChannels = 40
+    options.budgets.concurrency = 8
+
+    if (channelCount === 41) {
+      await expect(publishChannels(options)).rejects.toThrow('Channel fan-out 41 exceeds budget 40')
+      expect(external.mock.calls.filter(([executable]) => executable !== 'git')).toEqual([])
+      return
+    }
+
+    let inProgress = 0
+    let peak = 0
+    external.mockImplementation(async (executable, args, configuration) => {
+      if (executable === 'aws' && args[1] === 'list-images') {
+        inProgress++
+        peak = Math.max(peak, inProgress)
+      }
+      const response = await invoke(executable, args, configuration)
+      if (executable === 'helper' && args[1] === 'publish') inProgress--
+      return response
+    })
+    const results = await publishChannels(options)
+    expect(results).toHaveLength(channelCount)
+    const resultsByChannel = new Map(results.map(result => [result.channel, result]))
+    for (const [name, {repository}] of Object.entries(channels)) {
+      expect(tags.get(repository)?.get(options.alias)).toBe(options.digest)
+      expect(resultsByChannel.get(`posthog-cloud/${name}`)).toMatchObject({
+        decision: 'published', tag: options.alias, digest: options.digest, outcome: 'present-at-expected-digest'
+      })
+    }
+    expect(peak).toBe(8)
+  })
+
+  test.each(['destination', 'alias', 'digest'])('%s errors fail before any channel copy', async mode => {
     put('unrelated.txt', mode); commit(); build()
     if (mode === 'destination') { put(POLICY_PATH, policy(['worker/**'], {repository: 'posthog-cloud'})); commit(); build() }
-    if (mode === 'fan-out') options.budgets.maxChannels = 1
     if (mode === 'alias') options.alias = `r000000000999-${options.revision.slice(0, 6)}`
     if (mode === 'digest') options.digest = 'invalid'
-    await expect(publishChannels(options)).rejects.toThrow(mode === 'destination' ? /worker.*destination conflicts with source/ : mode === 'fan-out' ? /fan-out/ : mode === 'alias' ? /Built ordered alias differs/ : /successful build digest/)
+    await expect(publishChannels(options)).rejects.toThrow(mode === 'destination' ? /worker.*destination conflicts with source/ : mode === 'alias' ? /Built ordered alias differs/ : /successful build digest/)
     if (mode === 'alias' || mode === 'digest') expect(external.mock.calls.every(([executable]) => executable === 'git')).toBe(true)
     expect([...tags.values()].every(entries => !entries.has(options.alias))).toBe(true)
   })

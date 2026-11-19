@@ -12,18 +12,35 @@ from typing import Final
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Min, Q
 from django.utils import timezone
 
-from posthog.dataclasses import frozen
-from posthog.schema_enums import AlertCalculationInterval, AlertState
-from posthog.tasks.alerts.utils import due_insight_alerts_q
+import structlog
 
-from products.alerts.backend.facade.destinations import choose_delivery_path
-from products.alerts.backend.insight_alert_state_machine import apply_invalid_configuration, apply_platform_state
-from products.alerts.backend.models.alert import AlertConfiguration
+from posthog.dataclasses import frozen
+from posthog.schema_enums import AlertState
+from posthog.tasks.alerts.utils import due_insight_alerts_q
+from posthog.temporal.alerts.investigation import IN_FLIGHT_INVESTIGATION_HORIZON
+from posthog.temporal.alerts.retry_policy import alert_timeouts
+
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_EVENT_IDS
+from products.alerts.backend.facade.destinations import (
+    alert_has_enabled_destinations,
+    build_insight_alert_destination_configs,
+    choose_delivery_path,
+    rebuild_source_destination_hog_functions,
+)
+from products.alerts.backend.insight_alert_state_machine import (
+    FIRING_NOT_RENOTIFIED_KEY,
+    apply_invalid_configuration,
+    apply_platform_state,
+)
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_source_cycle import DELIVERY_EVENT_IDS, platform_upsert_of
+from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationValidationError,
     DeliveryPath,
     HandbackRefusal,
     PlatformOwnershipHandover,
@@ -32,8 +49,12 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.delivery import has_legacy_event_emitter
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 
-# A firing never moves, so only these states are carried over.
+logger = structlog.get_logger(__name__)
+
 PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
+    # The platform carries the firing with its start unknown. An insight alert notifies on every
+    # firing check, so the platform's next check sends what the insight stack would have sent.
+    AlertState.FIRING: PlatformAlertState.FIRING,
     AlertState.NOT_FIRING: PlatformAlertState.NOT_FIRING,
     # The platform keeps a snooze on the copy's `snooze_until`, which the copy takes from this alert.
     AlertState.SNOOZED: PlatformAlertState.NOT_FIRING,
@@ -69,12 +90,8 @@ class CutoverSkip(StrEnum):
     ALREADY_MOVED = "already_moved"
     # Platform rows live on the project's root team, so an alert in a child environment stays.
     ENVIRONMENT = "environment"
-    # The platform evaluates it only in parallel, such as a real-time alert.
+    # The platform cannot copy it, such as an alert with no cadence.
     NOT_ON_PLATFORM = "not_on_platform"
-    # The investigation agent reads and writes the insight stack's checks, which the platform does not keep.
-    INVESTIGATION = "investigation"
-    # The two stacks key a firing differently, so a firing moves only after it resolves.
-    FIRING = "firing"
     # The insight scheduler owes this alert a check, which may already be running and could notify
     # after the move.
     CHECK_DUE = "check_due"
@@ -83,6 +100,12 @@ class CutoverSkip(StrEnum):
     # Its destinations need the HogFunction path, and nothing emits the insight events that path
     # sends, so the platform would deliver it natively and lose what its destinations add.
     NO_HOG_FUNCTION_PATH = "no_hog_function_path"
+    # The insight stack's agent still runs for a recent firing, or its held notification is unsent.
+    # Moved now, that notification could not go out, and the platform would start a second agent.
+    INVESTIGATION_UNSETTLED = "investigation_unsettled"
+    # A recent check fired and its workflow can still notify. Moved now, that notification would be
+    # dropped, and nobody would hear of the firing if the platform's next check clears.
+    NOTIFICATION_PENDING = "notification_pending"
 
 
 @frozen
@@ -103,6 +126,50 @@ def _insight_check_owed(team_id: int, alert_id: UUID, at: datetime) -> bool:
     return AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).filter(due_insight_alerts_q(at)).exists()
 
 
+def _investigation_unsettled(alert: AlertConfiguration, at: datetime) -> bool:
+    """Whether a recent check of the alert has an investigation in flight, or a finished one whose
+    held notification neither went out nor was suppressed. Past the in-flight horizon the insight
+    stack's safety net has sent it."""
+    in_flight = Q(investigation_status__in=[InvestigationStatus.PENDING, InvestigationStatus.RUNNING])
+    held = Q(
+        investigation_status__in=[InvestigationStatus.DONE, InvestigationStatus.FAILED],
+        state=AlertState.FIRING,
+        notification_sent_at__isnull=True,
+        notification_suppressed_by_agent=False,
+    )
+    return (
+        AlertCheck.objects.filter(alert_configuration=alert, created_at__gte=at - IN_FLIGHT_INVESTIGATION_HORIZON)
+        .filter(in_flight | held)
+        .exists()
+    )
+
+
+def _has_firing_targets(alert: AlertConfiguration) -> bool:
+    return alert.subscribed_users.exists() or alert_has_enabled_destinations(
+        team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids={"$insight_alert_firing"}
+    )
+
+
+def _firing_notification_pending(alert: AlertConfiguration, at: datetime) -> bool:
+    # A check's workflow notifies before its execution timeout ends, so past that the insight stack
+    # has sent the notification or given up on it.
+    horizon = alert_timeouts(alert.calculation_interval).workflow_execution
+    unsent = (
+        AlertCheck.objects.filter(
+            alert_configuration=alert,
+            created_at__gte=at - horizon,
+            state=AlertState.FIRING,
+            notification_sent_at__isnull=True,
+            notification_suppressed_by_agent=False,
+        )
+        .exclude(triggered_metadata__has_key=FIRING_NOT_RENOTIFIED_KEY)
+        .exists()
+    )
+    # A firing check with nobody to tell never stamps `notification_sent_at`, so an alert firing on
+    # every check would otherwise never move.
+    return unsent and _has_firing_targets(alert)
+
+
 def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
     """Hands every insight alert of one team to the platform, or says why one stays.
 
@@ -112,11 +179,6 @@ def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCu
         AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(team_id, alert_id, now))
         for alert_id in _team_alert_ids(team_id)
     )
-
-
-def _is_scheduled(alert: AlertConfiguration) -> bool:
-    """The platform evaluates real-time alerts in parallel, but cannot own them yet."""
-    return alert.calculation_interval != AlertCalculationInterval.REAL_TIME
 
 
 def delivers_as_it_does_today(alert: AlertConfiguration) -> bool:
@@ -149,13 +211,15 @@ def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Cutov
         if in_an_environment(alert):
             return CutoverSkip.ENVIRONMENT
         if not can_move(alert):
-            return CutoverSkip.INVESTIGATION if alert.investigation_agent_enabled else CutoverSkip.NOT_ON_PLATFORM
+            return CutoverSkip.NOT_ON_PLATFORM
         if not delivers_as_it_does_today(alert):
             return CutoverSkip.NO_HOG_FUNCTION_PATH
-        if alert.state == AlertState.FIRING:
-            return CutoverSkip.FIRING
         if _insight_check_owed(team_id, alert.id, at):
             return CutoverSkip.CHECK_DUE
+        if _investigation_unsettled(alert, at):
+            return CutoverSkip.INVESTIGATION_UNSETTLED
+        if _firing_notification_pending(alert, at):
+            return CutoverSkip.NOTIFICATION_PENDING
         if not hand_over(alert, at):
             return CutoverSkip.PLATFORM_FIRING
     return None
@@ -167,26 +231,48 @@ def in_an_environment(alert: AlertConfiguration) -> bool:
 
 
 def can_move(alert: AlertConfiguration) -> bool:
-    """Whether the platform can own the alert: a scheduled alert it evaluates, with a threshold or a
-    detector, which no investigation agent reads."""
-    return platform_upsert_of(alert) is not None and _is_scheduled(alert) and not alert.investigation_agent_enabled
+    """Whether the platform can own the alert: one it evaluates, with a threshold or a detector, and
+    with or without the investigation agent."""
+    return platform_upsert_of(alert) is not None
 
 
-def has_begun_cutover(team_id: int) -> bool:
-    """Whether the platform owns any of the team's insight alerts, which makes it the owner of new ones."""
-    return AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM).exists()
+def takes_new_alert(team_id: int, *, new_alert_id: UUID) -> bool:
+    """Whether the platform owns a team's new insight alert: when it owns another of the team's alerts,
+    or when the team has no other. A team whose alerts all stay with insight, such as one rolled back,
+    keeps new ones on insight too."""
+    owners = set(
+        AlertConfiguration.objects.filter(team_id=team_id)
+        .exclude(id=new_alert_id)
+        .values_list("owner", flat=True)
+        .distinct()
+    )
+    return not owners or PlatformAlertOwner.PLATFORM in owners
 
 
-def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
+def team_cutover_at(team_id: int, *, new_alert_id: UUID) -> datetime | None:
+    """When the platform took the earliest of a team's other insight alerts it still owns. None when it
+    owns none of them."""
+    return (
+        AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM)
+        .exclude(id=new_alert_id)
+        .aggregate(at=Min("owner_changed_at"))["at"]
+    )
+
+
+def hand_over(alert: AlertConfiguration, at: datetime, *, shadow_from: datetime | None = None) -> bool:
     """Copies an insight alert locked by the caller onto the platform and makes the platform its owner,
     on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
+
+    `shadow_from` is the insight row's `owner_changed_at`, where its shadow starts, and defaults to `at`.
+    The platform copy always takes `at`, because its check fence and firing check need the real time.
 
     The caller checks `can_move` first.
     """
     upsert = platform_upsert_of(alert)
     assert upsert is not None
-    savepoint = transaction.savepoint()
+    savepoint = transaction.savepoint_create()
     upsert_configuration(upsert)
+    sync_subscriber_destinations(alert)
     taken = take_ownership(
         PlatformOwnershipHandover(
             legacy_configuration_id=alert.id,
@@ -205,11 +291,12 @@ def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
         return False
     transaction.savepoint_commit(savepoint)
     # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
+    owner_changed_at = shadow_from or at
     AlertConfiguration.objects.filter(team_id=alert.team_id, id=alert.id).update(
-        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at
+        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=owner_changed_at
     )
     alert.owner = PlatformAlertOwner.PLATFORM
-    alert.owner_changed_at = at
+    alert.owner_changed_at = owner_changed_at
     return True
 
 
@@ -223,6 +310,9 @@ class RollbackSkip(StrEnum):
     PLATFORM_FIRING = "platform_firing"
     PLATFORM_CHECK_DUE = "platform_check_due"
     NOT_PORTABLE = "not_portable"
+    # A destination kept only on the platform could not be given its HogFunctions back, so handing the
+    # alert back would leave it silent there.
+    DESTINATION_NOT_REBUILT = "destination_not_rebuilt"
 
 
 _ROLLBACK_SKIP: Final[dict[HandbackRefusal, RollbackSkip]] = {
@@ -261,6 +351,9 @@ def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Roll
         )
         if isinstance(handback, HandbackRefusal):
             return _ROLLBACK_SKIP[handback]
+        if not _rebuild_destinations(alert):
+            transaction.set_rollback(True)
+            return RollbackSkip.DESTINATION_NOT_REBUILT
 
         update_fields = apply_platform_state(
             alert, insight_state_of_platform(handback.state, snoozed_until=alert.snoozed_until, at=at)
@@ -275,3 +368,25 @@ def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Roll
         alert.next_check_at = handback.next_check_at
         alert.save(update_fields=[*update_fields, "owner", "owner_changed_at", "last_notified_at", "next_check_at"])
     return None
+
+
+def _rebuild_destinations(alert: AlertConfiguration) -> bool:
+    """The insight stack sends only through HogFunctions and subscriptions, so a destination kept as an
+    `AlertDestination` row alone gets its HogFunctions back. Subscriber rows need nothing, because every
+    subscriber write keeps `AlertSubscription` beside them. A PagerDuty row gets its HogFunctions too, but
+    only the platform emits the incident events they hear, so it pages again only after a new cutover.
+    False when a row cannot be rebuilt."""
+    try:
+        rebuild_source_destination_hog_functions(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            created_by_id=alert.created_by_id,
+            allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+            build_configs=lambda data: build_insight_alert_destination_configs(
+                alert_id=str(alert.id), alert_name=alert.name, data=data
+            ),
+        )
+    except AlertDestinationValidationError:
+        logger.warning("insight_alert_rollback_destination_not_rebuilt", alert_id=str(alert.id), exc_info=True)
+        return False
+    return True

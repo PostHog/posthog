@@ -160,7 +160,7 @@ class PostgresAdapter:
         return postgres_source, config
 
     def prepare_raw_sql(self, sql: str) -> str:
-        return ensure_single_direct_statement(sql)
+        return ensure_single_direct_statement(sql, dialect="postgres")
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         source = request.source

@@ -285,7 +285,7 @@ function CommentsFilterSettingsButton(): JSX.Element {
 
 function LogsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allItemsByItemType, logsLoading, logsLoadError, logsInitialLoadRequested } = useValues(
+    const { allItemsByItemType, logsLoading, logsLoadError, logsInitialLoadRequested, logsAccessDenied } = useValues(
         playerInspectorLogic(logicProps)
     )
 
@@ -319,13 +319,15 @@ function LogsFilterSettingsButton(): JSX.Element {
         )
     }
 
-    const disabledReason = logsLoading
-        ? 'Loading logs...'
-        : !logsInitialLoadRequested
-          ? "Logs load after the recording's events load"
-          : logsLoadError
-            ? 'Failed to load logs for this session'
-            : undefined
+    const disabledReason = logsAccessDenied
+        ? "You don't have access to logs in this project"
+        : logsLoading
+          ? 'Loading logs...'
+          : !logsInitialLoadRequested
+            ? "Logs load after the recording's events load"
+            : logsLoadError
+              ? 'Failed to load logs for this session'
+              : undefined
 
     return (
         <FilterSettingsButton

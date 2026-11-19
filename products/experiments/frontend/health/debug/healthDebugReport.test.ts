@@ -6,12 +6,14 @@ import { type HealthDebugInput, buildHealthDebugChecks } from './healthDebugRepo
 const PAUSED: ExperimentHealthFindingApi = {
     code: 'flag_off_while_running',
     subcode: 'running_but_flag_disabled',
+    reason: null,
     severity: 'warning',
     title: 'The experiment is paused',
     detail: '',
     evidence: {},
     actions: ['open_feature_flag'],
     diagnostic_ref: 'A5',
+    check: 'flag_state',
 }
 
 const input = (overrides: Partial<HealthDebugInput>): HealthDebugInput => ({

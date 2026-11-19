@@ -17,13 +17,15 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType, OrganizationMemberType } from '~/types'
 
-import { ROLE_KEY_BY_NAME } from 'products/customer_analytics/frontend/components/Accounts/accountsColumnConfigLogic'
-import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
+import {
+    ACCOUNT_RELATIONSHIP_ANALYTICS_ROLES,
+    AccountsEvents,
+} from 'products/customer_analytics/frontend/components/Accounts/constants'
 import {
     ACCOUNTS_METRICS_DATA_NODE_KEY,
     ACCOUNTS_TABLE_DATA_NODE_KEY,
@@ -751,7 +753,11 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                         posthog.capture(AccountsEvents.RoleAssigned, {
                             ...(payload?.source === 'account_view'
                                 ? {}
-                                : { role: ROLE_KEY_BY_NAME[property.definition.name] ?? property.definition.name }),
+                                : {
+                                      role:
+                                          ACCOUNT_RELATIONSHIP_ANALYTICS_ROLES[property.definition.name] ??
+                                          property.definition.name,
+                                  }),
                             is_assigned: memberIds.length > 0,
                             assigned_user_id: memberIds.length === 1 ? memberIds[0] : null,
                             source: payload?.source ?? 'account_sidebar',

@@ -26,6 +26,7 @@ import uuid
 from datetime import datetime
 from typing import get_args
 
+from django.db import transaction
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -46,6 +47,8 @@ from products.signals.backend.report_checks import (
     monitoring_window_end,
     parse_check_config,
 )
+from products.signals.backend.report_lifecycle import legacy_agent_checks_enabled
+from products.signals.backend.report_monitoring_attempts import verifying_attempt
 from products.signals.backend.scout_harness.tools.emit import _preflight_emit_gates, _resolve_task_id
 
 MAX_CHECK_EXPLANATION_LENGTH = 1_000
@@ -86,7 +89,7 @@ def _pause_reason(check: SignalReportCheck, report_status: str, now: datetime) -
             return "its report is `monitoring`"
         if now >= min(monitoring_window_end(start, check.soak_minutes), start + MAX_CHECK_HORIZON):
             return "its Monitoring window ended"
-    else:
+    elif check.kind != SignalReportCheck.Kind.AGENT or not legacy_agent_checks_enabled(check.report):
         return f"its report is `{report_status}`"
     if check.expires_at <= now:
         return "its horizon passed"
@@ -422,6 +425,16 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
     canonical_team_id = team.parent_team_id or team.id
     if (check.team.parent_team_id or check.team_id) != canonical_team_id:
         raise InvalidCheckWriteError(f"check {check_id} not found")
-    if not cancel_check(check, reason="stopped_by_scout", attribution=_run_attribution(run)):
-        raise InvalidCheckWriteError(f"check {check_id} already finished as `{check.status}` and cannot be cancelled")
+    with transaction.atomic():
+        # Lock the report first, as Monitoring entry does, so a report cannot enter Monitoring between the guard and
+        # the cancel.
+        report = SignalReport.objects.select_for_update(no_key=True).get(team_id=check.team_id, id=check.report_id)
+        if verifying_attempt(report, check) is not None:
+            raise InvalidCheckWriteError(
+                f"check {check_id} is verifying a report in Monitoring, so only a person can cancel it"
+            )
+        if not cancel_check(check, reason="stopped_by_scout", attribution=_run_attribution(run)):
+            raise InvalidCheckWriteError(
+                f"check {check_id} already finished as `{check.status}` and cannot be cancelled"
+            )
     return _summarize(check, check.report.effective_status)

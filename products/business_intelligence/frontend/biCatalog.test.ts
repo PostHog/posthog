@@ -12,10 +12,33 @@ it('keeps catalog SQL and bound values unchanged when a worksheet is saved or it
         query: 'SELECT count(*) FROM events WHERE timestamp >= {start}',
         values: { start: '2026-01-01' },
     }
-    const node = catalogMetricWorksheet({ name: 'revenue', definition: source })!
+    const node = catalogMetricWorksheet({
+        name: 'revenue',
+        definition: source,
+        id: 'metric-revenue',
+        status: 'approved',
+        is_drifted: true,
+        unit: 'usd',
+        owner: 'analyst@example.com',
+        updated_at: '2026-01-01T00:00:00Z',
+    })!
     const parsed = parseBIEditorState(BIEditorView.BI, JSON.stringify(node.config))!.config
     expect(buildBIQuery({ ...parsed, chartType: ChartDisplayType.BoldNumber })?.node.source).toEqual(source)
     expect(parsed.catalogMetric).toBe('revenue')
+    expect(parsed.catalogMetricContext).toEqual({
+        id: 'metric-revenue',
+        status: 'approved',
+        isDrifted: true,
+        unit: 'usd',
+        owner: 'analyst@example.com',
+        updatedAt: '2026-01-01T00:00:00Z',
+    })
+    expect(
+        parseBIEditorState(BIEditorView.BI, {
+            ...parsed,
+            catalogMetricContext: { ...parsed.catalogMetricContext, isDrifted: 'false' },
+        })
+    ).toBeNull()
     expect(
         parseBIEditorState(
             BIEditorView.BI,
@@ -46,6 +69,59 @@ it('attaches draft and metric content as untrusted data and omits oversized draf
             item.value?.includes('has been omitted')
         )
     ).toBe(true)
+})
+
+it('restores catalog-copy drafts when nullable metadata was omitted by the API serializer', () => {
+    const config = {
+        ...DEFAULT_BI_CONFIG,
+        querySnapshot: { kind: NodeKind.HogQLQuery, query: 'SELECT 43 AS edited_revenue' },
+        catalogMetric: 'revenue',
+        catalogMetricContext: { id: 'metric-revenue', status: 'approved', isDrifted: false, unit: 'usd' },
+    }
+    const parsed = parseBIEditorState(BIEditorView.BI, JSON.stringify(config))
+    expect(parsed?.config.querySnapshot).toEqual(config.querySnapshot)
+    expect(parsed?.config.catalogMetricContext).toEqual({
+        ...config.catalogMetricContext,
+        owner: null,
+        updatedAt: null,
+    })
+    for (const field of ['owner', 'updatedAt']) {
+        expect(
+            parseBIEditorState(BIEditorView.BI, {
+                ...config,
+                catalogMetricContext: { ...config.catalogMetricContext, [field]: 42 },
+            })
+        ).toBeNull()
+    }
+})
+
+it.each(['approved', 'proposed', 'unknown', '', null])('validates copied catalog status %p', (status) => {
+    const metric = {
+        name: 'revenue',
+        definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42' },
+        id: 'metric-revenue',
+        status: status ?? undefined,
+        is_drifted: false,
+    }
+    const node = catalogMetricWorksheet(metric)!
+    const supported = status === 'approved' || status === 'proposed'
+    expect(node.config.catalogMetricContext?.status).toBe(supported ? status : undefined)
+    const parsed = parseBIEditorState(BIEditorView.BI, {
+        ...node.config,
+        catalogMetricContext: {
+            id: metric.id,
+            status,
+            isDrifted: false,
+            unit: '',
+            owner: null,
+            updatedAt: null,
+        },
+    })
+    if (supported) {
+        expect(parsed?.config.catalogMetricContext?.status).toBe(status)
+    } else {
+        expect(parsed).toBeNull()
+    }
 })
 
 it('only proposes the successfully executed current query, retaining resolved dates and its row cap', () => {

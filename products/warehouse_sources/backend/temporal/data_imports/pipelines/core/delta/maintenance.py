@@ -253,21 +253,44 @@ def _partition_file_stats(
     ]
 
 
-def _partitions_up_to(partitions: list[_PartitionFileStats], removable_files: int) -> list[str] | None:
+def _partitions_up_to(
+    partitions: list[_PartitionFileStats], removable_files: int, max_partitions: int
+) -> list[str] | None:
     """The partitions with the most removable files, until together they reach `removable_files`.
 
+    Stops at `max_partitions` too: each partition is one bin, so the bin count sets how long a pass
+    takes, and a table of many tiny partitions reaches `removable_files` only across thousands of them.
     None means the whole table: it has no partition column, or every partition is needed anyway.
     """
     selected: list[str] = []
     reached = 0
     for partition in sorted(partitions, key=lambda p: p.removable_files, reverse=True):
-        if reached >= removable_files:
+        if reached >= removable_files or len(selected) >= max_partitions:
             break
         if partition.key is None:
             return None
         selected.append(partition.key)
         reached += partition.removable_files
     return selected if len(selected) < len(partitions) else None
+
+
+def _most_removable_partitions(partitions: list[_PartitionFileStats], max_partitions: int) -> list[str] | None:
+    """The `max_partitions` partitions with the most removable files.
+
+    None means the whole table: it has no partition column, or no more than `max_partitions`
+    partitions have a file to remove.
+    """
+    compactable = [partition for partition in partitions if partition.removable_files > 0]
+    if len(compactable) <= max_partitions:
+        return None
+    selected = sorted(compactable, key=lambda p: p.removable_files, reverse=True)[:max_partitions]
+    if any(partition.key is None for partition in selected):
+        return None
+    return [cast(str, partition.key) for partition in selected]
+
+
+def _selected_partitions_note(partitions: list[str] | None) -> str:
+    return "" if partitions is None else f", selected_partitions={len(partitions)}"
 
 
 @frozen
@@ -480,7 +503,12 @@ class DeltaMaintenance:
 
     @recorded_phase("compact")
     async def _compact(
-        self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None, *, partitions: list[str] | None = None
+        self,
+        table: deltalake.DeltaTable,
+        plan: CompactionPlan | None = None,
+        *,
+        partitions: list[str] | None = None,
+        partition_column: str = PARTITION_KEY,
     ) -> bool:
         plan = plan or await self._plan_compaction(table)
         target_size = plan.target_size
@@ -510,7 +538,7 @@ class DeltaMaintenance:
             def _compact_op(size: int = target_size, tasks: int | None = max_concurrent_tasks) -> dict[str, Any]:
                 if partitions:
                     return table.optimize.compact(
-                        partition_filters=[(PARTITION_KEY, "in", partitions)],
+                        partition_filters=[(partition_column, "in", partitions)],
                         target_size=size,
                         max_concurrent_tasks=tasks,
                     )
@@ -759,6 +787,10 @@ class DeltaMaintenance:
         stores the source's value there, so a datetime-partitioned table can store 1 while it holds
         thousands of partition directories.
 
+        One pass compacts at most `DATA_WAREHOUSE_COMPACT_MAX_PARTITIONS_PER_PASS` partitions, the
+        ones with the most removable files, so a table of many tiny partitions takes several passes
+        instead of one batch that outlasts the stuck-batch timeout.
+
         Returns True if compaction ran, False if it was skipped. The decision reads only the
         Delta log. Runs pre-write, so a sync that arrived at a fragmented state (e.g. an earlier
         attempt that failed before reaching post-load) cleans up before adding to the pile, and
@@ -809,11 +841,13 @@ class DeltaMaintenance:
             await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
             return False
 
+        max_partitions = settings.DATA_WAREHOUSE_COMPACT_MAX_PARTITIONS_PER_PASS
         return await self._compact_table(
             table,
             lambda planned: triggered(_small_file_fragmentation(planned, table_wide_small_files)),
             pass_name="compact_if_fragmented",
             stats=stats,
+            select_partitions=lambda planned: _most_removable_partitions(planned, max_partitions),
         )
 
     async def _compact_table(
@@ -834,7 +868,9 @@ class DeltaMaintenance:
         if select_partitions is not None:
             partitions = select_partitions(await asyncio.to_thread(_partition_file_stats, table, table_target_size))
         if settings.DATA_WAREHOUSE_DELTALITE_COMPACTION:
-            await self._logger.ainfo(f"{pass_name}: triggering compact ({stats})")
+            await self._logger.ainfo(
+                f"{pass_name}: triggering compact ({stats}{_selected_partitions_note(partitions)})"
+            )
             compacted = await self._compact_with_deltalite(table, partitions=partitions)
             if compacted is not None:
                 return compacted
@@ -859,15 +895,16 @@ class DeltaMaintenance:
             if select_partitions is not None:
                 partitions = select_partitions(planned)
 
-        await self._logger.ainfo(f"{pass_name}: triggering compact ({stats})")
+        await self._logger.ainfo(f"{pass_name}: triggering compact ({stats}{_selected_partitions_note(partitions)})")
         return await self._compact(table, plan, partitions=partitions)
 
-    async def compact_during_rebuild(self, min_removable_files: int) -> RebuildCompactOutcome:
+    async def compact_during_rebuild(self, min_removable_files: int, max_partitions: int) -> RebuildCompactOutcome:
         """Compact a table that a rebuild run is still loading, once a compaction removes enough files.
 
         A rebuild run loads the table from empty, so every file here is one that the same run wrote.
         One pass compacts only the partitions with the most removable files, up to
-        `min_removable_files`, so a backlog takes several passes instead of one long batch. Never
+        `min_removable_files` and at most `max_partitions` partitions, so a backlog takes several
+        passes instead of one long batch. Never
         raises an `Exception`: the batch is committed, and the next check or the post-load pass
         compacts the same files.
         """
@@ -892,7 +929,7 @@ class DeltaMaintenance:
                     f"removable_files={removable_files}, partitions={len(partitions)}, "
                     f"min_removable_files={min_removable_files}"
                 ),
-                select_partitions=lambda stats: _partitions_up_to(stats, min_removable_files),
+                select_partitions=lambda stats: _partitions_up_to(stats, min_removable_files, max_partitions),
             )
             return "compacted" if compacted else "skipped"
         except Exception as e:
@@ -973,6 +1010,46 @@ class DeltaMaintenance:
             )
         except Exception as e:
             await self._log_maintenance_failure(e, step="compact")
+
+    async def compact_history_partitions(self, partition_column: str) -> bool:
+        """Compact each partition of a partitioned history table that holds enough small files.
+
+        Every append and every close merge adds a file to the current partition, and each close moves the
+        rows it closes into the month that is still filling. A CDC table runs without the small-file
+        triggers of `compact_if_fragmented`, because a CDC load lands on every tick, and its count triggers
+        average over every month partition. Never raises, like `run_scheduled`.
+        """
+        try:
+            table = await self._table.get_delta_table()
+            if table is None or partition_column not in (table.metadata().partition_columns or []):
+                return False
+            prefix = f"{partition_column}="
+            sizes: defaultdict[str, list[int]] = defaultdict(list)
+            for path, size in table._table.get_add_file_sizes().items():
+                directory = path.rpartition("/")[0]
+                if directory.startswith(prefix):
+                    sizes[directory[len(prefix) :]].append(size or 0)
+
+            def fragmented(target_size: int) -> list[str]:
+                return sorted(
+                    value
+                    for value, file_sizes in sizes.items()
+                    if removable_file_count(file_sizes, target_size)
+                    >= DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
+                )
+
+            if not fragmented(table_target_file_size(table)):
+                return False
+            # The memory plan can shrink the bin below the table's target, and a smaller bin can merge
+            # fewer files. Without the recheck every sync would plan a compaction that removes nothing.
+            plan = await self._plan_compaction(table)
+            selected = [] if plan.target_size is None else fragmented(plan.target_size)
+            if not selected:
+                return False
+            return await self._compact(table, plan, partitions=selected, partition_column=partition_column)
+        except Exception as e:
+            await self._log_maintenance_failure(e, step="compact_history_partitions")
+            return False
 
     async def _log_maintenance_failure(self, e: Exception, *, step: str) -> None:
         if isinstance(e, ObjectStorePermissionDeniedError):

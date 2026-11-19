@@ -11,6 +11,7 @@
     "charts": [],
     "metrics": [],
     "checks_summary": null,
+    "checks_error": null,
     "verification_note": null,
     "old_artefacts": [],
     "new_artefacts": [

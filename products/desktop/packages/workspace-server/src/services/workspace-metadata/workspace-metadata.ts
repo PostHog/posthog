@@ -55,6 +55,19 @@ export class WorkspaceMetadataService {
     this.taskMetadataRepo.upsert(taskId, { lastViewedAt });
   }
 
+  /**
+   * Puts the last view just before the last activity, so the task reads as
+   * unread without moving it in an activity-sorted list.
+   */
+  markUnread(taskId: string, activityAt: number): void {
+    const lastViewedAt = new Date(activityAt - 1).toISOString();
+    if (this.workspaceRepo.findByTaskId(taskId)) {
+      this.workspaceRepo.updateLastViewedAt(taskId, lastViewedAt);
+      return;
+    }
+    this.taskMetadataRepo.upsert(taskId, { lastViewedAt });
+  }
+
   markActivity(taskId: string): void {
     const workspace = this.workspaceRepo.findByTaskId(taskId);
     const metadata = workspace ?? this.taskMetadataRepo.findByTaskId(taskId);

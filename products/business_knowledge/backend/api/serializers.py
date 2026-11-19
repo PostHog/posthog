@@ -26,11 +26,14 @@ from ..models import (
     EmbeddingStatus,
     KnowledgeLibrarySource,
     KnowledgeSource,
+    LearningBackfillStatus,
     RefreshInterval,
     SafetyVerdict,
     SourceType,
 )
+from ..models.constants import SearchMatch
 from ..sandbox import SandboxPollStatus, SandboxToolName
+from ..usage import USAGE_DEFAULT_DAYS, USAGE_MAX_DAYS
 
 
 def _derive_scope_globs(url: str) -> list[str]:
@@ -121,6 +124,19 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     library_ids = serializers.SerializerMethodField(
         help_text="Libraries this source belongs to. Empty when the source is in none.",
     )
+    cited_run_count = serializers.IntegerField(
+        source="_cited_run_count",
+        read_only=True,
+        default=0,
+        help_text="Number of support agent runs that cited this source.",
+    )
+    last_cited_at = serializers.DateTimeField(
+        source="_last_cited_at",
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="When a support agent run last cited this source. Null when none has.",
+    )
 
     class Meta:
         model = KnowledgeSource
@@ -153,6 +169,8 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "file_size_bytes",
             "always_include",
             "library_ids",
+            "cited_run_count",
+            "last_cited_at",
         ]
         read_only_fields = fields
 
@@ -492,6 +510,15 @@ class KnowledgeSourceDocumentSerializer(serializers.Serializer):
     )
 
 
+class KnowledgeAvailabilitySerializer(serializers.Serializer):
+    has_sources = serializers.BooleanField(
+        read_only=True, help_text="True when the project has at least one business knowledge source."
+    )
+    has_repositories = serializers.BooleanField(
+        read_only=True, help_text="True when this environment has at least one GitHub repository selected."
+    )
+
+
 class KnowledgeDocumentWindowSerializer(serializers.Serializer):
     """
     One chunk in a drill-down window over a single knowledge document.
@@ -583,6 +610,24 @@ class KnowledgeSearchResultSerializer(serializers.Serializer):
         read_only=True,
         help_text="Fetched page URL. Empty for text and file sources.",
     )
+    matched_by = serializers.ChoiceField(
+        choices=SearchMatch.choices,
+        read_only=True,
+        help_text=(
+            "Why this chunk is in the result. `both`: the chunk matched the query words and the query meaning, "
+            "the strongest evidence. `semantic`: it matched the meaning only. `keyword`: it shares words with the "
+            "query, which can be a weak match for a long question. `context`: it did not match; it is a neighbour "
+            "of a matching chunk, returned so the match reads in context."
+        ),
+    )
+    similarity = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Semantic similarity between the query and this chunk, from 0 to 1, higher is closer. "
+            "Null when the semantic index did not return this chunk."
+        ),
+    )
 
 
 class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):
@@ -611,6 +656,91 @@ class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):
         if value.size and value.size > MAX_FILE_SIZE_BYTES:
             raise serializers.ValidationError(f"File exceeds the {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB cap.")
         return value
+
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeUsageQuerySerializer(serializers.Serializer):
+    days = serializers.IntegerField(
+        required=False,
+        default=USAGE_DEFAULT_DAYS,
+        min_value=1,
+        max_value=USAGE_MAX_DAYS,
+        help_text=f"Number of days to report, counting back from today. From 1 to {USAGE_MAX_DAYS}.",
+    )
+
+
+class DailyUsageSerializer(serializers.Serializer):
+    date = serializers.DateField(read_only=True, help_text="Day, in UTC.")
+    cited_run_count = serializers.IntegerField(
+        read_only=True, help_text="Support agent runs that cited knowledge on this day."
+    )
+    chunks_ingested = serializers.IntegerField(read_only=True, help_text="Chunks written on this day.")
+    query_count = serializers.IntegerField(read_only=True, help_text="Knowledge searches made on this day.")
+
+
+class SurfaceUsageSerializer(serializers.Serializer):
+    surface = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Where the usage came from. For chunks: text, url, file, or generated (learned from a support "
+            "ticket). For searches: api (the API and MCP), support, posthog_ai, or learning."
+        ),
+    )
+    total = serializers.IntegerField(read_only=True, help_text="Usage from this surface in the period.")
+
+
+class SourceUsageSerializer(serializers.Serializer):
+    source_id = serializers.UUIDField(read_only=True, help_text="ID of the knowledge source.")
+    name = serializers.CharField(read_only=True, help_text="Name of the knowledge source.")
+    is_generated = serializers.BooleanField(
+        read_only=True, help_text="True when the source was learned from a past support ticket."
+    )
+    cited_run_count = serializers.IntegerField(
+        read_only=True, help_text="Support agent runs that cited this source in the period."
+    )
+    last_cited_at = serializers.DateTimeField(
+        read_only=True, help_text="When a run last cited this source in the period."
+    )
+
+
+class KnowledgeUsageSerializer(serializers.Serializer):
+    """How much the knowledge base was used in a period: ingestion, searches, and support agent citations."""
+
+    days = serializers.IntegerField(read_only=True, help_text="Number of days the report covers, today included.")
+    cited_run_count = serializers.IntegerField(
+        read_only=True, help_text="Support agent runs that cited at least one knowledge source."
+    )
+    learned_cited_run_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Runs that cited at least one source learned from a past support ticket.",
+    )
+    source_count = serializers.IntegerField(read_only=True, help_text="Knowledge sources in the project.")
+    cited_source_count = serializers.IntegerField(
+        read_only=True, help_text="Knowledge sources that at least one run cited in the period."
+    )
+    chunks_ingested = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Chunks written in the period. Content that a refresh finds changed is chunked again and counts again."
+        ),
+    )
+    query_count = serializers.IntegerField(
+        read_only=True, help_text="Knowledge searches made in the period, from every surface."
+    )
+    chunks_by_surface = SurfaceUsageSerializer(
+        many=True, read_only=True, help_text="Chunks written in the period by source type, largest first."
+    )
+    queries_by_surface = SurfaceUsageSerializer(
+        many=True, read_only=True, help_text="Searches in the period by where they came from, largest first."
+    )
+    daily = DailyUsageSerializer(many=True, read_only=True, help_text="One entry per day, oldest first.")
+    top_sources = SourceUsageSerializer(
+        many=True, read_only=True, help_text="The most cited sources in the period, most cited first."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -670,6 +800,24 @@ class GapTopicActionResultSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 
+class LearningBackfillProgressSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=LearningBackfillStatus.choices,
+        help_text="`running` while PostHog reads past tickets. `completed` once every ticket in the window is read.",
+    )
+    started_at = serializers.DateTimeField(help_text="When someone started learning from past tickets.")
+    finished_at = serializers.DateTimeField(
+        allow_null=True, help_text="When every past ticket was read. Null while the run continues."
+    )
+    tickets_read = serializers.IntegerField(
+        help_text="Tickets analyzed since the run started, including tickets from the regular 7-day pass."
+    )
+    tickets_in_progress = serializers.IntegerField(help_text="Tickets that are being analyzed now.")
+    knowledge_created = serializers.IntegerField(
+        help_text="Analyzed tickets that added a learned source to business knowledge."
+    )
+
+
 @extend_schema_serializer(component_name="BusinessKnowledgeSettings")
 class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
     learn_from_support_enabled = serializers.BooleanField(
@@ -681,6 +829,11 @@ class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
     support_enabled = serializers.BooleanField(
         read_only=True,
         help_text="Whether Support is enabled for this environment. Learning cannot be turned on while this is false.",
+    )
+    learning_backfill = LearningBackfillProgressSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The last run of learning from past tickets. Null when none ran since learning was turned on.",
     )
 
 

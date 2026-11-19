@@ -28,6 +28,8 @@ from datetime import timedelta
 from typing import Any, TypeVar
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -52,6 +54,7 @@ from ..constants import (
     BK_EMBEDDING_RENDERING,
     MAX_URLS_PER_SOURCE,
     PENDING_EMBEDDING_SCAN_CAP,
+    REEMIT_EMBEDDING_SCAN_CAP,
 )
 from ..models import KnowledgeSource, SafetyVerdict
 
@@ -107,14 +110,17 @@ async def classify_pending_documents_activity(exclude_ids: list[str] | None = No
     must not spend the hourly retry budget on the same page.
     """
 
-    def _list() -> list[logic.PendingDocument]:
+    def _list() -> tuple[list[logic.PendingDocument], bool]:
         parsed = [UUID(value) for value in exclude_ids] if exclude_ids else None
-        return logic.list_documents_pending_classification(exclude_ids=parsed)
+        return logic.load_documents_pending_classification(exclude_ids=parsed)
 
-    docs = await database_sync_to_async(_list, thread_sensitive=False)()
+    docs, has_more = await database_sync_to_async(_list, thread_sensitive=False)()
     tried_ids = [str(doc.document_id) for doc in docs]
     if not docs:
         return {"classified": 0, "unsafe": 0, "scanned": 0, "tried_ids": tried_ids}
+    recorded = bool(getattr(settings, "GEMINI_API_KEY", ""))
+    if recorded:
+        await database_sync_to_async(logic.record_classification_attempts, thread_sensitive=False)(docs)
     async with Heartbeater():
         results = await safety.classify_documents(docs)
         for result in results:
@@ -124,9 +130,19 @@ async def classify_pending_documents_activity(exclude_ids: list[str] | None = No
                 verdict=result.verdict,
                 reason=result.reason,
                 content_hash=result.content_hash,
+                attempt_already_recorded=recorded,
             )
     unsafe = sum(1 for r in results if r.verdict == SafetyVerdict.UNSAFE)
-    return {"classified": len(results), "unsafe": unsafe, "scanned": len(docs), "tried_ids": tried_ids}
+    return {
+        "classified": len(results),
+        "unsafe": unsafe,
+        "scanned": _chunk_scan_count(
+            returned=len(docs),
+            has_more=has_more,
+            cap=logic.PENDING_CLASSIFICATION_SCAN_CAP,
+        ),
+        "tried_ids": tried_ids,
+    }
 
 
 def _produce_document_chunks(doc: logic.DocumentToEmbed) -> None:
@@ -211,27 +227,51 @@ async def emit_pending_embeddings_activity() -> dict[str, Any]:
     One chunk, bounded by ``PENDING_EMBEDDING_SCAN_CAP``. The coordinator calls
     this again while the chunk comes back full and at least one doc was stamped.
     Per-doc failures are logged and skipped without stamping, so they stay
-    queued. A chunk that stamps nothing is not retried in this run.
+    queued. This chunk loads the next page past those failures so one document
+    cannot block the ones behind it. A chunk that stamps nothing stops.
     """
-    docs = await database_sync_to_async(logic.list_documents_pending_embedding, thread_sensitive=False)()
+    exclude: list[UUID] = []
     documents_embedded = 0
     chunks_emitted = 0
-    for doc in docs:
-        try:
-            written = await database_sync_to_async(_emit_one_document, thread_sensitive=False)(doc)
-        except Exception:
-            logger.exception(
-                "business_knowledge.embedding.emit_failed",
-                team_id=doc.team_id,
-                document_id=str(doc.document_id),
-            )
-            continue
-        documents_embedded += 1
-        chunks_emitted += written
+    scanned = 0
+    has_more = False
+
+    def _load() -> tuple[list[logic.DocumentToEmbed], bool]:
+        return logic.load_documents_pending_embedding(exclude_ids=exclude or None)
+
+    # A failing document stays first in id order. Skip it inside this chunk so
+    # the documents behind it still embed. Stop once a page makes progress.
+    for _ in range(PENDING_EMBEDDING_SCAN_CAP):
+        docs, has_more = await database_sync_to_async(_load, thread_sensitive=False)()
+        if not docs:
+            has_more = False
+            break
+        page_embedded = 0
+        for doc in docs:
+            try:
+                written = await database_sync_to_async(_emit_one_document, thread_sensitive=False)(doc)
+            except Exception:
+                logger.exception(
+                    "business_knowledge.embedding.emit_failed",
+                    team_id=doc.team_id,
+                    document_id=str(doc.document_id),
+                )
+                exclude.append(doc.document_id)
+                continue
+            page_embedded += 1
+            documents_embedded += 1
+            chunks_emitted += written
+        scanned += len(docs)
+        if page_embedded or not has_more:
+            break
     return {
         "documents_embedded": documents_embedded,
         "chunks_emitted": chunks_emitted,
-        "scanned": len(docs),
+        "scanned": _chunk_scan_count(
+            returned=scanned,
+            has_more=has_more and documents_embedded > 0,
+            cap=PENDING_EMBEDDING_SCAN_CAP,
+        ),
     }
 
 
@@ -247,23 +287,38 @@ async def refresh_aging_embeddings_activity() -> dict[str, Any]:
     timestamp=now() (the TTL is on the embedding row timestamp, so the stable
     created_at would not reset it) and re-stamps ``embeddings_emitted_at`` so the
     doc drops out of the refresh window for another cycle. Per-doc failures are
-    logged and skipped without re-stamping, so they retry on a later pass.
+    logged and skipped without re-stamping, so they retry on a later pass. This
+    pass loads the next page past those failures so one document cannot block
+    the ones behind it. A page that re-stamps at least one doc ends the pass.
     """
-    docs = await database_sync_to_async(logic.list_documents_for_embedding_refresh, thread_sensitive=False)()
+    exclude: list[UUID] = []
     documents_refreshed = 0
     chunks_reemitted = 0
-    for doc in docs:
-        try:
-            written = await database_sync_to_async(_reemit_one_document, thread_sensitive=False)(doc)
-        except Exception:
-            logger.exception(
-                "business_knowledge.embedding.refresh_failed",
-                team_id=doc.team_id,
-                document_id=str(doc.document_id),
-            )
-            continue
-        documents_refreshed += 1
-        chunks_reemitted += written
+
+    def _load() -> list[logic.DocumentToEmbed]:
+        return logic.list_documents_for_embedding_refresh(exclude_ids=exclude or None)
+
+    for _ in range(REEMIT_EMBEDDING_SCAN_CAP):
+        docs = await database_sync_to_async(_load, thread_sensitive=False)()
+        if not docs:
+            break
+        page_refreshed = 0
+        for doc in docs:
+            try:
+                written = await database_sync_to_async(_reemit_one_document, thread_sensitive=False)(doc)
+            except Exception:
+                logger.exception(
+                    "business_knowledge.embedding.refresh_failed",
+                    team_id=doc.team_id,
+                    document_id=str(doc.document_id),
+                )
+                exclude.append(doc.document_id)
+                continue
+            page_refreshed += 1
+            documents_refreshed += 1
+            chunks_reemitted += written
+        if page_refreshed:
+            break
     return {"documents_refreshed": documents_refreshed, "chunks_reemitted": chunks_reemitted}
 
 
@@ -631,6 +686,18 @@ _ChunkT = TypeVar("_ChunkT")
 def _embed_chunk_has_more(batch: dict[str, int], *, chunk_size: int) -> bool:
     scanned = batch["scanned"]
     return scanned >= chunk_size and batch["documents_embedded"] > 0
+
+
+def _chunk_scan_count(*, returned: int, has_more: bool, cap: int) -> int:
+    """Report a full chunk when the byte budget cut the page short.
+
+    The drain stops on a short page. A page that still has documents behind it
+    has to look full, or those documents wait until the next hourly run.
+    An empty page stays empty so a bad `has_more` cannot loop the drain.
+    """
+    if has_more and returned > 0:
+        return cap
+    return returned
 
 
 @frozen

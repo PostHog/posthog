@@ -1464,6 +1464,32 @@ mod tests {
                 prop_assert!(!replay_merged, "replay merged again");
             }
         }
+
+        /// The seeder sends a single leaf's tile only for each person's newest day
+        /// (`cohort-seeder/src/domain/newest_day.rs`). That is sound only while the newest tile
+        /// alone reaches the state of every tile in any order. If this fails, change that rule too.
+        #[test]
+        fn single_state_is_the_newest_tiles_alone(
+            tiles in prop::collection::vec((0i32..=12, 1u32..=5), 1..10),
+            window in prop_oneof![
+                (1u32..=14).prop_map(|days| EvictionWindow::RelativeDays { days }),
+                (1i64..=172_800).prop_map(|seconds| EvictionWindow::RelativeSeconds { seconds }),
+                prop::option::of(0i32..=12).prop_map(|back| EvictionWindow::Explicit {
+                    from_day: back.map(|back| now_day() - back),
+                    to_day: None,
+                }),
+            ],
+        ) {
+            let meta = single_meta(window);
+            let newest = *tiles
+                .iter()
+                .min_by_key(|(offset, _)| *offset)
+                .expect("the strategy draws at least one tile");
+            prop_assert_eq!(
+                apply_all(&meta, &tiles, now_day(), NOW_MS),
+                apply_all(&meta, &[newest], now_day(), NOW_MS),
+            );
+        }
     }
 
     // ---- live-equivalence: tile (d, N) on empty ≡ N same-day live events ----

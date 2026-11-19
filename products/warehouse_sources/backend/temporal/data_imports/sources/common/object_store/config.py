@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStorageError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    R2_JURISDICTIONS,
     StorageUrl,
     select_keys,
 )
@@ -34,7 +35,7 @@ GCS_ENDPOINT_URL = "https://storage.googleapis.com"
 # a path into the URLs built from it. GCS also allows underscores.
 _BUCKET_NAMES: dict[ObjectStoreProvider, re.Pattern[str]] = {
     ObjectStoreProvider.S3: re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]"),
-    # GCS allows up to 222 characters in a dotted name; `_valid_bucket` checks the length of each part.
+    # GCS allows up to 222 characters in a dotted name; `valid_bucket_name` checks the length of each part.
     ObjectStoreProvider.GCS: re.compile(r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]"),
     ObjectStoreProvider.R2: re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]"),
 }
@@ -48,7 +49,7 @@ _AZURE_CONTAINER_NAME = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
 _AZURE_ACCOUNT_KEY = re.compile(r"[A-Za-z0-9+/]+={0,2}")
 
 
-def _valid_bucket(provider: ObjectStoreProvider, bucket: str) -> bool:
+def valid_bucket_name(provider: ObjectStoreProvider, bucket: str) -> bool:
     if not _BUCKET_NAMES[provider].fullmatch(bucket) or ".." in bucket:
         return False
     # A GCS name without dots is at most 63 characters, and so is each dot-separated part of one with dots.
@@ -85,6 +86,8 @@ class ObjectStoreConfig:
     listing_prefix: str = ""
     # A ClickHouse glob over paths relative to `prefix`.
     pattern: str | None = None
+    # The jurisdiction of an R2 bucket, such as eu. None for a bucket without one.
+    jurisdiction: str | None = None
 
     @classmethod
     def from_url(
@@ -101,10 +104,11 @@ class ObjectStoreConfig:
             account_id=url.account,
             listing_prefix=keys.listing_prefix,
             pattern=keys.pattern,
+            jurisdiction=url.jurisdiction,
         )
 
     def __post_init__(self) -> None:
-        if not _valid_bucket(self.provider, self.bucket):
+        if not valid_bucket_name(self.provider, self.bucket):
             raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: '{self.bucket}' in the URL isn't a valid bucket name.")
         if self.provider == ObjectStoreProvider.S3:
             if not _REGION_NAME.fullmatch(self.region):
@@ -118,8 +122,14 @@ class ObjectStoreConfig:
                 raise ObjectStorageError(
                     f"{INVALID_CONFIG_ERROR}: the URL must start with the 32-character Cloudflare account ID."
                 )
+            if self.jurisdiction is not None and self.jurisdiction not in R2_JURISDICTIONS:
+                raise ObjectStorageError(
+                    f"{INVALID_CONFIG_ERROR}: '{self.jurisdiction}' isn't a Cloudflare R2 jurisdiction."
+                )
         elif self.account_id is not None:
             raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: this storage provider has no account ID setting.")
+        elif self.jurisdiction is not None:
+            raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: this storage provider has no jurisdiction setting.")
         # Without both keys the SDKs fall back to the worker's own AWS credentials, which must
         # never be used to read a customer-chosen bucket.
         if not self.access_key_id.strip() or not self.secret_access_key.strip():
@@ -132,7 +142,8 @@ class ObjectStoreConfig:
         if self.provider == ObjectStoreProvider.GCS:
             return GCS_ENDPOINT_URL
         if self.provider == ObjectStoreProvider.R2:
-            return f"https://{self.account_id}.r2.cloudflarestorage.com"
+            jurisdiction = f".{self.jurisdiction}" if self.jurisdiction else ""
+            return f"https://{self.account_id}{jurisdiction}.r2.cloudflarestorage.com"
         return None
 
     @property

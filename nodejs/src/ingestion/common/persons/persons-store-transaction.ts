@@ -6,7 +6,7 @@ import { LifecycleMarkPerson } from '~/common/persons/repositories/person-reposi
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
+import { InternalPerson, Team } from '~/types'
 
 import type { BatchWritingPersonsStore } from './batch-writing-person-store'
 
@@ -24,8 +24,6 @@ export class PersonsStoreTransaction {
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -37,8 +35,6 @@ export class PersonsStoreTransaction {
         return await this.store.createPerson(
             createdAt,
             properties,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
             teamId,
             isUserId,
             isIdentified,
@@ -107,6 +103,10 @@ export class PersonsStoreTransaction {
         distinctId: string
     ): Promise<InternalPerson[]> {
         return await this.store.readMergeRows(teamId, targetId, sourceIds, distinctId, this.tx)
+    }
+
+    async readPerson(teamId: number, distinctId: string): Promise<InternalPerson | undefined> {
+        return await this.store.readPerson(teamId, distinctId, this.tx)
     }
 
     async addDistinctId(

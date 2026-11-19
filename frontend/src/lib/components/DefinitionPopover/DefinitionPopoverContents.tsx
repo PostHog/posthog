@@ -9,6 +9,8 @@ import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopove
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
+import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
 import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -248,6 +250,8 @@ export function DefinitionView({
 
     if (isProperty) {
         const _definition = definition as PropertyDefinition
+        const flagKey =
+            type === TaxonomicFilterGroupType.EventFeatureFlags ? featureFlagKeyFromProperty(_definition.name) : null
 
         return (
             <>
@@ -261,9 +265,13 @@ export function DefinitionView({
                         </Tooltip>
                     </div>
                 )}
-                <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
-                </DefinitionPopover.Grid>
+                {flagKey ? (
+                    <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
+                ) : (
+                    <DefinitionPopover.Grid cols={2}>
+                        <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
+                    </DefinitionPopover.Grid>
+                )}
                 {hasSentAs ? (
                     <>
                         <DefinitionPopover.HorizontalLine />
@@ -728,10 +736,12 @@ export function ControlledDefinitionPopover({
     highlightedItemElement,
     definitionPopoverRenderer,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
-    const { state, singularType, definition } = useValues(definitionPopoverLogic)
+    const { state, singularType } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
 
-    const icon = group.getIcon?.(definition || item)
+    // Not definition: the effect below syncs it after render, so for one render it can hold another group's
+    // row, and a getIcon that reads its own row shape ("On this page" reads option.icon) then crashes.
+    const icon = group.getIcon?.(item)
 
     // Supports all types specified in selectedItemHasPopover
     // Pinned items store minimal data ({ name }) so the source group's getValue may not

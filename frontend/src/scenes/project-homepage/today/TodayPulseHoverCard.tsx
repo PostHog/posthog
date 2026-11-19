@@ -11,13 +11,16 @@ export function TodayPulseHoverCard({
     children,
     card,
     onOpenChange,
+    focusable = true,
 }: {
     children: ReactNode
     card: ReactNode
     onOpenChange: (open: boolean) => void
+    focusable?: boolean
 }): JSX.Element {
     const [open, setOpenState] = useState(false)
     const openRef = useRef(false)
+    const dismissedRef = useRef(false)
     const onOpenChangeRef = useRef(onOpenChange)
     onOpenChangeRef.current = onOpenChange
     const setOpen = (next: boolean): void => {
@@ -44,6 +47,7 @@ export function TodayPulseHoverCard({
                 if (next && details.reason === 'trigger-hover' && !pointerMovedRecently()) {
                     return
                 }
+                dismissedRef.current = !next && details.reason === 'escape-key'
                 setOpen(next)
             }}
         >
@@ -55,9 +59,12 @@ export function TodayPulseHoverCard({
                 ref={triggerRef}
                 render={<div />}
                 className="TodayPulse__trigger"
-                onFocus={() => !open && setOpen(true)}
+                tabIndex={focusable ? 0 : -1}
+                onFocus={() => !open && !dismissedRef.current && setOpen(true)}
                 onBlur={(event: FocusEvent) => {
-                    if (!popupRef.current?.contains(event.relatedTarget as Node | null)) {
+                    const nextTarget = event.relatedTarget as Node | null
+                    if (!event.currentTarget.contains(nextTarget) && !popupRef.current?.contains(nextTarget)) {
+                        dismissedRef.current = false
                         setOpen(false)
                     }
                 }}

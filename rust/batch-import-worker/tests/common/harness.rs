@@ -111,7 +111,9 @@ impl Harness {
             secrets: JobSecrets::empty(),
             backoff_attempt: 0,
             backoff_until: None,
+            pending_commit: None,
             was_leased: false,
+            recovered_commit: None,
         };
 
         Self {

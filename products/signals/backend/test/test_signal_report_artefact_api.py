@@ -1,19 +1,27 @@
 import json
 import uuid
+from datetime import timedelta
+from types import SimpleNamespace
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.core.management import call_command
+from django.utils import timezone
 
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.temporal.oauth import SIGNALS_APP_CLIENT_ID_DEV
 
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
@@ -23,6 +31,7 @@ from products.signals.backend.artefact_schemas import (
     PriorityAssessment,
     ReportLink,
     ReviewerCorrections,
+    SuggestedReviewerEntry,
     TaskRunArtefact,
 )
 from products.signals.backend.enums import ReportLinkKind
@@ -35,12 +44,17 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalReportPullRequest,
     SignalReportSuggestedReviewer,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
+from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 from products.signals.backend.scout_harness.tools.notes import list_notes
+from products.signals.backend.scout_report.persistence import add_scout_report_reviewers
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Channel, Task
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 
 def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> None:
@@ -53,7 +67,7 @@ def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> N
 
 
 class TestSignalReportArtefactViewSet(APIBaseTest):
-    @parameterized.expand([("impact_measurement_plan",), ("reviewer_corrections",)])
+    @parameterized.expand([("impact_measurement_plan",), ("reviewer_corrections",), ("check_authoring",)])
     def test_system_decision_type_cannot_be_written(self, artefact_type: str) -> None:
         report = self._create_report()
         response = self.client.post(
@@ -220,7 +234,10 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
     @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
     def test_failed_selection_from_user_attributed_api_preserves_recipients(self, _flag) -> None:
         report = self._create_report()
-        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
+        previous = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
+        authorization = {"mode": "user", "user_id": self.user.id}
+        previous.implementation_authorization = authorization
+        previous.save(update_fields=["implementation_authorization"])
         state = self._assignment(report)["state"]
         response = self.client.post(
             self._list_url(str(report.id)),
@@ -236,6 +253,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == 201, response.json()
         assert [entry["user_uuid"] for entry in self._latest_reviewers(report)] == [str(self.user.uuid)]
         assert self._reviewers_count(report) == 1
+        previous.refresh_from_db()
+        assert previous.implementation_authorization == authorization
 
     # --- GET list ---
 
@@ -415,26 +434,56 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["github_login"] for r in json.loads(new_row.content)] == ["bob"]
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["bob"]
 
-    def test_put_reviewers_re_evaluates_autostart(self):
-        # Appending a reviewers status re-runs the (idempotent) auto-start evaluation on commit.
+    @parameterized.expand(
+        [
+            ("put_session", "put", None, True),
+            ("put_inbox_and_task_key", "put", ["inbox:write", "task:write"], True),
+            ("put_inbox_only_key", "put", ["inbox:write"], False),
+            ("post_inbox_and_task_key", "post", ["inbox:write", "task:write"], True),
+            ("post_inbox_only_key", "post", ["inbox:write"], False),
+        ]
+    )
+    def test_reviewer_writes_need_task_scope_and_re_evaluate_autostart(
+        self, _name: str, method: str, scopes: list[str] | None, allowed: bool
+    ):
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+        if scopes is not None:
+            api_key = self.create_personal_api_key_with_scopes(scopes)
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        content = [{"github_login": "alice"}, {"github_login": "bob"}]
 
         with patch(
             "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
             new_callable=AsyncMock,
         ) as mock_autostart:
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.put(
-                    self._detail_url(str(report.id), str(artefact.id)),
-                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
-                    content_type="application/json",
-                )
+                if method == "put":
+                    response = self.client.put(
+                        self._detail_url(str(report.id), str(artefact.id)),
+                        data=json.dumps({"content": content}),
+                        content_type="application/json",
+                    )
+                else:
+                    response = self.client.post(
+                        self._list_url(str(report.id)),
+                        data=json.dumps({"artefact_type": "suggested_reviewers", "content": content}),
+                        content_type="application/json",
+                    )
 
-        assert response.status_code == status.HTTP_200_OK
-        mock_autostart.assert_awaited_once()
-        assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
-        assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+        if allowed:
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == (
+            ["alice", "bob"] if allowed else ["alice"]
+        )
+        assert mock_autostart.await_count == (1 if allowed else 0)
+        if allowed:
+            assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
+            assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+            assert mock_autostart.call_args.kwargs["triggering_user_id"] == self.user.id
 
     def test_put_adding_reviewer_notifies_added_reviewer_on_commit(self):
         # Manually adding a reviewer enqueues a Slack ping (after commit) for only the newly-added
@@ -565,6 +614,84 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             assert correction is not None
             assert correction.removed_reviewers == ("bob",)
 
+    @parameterized.expand([("may_steer_scouts", True), ("may_not_steer_scouts", False)])
+    def test_put_removal_reason_reaches_the_corrections_profile_and_the_scout_note(self, _name, may_steer):
+        report = self._create_report()
+        self._create_artefact(report, content=[{"github_login": "alice"}, {"github_login": "bob"}])
+
+        with (
+            patch(
+                "products.signals.backend.views.forward_reviewer_correction_note",
+                return_value=ForwardedCorrectionNotes(note_ids=(), targets_resolved=0),
+            ) as mock_forward,
+            patch("products.signals.backend.views.principal_may_steer_scouts", return_value=may_steer),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/",
+                    data=json.dumps(
+                        {
+                            "action": "remove",
+                            "content": [{"github_login": "alice"}],
+                            "targets": [{"github_login": "bob"}],
+                            "removal_reason": "wrong_area",
+                            "removal_note": "  Billing is mine, checkout is not.  ",
+                        }
+                    ),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        (row,) = _recent_reviewer_corrections(self.team)["corrections"]
+        assert (row["removal_reason"], row["removal_reason_reviewers"]) == ("wrong_area", ["bob"])
+        # Activity-log readers need no report access, so the note must never reach the activity row.
+        activity = ActivityLog.objects.filter(team_id=self.team.id, activity="suggested_reviewers_changed").get()
+        assert "Billing is mine" not in json.dumps(activity.detail)
+        # The note reaches scouts only when its author may steer them.
+        expected_note = "Billing is mine, checkout is not." if may_steer else None
+        correction = mock_forward.call_args.kwargs["correction"]
+        assert (correction.removal_reason, correction.removal_note) == ("wrong_area", expected_note)
+
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
+    def test_removal_reason_covers_only_the_reviewers_the_editor_removed(self, _writer):
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        former = self._create_org_member("former@example.com", github_login="former")
+        report = self._create_report()
+        self._create_artefact(
+            report,
+            content=[
+                {"user_uuid": str(teammate.uuid), "github_login": "teammate"},
+                {"user_uuid": str(former.uuid), "github_login": "former"},
+                {"user_uuid": str(self.user.uuid)},
+            ],
+        )
+        OrganizationMembership.objects.filter(user=former, organization=self.organization).delete()
+
+        with patch(
+            "products.signals.backend.views.forward_reviewer_correction_note",
+            return_value=ForwardedCorrectionNotes(note_ids=(), targets_resolved=0),
+        ) as mock_forward:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/",
+                    data=json.dumps(
+                        {
+                            "action": "remove",
+                            "content": [{"user_uuid": str(self.user.uuid)}],
+                            "targets": [{"user_uuid": str(teammate.uuid)}],
+                            "removal_reason": "wrong_area",
+                        }
+                    ),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Member validation drops `former` in the same write, but only `teammate` was the editor's call.
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(self.user.uuid)]
+        (row,) = _recent_reviewer_corrections(self.team)["corrections"]
+        assert row["removal_reason_reviewers"] == ["teammate"]
+        assert mock_forward.call_args.kwargs["correction"].removed_reviewers == ("teammate",)
+
     def test_put_reviewers_autostart_delegates_when_report_complete(self):
         # With actionability + repo + priority + reviewers all present, the reconstruction reaches
         # the actual autostart decision (delegated to maybe_autostart_implementation_task).
@@ -601,10 +728,13 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         mock_impl.assert_awaited_once()
         kwargs = mock_impl.call_args.kwargs
         assert kwargs["repository"] == "acme/repo"
-        assert {r["github_login"] for r in kwargs["reviewers_content"]} == {"alice", "bob"}
+        assert {r["github_login"] for r in self._latest_reviewers(report)} == {"alice", "bob"}
         # The edit must auto-start as the *editing* user (the API caller), never a named reviewer,
         # so one user can't run the agent under another's identity (reviewer impersonation).
-        assert kwargs["triggering_user_id"] == self.user.id
+        assert SignalReportArtefact.objects.get(id=response.json()["id"]).implementation_authorization == {
+            "mode": "user",
+            "user_id": self.user.id,
+        }
 
     def test_put_empty_list_clears_content(self):
         report = self._create_report()
@@ -998,11 +1128,10 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
 
-    def test_put_reviewers_ignores_task_header_and_attributes_to_requesting_user(self):
-        # The reviewers write is app/user-only, so a supplied X-PostHog-Task-Id must be ignored and
-        # the row attributed to the requesting user. A task-attributed row (created_by_id=None) would
-        # flip auto-start into the agent path and run the implementation task as the named colleague
-        # rather than the editor — reviewer impersonation the triggering_user_id guard exists to stop.
+    @parameterized.expand([("put", False), ("post", False), ("post", True)])
+    def test_reviewers_preserve_attribution_and_authorize_the_requesting_user(
+        self, method: str, task_claim: bool
+    ) -> None:
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
         task = Task.objects.create(
@@ -1011,14 +1140,24 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             description="desc",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
+        payload: dict[str, object] = {"artefact_type": "suggested_reviewers", "content": [{"github_login": "bob"}]}
+        if task_claim:
+            claimed = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/claim/",
+                {},
+                format="json",
+                headers={"X-PostHog-Task-Id": str(task.id)},
+            )
+            assert claimed.status_code == status.HTTP_200_OK, claimed.json()
+            payload["claim_id"] = claimed.json()["assignee"]["claim_id"]
 
-        response = self.client.put(
-            self._detail_url(str(report.id), str(artefact.id)),
-            data=json.dumps({"content": [{"github_login": "bob"}]}),
+        response = getattr(self.client, method)(
+            self._detail_url(str(report.id), str(artefact.id)) if method == "put" else self._list_url(str(report.id)),
+            data=json.dumps(payload),
             content_type="application/json",
             headers={"X-PostHog-Task-Id": str(task.id)},
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == (status.HTTP_200_OK if method == "put" else status.HTTP_201_CREATED)
 
         latest = (
             SignalReportArtefact.objects.filter(
@@ -1028,8 +1167,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             .first()
         )
         assert latest is not None
-        assert latest.created_by_id == self.user.id
-        assert latest.task_id is None
+        assert latest.created_by_id == (self.user.id if method == "put" else None)
+        assert latest.task_id == (task.id if method == "post" else None)
+        assert latest.implementation_authorization == {"mode": "user", "user_id": self.user.id}
+        if task_claim:
+            assert str(latest.claim_id) == payload["claim_id"]
 
     def test_put_response_is_enriched_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="alice")
@@ -1282,13 +1424,20 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         if adapter != "leave":
             assert "Added: `added-reviewer`" in notes[0].content
 
-    def test_post_reviewer_payload_uses_shared_writer_after_human_edit(self) -> None:
+    @parameterized.expand([(False, True), (True, True), (True, False)])
+    def test_post_reviewer_payload_uses_shared_writer_after_human_edit(
+        self, task_header: bool, mcp_headers: bool
+    ) -> None:
         human_reviewer = self._create_org_member("human-reviewer@example.com", github_login="human-reviewer")
         automatic_reviewer = self._create_org_member(
             "automatic-reviewer@example.com", github_login="automatic-reviewer"
         )
         report = self._create_report()
         reviewers_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/"
+        task = Task.objects.create(team=self.team, title="Example agent task") if task_header else None
+        headers = {"X-PostHog-Task-Id": str(task.id)} if task else {}
+        if mcp_headers:
+            headers.update({"X-PostHog-Client": "mcp", "X-PostHog-Mcp-Client-Name": "test-agent"})
 
         with (
             patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
@@ -1312,8 +1461,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
                     "expected_reviewers": state,
                 },
                 format="json",
-                HTTP_X_POSTHOG_CLIENT="mcp",
-                HTTP_X_POSTHOG_MCP_CLIENT_NAME="test-agent",
+                headers=headers,
             )
 
         assert automatic_edit.status_code == status.HTTP_201_CREATED, automatic_edit.json()
@@ -1322,6 +1470,11 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             str(automatic_reviewer.uuid),
         }
         assert set(telemetry.call_args.kwargs["github_logins"]) == {"human-reviewer", "automatic-reviewer"}
+        artefact = SignalReportArtefact.objects.get(id=automatic_edit.json()["id"])
+        assert artefact.actor_kind == (SignalActorKind.TASK if task else SignalActorKind.AGENT)
+        assert artefact.created_by_id == (None if task else self.user.id)
+        assert artefact.task_id == (task.id if task else None)
+        assert artefact.implementation_authorization == {"mode": "user", "user_id": self.user.id}
 
     # --- DELETE reviewers/me (step off a report) ---
 
@@ -1351,6 +1504,106 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
         assert not self._reviewer_filter_matches(report, self.user)
+
+    def test_leaving_as_the_default_owner_is_not_a_routing_correction(self):
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid), "is_default_owner": True}])
+
+        with (
+            patch("products.signals.backend.views.forward_reviewer_correction_note") as forward,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.delete(self._leave_reviewers_url(str(report.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._latest_reviewers(report) == []
+        forward.assert_not_called()
+        assert _recent_reviewer_corrections(self.team)["corrections"] == []
+
+    @parameterized.expand(
+        [
+            # Set outright on an entry the stored list never marked.
+            ("claimed_outright", False),
+            # Inherited by pairing the stored owner's login with another member's uuid.
+            ("transferred_by_login", True),
+        ]
+    )
+    def test_posting_reviewers_cannot_forge_the_default_owner_flag(self, _name: str, borrow_owner_login: bool):
+        # Only the fallback may set is_default_owner: it is the mark the removal paths read to skip a
+        # routing correction, so a client that could set it could suppress someone else's correction.
+        report = self._create_report()
+        owner = self._create_org_member("owner@example.com")
+        _attach_github_login(owner, "owner-login")
+        teammate = self._create_org_member("teammate@example.com")
+        self._create_artefact(
+            report,
+            content=[{"user_uuid": str(owner.uuid), "github_login": "owner-login", "is_default_owner": True}],
+        )
+        entry: dict = {"user_uuid": str(teammate.uuid)}
+        if borrow_owner_login:
+            entry["github_login"] = "owner-login"
+        else:
+            entry["is_default_owner"] = True
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {"artefact_type": "suggested_reviewers", "content": [entry]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        reviewers = self._latest_reviewers(report)
+        assert [item["user_uuid"] for item in reviewers] == [str(teammate.uuid)]
+        assert all(item["is_default_owner"] is False for item in reviewers)
+
+    @parameterized.expand(
+        [
+            # Names a teammate today.
+            ("another_members_login", "teammate-login"),
+            # Names nobody today, and whoever links that account tomorrow.
+            ("an_unlinked_login", "nobody-here"),
+        ]
+    )
+    def test_posting_reviewers_drops_the_default_owner_flag_on_a_mismatched_identity(self, _name: str, login: str):
+        # An unprotected report stores the pair as given, and a later edit matches the stored login.
+        report = self._create_report()
+        owner = self._create_org_member("owner@example.com", github_login="owner-login")
+        self._create_org_member("teammate@example.com", github_login="teammate-login")
+        self._create_artefact(report, content=[{"user_uuid": str(owner.uuid), "is_default_owner": True}])
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {
+                "artefact_type": "suggested_reviewers",
+                "content": [{"user_uuid": str(owner.uuid), "github_login": login}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [item["is_default_owner"] for item in self._latest_reviewers(report)] == [False]
+
+    @parameterized.expand(
+        [
+            ("by_uuid", False),
+            # A caller can name the same member by login alone, as the merge itself resolves it.
+            ("by_login", True),
+        ]
+    )
+    def test_posting_reviewers_keeps_the_stored_default_owner_flag(self, _name: str, by_login: bool):
+        report = self._create_report()
+        owner = self._create_org_member("owner@example.com", github_login="owner-login")
+        self._create_artefact(report, content=[{"user_uuid": str(owner.uuid), "is_default_owner": True}])
+        entry = {"github_login": "owner-login"} if by_login else {"user_uuid": str(owner.uuid)}
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            {"artefact_type": "suggested_reviewers", "content": [entry]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [item["is_default_owner"] for item in self._latest_reviewers(report)] == [True]
 
     def test_leave_reviewers_keeps_an_entry_whose_login_was_reassigned(self):
         _attach_github_login(self.user, "CallerCase")
@@ -1401,7 +1654,31 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(former.uuid)]
 
-    def test_leave_reviewers_writes_nothing_when_the_caller_is_not_a_reviewer(self):
+    def test_leave_reviewers_with_a_reason_reaches_research_and_scouts(self):
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(teammate.uuid)}])
+
+        with patch(
+            "products.signals.backend.views.forward_reviewer_correction_note",
+            return_value=ForwardedCorrectionNotes(note_ids=(), targets_resolved=0),
+        ) as mock_forward:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self._leave_reviewers_url(str(report.id)),
+                    {"removal_reason": "wrong_area", "removal_note": "I'm not on that team any more."},
+                    format="json",
+                )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+        (row,) = _recent_reviewer_corrections(self.team)["corrections"]
+        assert (row["removal_reason"], row["removal_reason_reviewers"]) == ("wrong_area", [str(self.user.uuid)])
+        correction = mock_forward.call_args.kwargs["correction"]
+        assert (correction.removal_reason, correction.removal_note) == ("wrong_area", "I'm not on that team any more.")
+
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=False)
+    def test_leave_reviewers_writes_nothing_when_the_caller_is_not_a_reviewer(self, _flag) -> None:
         teammate = self._create_org_member("teammate@example.com", github_login="teammate")
         report = self._create_report()
         self._create_artefact(report, content=[{"user_uuid": str(teammate.uuid)}])
@@ -1409,7 +1686,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         response = self.client.delete(self._leave_reviewers_url(str(report.id)))
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert self._reviewers_count(report) == 1
+        assert SignalReportArtefact.objects.filter(team=self.team, report=report).count() == 1
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
 
     def test_diff_with_non_dict_content_returns_400_not_500(self):
@@ -2151,6 +2428,222 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
         assert artefact.created_by_id is None
         assert response.json()["task_id"] == str(task.id)
 
+    @parameterized.expand(
+        [
+            ("session", False, True),
+            ("session", False, False),
+            ("session", True, True),
+            ("deferred", False, True),
+            ("failed_lookup", False, True),
+            ("failed_lookup_user", False, True),
+            ("sandbox_post", False, True),
+            ("sandbox_put", False, True),
+            ("scout_add", False, False),
+            ("sandbox_scout_add", True, True),
+        ]
+    )
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_reviewer_api_autostart_uses_authenticated_principal(
+        self, scenario: str, writer_enabled: bool, caller_eligible: bool
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        _attach_github_login(self.user, "example-editor")
+        colleague = User.objects.create(email="reviewer@example.com")
+        OrganizationMembership.objects.create(user=colleague, organization=self.organization)
+        _attach_github_login(colleague, "example-reviewer")
+        SignalUserAutonomyConfig.objects.create(user=self.user, autostart_priority="P4" if caller_eligible else "P0")
+        SignalUserAutonomyConfig.objects.create(user=colleague, autostart_priority="P4")
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"autostart_enabled": True})
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="example-installation",
+            config={"installation_id": "example-installation"},
+            repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo", "private": True}],
+            repository_cache_updated_at=timezone.now(),
+        )
+        report = self._create_report()
+        task = self._create_task()
+        for kind, content in (
+            (
+                "actionability_judgment",
+                {"explanation": "A clear fix", "actionability": "immediately_actionable", "already_addressed": False},
+            ),
+            ("priority_judgment", {"explanation": "Affects sessions", "priority": "P1"}),
+            ("repo_selection", {"repository": "example/repo", "reason": "Selected", "autostart_eligible": True}),
+        ):
+            SignalReportArtefact.objects.create(team=self.team, report=report, type=kind, content=json.dumps(content))
+        expected_reviewers: dict[str, str | None] = {"reviewers_id": None, "corrections_id": None}
+        if scenario.startswith("failed_lookup") or scenario == "sandbox_put":
+            previous = SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type="suggested_reviewers",
+                content=json.dumps([{"github_login": "example-editor"}]),
+                actor_kind="user",
+                created_by=colleague,
+                implementation_authorization={"mode": "user", "user_id": colleague.id},
+            )
+            SignalReportArtefact.objects.filter(id=previous.id).update(created_at=timezone.now() - timedelta(minutes=1))
+            expected_reviewers["reviewers_id"] = str(previous.id)
+
+        headers = (
+            {"X-PostHog-Task-Id": str(task.id)}
+            if scenario not in {"failed_lookup_user", "sandbox_post", "sandbox_put"}
+            else {}
+        )
+        if scenario.startswith("sandbox"):
+            self.client.logout()
+            headers.update(self._sandbox_token_header(task=task))
+
+        def create_task(*, team: Team, title: str, description: str, user_id: int, **kwargs: object) -> SimpleNamespace:
+            implementation = Task.objects.create(team=team, title=title, created_by_id=user_id)
+            run = TaskRun.objects.create(task=implementation, team=self.team)
+            return SimpleNamespace(
+                task_id=implementation.id, team_id=self.team.id, latest_run=SimpleNamespace(id=run.id)
+            )
+
+        with (
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
+            patch("products.signals.backend.assignment_flags.assignment_side_effects_enabled", return_value=True),
+            patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=True),
+            patch(
+                "products.signals.backend.auto_start.database_sync_to_async",
+                side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+            ),
+            patch.object(tasks_facade, "create_and_run_task", side_effect=create_task),
+            self.captureOnCommitCallbacks(execute=not scenario.endswith("deferred")),
+        ):
+            response = (self.client.put if scenario == "sandbox_put" else self.client.post)(
+                f"{self._list_url(str(report.id))}{expected_reviewers['reviewers_id']}/"
+                if scenario == "sandbox_put"
+                else self._list_url(str(report.id)),
+                {
+                    "artefact_type": "suggested_reviewers",
+                    "content": [{"github_login": "example-reviewer"}],
+                    "expected_reviewers": expected_reviewers,
+                    "reviewer_outcome": "lookup_failed" if scenario.startswith("failed_lookup") else "selected",
+                    **({"reviewer_retry_reason": "Lookup unavailable"} if scenario.startswith("failed_lookup") else {}),
+                    "implementation_authorization": {"mode": "reviewer"},
+                },
+                format="json",
+                headers=headers,
+            )
+
+            if scenario.endswith("scout_add"):
+                SignalReportArtefact.objects.filter(id=response.json()["id"]).update(
+                    created_at=timezone.now() - timedelta(seconds=1)
+                )
+                assert add_scout_report_reviewers(
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    additions=[SuggestedReviewerEntry(github_login="example-editor")],
+                    max_reviewers=2,
+                    attribution=ArtefactAttribution.system(),
+                )
+
+            if scenario.endswith(("deferred", "scout_add")):
+                from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
+
+                async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=str(report.id))
+
+        assert response.status_code == (status.HTTP_200_OK if scenario == "sandbox_put" else status.HTTP_201_CREATED), (
+            response.json()
+        )
+        assert list(
+            Task.objects.filter(team=self.team).exclude(id=task.id).values_list("created_by_id", flat=True)
+        ) == ([self.user.id] if caller_eligible and not scenario.startswith("sandbox") else [])
+
+    def _sandbox_token_header(self, *, task: Task | None = None) -> dict[str, str]:
+        application = OAuthApplication.objects.create(
+            name="Sandbox app",
+            client_id=SIGNALS_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_sandbox_note_mention_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="inbox:write task:write",
+            sandbox_task_id=(task or self._create_task()).id,
+        )
+        return {"Authorization": f"Bearer {token.token}"}
+
+    @parameterized.expand(
+        [("person", "none", [[5]]), ("task_header", "task_header", []), ("sandbox_token", "sandbox_token", [])]
+    )
+    def test_post_note_pings_mentions_only_for_a_person(self, _name, credential, expected_user_ids):
+        report = self._create_report()
+        headers: dict[str, str] = {}
+        if credential == "task_header":
+            headers = {"X-PostHog-Task-Id": str(self._create_task().id)}
+        elif credential == "sandbox_token":
+            self.client.logout()
+            headers = self._sandbox_token_header()
+        with (
+            patch(
+                "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._list_url(str(report.id)),
+                data=json.dumps({"artefact_type": "note", "content": {"note": "@member:5 can you look"}}),
+                content_type="application/json",
+                headers=headers,
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert [call.kwargs["user_ids"] for call in delay.call_args_list] == expected_user_ids
+
+    def test_patch_note_with_a_bad_task_header_saves_nothing(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "first"}}),
+            content_type="application/json",
+        )
+        artefact_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"{self._list_url(str(report.id))}{artefact_id}/",
+            data=json.dumps({"content": {"note": "second"}}),
+            content_type="application/json",
+            headers={"X-PostHog-Task-Id": "not-a-uuid"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert json.loads(SignalReportArtefact.objects.get(id=artefact_id).content)["note"] == "first"
+
+    def test_patch_note_pings_only_the_mentions_it_adds(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "@member:5 look"}}),
+            content_type="application/json",
+        )
+        artefact_id = response.json()["id"]
+        with (
+            patch(
+                "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"{self._list_url(str(report.id))}{artefact_id}/",
+                data=json.dumps({"content": {"note": "@member:5 and @member:6 look"}}),
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [call.kwargs["user_ids"] for call in delay.call_args_list] == [[6]]
+
     def test_post_with_foreign_team_task_header_returns_400(self):
         report = self._create_report()
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -2290,6 +2783,8 @@ class TestSignalReportCommitDiff(APIBaseTest):
         with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
             response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["code"] == "github_repository_inaccessible"
+        assert response.json()["remediation_url"] == f"/project/{self.team.id}/settings/project-integrations"
 
     def _mock_github(self, result: dict):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()

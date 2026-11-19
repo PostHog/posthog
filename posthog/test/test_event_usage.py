@@ -3,8 +3,9 @@ from typing import cast
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -18,8 +19,10 @@ from posthog.event_usage import (
     get_mcp_properties,
     is_wizard_self_driving_program,
     report_organization_deleted,
+    report_organization_deletion_completed,
     report_organization_deletion_initiated,
     report_user_action,
+    report_user_organization_membership_level_changed,
     report_user_signed_up,
     sanitize_header_value,
 )
@@ -52,6 +55,28 @@ def _oauth_authenticator(
 
 
 class TestReportUserAction(BaseTest):
+    @patch("posthog.ph_client.ph_scoped_capture")
+    def test_organization_deletion_completion_does_not_mark_the_user_active(self, mock_capture: MagicMock) -> None:
+        with self.settings(CLOUD_DEPLOYMENT="US"):
+            report_organization_deletion_completed(self.user.id, str(self.organization.id))
+
+        capture = mock_capture.return_value.__enter__.return_value
+        capture.assert_called_once_with(
+            distinct_id=self.user.distinct_id,
+            event="organization deletion completed",
+            properties={"organization_id": str(self.organization.id), "$update_person_last_seen_at": False},
+            groups={"instance": settings.SITE_URL, "organization": str(self.organization.id)},
+        )
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_membership_change_does_not_mark_the_affected_member_active(self, mock_capture: MagicMock) -> None:
+        report_user_organization_membership_level_changed(self.user, self.organization, new_level=8, previous_level=1)
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["distinct_id"] == self.user.distinct_id
+        assert mock_capture.call_args.kwargs["event"] == "membership level changed"
+        assert mock_capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
+
     @parameterized.expand(
         [
             (
@@ -300,6 +325,7 @@ class TestGetEventSource(SimpleTestCase):
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
             ("cli_exact", "posthog-cli", EventSource.CLI),
+            ("hog_cli", "hog/1.0.0-alpha.0", EventSource.CLI),
             ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
             ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
             ("desktop_app_direct", "posthog/desktop.hog.dev 0.1.0", EventSource.DESKTOP),

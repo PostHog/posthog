@@ -5,10 +5,12 @@ import type { Params } from 'scenes/sceneTypes'
 // The configuration pages (symbol sets, alerting, and so on) used to be their own routes.
 // They are now tabs in the configuration settings panel, so map each old path slug to its
 // current setting id. Both underscore and hyphen slug spellings appear in old links.
+// A setting id that moved into another tab maps to that tab.
 const LEGACY_SETTING_SLUGS: Record<string, string> = {
     alerting: 'error-tracking-alerting',
     'assignment-rules': 'error-tracking-auto-assignment',
-    'exception-autocapture': 'error-tracking-exception-autocapture',
+    'exception-autocapture': 'error-tracking-general',
+    'error-tracking-exception-autocapture': 'error-tracking-general',
     'grouping-rules': 'error-tracking-custom-grouping',
     'rate-limit': 'error-tracking-rate-limits',
     releases: 'error-tracking-releases',

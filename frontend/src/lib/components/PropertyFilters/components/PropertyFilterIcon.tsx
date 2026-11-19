@@ -1,49 +1,47 @@
 import { IconBuilding, IconCursorClick, IconPeople, IconPerson, IconPiggyBank } from '@posthog/icons'
+import { Tooltip as QuillTooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { PropertyFilterType } from '~/types'
 
-export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX.Element | null {
+function propertyFilterIconInfo(type?: PropertyFilterType): { title: string; icon: JSX.Element } | null {
     switch (type) {
         case 'event':
-            return (
-                <Tooltip title="Event property">
-                    <IconUnverifiedEvent />
-                </Tooltip>
-            )
+            return { title: 'Event property', icon: <IconUnverifiedEvent /> }
         case 'person':
-            return (
-                <Tooltip title="Person property">
-                    <IconPerson />
-                </Tooltip>
-            )
+            return { title: 'Person property', icon: <IconPerson /> }
         case 'cohort':
-            return (
-                <Tooltip title="Cohort filter">
-                    <IconPeople />
-                </Tooltip>
-            )
+            return { title: 'Cohort filter', icon: <IconPeople /> }
         case 'group':
-            return (
-                <Tooltip title="Group filter">
-                    <IconBuilding />
-                </Tooltip>
-            )
+            return { title: 'Group filter', icon: <IconBuilding /> }
         case 'behavioral':
-            return (
-                <Tooltip title="Performed event or action filter">
-                    <IconCursorClick />
-                </Tooltip>
-            )
+            return { title: 'Performed event or action filter', icon: <IconCursorClick /> }
         case 'revenue_analytics':
-            return (
-                <Tooltip title="Revenue analytics filter">
-                    <IconPiggyBank />
-                </Tooltip>
-            )
+            return { title: 'Revenue analytics filter', icon: <IconPiggyBank /> }
         default:
             return null
     }
+}
+
+export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX.Element | null {
+    const quillSurface = useQuillSurface()
+    const info = propertyFilterIconInfo(type)
+
+    if (!info) {
+        return null
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillTooltip>
+                <TooltipTrigger render={<span className="inline-flex" />}>{info.icon}</TooltipTrigger>
+                <TooltipContent>{info.title}</TooltipContent>
+            </QuillTooltip>
+        )
+    }
+
+    return <Tooltip title={info.title}>{info.icon}</Tooltip>
 }

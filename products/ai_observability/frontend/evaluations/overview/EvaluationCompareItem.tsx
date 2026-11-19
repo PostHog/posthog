@@ -68,7 +68,9 @@ export function EvaluationCompareItem({
                         style={color ? { backgroundColor: color } : undefined}
                     />
                     <span className="flex flex-col min-w-0">
-                        <span className="font-semibold truncate">{row.name}</span>
+                        <span className="font-semibold line-clamp-3 break-words" title={row.name}>
+                            {row.name}
+                        </span>
                         <span className={cn('text-xs', (reason && ATTENTION_CLASSES[reason]) || 'text-secondary')}>
                             {caption(row, timezone)}
                         </span>

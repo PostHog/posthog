@@ -15,7 +15,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 
 # Statuses of a check whose investigation was started. SKIPPED never ran, so it costs no
 # budget; FAILED did run and costs one, which keeps a broken agent from retrying forever.
-_STARTED_INVESTIGATION_STATUSES = [
+STARTED_INVESTIGATION_STATUSES = [
     InvestigationStatus.PENDING,
     InvestigationStatus.RUNNING,
     InvestigationStatus.DONE,
@@ -57,7 +57,7 @@ def episode_investigations(alert: AlertConfiguration, alert_check: AlertCheck) -
         .first()
     )
     return EpisodeInvestigations(
-        started=earlier.filter(investigation_status__in=_STARTED_INVESTIGATION_STATUSES).count(),
+        started=earlier.filter(investigation_status__in=STARTED_INVESTIGATION_STATUSES).count(),
         first_check_id=str(first_check_id or alert_check.id),
         previous_verdict=previous_verdict,
     )

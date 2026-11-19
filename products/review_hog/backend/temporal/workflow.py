@@ -32,6 +32,7 @@ from temporalio.workflow import ParentClosePolicy
 
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
+    DEVEX_LENS_NAME,
     FAN_OUT_FAILURE_FLOOR,
     FLASH_LENS_SESSION_TIMEOUT,
     FLASH_LENSES,
@@ -89,6 +90,7 @@ from products.review_hog.backend.temporal.activities import (
     fail_status_comment_activity,
     fetch_pr_data_activity,
     finalize_status_comment_activity,
+    finish_standard_automatic_turn_activity,
     gate_push_activity,
     generate_schemas_activity,
     lens_review_activity,
@@ -113,11 +115,17 @@ from products.review_hog.backend.temporal.activities import (
     validate_chunk_activity,
     validate_github_integration_activity,
 )
-from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
+from products.review_hog.backend.temporal.scheduling import (
+    SILENT_STAMPHOG_PATCH,
+    ReviewPRQueueWorkflow,
+    ReviewRequestQueue,
+    request_silent_stamphog,
+)
 from products.review_hog.backend.temporal.types import (
     TRIGGER_AUTOMATIC,
     TRIGGER_INBOX,
     TRIGGER_LABEL,
+    FinishedStandardAutomaticTurn,
     ResolvePRWorkflowInputs,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
@@ -444,6 +452,7 @@ class ReviewPRWorkflow:
             raise ApplicationError(str(e), non_retryable=True, type=cause.type) from e
         finally:
             terminal = completed or non_retryable or _out_of_attempts()
+            # Label run histories from before the deploy can hold a scheduled label removal; delete once they drain.
             if (
                 workflow.patched("remove-reviewhog-trigger-label-2026-08")
                 and terminal
@@ -528,6 +537,17 @@ class ReviewPRWorkflow:
             return report_id
         if inputs.trigger_source == TRIGGER_AUTOMATIC and (meta.already_completed or not meta.pr_open):
             workflow.logger.info("Automatic review skipped: the PR is closed or this head is already complete")
+            # A draft marked ready without a push gets no new turn, so the head's earlier automatic turn answers.
+            # The queue answers the event once the turn ends, also for this early exit.
+            if (
+                not inputs.answered_by_queue
+                and workflow.patched(SILENT_STAMPHOG_PATCH)
+                and meta.already_completed
+                and meta.pr_open
+                and inputs.marks_ready
+                and inputs.requested_head_sha == head_sha
+            ):
+                await request_silent_stamphog(inputs, head_sha)
             return report_id
         # The patch keeps a history written before the label check on its old command sequence.
         if workflow.patched("reviewhog-skip-agent-review-label-2026-10") and meta.skip_agent_review:
@@ -550,6 +570,8 @@ class ReviewPRWorkflow:
                 repository=repository,
                 installation_id=inputs.installation_id,
                 github_repo_id=inputs.github_repo_id,
+                draft=meta.draft,
+                pr_number=meta.pr_number,
                 head_branch=branch,
                 review_mode=inputs.review_mode,
             ),
@@ -564,19 +586,9 @@ class ReviewPRWorkflow:
             return report_id
         # Trigger-aware opt-outs, read off the resolve-time settings snapshot (mid-run edits can't
         # flip gates). Inbox re-checks the receiver-side gate here for snapshot-at-resolve
-        # consistency. A label always runs, and manual stays ungated.
-        # Histories from before the patch recorded the label opt-out, so they replay its early return.
-        if (
-            inputs.trigger_source == TRIGGER_LABEL
-            and not workflow.patched("reviewhog-label-always-runs-2026-10")
-            and inputs.acting_user_id is None
-            and not acting.review_labeled_prs
-        ):
-            workflow.logger.info(
-                f"PR author '{meta.author_login}' (user {acting.acting_user_id}) has labeled-PR reviews "
-                "turned off; skipping review"
-            )
-            return report_id
+        # consistency. A Stamphog handoff and manual stay ungated.
+        # Histories that carry the patch marker replay with deprecate_patch; delete it once those runs drain.
+        workflow.deprecate_patch("reviewhog-label-always-runs-2026-10")
         if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
             workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
             return report_id
@@ -648,11 +660,17 @@ class ReviewPRWorkflow:
                         head_sha=head_sha,
                         run_index=meta.run_index,
                         turn_trigger_source=inputs.trigger_source,
+                        turn_trigger_action=inputs.trigger_action,
                         review_mode=inputs.review_mode,
                         flash_reasoning_effort=acting.flash_reasoning_effort,
                         review_design=review_design,
                         review_design_reason=meta.review_design_reason,
                         coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
+                        arm_set=meta.arm_set,
+                        zero_change_skip_arm=meta.zero_change_skip,
+                        delta_band_arm=meta.delta_band,
+                        devex_lens_routed=meta.devex_lens_routed,
+                        devex_lens_arm=meta.devex_lens,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -707,6 +725,13 @@ class ReviewPRWorkflow:
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
+            # The patch goes before the recorded value, so an older history keeps its sessions on replay.
+            devex_lens = (
+                review_design == REVIEW_DESIGN_SINGLE_AGENT
+                and workflow.patched("flash-devex-lens-2026-11")
+                and meta.devex_lens
+                and delta_since_head_sha is None
+            )
             # After the skill sync and schema generation, so the fingerprint hashes what the stages use.
             if workflow.patched("record-turn-marker-2026-10"):
                 try:
@@ -723,6 +748,8 @@ class ReviewPRWorkflow:
                             review_design=review_design,
                             coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                             publishes=publishes_to_pr,
+                            arm_set=meta.arm_set,
+                            devex_lens=devex_lens,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -743,6 +770,8 @@ class ReviewPRWorkflow:
                 review_design=review_design,
                 trigger_source=inputs.trigger_source,
                 delta_since_head_sha=delta_since_head_sha,
+                arm_set=meta.arm_set,
+                devex_lens=devex_lens,
             )
 
             # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
@@ -878,10 +907,15 @@ class ReviewPRWorkflow:
                             report_id=report_id,
                             run_index=meta.run_index,
                             turn_trigger_source=inputs.trigger_source,
+                            turn_trigger_action=inputs.trigger_action,
                             review_mode=inputs.review_mode,
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
                             last_attempt=_non_retryable_cause(e) is not None or _out_of_attempts(),
+                            arm_set=meta.arm_set,
+                            zero_change_skip_arm=meta.zero_change_skip,
+                            delta_band_arm=meta.delta_band,
+                            coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -898,6 +932,29 @@ class ReviewPRWorkflow:
         # After publish, so a stamphog re-run finds this turn's findings on the PR.
         if workflow.patched("reviewhog-nudge-stamphog-2026-10") and publishes_to_pr and meta.pr_number is not None:
             await self._nudge_stamphog(repository, meta.pr_number, head_sha)
+        if (
+            workflow.patched(SILENT_STAMPHOG_PATCH)
+            and publishes_to_pr
+            and meta.pr_number is not None
+            and inputs.trigger_source == TRIGGER_AUTOMATIC
+            and inputs.review_mode == REVIEW_MODE_FLASH
+        ):
+            await self._finish_standard_automatic_turn(
+                FinishedStandardAutomaticTurn(
+                    team_id=inputs.team_id,
+                    report_id=report_id,
+                    repository=repository,
+                    pr_number=meta.pr_number,
+                    head_sha=head_sha,
+                    run_index=meta.run_index,
+                    lens_chunks_capped=meta.lens_chunks_capped,
+                    delta_review=delta_since_head_sha is not None,
+                    # The event names its head, and the turn reviews the live head, which can be newer.
+                    marks_ready=not inputs.answered_by_queue
+                    and inputs.marks_ready
+                    and inputs.requested_head_sha == head_sha,
+                )
+            )
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
         # best-effort — a review must never fail over its own telemetry.
         try:
@@ -911,6 +968,7 @@ class ReviewPRWorkflow:
                     published=posted,
                     workflow_started_at=workflow.info().start_time.isoformat(),
                     turn_trigger_source=inputs.trigger_source,
+                    turn_trigger_action=inputs.trigger_action,
                     review_mode=inputs.review_mode,
                     flash_reasoning_effort=acting.flash_reasoning_effort,
                     marker=marker,
@@ -920,6 +978,7 @@ class ReviewPRWorkflow:
                     zero_change_skip_arm=meta.zero_change_skip,
                     delta_band_arm=meta.delta_band,
                     delta_review=delta_since_head_sha is not None,
+                    arm_set=meta.arm_set,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -1036,18 +1095,22 @@ class ReviewPRWorkflow:
             return None
 
         lens_units = [(lens, chunk_id) for lens in FLASH_LENSES for chunk_id in range(1, lens_chunk_count + 1)]
+        if stage.devex_lens:
+            lens_units.append((DEVEX_LENS_NAME, 1))
         workflow.logger.info(
             f"STAGE 2-3/7 · Single-agent review: the main session and {len(lens_units)} lens session(s)"
         )
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
         # Workflow time, so a replay measures the same durations.
         session_seconds: list[float] = []
+        devex_seconds: list[float] = []
 
-        async def _main_session() -> None:
+        # Each session returns whether it fell back to the control arm, or None in a history from before the result.
+        async def _main_session() -> bool | None:
             async with semaphore:
                 started = workflow.now()
                 try:
-                    await workflow.execute_activity(
+                    return await workflow.execute_activity(
                         single_agent_review_activity,
                         stage,
                         start_to_close_timeout=_SANDBOX_TIMEOUT,
@@ -1057,11 +1120,11 @@ class ReviewPRWorkflow:
                 finally:
                     session_seconds.append((workflow.now() - started).total_seconds())
 
-        async def _lens_session(lens: str, chunk_id: int) -> None:
+        async def _lens_session(lens: str, chunk_id: int) -> bool | None:
             async with semaphore:
                 started = workflow.now()
                 try:
-                    await workflow.execute_activity(
+                    return await workflow.execute_activity(
                         lens_review_activity,
                         LensReviewInput(
                             team_id=stage.team_id,
@@ -1074,7 +1137,9 @@ class ReviewPRWorkflow:
                             review_mode=stage.review_mode,
                             flash_reasoning_effort=stage.flash_reasoning_effort,
                             review_design=stage.review_design,
+                            trigger_source=stage.trigger_source,
                             delta_since_head_sha=stage.delta_since_head_sha,
+                            arm_set=stage.arm_set,
                             lens=lens,
                             chunk_id=chunk_id,
                         ),
@@ -1084,7 +1149,8 @@ class ReviewPRWorkflow:
                         retry_policy=_RETRY,
                     )
                 finally:
-                    session_seconds.append((workflow.now() - started).total_seconds())
+                    elapsed = (workflow.now() - started).total_seconds()
+                    (devex_seconds if lens == DEVEX_LENS_NAME else session_seconds).append(elapsed)
 
         # The main session goes first, so it never waits for a semaphore slot behind a lens session.
         main_result, *lens_results = await asyncio.gather(
@@ -1093,12 +1159,17 @@ class ReviewPRWorkflow:
         if isinstance(main_result, BaseException):
             raise main_result
         lens_failures = lens_timeouts = 0
+        devex_failed = devex_timed_out = False
         for (lens, chunk_id), result in zip(lens_units, lens_results):
             if isinstance(result, BaseException):
                 workflow.logger.warning(
                     f"Lens session {lens} part {chunk_id} failed or timed out; its findings are missing: {result!r}"
                 )
-                if isinstance(result, ActivityError) and isinstance(result.cause, ActivityTimeoutError):
+                timed_out = isinstance(result, ActivityError) and isinstance(result.cause, ActivityTimeoutError)
+                if lens == DEVEX_LENS_NAME:
+                    devex_timed_out = timed_out
+                    devex_failed = not timed_out
+                elif timed_out:
                     lens_timeouts += 1
                 else:
                     lens_failures += 1
@@ -1106,6 +1177,14 @@ class ReviewPRWorkflow:
             lens_failures=lens_failures,
             lens_timeouts=lens_timeouts,
             slowest_session_seconds=round(max(session_seconds, default=0.0), 1),
+            arm_fallbacks=sum(
+                result is True
+                for (lens, _), result in [(("main", 1), main_result), *zip(lens_units, lens_results)]
+                if lens != DEVEX_LENS_NAME
+            ),
+            devex_failed=devex_failed if stage.devex_lens else None,
+            devex_timed_out=devex_timed_out if stage.devex_lens else None,
+            devex_session_seconds=round(devex_seconds[0], 1) if devex_seconds else None,
         )
 
     @staticmethod
@@ -1126,6 +1205,7 @@ class ReviewPRWorkflow:
                 review_mode=stage.review_mode,
                 flash_reasoning_effort=stage.flash_reasoning_effort,
                 review_design=stage.review_design,
+                trigger_source=stage.trigger_source,
                 lens_chunk_count=lens_chunk_count,
             ),
             start_to_close_timeout=_SANDBOX_TIMEOUT,
@@ -1195,6 +1275,18 @@ class ReviewPRWorkflow:
             )
         except ActivityError:
             workflow.logger.warning("Could not ask stamphog to re-review")
+
+    @staticmethod
+    async def _finish_standard_automatic_turn(turn: FinishedStandardAutomaticTurn) -> None:
+        try:
+            await workflow.execute_activity(
+                finish_standard_automatic_turn_activity,
+                turn,
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not record the turn coverage or start a silent stamphog review")
 
     @staticmethod
     async def _remove_eyes_reaction(team_id: int, repository: str, pr_number: int, reaction_id: int) -> None:

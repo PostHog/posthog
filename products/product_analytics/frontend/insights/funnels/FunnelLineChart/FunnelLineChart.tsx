@@ -10,6 +10,7 @@ import type {
     TooltipContext,
 } from '@posthog/quill-charts'
 
+import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
@@ -22,10 +23,9 @@ import { cohortsModel } from '~/models/cohortsModel'
 import type { Noun } from '~/models/groupsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery } from '~/queries/schema/node-guards'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
-import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig'
@@ -148,13 +148,12 @@ export function FunnelLineChart({
                 showTrendLines: funnelsFilter?.showTrendLines ?? false,
                 valueLabels: showValuesOnSeries ? { formatter: (value) => `${value}%` } : false,
                 showCrosshair: true,
-                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
             }),
             curve: chartStyleCurve(funnelsFilter?.chartStyle),
             legend: legendConfig,
         }),
         [
-            context?.dashboardResultMenu,
             steps,
             interval,
             timezone,
@@ -264,6 +263,7 @@ export function FunnelLineChart({
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={showPersonsModal ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && showPersonsModal ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph-funnel"

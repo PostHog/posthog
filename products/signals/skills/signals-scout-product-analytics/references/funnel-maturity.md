@@ -18,7 +18,7 @@ Trends mode groups entrants by entrant period, and counts each entrant's convers
 - Copy the saved funnel's `series`, `funnelOrderType`, `funnelWindowInterval`, `funnelWindowIntervalUnit` and filters into the query. Do not change the measured flow.
 - Set `funnelsFilter.funnelVizType: trends` and `interval: week` (use `day` only for a daily cadence).
 - Set a `dateRange` that ends now. Start it at the beginning of an entrant period that is at least one conversion interval, the buffer and N+2 entrant periods before now. Then the latest mature point and N mature baseline points remain after you drop the immature points, and the first point is a full period.
-- Pass `output_format: "json"`. The default optimized output shows only rates and no entrant counts.
+- With the exec dispatcher, run `call --json query-funnel <json_input>`. Put `--json` before the tool name; do not add `output_format` to the JSON input. The default optimized output shows only rates and no entrant counts.
 - Each result holds `days`, `data` (conversion %), `reached_from_step_count` (entrants) and `reached_to_step_count`, with matching indexes.
 - Each point is one entrant period. Score only the points whose entrant period ended at least one conversion interval, plus the buffer, before now. Use the older mature points as the baseline.
 - With `interval: day`, compare a point only to baseline points on the same weekday.
@@ -48,5 +48,5 @@ A saved ordered funnel `Signup → project created → first event`, with a 14-d
 
 - The cutoff is Wed 24 minus 6 hours. The newest mature week is Mon 1 – Sun 7, because Sun 7 + 14 days ends on Sun 21. The week Mon 8 – Sun 14 matures only after Sun 28.
 - With N = 4 baseline weeks, start the `dateRange` on a Monday at least 14 days, 6 hours and 6 weeks before now, and end it now.
-- Run the prefix funnel `Signup → project created` and the full funnel in trends mode with `output_format: "json"`.
+- Run the prefix funnel `Signup → project created` and the full funnel in trends mode with `call --json query-funnel <json_input>`.
 - Read the points for weeks that start Mon 1 and earlier. Drop the points for Mon 8, Mon 15 and Mon 22, which look low only because their entrants are still converting.

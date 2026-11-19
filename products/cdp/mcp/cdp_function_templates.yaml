@@ -48,3 +48,7 @@ tools:
             Get a specific function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns the
             full template including source code, inputs schema, default filters, and mapping templates. Use this to
             understand what inputs a template requires before creating a function from it.
+        param_overrides:
+            template_id:
+                aliases:
+                    - id

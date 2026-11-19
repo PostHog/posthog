@@ -30,6 +30,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
+from products.signals.backend.default_owner import assign_default_owner
 from products.signals.backend.github_writeback import post_report_link_to_github_issues
 from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
@@ -146,9 +147,21 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         logger.info("inbox notification skipped: team gone", report_id=report_id, team_id=team_id)
         return 0
 
-    # Re-derive source products at send time so a deferred notification reflects the current signals.
+    # Before the card goes out, so the Slack card and "For you" both name the default owner. The
+    # "new report" push is queued on `first_visible_at` instead, when the report still had nobody,
+    # so an assignment queues that push again. Its per-user cooldown stops a second push to anyone
+    # it already reached. Guarded because the fallback is supplementary, the same way as the
+    # support write-back below.
+    try:
+        if assign_default_owner(team, report_id):
+            from products.signals.backend.inbox_push_notifications import schedule_report_visible_push
+
+            schedule_report_visible_push(team_id=team_id, report_id=report_id)
+    except Exception:
+        logger.exception("inbox notification: default owner assignment failed", report_id=report_id, team_id=team_id)
+
+    # Re-fetched at send time so a deferred write-back reflects the current signals.
     signals = _fetch_signals_for_notification(team, report_id)
-    source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
 
     # Point any support ticket that raised this report at it. Shares this function's READY guard.
     # This runs above the claim, so it also runs on a settle that sends no card. A note is per ticket
@@ -171,12 +184,7 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         return 0
 
     try:
-        sent = dispatch_inbox_item_notifications(
-            report_id=report_id,
-            team_id=team_id,
-            source_products=source_products,
-            signals=signals,
-        )
+        sent = dispatch_inbox_item_notifications(report_id=report_id, team_id=team_id)
     except Exception:
         # Release so a retry or a later settle can still send the card.
         _release_inbox_notification_claim(team_id, report_id)

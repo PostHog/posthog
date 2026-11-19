@@ -32,10 +32,10 @@ from django.utils import timezone
 
 import structlog
 
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
+
 if TYPE_CHECKING:
     from slack_sdk.errors import SlackApiError
-
-    from posthog.models.integration import Integration
 
 logger = structlog.get_logger(__name__)
 
@@ -127,7 +127,7 @@ def classify_slack_api_error(exc: "SlackApiError") -> tuple[str | None, bool]:
 
 
 def _resolve_one_candidate_state(
-    candidate: "Integration", slack_user_id: str | None
+    candidate: "WorkspaceIntegration", slack_user_id: str | None
 ) -> SlackIntegrationAuthState | None:
     """Return the auth-state verdict for ``candidate``, populating the cache via
     ``auth.test`` on miss. Returns ``None`` when the verdict is unknown
@@ -200,10 +200,10 @@ def _resolve_one_candidate_state(
 
 
 def check_integrations_auth_and_filter(
-    candidates: list["Integration"],
+    candidates: list["WorkspaceIntegration"],
     *,
     slack_user_id: str | None = None,
-) -> list["Integration"]:
+) -> list["WorkspaceIntegration"]:
     """Check each candidate's bot-token health and return only the healthy ones,
     sorted with the freshest verdict first.
 
@@ -260,9 +260,9 @@ def check_integrations_auth_and_filter(
     if not candidates:
         return candidates
 
-    healthy: list[tuple[Integration, datetime]] = []
-    unknown: list[Integration] = []
-    broken: list[Integration] = []
+    healthy: list[tuple[WorkspaceIntegration, datetime]] = []
+    unknown: list[WorkspaceIntegration] = []
+    broken: list[WorkspaceIntegration] = []
     for candidate in candidates:
         state = _resolve_one_candidate_state(candidate, slack_user_id)
         if state is None:

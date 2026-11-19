@@ -41,8 +41,9 @@ from temporalio.common import RetryPolicy
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
-from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
+from posthog.models.integration.google_cloud import require_google_token_uri
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -62,6 +63,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -80,11 +82,13 @@ from products.batch_exports.backend.temporal.queue import (
 )
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised on missing permissions.
     "Forbidden",
     # The stored key file names a token endpoint that is not Google's; only a re-upload fixes it.
@@ -271,7 +275,10 @@ class BigQueryField(Field):
 
     @classmethod
     def from_arrow_field(cls, field: pa.Field) -> typing.Self:
-        type = data_type_to_bigquery_type(field.type)
+        try:
+            type = data_type_to_bigquery_type(field.type)
+        except ValueError as err:
+            raise ColumnTypeMappingError("BigQuery", field.name, field.type) from err
         return cls(field.name, type, nullable=field.nullable)
 
     @classmethod
@@ -1463,11 +1470,6 @@ class BigQueryInsertInputs(BatchExportInsertInputs):
     data_interval_end: str
     dataset_id: str
     table_id: str
-    project_id: str | None = None
-    private_key: str | None = dataclasses.field(default=None, repr=False)
-    private_key_id: str | None = None
-    token_uri: str | None = None
-    client_email: str | None = None
     use_json_type: bool = False
     integration_id: int | None = None
 
@@ -1480,14 +1482,19 @@ class BigQueryIntegrationNotFoundError(Exception):
 
 async def _get_google_cloud_service_account_integration(
     inputs: BigQueryInsertInputs,
-) -> GoogleCloudServiceAccountIntegration | None:
-    """Get the Google Cloud impersonated service account integration."""
+) -> GoogleCloudServiceAccountIntegration:
+    """Get the Google Cloud service account integration linked to the batch export."""
     if inputs.integration_id is None:
-        return None
+        raise BigQueryIntegrationNotFoundError(
+            "BigQuery credentials are missing: the batch export has no linked integration. "
+            "Link a Google Cloud service account integration to the batch export."
+        )
 
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.google_cloud_service_account.credentials.aget(
+            inputs.team_id, inputs.integration_id
+        )
+    except IntegrationNotFound:
         raise BigQueryIntegrationNotFoundError(
             f"Google Cloud service account integration with id '{inputs.integration_id}' not found"
         )
@@ -1499,15 +1506,7 @@ async def _get_google_cloud_service_account_integration(
 async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to BigQuery."""
     google_cloud_integration = await _get_google_cloud_service_account_integration(inputs)
-    if google_cloud_integration is not None:
-        project_id = google_cloud_integration.project_id
-    else:
-        if inputs.project_id is None:
-            # Mostly here for the type checkers
-            # TODO: Remove this once everyone is on an integration
-            raise ValueError("Missing required values")
-
-        project_id = inputs.project_id
+    project_id = google_cloud_integration.project_id
 
     bind_contextvars(
         team_id=inputs.team_id,
@@ -1531,7 +1530,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         inputs.table_id,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -1545,6 +1544,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
@@ -1574,58 +1574,26 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             json_fields = set()
 
         requires_merge = model.incremental_mode == IncrementalMode.MERGE
-        target_table = BigQueryTable.from_arrow_schema(
-            record_batch_schema,
-            table_id=inputs.table_id,
-            project_id=project_id,
-            dataset_id=inputs.dataset_id,
-            primary_key=model.primary_key if requires_merge else (),
-            version_key=model.version_key if requires_merge else (),
-        )
+        with handle_column_type_mapping_errors(model):
+            target_table = BigQueryTable.from_arrow_schema(
+                record_batch_schema,
+                table_id=inputs.table_id,
+                project_id=project_id,
+                dataset_id=inputs.dataset_id,
+                primary_key=model.primary_key if requires_merge else (),
+                version_key=model.version_key if requires_merge else (),
+            )
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         attempt = activity.info().attempt
         stage_table_id = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
-        if google_cloud_integration is not None:
-            if not google_cloud_integration.has_key():
-                await verify_impersonated_service_account_ownership(
-                    google_cloud_integration.service_account_email, inputs.team_id
-                )
-                await ensure_our_google_cloud_credentials_are_valid()
-            try:
-                bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
-            except InvalidGoogleTokenUriError:
-                raise
-            except Exception:
-                LOGGER.exception("Initialize client from service account failed")
-                # TODO: Migrate everyone and remove this
-                if (
-                    inputs.private_key is None
-                    or inputs.private_key_id is None
-                    or inputs.token_uri is None
-                    or inputs.client_email is None
-                ):
-                    # We cannot fallback to using inputs
-                    raise
-                bq_client = BigQueryClient.from_service_account_inputs(
-                    inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, project_id
-                )
-
-        else:
-            # TODO: Migrate everyone and remove this
-            if (
-                inputs.private_key is None
-                or inputs.private_key_id is None
-                or inputs.token_uri is None
-                or inputs.client_email is None
-            ):
-                # If this ever happens then it's fine to fail.
-                # Mostly here for the type checkers
-                raise ValueError("Missing required values")
-            bq_client = BigQueryClient.from_service_account_inputs(
-                inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, project_id
+        if not google_cloud_integration.has_key():
+            await verify_impersonated_service_account_ownership(
+                google_cloud_integration.service_account_email, inputs.team_id
             )
+            await ensure_our_google_cloud_credentials_are_valid()
+        bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
 
         max_consumers = 1
         max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES
@@ -1794,11 +1762,6 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             table_id=inputs.table_id,
             dataset_id=inputs.dataset_id,
-            project_id=inputs.project_id,
-            private_key=inputs.private_key,
-            private_key_id=inputs.private_key_id,
-            token_uri=inputs.token_uri,
-            client_email=inputs.client_email,
             data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,

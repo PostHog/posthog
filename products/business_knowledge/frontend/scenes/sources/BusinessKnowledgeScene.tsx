@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlus, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -14,7 +14,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -31,11 +30,10 @@ import {
     businessKnowledgeLogic,
 } from './businessKnowledgeLogic'
 import { KnowledgeSourceNameCell } from './KnowledgeSourceNameCell'
-import { LibraryDialog } from './LibraryDialog'
-import { LibraryRow } from './LibraryRow'
-import { LibrarySummary } from './LibrarySummary'
 import { RefreshStatusCell } from './RefreshStatusCell'
+import { SourceFilters } from './SourceFilters'
 import { SourceLibrariesCell } from './SourceLibrariesCell'
+import { SourceUsageCell } from './SourceUsageCell'
 
 export const scene: SceneExport = {
     component: BusinessKnowledgeScene,
@@ -59,8 +57,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
         libraryScope,
         selectedLibrary,
     } = useValues(businessKnowledgeLogic)
-    const { openCreateModal, deleteSource, refreshSource, setSearchTerm, setSourceTypeFilter, setAddedByFilter } =
-        useActions(businessKnowledgeLogic)
+    const { openCreateModal, deleteSource, refreshSource } = useActions(businessKnowledgeLogic)
     const { push } = useActions(router)
 
     if (!isEnabled) {
@@ -86,12 +83,15 @@ export function BusinessKnowledgeScene(): JSX.Element {
                     )
                 }
             />
+            {/* pinned: survey 01a17c76-64cf-0000-1bbf-c105e1141a32 targets #business-knowledge-feedback-button */}
+            <LemonBanner
+                type="info"
+                dismissKey="business-knowledge-beta-banner"
+                action={{ children: 'Send feedback', id: 'business-knowledge-feedback-button' }}
+            >
+                <p>Business knowledge is in beta. Tell us what you'd like to see here, or report any issues.</p>
+            </LemonBanner>
             <BusinessKnowledgeTabs activeTab="sources" />
-            <SceneSection title="Libraries" className="gap-y-2">
-                <LibraryRow />
-                <LibrarySummary />
-            </SceneSection>
-            <SceneDivider />
             <SceneSection
                 title={
                     selectedLibrary
@@ -103,35 +103,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 description={`${readyCount} ready · ${pluralize(totalChunks, 'chunk')} indexed`}
                 className="gap-y-2"
             >
-                <div className="flex flex-wrap gap-2 items-center">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search by name or URL"
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        className="max-w-80"
-                    />
-                    <LemonSelect
-                        value={sourceTypeFilter}
-                        onChange={setSourceTypeFilter}
-                        options={[
-                            { value: 'all', label: 'All types' },
-                            { value: 'text', label: 'Text' },
-                            { value: 'url', label: 'URL' },
-                            { value: 'file', label: 'File' },
-                        ]}
-                    />
-                    <LemonSelect
-                        value={addedByFilter}
-                        onChange={setAddedByFilter}
-                        options={[
-                            { value: 'all', label: 'All sources' },
-                            { value: 'human', label: 'Human' },
-                            { value: 'learned', label: 'Learned' },
-                        ]}
-                        data-attr="business-knowledge-added-by-filter"
-                    />
-                </div>
+                <SourceFilters />
 
                 <LemonTable<KnowledgeSource>
                     dataSource={sources}
@@ -190,6 +162,12 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                     ? `${pages.toLocaleString()} / ${row.chunk_count.toLocaleString()}`
                                     : row.chunk_count.toLocaleString()
                             },
+                        },
+                        {
+                            title: 'Cited in',
+                            key: 'cited_run_count',
+                            tooltip: 'Support agent runs that cited this source.',
+                            render: (_, row) => <SourceUsageCell source={row} />,
                         },
                         {
                             title: 'Added',
@@ -267,7 +245,6 @@ export function BusinessKnowledgeScene(): JSX.Element {
             </SceneSection>
 
             <CreateKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
-            <LibraryDialog />
         </SceneContent>
     )
 }

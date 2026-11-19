@@ -235,6 +235,7 @@ export function renderNode({
                 setBlockRef={setBlockRef}
                 setTableCellRef={setTableCellRef}
                 updateNode={updateNode}
+                deleteNode={deleteNodeAndFocusAdjacent}
                 handleSelectionChange={handleSelectionChange}
                 startTextSelectionPointer={startTextSelectionPointer}
                 restoreSelectionRef={restoreSelectionRef}

@@ -1,5 +1,6 @@
 import re
 import json
+import stat
 import shlex
 import base64
 import asyncio
@@ -9,18 +10,26 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.test import override_settings
 
-from modal import Probe
+from modal import (
+    Client as ModalClient,
+    Probe,
+    Sandbox as ModalSandboxHandle,
+)
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
+)
+from modal.types import (
+    FileInfo as ModalFileInfo,
+    FileType as ModalFileType,
 )
 from modal_proto import api_pb2
 from parameterized import parameterized
@@ -33,7 +42,7 @@ from requests.exceptions import (
 
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.dev_stack_image_models import DevStackImageTarget
 from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
@@ -98,12 +107,16 @@ from products.tasks.backend.logic.services.sandbox import (
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     AgentServerResult,
+    ClonePhases,
     ExecutionResult,
     SandboxConfig,
+    SandboxDirEntry,
     SandboxTemplate,
     SandboxWorkload,
     health_check_timeout_seconds,
+    parse_clone_phases,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError
 
 
 def _agent_server_launch_command(mock_execute: Any) -> str:
@@ -493,6 +506,13 @@ class TestAttachLocalPackageMounts:
 
 
 class TestModalSandboxAgentServer:
+    def test_probe_sandbox_cannot_start_agent_server(self, mock_sandbox: Any) -> None:
+        mock_sandbox.config = SandboxConfig(
+            name="probe", template=SandboxTemplate.SLIM_BASE, vm_runtime=True, agent_egress_probe=True
+        )
+        with pytest.raises(RuntimeError, match="cannot launch an agent server"):
+            mock_sandbox.start_agent_server(repository=None, task_id="task", run_id="run")
+
     @pytest.fixture
     def mock_sandbox(self) -> Any:
         mock_modal_sandbox = MagicMock()
@@ -524,23 +544,19 @@ class TestModalSandboxAgentServer:
         write.assert_not_called()
 
     @pytest.mark.parametrize(
-        "enabled,snapshot_kind,compatible",
+        "enabled,restored,compatible",
         [
-            (False, "directory", True),
-            (False, "filesystem", True),
-            (True, "filesystem", True),
-            (True, "filesystem", False),
-            (True, "directory", False),
-            (True, None, True),
-            (True, None, False),
-            (False, None, True),
+            (False, False, True),
+            (True, False, True),
+            (True, False, False),
+            (True, True, True),
+            (True, True, False),
         ],
     )
     def test_initializes_only_compatible_task_filesystems(
-        self, mock_sandbox: Any, enabled: bool, snapshot_kind: str | None, compatible: bool
+        self, mock_sandbox: Any, enabled: bool, restored: bool, compatible: bool
     ) -> None:
-        mock_sandbox.config.snapshot_restored = snapshot_kind is not None
-        mock_sandbox.config.snapshot_kind = snapshot_kind
+        mock_sandbox.config.snapshot_restored = restored
         with (
             override_settings(TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED=enabled),
             patch.object(
@@ -553,11 +569,11 @@ class TestModalSandboxAgentServer:
             patch.object(mock_sandbox, "_write_required_file") as write,
         ):
             mock_sandbox._prepare_task_filesystem()
-        initialize = compatible and (snapshot_kind is not None or enabled)
+        initialize = compatible and (restored or enabled)
         assert write.call_count == int(initialize)
-        if snapshot_kind is not None or enabled:
+        if restored or enabled:
             assert ("initialize gvisor" in execute.call_args.args[0]) == initialize
-            assert ("test -f" if snapshot_kind else "test -d") in execute.call_args_list[0].args[0]
+            assert ("test -f" if restored else "test -d") in execute.call_args_list[0].args[0]
         else:
             execute.assert_not_called()
 
@@ -755,6 +771,25 @@ class TestModalSandboxAgentServer:
         marker = command.index("export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)")
         process = command.index("exec /usr/bin/python3 -I /opt/posthog/task-filesystem.py enter -- env", marker)
         assert barrier < marker < process
+        assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
+
+    def test_start_agent_server_launches_before_repository_when_supported(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            repo_ready_file="/tmp/workspace/.repo-ready",
+            wait_for_health=False,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert "while [ ! -f" not in command
+        assert "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N) &&" in command
         assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self, mock_sandbox: Any):
@@ -1050,15 +1085,35 @@ class TestModalSandboxAgentServer:
                     run_id="run-456",
                 )
 
-    def test_start_agent_server_raises_on_health_check_failure(self, mock_sandbox: Any):
+    @pytest.mark.parametrize("structured", [False, True])
+    def test_start_agent_server_raises_on_health_check_failure(self, mock_sandbox: Any, structured: bool):
+        payload = (
+            json.dumps(
+                {
+                    "hasSession": False,
+                    "readiness": "failed",
+                    "runId": "run-456",
+                    "startupFailure": {
+                        "provider": "claude",
+                        "phase": "sdk_initialization",
+                        "reason": "proxy_invalid",
+                        "retryability": "requires_action",
+                    },
+                }
+            )
+            + "\n"
+            if structured
+            else ""
+        )
+
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
             if "./node_modules/.bin/agent-server" in command:
-                return ExecutionResult(stdout="__posthog_agent_health_ms=120000", stderr="", exit_code=1)
+                return ExecutionResult(stdout=payload + "__posthog_agent_health_ms=120000", stderr="", exit_code=1)
             return ExecutionResult(stdout="", stderr="", exit_code=0)
 
         mock_sandbox.execute = MagicMock(side_effect=execute)
         with patch.object(mock_sandbox, "_diagnose_startup_failure", return_value={"failure_reason": "not ready"}):
-            with pytest.raises(SandboxExecutionError, match="Agent-server failed to start") as error:
+            with pytest.raises(AgentServerStartupError if structured else SandboxExecutionError) as error:
                 mock_sandbox.start_agent_server(
                     repository="posthog/posthog",
                     task_id="task-123",
@@ -1066,6 +1121,7 @@ class TestModalSandboxAgentServer:
                 )
 
         assert error.value.context["health_poll_ms"] == 120000
+        assert isinstance(error.value.context["start_and_health_ms"], int)
         assert mock_sandbox.supports_combined_agent_server_start_and_health() is True
 
     @pytest.mark.parametrize(
@@ -1090,6 +1146,7 @@ class TestModalSandboxAgentServer:
         assert mock_sandbox.execute.call_count == 1
 
     def test_start_agent_server_skips_relaunch_when_already_healthy(self, mock_sandbox: Any):
+        before_launch = MagicMock()
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout=_preflight_stdout(reused=True), stderr="", exit_code=0, error=None)
         )
@@ -1105,9 +1162,11 @@ class TestModalSandboxAgentServer:
                 run_id="run-456",
                 mode="background",
                 allowed_domains=["example.com"],
+                before_launch=before_launch,
             )
 
         assert health_ms == 0
+        before_launch.assert_not_called()
         wait_for_ready.assert_not_called()
         mock_free.assert_not_called()
         commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
@@ -1462,14 +1521,20 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,blobless,expected_in_command,not_expected_in_command",
+        "shallow,blobless,baked_repo_clone,expected_in_command,not_expected_in_command",
         [
-            (True, False, "--depth 1", "--filter=blob:"),
-            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
-            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, False, "--depth 1", "--filter=blob:"),
+            (False, False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, False, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, False, "git checkout -q -f", "/posthog/posthog/.git ]"),
+            (True, False, False, "git checkout -q -f", "checkout.workers"),
+            (True, False, True, "git -c checkout.workers=0 checkout -q -f;", None),
+            (False, False, True, "--filter=blob:limit=128k", "/posthog/posthog/.git ]"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(
+        self, shallow, blobless, baked_repo_clone, expected_in_command, not_expected_in_command
+    ):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"
         sandbox.config = SandboxConfig(name="test")
@@ -1478,13 +1543,34 @@ class TestModalSandboxCommandEscaping:
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
                 sandbox.clone_repository(
-                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                    "PostHog/posthog",
+                    github_token="test-token",
+                    shallow=shallow,
+                    blobless=blobless,
+                    baked_repo_clone=baked_repo_clone,
                 )
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    @pytest.mark.parametrize(
+        "stdout,expected",
+        [
+            (
+                "clone_phases_ms mode=baked fetch=6012 checkout=640\n",
+                ClonePhases(mode="baked", fetch_ms=6012, checkout_ms=640),
+            ),
+            (
+                "Cloning into 'posthog'...\nclone_phases_ms mode=fallback fetch=9100 checkout=1500",
+                ClonePhases(mode="fallback", fetch_ms=9100, checkout_ms=1500),
+            ),
+            ("", None),
+        ],
+    )
+    def test_parse_clone_phases(self, stdout, expected):
+        assert parse_clone_phases(stdout) == expected
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",
@@ -1617,15 +1703,26 @@ class TestModalSandboxAgentServerStartupHelpers:
             (0, api_pb2.GenericResult.GENERIC_STATUS_IDLE_TIMEOUT, "idle_timeout"),
         ],
     )
-    def test_exit_status_reads_modal_generic_status(self, poll_result, status, expected):
+    def test_exit_status_reads_modal_generic_status(
+        self,
+        poll_result: int | Exception | None,
+        status: "api_pb2.GenericResult.GenericStatus.ValueType",
+        expected: str,
+    ) -> None:
         sandbox = self._make_sandbox()
-        if isinstance(poll_result, Exception):
-            sandbox._sandbox.poll.side_effect = poll_result
-        else:
-            sandbox._sandbox.poll.return_value = poll_result
-        sandbox._sandbox._result.status = status
+        response = api_pb2.SandboxWaitResponse(result=api_pb2.GenericResult(status=status))
+        with patch("modal.sandbox._sandbox.SandboxImplV2.lookup_by_id", new_callable=AsyncMock, return_value=response):
+            sandbox._sandbox = ModalSandboxHandle.from_id(
+                "sb-01AAAAAAAAAAAAAAAAAAAAAAAA",
+                client=ModalClient("https://example.com", api_pb2.CLIENT_TYPE_CLIENT, None),
+            )
+        with patch.object(sandbox._sandbox, "poll") as poll:
+            if isinstance(poll_result, Exception):
+                poll.side_effect = poll_result
+            else:
+                poll.return_value = poll_result
 
-        assert sandbox.exit_status() == expected
+            assert sandbox.exit_status() == expected
 
     def test_free_agent_server_port_terminates_existing_process(self):
         sandbox = self._make_sandbox()
@@ -1885,12 +1982,93 @@ class TestModalSandboxCreateAllowlist:
 
         assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == []
 
-    def test_create_sets_vm_runtime_experimental_option(self):
-        config = SandboxConfig(name="t", vm_runtime=True)
+    @pytest.mark.parametrize("probe,observation", [(False, False), (True, False), (False, True)])
+    def test_create_sets_vm_runtime_experimental_option(self, probe: bool, observation: bool) -> None:
+        config = SandboxConfig(
+            name="t",
+            vm_runtime=True,
+            template=SandboxTemplate.SLIM_BASE,
+            agent_egress_probe=probe,
+            agent_egress_observation=observation,
+        )
 
         mock_create = self._create_with_config(config)
 
-        assert mock_create.call_args.kwargs["experimental_options"] == {"vm_runtime": True}
+        expected = (
+            {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024}
+            if probe or observation
+            else {"vm_runtime": True}
+        )
+        assert mock_create.call_args.kwargs["experimental_options"] == expected
+        if probe:
+            assert mock_create.call_args.kwargs["name"] == "t"
+            assert mock_create.call_args.kwargs["outbound_cidr_allowlist"] == []
+            assert "secrets" not in mock_create.call_args.kwargs
+        else:
+            assert mock_create.call_args.kwargs["name"].startswith("t-")
+            assert "outbound_cidr_allowlist" not in mock_create.call_args.kwargs
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"vm_runtime": False},
+            {"agent_egress_probe": True},
+            {"outbound_domain_allowlist": []},
+            {"block_network": True},
+            {"memory_gb": 1},
+            {"snapshot_external_id": "im-example"},
+            {"resume_snapshot_external_id": "im-example"},
+            {"require_snapshot": True},
+        ],
+    )
+    def test_observation_rejects_incompatible_profiles(self, override: dict[str, object]) -> None:
+        values = {
+            "name": "observation",
+            "template": SandboxTemplate.SLIM_BASE,
+            "vm_runtime": True,
+            "agent_egress_observation": True,
+            **override,
+        }
+        with pytest.raises(ValueError):
+            SandboxConfig.model_validate(values)
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"vm_runtime": False},
+            {"template": SandboxTemplate.DEFAULT_BASE},
+            {"environment_variables": {"GH_TOKEN": "synthetic"}},
+            {"snapshot_external_id": "im-example"},
+            {"resume_snapshot_external_id": "im-example"},
+            {"base_image_reference": "example.com/image:latest"},
+            {"custom_image_name": "custom"},
+            {"outbound_domain_allowlist": []},
+            {"block_network": True},
+            {"memory_gb": 1},
+            {"burstable_resources": True},
+        ],
+    )
+    def test_probe_rejects_incompatible_configuration(self, override: dict[str, Any]) -> None:
+        values = {
+            "name": "probe",
+            "template": SandboxTemplate.SLIM_BASE,
+            "vm_runtime": True,
+            "agent_egress_probe": True,
+        }
+        with pytest.raises(ValueError, match="fresh, credential-free development VM"):
+            SandboxConfig(**(values | override))
+
+    @override_settings(DEBUG=False, TEST=False)
+    @pytest.mark.parametrize("observation", [False, True])
+    def test_egress_profiles_reject_production_launch(self, observation: bool) -> None:
+        with pytest.raises(ValueError, match="development VM"):
+            SandboxConfig(
+                name="probe",
+                template=SandboxTemplate.SLIM_BASE,
+                vm_runtime=True,
+                agent_egress_probe=not observation,
+                agent_egress_observation=observation,
+            )
 
     def test_create_attaches_an_exec_readiness_probe_and_waits_on_it(self):
         # Modal raises on wait_until_ready when no probe was attached, so the two must stay paired.
@@ -1961,7 +2139,6 @@ class TestModalSandboxCreateImageFallback:
 
     @pytest.mark.parametrize("image_id", ["im-verified", ""])
     def test_protected_dev_stack_never_reads_the_mutable_name(self, image_id: str) -> None:
-
         DevStackImageTarget.objects.create(
             region=get_instance_region() or "DEV",
             name="posthog-dev-stack",
@@ -2459,8 +2636,7 @@ class TestModalSandboxCreateImageFallback:
             name="t",
             template=SandboxTemplate.VM_BASE,
             custom_image_name="posthog-dev-stack",
-            snapshot_external_id="im-snap-1",
-            snapshot_kind=SNAPSHOT_KIND_DIRECTORY,
+            resume_snapshot_external_id="im-snap-1",
             snapshot_mount_path=DEFAULT_SANDBOX_WORKING_DIR,
         )
         custom_image = MagicMock(name="custom_image")
@@ -2551,8 +2727,7 @@ class TestModalSandboxCreateImageFallback:
             name="t",
             template=SandboxTemplate.VM_BASE,
             custom_image_name="posthog-dev-stack",
-            snapshot_external_id="im-snap-1",
-            snapshot_kind=SNAPSHOT_KIND_DIRECTORY,
+            resume_snapshot_external_id="im-snap-1",
             snapshot_mount_path=DEFAULT_SANDBOX_WORKING_DIR,
         )
         custom_image = MagicMock(name="custom_image")
@@ -2578,7 +2753,7 @@ class TestLaunchDevStackBootstrap:
         vm: bool = True,
         custom_image_name: str | None = "posthog-dev-stack",
         snapshot_restored: bool = False,
-        snapshot_kind: Any = None,
+        resume_snapshot_external_id: str | None = None,
     ) -> Any:
         mock_modal_sandbox = MagicMock()
         mock_modal_sandbox.object_id = "sb-boot"
@@ -2587,7 +2762,7 @@ class TestLaunchDevStackBootstrap:
             vm_runtime=vm,
             custom_image_name=custom_image_name,
             snapshot_restored=snapshot_restored,
-            **({"snapshot_kind": snapshot_kind} if snapshot_kind is not None else {}),
+            resume_snapshot_external_id=resume_snapshot_external_id,
         )
         with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
@@ -2659,7 +2834,7 @@ class TestLaunchDevStackBootstrap:
         # Directory resumes only mount the workspace dir, so /usr/local/bin's helper is
         # still the vetted image's own binary — the warmup must not be lost on the
         # primary resume path.
-        sandbox = self._sandbox(snapshot_restored=True, snapshot_kind=SNAPSHOT_KIND_DIRECTORY)
+        sandbox = self._sandbox(snapshot_restored=True, resume_snapshot_external_id="im-dir")
         result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
         with (
@@ -2674,7 +2849,7 @@ class TestLaunchDevStackBootstrap:
         # launcher must strip the environment (no injected credentials) and pin PATH to
         # system dirs via an absolute /usr/bin/env, so the helper can never resolve or
         # run the workspace binary with the run's POSTHOG_PERSONAL_API_KEY / GITHUB_TOKEN.
-        sandbox = self._sandbox(snapshot_restored=True, snapshot_kind=SNAPSHOT_KIND_DIRECTORY)
+        sandbox = self._sandbox(snapshot_restored=True, resume_snapshot_external_id="im-dir")
         result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
         with (
@@ -3094,6 +3269,63 @@ class TestModalSandboxProxyRateLimit:
 
         assert not isinstance(exc.value, SandboxNotFoundError)
         assert exc.value.context["operation"] == "lookup"
+
+    def test_list_dir_reports_symlinks_as_themselves_through_a_bounded_listing(self, mock_sandbox: Any):
+        stdout = "f\t12\t5.5\tMEMORY.md\0l\t11\t5.5\tlink.md\0d\t0\t5.5\tnested\0p\t0\t5.5\tpipe.md\0"
+        execute = MagicMock(return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=0))
+        mock_sandbox.execute = execute
+
+        assert mock_sandbox.list_dir("/tmp/workspace/memory", limit=201) == [
+            SandboxDirEntry(name="MEMORY.md", kind="file", size=12, mtime=5.5),
+            SandboxDirEntry(name="link.md", kind="symlink", size=11, mtime=5.5),
+            SandboxDirEntry(name="nested", kind="dir", size=0, mtime=5.5),
+            SandboxDirEntry(name="pipe.md", kind="other", size=0, mtime=5.5),
+        ]
+        assert execute.call_args.args[0].endswith(" | head -z -n 201")
+        mock_sandbox._sandbox.filesystem.list_files.assert_not_called()
+
+    def test_list_dir_of_a_missing_directory_is_none(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=3))
+
+        assert mock_sandbox.list_dir("/tmp/workspace/memory") is None
+
+    @pytest.mark.parametrize(
+        "file_type, mode, size, read_exit_code, expected",
+        [
+            (ModalFileType.FILE, stat.S_IFREG | 0o644, 8, 0, b"# Memory"),
+            (ModalFileType.SYMLINK, stat.S_IFLNK | 0o777, 8, 0, None),
+            (ModalFileType.FILE, stat.S_IFREG | 0o644, 11, 0, None),
+            # A FIFO would block head until a writer appears.
+            (ModalFileType.FILE, stat.S_IFIFO | 0o644, 0, 0, None),
+            # The file vanished or became a directory after the stat, so head failed.
+            (ModalFileType.FILE, stat.S_IFREG | 0o644, 8, 1, None),
+        ],
+    )
+    def test_read_file_reads_only_small_regular_files_through_a_capped_read(
+        self, mock_sandbox: Any, file_type: Any, mode: int, size: int, read_exit_code: int, expected: bytes | None
+    ):
+        mock_sandbox._sandbox.filesystem.stat.return_value = ModalFileInfo(
+            name="MEMORY.md",
+            path="/tmp/workspace/memory/MEMORY.md",
+            type=file_type,
+            size=size,
+            mode=mode,
+            permissions="rw-r--r--",
+            owner="root",
+            group="root",
+            modified_time=0.0,
+            symlink_target=None,
+        )
+        stdout = base64.b64encode(b"# Memory").decode() if read_exit_code == 0 else ""
+        execute = MagicMock(return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=read_exit_code))
+        mock_sandbox.execute = execute
+
+        assert mock_sandbox.read_file("/tmp/workspace/memory/MEMORY.md", 10) == expected
+        if not stat.S_ISREG(mode) or size > 10:
+            execute.assert_not_called()
+        else:
+            assert execute.call_args.args[0].startswith("set -o pipefail; head -c 11 -- ")
+        mock_sandbox._sandbox.filesystem.read_bytes.assert_not_called()
 
     def test_write_file_rate_limit_skips_exec_fallback(self, mock_sandbox: Any):
         mock_sandbox._sandbox.filesystem.write_bytes.side_effect = _socks_rate_limit()

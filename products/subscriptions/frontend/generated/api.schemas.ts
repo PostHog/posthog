@@ -199,11 +199,30 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface ImageSizeApi {
+    /**
+     * Output width in pixels, from 320 to 4000. Omit or use null for automatic width.
+     * @minimum 320
+     * @maximum 4000
+     * @nullable
+     */
+    width?: number | null
+    /**
+     * Output height in pixels, from 200 to 5000. Omit or use null for automatic height. Content fits inside the requested size without stretching or cropping.
+     * @minimum 200
+     * @maximum 5000
+     * @nullable
+     */
+    height?: number | null
+}
+
 /**
  * Typed view over the Subscription.delivery_config JSON blob.
  */
 export interface DeliveryConfigApi {
-    /** Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message. */
+    /** PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing. */
+    image_size?: ImageSizeApi
+    /** Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message. */
     post_all_insights_in_main_message?: boolean
     /** Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that. */
     include_images?: boolean
@@ -666,6 +685,11 @@ export interface PatchedSubscriptionWriteApi {
     delivery_config?: DeliveryConfigApi
 }
 
+export interface SubscriptionTransferOwnershipApi {
+    /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+    user_uuid?: string
+}
+
 /**
  * * `starting` - Starting
  * * `completed` - Completed
@@ -793,6 +817,7 @@ export interface SubscriptionDeliveryApi {
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -827,6 +852,7 @@ export interface SubscriptionSummaryApi {
 }
 
 export interface PaginatedSubscriptionSummaryListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -857,6 +883,7 @@ export type SubscriptionsListParams = {
     insights?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

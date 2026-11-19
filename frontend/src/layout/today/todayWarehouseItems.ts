@@ -1,7 +1,6 @@
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -156,7 +155,15 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         iconType: 'event_definition',
         sceneKey: 'DataManagement',
         group: 'define',
-        extraPaths: DEFINITIONS_TABS.map((tab) => tab.url).filter((url) => url !== urls.eventDefinitions()),
+        // The other Definitions tabs. They are listed here because importing DEFINITIONS_TABS would pull a scene
+        // logic into the shell layer. todayWarehouseItems.test.ts fails when a tab is missing.
+        extraPaths: [
+            urls.coreEvents(),
+            urls.propertyDefinitions(),
+            urls.schemaManagement(),
+            urls.revenueSettings(),
+            urls.warehouseProperties(),
+        ],
     },
     {
         key: 'actions',

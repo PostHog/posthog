@@ -1,14 +1,14 @@
 from collections.abc import Callable
 from typing import Any
 
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import bump_stuck_counter_activity
+
 from products.replay_vision.backend.temporal.activities import (
     advance_backfill_cursor_activity,
     advance_scanner_watermark_activity,
     call_scanner_provider_activity,
-    check_scanner_budget_activity,
     cleanup_gemini_file_activity,
     complete_observation_requests_activity,
-    count_in_flight_by_team_activity,
     create_observation_activity,
     delete_backfill_schedule_activity,
     delete_scanner_schedule_activity,
@@ -19,9 +19,9 @@ from products.replay_vision.backend.temporal.activities import (
     ensure_session_asset_activity,
     fetch_session_events_activity,
     fetch_session_network_activity,
+    finalize_observation_activity,
     finalize_observation_media_activity,
     find_backfill_candidates_activity,
-    find_scanner_candidates_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
     list_stale_scanner_estimates_activity,
@@ -32,6 +32,7 @@ from products.replay_vision.backend.temporal.activities import (
     meter_scanner_read_bytes_activity,
     pause_backfill_schedule_activity,
     prepare_backfill_tick_activity,
+    prepare_observation_activity,
     prepare_observation_media_activity,
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
@@ -39,6 +40,7 @@ from products.replay_vision.backend.temporal.activities import (
     refresh_scanner_estimate_activity,
     resolve_experiment_variant_activity,
     start_launched_scanners_activity,
+    sweep_scanner_tick_activity,
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
 )
@@ -49,13 +51,10 @@ from products.replay_vision.backend.temporal.activities.benchmark import (
     snapshot_benchmark_labels_activity,
     write_benchmark_manifest_activity,
 )
+from products.replay_vision.backend.temporal.activities.rebuild_highlight_feeds import rebuild_highlight_feeds_activity
 from products.replay_vision.backend.temporal.activities.refresh_learned_rules import (
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
-)
-from products.replay_vision.backend.temporal.activities.refresh_search_suggestions import (
-    list_stale_search_suggestions_activity,
-    refresh_scanner_search_suggestions_activity,
 )
 from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
 from products.replay_vision.backend.temporal.benchmark_workflow import BuildBenchmarkWorkflow
@@ -64,15 +63,11 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
 )
-from products.replay_vision.backend.temporal.jev_watch_rank import (
-    ReplayVisionJevWatchRankWorkflow,
-    judge_watch_ranks_activity,
-)
+from products.replay_vision.backend.temporal.highlight_rebuild import RebuildHighlightFeedsWorkflow
 from products.replay_vision.backend.temporal.learned_rules import RefreshLearnedRulesWorkflow
 from products.replay_vision.backend.temporal.media_workflow import ObservationMediaWorkflow
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
-from products.replay_vision.backend.temporal.search_suggestions import RefreshSearchSuggestionsWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_alerts import (
     VisionAlertCheckWorkflow,
@@ -92,13 +87,14 @@ WORKFLOWS = [
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
     RefreshLearnedRulesWorkflow,
-    RefreshSearchSuggestionsWorkflow,
+    RebuildHighlightFeedsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
-    ReplayVisionJevWatchRankWorkflow,
     SweepScannerWorkflow,
     VisionAlertCheckWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
+    # ApplyScannerWorkflow bumps the rasterizer's stuck counter on this queue when a render times out.
+    bump_stuck_counter_activity,
     discover_due_vision_alerts_activity,
     evaluate_vision_alert_batch_activity,
     drain_vision_alert_matches_activity,
@@ -121,9 +117,9 @@ ACTIVITIES: list[Callable[..., Any]] = [
     prepare_observation_media_activity,
     finalize_observation_media_activity,
     resolve_experiment_variant_activity,
-    find_scanner_candidates_activity,
-    count_in_flight_by_team_activity,
-    check_scanner_budget_activity,
+    sweep_scanner_tick_activity,
+    finalize_observation_activity,
+    prepare_observation_activity,
     advance_scanner_watermark_activity,
     prepare_backfill_tick_activity,
     find_backfill_candidates_activity,
@@ -143,11 +139,9 @@ ACTIVITIES: list[Callable[..., Any]] = [
     start_launched_scanners_activity,
     complete_observation_requests_activity,
     sweep_gemini_files_activity,
-    judge_watch_ranks_activity,
-    list_stale_search_suggestions_activity,
-    refresh_scanner_search_suggestions_activity,
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
+    rebuild_highlight_feeds_activity,
     snapshot_benchmark_labels_activity,
     load_benchmark_cases_activity,
     prepare_benchmark_case_activity,
@@ -165,14 +159,11 @@ __all__ = [
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
     "RefreshLearnedRulesWorkflow",
-    "RefreshSearchSuggestionsWorkflow",
     "ReplayVisionGeminiCleanupSweepWorkflow",
     "SweepScannerWorkflow",
     "advance_scanner_watermark_activity",
     "call_scanner_provider_activity",
-    "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
-    "count_in_flight_by_team_activity",
     "create_observation_activity",
     "delete_scanner_schedule_activity",
     "embed_observation_activity",
@@ -183,7 +174,9 @@ __all__ = [
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
     "fetch_session_network_activity",
-    "find_scanner_candidates_activity",
+    "sweep_scanner_tick_activity",
+    "finalize_observation_activity",
+    "prepare_observation_activity",
     "list_enabled_scanners_activity",
     "list_scanner_schedules_activity",
     "list_stale_scanner_estimates_activity",

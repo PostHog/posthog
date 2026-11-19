@@ -61,6 +61,14 @@ if (res.status != 200 or res.body.ok == false) {
             "hidden": False,
         },
         {
+            "key": "attachments",
+            "type": "json",
+            "label": "Attachments",
+            "secret": False,
+            "required": False,
+            "hidden": False,
+        },
+        {
             "key": "text",
             "type": "string",
             "label": "Plain text message",

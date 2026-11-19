@@ -155,6 +155,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                       "Authorization": "Bearer 1234567890",
                       "Content-Type": "application/json",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]
@@ -169,6 +170,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                       "Authorization": "Bearer 1234567890",
                       "Content-Type": "application/json",
                     },
+                    "maxResponseBytes": 5242880,
                     "method": "POST",
                   },
                 ]

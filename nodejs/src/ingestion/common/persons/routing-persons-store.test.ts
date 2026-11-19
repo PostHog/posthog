@@ -14,7 +14,7 @@ import { logger } from '~/common/utils/logger'
 import { defaultRetryConfig } from '~/common/utils/retries'
 import { InternalPerson } from '~/types'
 
-import { PersonMergeCallFailedError } from './person-merge-types'
+import { PersonMergeCallFailedError, PersonMergeNotAppliedError } from './person-merge-types'
 import { EventOps } from './person-update'
 import { PersonhogPersonsStore } from './personhog-persons-store'
 import { MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
@@ -729,8 +729,6 @@ describe('RoutingPersonsStore', () => {
             const result = await store.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 false,
@@ -742,8 +740,8 @@ describe('RoutingPersonsStore', () => {
             )
 
             expect(result).toBe(pgResult)
-            expect(stores.pg.createPerson.mock.calls[0][7]).toBe('caller-supplied-uuid')
-            expect(stores.personhogMock.createPerson.mock.calls[0][7]).toBe('caller-supplied-uuid')
+            expect(stores.pg.createPerson.mock.calls[0][5]).toBe('caller-supplied-uuid')
+            expect(stores.personhogMock.createPerson.mock.calls[0][5]).toBe('caller-supplied-uuid')
         })
 
         it.each([
@@ -771,8 +769,6 @@ describe('RoutingPersonsStore', () => {
                 await store.createPerson(
                     DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                     { plan: 'pro' },
-                    {},
-                    {},
                     1,
                     null,
                     false,
@@ -799,8 +795,6 @@ describe('RoutingPersonsStore', () => {
             store.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 { plan: 'pro' },
-                {},
-                {},
                 1,
                 null,
                 isIdentified,
@@ -944,6 +938,8 @@ describe('RoutingPersonsStore', () => {
         })
 
         const noVerdict = (): Error => new PersonMergeCallFailedError('no verdict', new Error('shed'))
+        const notApplied = (): Error =>
+            new PersonMergeNotAppliedError('refused before it ran', 'load_shed', new Error('shed'))
 
         it.each([
             ['a no-verdict failure that clears is retried under the same request', [noVerdict()], 2, null, false],
@@ -952,6 +948,13 @@ describe('RoutingPersonsStore', () => {
                 [noVerdict(), noVerdict(), noVerdict()],
                 3,
                 'PersonMergeCallFailedError',
+                true,
+            ],
+            [
+                'a refusal before it ran through every attempt is re-driven at a flush, not waited out',
+                [notApplied(), notApplied(), notApplied()],
+                3,
+                'PersonMergeNotAppliedError',
                 true,
             ],
             [

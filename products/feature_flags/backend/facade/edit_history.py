@@ -4,6 +4,7 @@ An edit keeps only the values that decide who gets which variant: the variant sp
 flag-level aggregation, and the bucketing settings. Pass them to ``facade.edits`` to learn what the edit did.
 """
 
+from collections.abc import Collection
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -14,6 +15,7 @@ from django.db.models.fields.json import KT
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import AGENT_TRIGGER_JOB_TYPE, ActivityLog
 
+from products.feature_flags.backend.facade.config import holdout_variant
 from products.feature_flags.backend.facade.edits import BucketingSetting
 from products.feature_flags.backend.facade.enums import SCHEDULED_CHANGE_JOB_TYPE
 
@@ -24,6 +26,12 @@ _SETTING_FIELDS = {
     BucketingSetting.BUCKETING_IDENTIFIER: "bucketing_identifier",
     BucketingSetting.EXPERIENCE_CONTINUITY: "ensure_experience_continuity",
 }
+_SERVED_STRING_PATHS = (
+    "multivariate.variants[*].key",
+    "rules[*].value",
+    "rules[*].variants[*].value",
+    "default_value",
+)
 _PROJECTED = (
     "before_variants",
     "after_variants",
@@ -135,6 +143,33 @@ def flag_edits_since(*, team_id: int, feature_flag_id: int, since: datetime, lim
     )
 
 
+def served_strings_in_edits(*, team_id: int, flag_key: str, excluded_flag_ids: Collection[str]) -> list[str]:
+    columns = {
+        f"served_{index}": _changed(_FILTERS, f'*.{path} ? (@.type() == "string")', function="jsonb_path_query_array")
+        for index, path in enumerate(_SERVED_STRING_PATHS)
+    }
+    rows = (
+        ActivityLog.objects.filter(
+            team_id=team_id,
+            scope="FeatureFlag",
+            detail__contains={"name": flag_key, "changes": [{"field": _FILTERS}]},
+        )
+        .exclude(item_id__in=excluded_flag_ids)
+        .annotate(
+            holdout_ids=_changed(_FILTERS, '*.holdout.id ? (@.type() == "number")', function="jsonb_path_query_array"),
+            **columns,
+        )
+        .order_by()
+        .values_list("holdout_ids", *columns)
+        .distinct()
+    )
+    served: list[str] = []
+    for holdout_ids, *strings in rows:
+        served.extend(holdout_variant(holdout_id) for holdout_id in holdout_ids)
+        served.extend(value for values in strings for value in values)
+    return list(dict.fromkeys(value for value in served if value))
+
+
 def _author(*, job_type: str | None, is_system: bool | None, user_id: int | None) -> FlagEditAuthor:
     # Check the trigger before the user, because an agent and a scheduled change save the flag as a user.
     if job_type == AGENT_TRIGGER_JOB_TYPE:
@@ -166,10 +201,10 @@ def _changes_any_field(*fields: str) -> Q:
     return query
 
 
-def _changed(field: str, path: str) -> Func:
+def _changed(field: str, path: str, *, function: str = "jsonb_path_query_first") -> Func:
     return Func(
         F("detail"),
         Value(f'$.changes[*] ? (@.field == "{field}").{path}'),
-        function="jsonb_path_query_first",
+        function=function,
         output_field=JSONField(),
     )

@@ -11,6 +11,7 @@ import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
 
 import { InsightsTable, InsightsTableProps } from './InsightsTable'
+import { QuillInsightsTable } from './QuillInsightsTable'
 
 type Story = StoryObj<InsightsTableProps>
 const meta: Meta<InsightsTableProps> = {
@@ -50,7 +51,7 @@ const renderInsightsTable = (props: any, { parameters }: any): JSX.Element => {
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <InsightsTable {...props} />
+                {parameters.quill ? <QuillInsightsTable {...props} /> : <InsightsTable {...props} />}
             </BindLogic>
         </BindLogic>
     )
@@ -65,6 +66,17 @@ export const IsLegend: Story = {
     render: renderInsightsTable,
     args: {
         isLegend: true,
+    },
+}
+
+export const QuillIsLegend: Story = {
+    render: renderInsightsTable,
+    args: {
+        isLegend: true,
+    },
+    parameters: {
+        quill: true,
+        testOptions: { snapshotBrowsers: [] },
     },
 }
 

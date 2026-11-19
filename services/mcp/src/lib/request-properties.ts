@@ -23,6 +23,7 @@ export type RequestProperties = {
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
     mcpElicitationUrlSupported?: boolean | undefined
+    mcpUiSupported?: boolean | undefined
     mcpProtocolVersion?: string | undefined
     mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
@@ -53,6 +54,7 @@ export type ClientInfo = {
     clientVersion?: string | undefined
     protocolVersion?: string | undefined
     elicitationUrlSupported?: boolean | undefined
+    uiSupported?: boolean | undefined
 }
 
 function header(request: Request, name: string): string | undefined {
@@ -68,15 +70,15 @@ function splitCsv(value: string | null): string[] | undefined {
 }
 
 const MCP_TOOL_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i
-const MAX_EXCLUDE_TOOLS = 32
+const MAX_TOOL_FILTER_NAMES = 32
 
-function parseExcludeTools(value: string | undefined): string[] | undefined {
-    if (!value) {
+export function sanitizeToolFilterNames(names: readonly string[] | undefined): string[] | undefined {
+    if (!names) {
         return undefined
     }
     const unique: string[] = []
     const seen = new Set<string>()
-    for (const part of value.split(',')) {
+    for (const part of names) {
         const name = part.trim()
         const gateway = isGatewayToolName(name)
         const token = gateway ? name : name.toLowerCase()
@@ -86,11 +88,15 @@ function parseExcludeTools(value: string | undefined): string[] | undefined {
         }
         seen.add(token)
         unique.push(token)
-        if (unique.length >= MAX_EXCLUDE_TOOLS) {
+        if (unique.length >= MAX_TOOL_FILTER_NAMES) {
             break
         }
     }
     return unique.length > 0 ? unique : undefined
+}
+
+function parseExcludeTools(value: string | undefined): string[] | undefined {
+    return value ? sanitizeToolFilterNames(value.split(',')) : undefined
 }
 
 export function parseRequestProperties(
@@ -124,6 +130,7 @@ export function parseRequestProperties(
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
         mcpElicitationUrlSupported: clientInfo.elicitationUrlSupported,
+        mcpUiSupported: clientInfo.uiSupported,
         mcpVendorClient: vendorClient,
         mode: viaMcpStore ? 'tools' : parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         viaMcpStore,

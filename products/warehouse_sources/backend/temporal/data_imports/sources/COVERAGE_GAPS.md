@@ -640,9 +640,10 @@ Thirty-four tables.
 ### Mailchimp — spec-verified
 
 Diffed against Mailchimp's published Swagger schema.
-Thirty-two tables. The per-recipient engagement layer this section flagged as missing has shipped.
+Thirty-four tables. The per-recipient engagement layer this section flagged as missing has shipped.
 
 - [x] `reports/*/email-activity` — per-member opens and clicks. The single biggest gap.
+- [x] Incremental `reports/*/email-activity` and `reports/*/open-details`, one row per event (`report_email_activity_events`, `report_open_events`).
 - [x] `reports/*/open-details`, `reports/*/click-details`, `reports/*/sent-to`, `reports/*/unsubscribed`, `reports/*/abuse-reports`.
 - [x] `lists/*/segments` — segment definitions and membership.
 - [x] `automations` and `automations/*/emails` — automated journeys, entirely absent.

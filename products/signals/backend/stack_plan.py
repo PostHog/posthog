@@ -27,14 +27,19 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
     ReportLink,
+    ReviewerCorrections,
+    ReviewerProposal,
     StatusArtefactContent,
+    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.billing import system_billing_exempt_reason
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_generation.research import ReportLayer
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.typed_report_links import has_open_or_merged_pull_request, incoming_links, outgoing_links
 
@@ -67,28 +72,30 @@ def _layer_summary(*, parent: SignalReport, layer: ReportLayer, index: int, tota
     return f"{layer.scope}\n\n## Plan\n\nThis is layer {index + 1} of {total} of the plan '{parent.title}'."
 
 
-def _inherited_judgments(parent: SignalReport) -> list[StatusArtefactContent]:
-    judgments: list[StatusArtefactContent] = []
+def _inherited_judgments(
+    parent: SignalReport,
+) -> list[tuple[StatusArtefactContent, ImplementationAuthorization | None]]:
+    judgments: list[tuple[StatusArtefactContent, ImplementationAuthorization | None]] = []
     for artefact_type in _INHERITED_STATUS_TYPES:
         latest = (
             SignalReportArtefact.objects.filter(team_id=parent.team_id, report_id=parent.id, type=artefact_type)
             .order_by("-created_at", "-id")
-            .values_list("content", "created_by_id")
+            .values_list("content", "implementation_authorization")
             .first()
         )
         if latest is None:
             continue
-        content, editor_user_id = latest
-        # Auto-start runs a user-edited reviewer list as the editing user. A copy written under the
-        # plan's attribution would read as pipeline-chosen and could run as a named colleague.
-        if artefact_type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS and editor_user_id is not None:
-            continue
+        content, stored_authorization = latest
         judgments.append(
-            cast(StatusArtefactContent, ARTEFACT_CONTENT_SCHEMAS[artefact_type].model_validate_json(content))
+            (
+                cast(StatusArtefactContent, ARTEFACT_CONTENT_SCHEMAS[artefact_type].model_validate_json(content)),
+                ImplementationAuthorization.from_stored(stored_authorization),
+            )
         )
     return judgments
 
 
+@transaction.atomic
 def create_layer_reports(
     *, parent: SignalReport, layers: list[ReportLayer], attribution: ArtefactAttribution
 ) -> list[str]:
@@ -103,12 +110,26 @@ def create_layer_reports(
     if not layers:
         return []
     team_id = parent.team_id
+    SignalReport.objects.select_for_update().get(team_id=team_id, id=parent.id)
     if incoming_links(team_id=team_id, report_id=parent.id, kinds=(ReportLinkKind.PART_OF,)):
         return []
     if has_open_or_merged_pull_request(team_id=team_id, report_ids=[str(parent.id)]):
         logger.info("signals.stack_plan.layers_skipped_for_own_pull_request", report_id=str(parent.id), team_id=team_id)
         return []
     judgments = _inherited_judgments(parent)
+    rules = ReviewerRules(team=parent.team, report_id=str(parent.id))
+    assignment = rules.read()
+    corrections = assignment.corrections
+    for index, (judgment, authorization) in enumerate(judgments):
+        if isinstance(judgment, SuggestedReviewers) and authorization is not None and authorization.mode == "reviewer":
+            update = rules.prepare(
+                judgment,
+                attribution=attribution,
+                proposal=ReviewerProposal(expected_state=assignment.state, source="stack_plan"),
+                edit=None,
+            )
+            judgments[index] = (update.reviewers, authorization)
+            corrections = update.corrections or assignment.corrections
     # A layer does the plan's work, so it keeps the plan's exemption. The scout policy matches only
     # the report the scout emitted, and a layer's id is never in that list.
     billing_exempt_reason = parent.billing_exempt_reason or system_billing_exempt_reason(team_id, parent.id)
@@ -121,6 +142,7 @@ def create_layer_reports(
             status=SignalReport.Status.READY,
             title=layer.title,
             summary=_layer_summary(parent=parent, layer=layer, index=index, total=len(layers)),
+            user_authored=parent.user_authored,
             # Born directly in a visible status without `transition_to`, which stamps this for
             # pipeline reports, so the daily report limit counts the layer from creation. No
             # `promoted_at`: a layer runs no research, so it never fires `signal_report_started`,
@@ -130,13 +152,22 @@ def create_layer_reports(
             tags=list(parent.tags),
         )
         child_id = str(child.id)
-        for judgment in judgments:
-            SignalReportArtefact.append_status(
+        for judgment, authorization in judgments:
+            # Automatic selection can discard reviewers that a person explicitly pinned.
+            SignalReportArtefact._create(
                 team_id=team_id,
                 report_id=child_id,
                 content=judgment,
                 attribution=attribution,
-                reevaluate_autostart=False,
+                implementation_authorization=authorization,
+            )
+        if assignment.state.corrections_id is not None or corrections != ReviewerCorrections():
+            # Keep routing pins from becoming execution authority when the reviewer version moves to a layer.
+            SignalReportArtefact._create(
+                team_id=team_id,
+                report_id=child_id,
+                content=corrections,
+                attribution=attribution,
             )
         SignalReportArtefact.add_log(
             team_id=team_id,

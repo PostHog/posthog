@@ -2,9 +2,8 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { hogql } from 'lib/utils/hogql'
 import { projectLogic } from 'scenes/projectLogic'
-
-import { hogql } from '~/queries/utils'
 
 import { insightsList } from 'products/product_analytics/frontend/generated/api'
 

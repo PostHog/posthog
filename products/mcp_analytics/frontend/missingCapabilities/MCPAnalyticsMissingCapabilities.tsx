@@ -13,6 +13,7 @@ import { MCPMissingCapabilitiesItem } from '~/queries/schema/schema-general'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { McpDateFilter } from '../components/McpDateFilter'
+import { McpInternalUsersFilter } from '../components/McpInternalUsersFilter'
 import { HarnessLogo } from '../dashboard/harness'
 import { useMCPAnalyticsWizardCommand } from '../onboarding/MCPAnalyticsInstall'
 import { isUnidentifiedClient, mcpMissingCapabilitiesLogic, parsePersonProperties } from './mcpMissingCapabilitiesLogic'
@@ -43,6 +44,7 @@ function FilterBar(): JSX.Element {
                 onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
                 dataAttr="mcp-missing-capabilities-date-filter"
             />
+            <McpInternalUsersFilter dataAttr="mcp-missing-capabilities-test-account-filter" />
         </div>
     )
 }
@@ -99,9 +101,11 @@ function NoReportsState(): JSX.Element {
                 ) : null}
 
                 <p className="m-0 text-xs text-tertiary">
-                    {isCloudOrDev ? 'To configure reporting manually, set' : 'Set'} <code>reportMissing: true</code>{' '}
-                    when you initialize the PostHog MCP SDK, and agents get a <code>get_more_tools</code> tool they can
-                    call when they&apos;re stuck.
+                    {isCloudOrDev ? 'To configure reporting manually, set' : 'Set'} <code>collectFeedback: true</code>{' '}
+                    (TypeScript) or <code>collect_feedback=True</code> (Python) when you initialize the PostHog MCP SDK,
+                    and agents get a <code>send_feedback</code> tool they can call when they&apos;re stuck. Ruby uses{' '}
+                    <code>report_missing: true</code> and Go uses <code>WithMissingCapabilityTool</code> instead, and
+                    those reports appear here too.
                 </p>
 
                 <LemonButton
@@ -210,7 +214,7 @@ export function MCPAnalyticsMissingCapabilities(): JSX.Element {
                                 row.intent ? (
                                     <span className="text-base">{row.intent}</span>
                                 ) : (
-                                    // The agent called get_more_tools without saying what it wanted.
+                                    // The agent filed a report without saying what it wanted.
                                     <span className="text-muted text-base">No description given</span>
                                 ),
                         },

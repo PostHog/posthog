@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "description": "Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Only sends queued before this time. Defaults to now.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "event": {
+            "description": "The event that counts as a conversion, such as `signed_up`.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "revenue_property": {
+            "description": "An event property holding a revenue amount to add up.",
+            "type": "string"
+        },
+        "window_days": {
+            "default": 7,
+            "description": "How many days after the first send the event still counts.",
+            "maximum": 30,
+            "minimum": 1,
+            "type": "number"
+        },
+        "workflow_id": {
+            "description": "The workflow behind the transactional email.",
+            "type": "string"
+        }
+    },
+    "required": ["event", "workflow_id"],
+    "type": "object"
+}

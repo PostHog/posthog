@@ -8,7 +8,7 @@
 #     holds a thread and repeats the request for as long as the server runs, which writes a
 #     "Can't get assignment" warning every time and floods clickhouse-server.log.
 #
-# posthog/clickhouse/test/test_schema.py checks that every topic a Kafka table in schema.py
+# posthog/test/repo_invariants/test_kafka_topics_bootstrap.py checks that every topic a Kafka table in schema.py
 # consumes appears below. Topics that only a migration creates have no such guard, so add
 # them here by hand.
 clickhouse_ai_events_json
@@ -16,8 +16,10 @@ clickhouse_app_metrics
 clickhouse_app_metrics2
 clickhouse_billing_usage_records
 clickhouse_document_embeddings
+clickhouse_email_status
 clickhouse_error_tracking_fingerprint_issue_state
 clickhouse_error_tracking_issue_fingerprint
+clickhouse_error_tracking_issue_tags
 clickhouse_events_json
 clickhouse_flag_evaluations
 clickhouse_groups
@@ -37,7 +39,6 @@ clickhouse_precalculated_person_properties
 clickhouse_prefiltered_events
 clickhouse_property_values
 clickhouse_session_replay_events
-clickhouse_session_replay_features
 clickhouse_tophog
 clickhouse_traces
 cohort_membership_changed
@@ -50,6 +51,7 @@ events_plugin_ingestion_ai
 events_plugin_ingestion_async
 events_plugin_ingestion_dlq
 events_plugin_ingestion_overflow
+flags_cache_invalidation
 heatmaps_ingestion
 ingestion-clientwarnings-main-1
 log_entries

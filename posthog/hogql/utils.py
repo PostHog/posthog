@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import fields
 from typing import Any, Union, get_args, get_origin
 
@@ -69,6 +70,11 @@ def like_matches(pattern: str, text: str) -> bool:
 def ilike_matches(pattern: str, text: str) -> bool:
     # ilike is like like, but unlike like, ilike is, like, case-insensitive
     return like_matches(pattern.lower(), text.lower())
+
+
+def is_json_verbatim(value: str) -> bool:
+    """True when JSON text stores the string unchanged: non-empty printable ASCII with no quote or backslash."""
+    return bool(value) and all(" " <= char <= "~" and char not in '"\\' for char in value)
 
 
 def unwrap_optional(t):
@@ -184,3 +190,55 @@ def map_virtual_properties(e: ast.Expr):
         # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
         return ast.Field(chain=[*e.chain[:-2], e.chain[-1]])
     return e
+
+
+def alias_output_columns(query: ast.SelectQuery | ast.SelectSetQuery, names: Sequence[str]) -> bool:
+    """Give each output column of ``query`` an explicit alias from ``names``, in order.
+
+    HogQL names some output columns differently from the engine that runs the printed SQL, and keeps
+    one column per name when a query reads another by name. A caller that re-selects the output pins
+    the names the engine gives it. Only the first branch of a union names the output. An item that
+    already outputs its name is kept as it is, because re-aliasing a bare reference to an array join
+    or select alias would define that alias a second time.
+
+    A star expands to an unknown number of columns, so a select list holding one, or one whose length
+    differs from ``names``, is left unchanged and the call returns False. On a resolved query the alias
+    types and the columns the select and every enclosing union export follow the new names.
+    """
+    union_types: list[ast.SelectSetQueryType] = []
+    select = query
+    while isinstance(select, ast.SelectSetQuery):
+        if isinstance(select.type, ast.SelectSetQueryType):
+            union_types.append(select.type)
+        select = select.initial_select_query
+    if len(select.select) != len(names) or any(
+        isinstance(item, ast.ColumnsExpr) or (isinstance(item, ast.Field) and item.chain[-1] == "*")
+        for item in select.select
+    ):
+        return False
+
+    select_type = select.type if isinstance(select.type, ast.SelectQueryType) else None
+    columns: dict[str, ast.Type] = {}
+    aliased: list[ast.Expr] = []
+    for item, name in zip(select.select, names):
+        if (isinstance(item, ast.Alias) and item.alias == name and not item.hidden) or (
+            isinstance(item, ast.Field) and item.chain == [name]
+        ):
+            aliased.append(item)
+            if select_type is not None:
+                columns[name] = item.type or ast.UnknownType()
+            continue
+        expr = item.expr if isinstance(item, ast.Alias) else item
+        if select_type is None:
+            aliased.append(ast.Alias(alias=name, expr=expr))
+            continue
+        item_type = item.type.type if isinstance(item.type, ast.FieldAliasType) else item.type
+        alias_type = ast.FieldAliasType(alias=name, type=item_type or ast.UnknownType())
+        aliased.append(ast.Alias(alias=name, expr=expr, type=alias_type))
+        columns[name] = alias_type
+    select.select = aliased
+    if select_type is not None:
+        select_type.columns = columns
+        for union_type in union_types:
+            union_type.columns = columns
+    return True

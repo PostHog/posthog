@@ -39,7 +39,7 @@ LATEST_OBSERVATIONS_PER_VARIANT = 2
 
 class _Median(Aggregate):
     function = "percentile_cont"
-    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)"
+    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)%(filter)s"
     output_field = FloatField()
 
 
@@ -102,8 +102,8 @@ def experiment_variants_readout(
     # back into this package's importers.
     from products.experiments.backend.facade.replay import experiment_prompt_context, experiment_status  # noqa: PLC0415
 
-    scope = scanner.experiment_scope() or {}
-    experiment_id = scope.get("experiment_id")
+    experiment_scope = scanner.experiment_scope() or {}
+    experiment_id = experiment_scope.get("experiment_id")
     context = experiment_prompt_context(scanner.team, experiment_id=experiment_id) if experiment_id else None
     status = experiment_status(scanner.team, experiment_id=experiment_id) if experiment_id else None
 
@@ -132,7 +132,7 @@ def experiment_variants_readout(
 
     # Watched variants first, in the scanner's order, so a variant with no observations yet still shows.
     # A key seen in observations but no longer watched (the selection changed) follows them.
-    configured = scope.get("variants")
+    configured = experiment_scope.get("variants")
     watched = list(configured) if configured else [variant.key for variant in context.variants] if context else []
     keys = watched + sorted(key for key in stats if key not in watched)
 

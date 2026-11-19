@@ -89,8 +89,10 @@ function rootDirectories(): string[] {
         '<rootDir>/../products',
         '<rootDir>/../packages/quill/packages/charts/src',
         '<rootDir>/../packages/quill/packages/components/src',
+        '<rootDir>/../packages/quill/packages/tokens/src',
         '<rootDir>/../packages/llm-normalizer/src',
         '<rootDir>/../common/esbuilder',
+        '<rootDir>/../common/storybook/.storybook',
     ]
 }
 
@@ -204,6 +206,7 @@ const config: Config = {
         '/products/[^/]+/frontend/e2e/',
         '/products/visual_review/cli/',
         '/products/desktop/',
+        '/products/mobile/',
     ],
 
     transform: {

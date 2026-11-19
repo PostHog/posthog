@@ -16,14 +16,14 @@ from prometheus_client import Counter
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook, register_saved_hook, sdk_runs_hooks
 from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
-from posthog.ph_client import feature_enabled_or_false
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
-from posthog.utils import get_instance_region
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
@@ -69,27 +69,6 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     return joined
 
 
-# Converting a trigger group's flag object starts recordings that the group never made before.
-# This PostHog flag targets the project group by id and region.
-# PostHog turns it on for a team only after it notifies that team.
-TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT = "replay-trigger-group-object-flags"
-
-
-def _converts_trigger_group_object_flags(team_id: int) -> bool:
-    # Local evaluation keeps a config build from waiting on a remote call. A flag that cannot be evaluated reads as off.
-    # Each region numbers its teams separately. EU evaluates a mirror of the US flag.
-    # Every condition must filter on region, or it also matches the project with the same id in the other region.
-    region = get_instance_region() or "DEV"
-    return feature_enabled_or_false(
-        TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
-        f"team-{team_id}",
-        groups={"project": f"{region}:{team_id}"},
-        group_properties={"project": {"id": str(team_id), "region": region}},
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
-
-
 def _flag_for_sdk(flag: dict[str, Any]) -> str | dict[str, Any] | None:
     # posthog-js reads a flag gate as a bare key, or as {"flag": key, "variant": variant} to gate on one variant.
     key = flag.get("key")
@@ -117,6 +96,10 @@ class RemoteConfig(UUIDTModel):
     config = models.JSONField()
     updated_at = models.DateTimeField(auto_now=True)
     synced_at = models.DateTimeField(null=True)
+
+    @classmethod
+    def rebuild_cache_for_team(cls, team: Team) -> None:
+        cls.get_hypercache().update_cache(team.api_token)
 
     @classmethod
     def get_hypercache(cls):
@@ -234,12 +217,7 @@ class RemoteConfig(UUIDTModel):
                 # Converting a missing or empty key would send an empty flag.
                 # The SDK reads an empty flag as no flag condition.
                 # A group with no other condition then records every session.
-                if (
-                    isinstance(flag, dict)
-                    and isinstance(key := flag.get("key"), str)
-                    and key
-                    and _converts_trigger_group_object_flags(team.id)
-                ):
+                if isinstance(flag, dict) and isinstance(key := flag.get("key"), str) and key:
                     conditions = {**conditions, "flag": _flag_for_sdk(flag)}
                 normalized_groups.append({**group, "conditions": conditions})
 
@@ -698,7 +676,8 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 
 @receiver(post_save, sender="error_tracking.ErrorTrackingSuppressionRule")
-def error_tracking_suppression_rule_saved(sender, instance, created, **kwargs):
+@receiver(post_delete, sender="error_tracking.ErrorTrackingSuppressionRule")
+def error_tracking_suppression_rule_changed(sender, instance, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
@@ -728,16 +707,34 @@ def organization_subscription_saved(sender, instance, created, **kwargs):
 @receiver(post_save, sender="posthog.Integration")
 @receiver(post_delete, sender="posthog.Integration")
 def push_integration_changed(sender, instance, **kwargs):
+    # The SDK calls the hooks below itself. This receiver is for the writers that do not use the SDK yet.
+    if sdk_runs_hooks():
+        return
+    # The app_ids live in config, and integration code saves errors and created_by on their own —
+    # apns_integration alone does three saves per creation. Only config can change the payload.
+    update_fields = kwargs.get("update_fields")
+    _push_integration_config_changed(instance, config_changed=update_fields is None or "config" in update_fields)
+
+
+def _push_integration_config_changed(row: IntegrationRecord, *, config_changed: bool) -> None:
     from products.messaging.backend.facade.api import is_push_integration_kind
 
     # Integrations cover every kind we support, and most of them have nothing to do with the SDK
     # payload. Only refresh for the two push kinds, so an OAuth token refresh on an unrelated
     # integration doesn't enqueue a rebuild for every team that has one.
-    if not is_push_integration_kind(instance.kind):
+    if not config_changed or not is_push_integration_kind(row.kind):
         return
-    # The app_ids live in config, and integration code saves errors and created_by on their own —
-    # apns_integration alone does three saves per creation. Only config can change the payload.
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "config" not in update_fields:
-        return
-    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+    team_id = row.team_id
+    transaction.on_commit(lambda: _update_team_remote_config(team_id))
+
+
+def push_integration_saved(row: IntegrationRecord, *, created: bool, config_changed: bool) -> None:
+    _push_integration_config_changed(row, config_changed=config_changed)
+
+
+def push_integration_deleted(row: IntegrationRecord) -> None:
+    _push_integration_config_changed(row, config_changed=True)
+
+
+register_saved_hook(push_integration_saved)
+register_delete_hook(push_integration_deleted)

@@ -1,12 +1,14 @@
 """Test-support facade for access_control.
 
-Test suites outside the product plant roles, role members and access control rows. They get
+Test suites outside the product plant roles, role members, access control rows and property
+access control rows. They get
 them here instead of importing the models.
 """
 
 from uuid import UUID
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 
 
@@ -46,3 +48,33 @@ def create_access_control(
         organization_member_id=organization_member_id,
         role_id=role_id,
     ).id
+
+
+def delete_access_control(*, team_id: int, access_control_id: UUID) -> None:
+    """Delete one access control row, signals and all, as the production delete does."""
+    AccessControl.objects.get(id=access_control_id, team_id=team_id).delete()
+
+
+def remove_role_member(*, organization_id: UUID, role_membership_id: UUID) -> None:
+    RoleMembership.objects.get(id=role_membership_id, role__organization_id=organization_id).delete()
+
+
+def create_property_access_control(
+    *,
+    team_id: int,
+    property_definition_id: UUID,
+    access_level: str,
+    organization_member_id: UUID | None = None,
+    role_id: UUID | None = None,
+) -> UUID:
+    return PropertyAccessControl.objects.create(
+        team_id=team_id,
+        property_definition_id=property_definition_id,
+        access_level=access_level,
+        organization_member_id=organization_member_id,
+        role_id=role_id,
+    ).id
+
+
+def delete_property_access_control_rule(*, team_id: int, property_access_control_id: UUID) -> None:
+    PropertyAccessControl.objects.get(id=property_access_control_id, team_id=team_id).delete()

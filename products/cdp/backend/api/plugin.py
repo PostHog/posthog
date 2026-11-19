@@ -49,6 +49,7 @@ from products.cdp.backend.models.plugin import (
     PluginAttachment,
     PluginConfig,
     PluginSourceFile,
+    get_secret_fields,
     transpile,
     update_validated_data_from_url,
 )
@@ -220,6 +221,20 @@ def _update_plugin_attachment(
 def _fix_formdata_config_json(request: request.Request, validated_data: dict):
     if not validated_data.get("config", None) and cast(dict, request.POST).get("config", None):
         validated_data["config"] = json.loads(request.POST["config"])
+
+
+def _config_from_request(request: request.Request) -> dict:
+    if "config" not in request.data:
+        return {}
+    config = request.data["config"]
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except json.JSONDecodeError:
+            raise ValidationError({"config": "Must be a JSON object."})
+    if not isinstance(config, dict):
+        raise ValidationError({"config": "Must be a JSON object."})
+    return config
 
 
 class PlainRenderer(renderers.BaseRenderer):
@@ -663,7 +678,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         new_plugin_config = plugin_config.config.copy()
 
-        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
+        secret_fields = get_secret_fields(plugin_config.plugin.config_schema)
 
         # do not send the real value to the client
         for key in secret_fields:
@@ -712,7 +727,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team_id"] = self.context["team_id"]
-        _fix_formdata_config_json(self.context["request"], validated_data)
+        validated_data["config"] = _config_from_request(self.context["request"])
 
         validated_data["web_token"] = generate_random_token()
 
@@ -767,7 +782,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             validated_data["enabled"] = False
 
         # Keep old value for secret fields if no new value in the request
-        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
+        secret_fields = get_secret_fields(plugin_config.plugin.config_schema)
 
         if "config" in validated_data:
             for key in secret_fields:
@@ -916,12 +931,6 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             obj.save()
 
         return Response(hog_function_serializer.data)
-
-
-def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
-    # A set of keys for config fields that have secret = true
-    secret_fields = {field["key"] for field in plugin.config_schema if isinstance(field, dict) and field.get("secret")}
-    return secret_fields
 
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):

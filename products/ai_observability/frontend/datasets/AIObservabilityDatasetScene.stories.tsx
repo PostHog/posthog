@@ -19,6 +19,8 @@ const dataset: DatasetReadApi = {
     metadata: { owner: 'support', language: 'en' },
     tags: [],
     archived: false,
+    expires_at: '2024-04-01T12:00:00Z',
+    expiring_soon: false,
     current_revision: 1,
     current_revision_id: 'example-revision',
     created_at: '2024-01-01T00:00:00Z',

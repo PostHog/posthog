@@ -3,7 +3,7 @@ import { useMountedLogic } from 'kea'
 import { useState } from 'react'
 
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { renderField } from 'scenes/cohorts/CohortFilters/constants'
+import { renderField } from 'scenes/cohorts/CohortFilters/renderField'
 import { CohortNumberFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
 
 import { CohortNumberField } from './CohortField'

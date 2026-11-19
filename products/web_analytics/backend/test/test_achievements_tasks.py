@@ -1,31 +1,21 @@
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
-import time_machine
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.db import connection, transaction
 from django.utils import timezone
 
-from parameterized import parameterized
-
-from posthog.clickhouse.client.execute import KillSwitchLevel
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.web_analytics.backend.achievements import tasks
-from products.web_analytics.backend.achievements.evaluators import EvalContext, PriorProgress, TrackEvaluation
-from products.web_analytics.backend.models import (
-    WebAnalyticsAchievementProgress,
-    WebAnalyticsUserConfig,
-    WebAnalyticsVisit,
-)
-from products.web_analytics.backend.test.achievements_test_utils import (
-    IncrementalEvaluator,
-    make_evaluators,
-    make_incremental_evaluators,
-)
+from products.web_analytics.backend.achievements.evaluators import EvalContext
+from products.web_analytics.backend.models import WebAnalyticsAchievementProgress, WebAnalyticsUserConfig
+from products.web_analytics.backend.test.achievements_test_utils import make_evaluators
 
 
 class TestRecomputeTask(BaseTest):
@@ -34,19 +24,7 @@ class TestRecomputeTask(BaseTest):
             patch.object(tasks, "EVALUATORS", evaluators),
             patch.object(tasks, "streak_arm_for_user", return_value="daily-only"),
         ):
-            tasks.recompute_web_analytics_achievements(self.team.id, self.user.id)
-
-    def _run_team(self, incremental_evaluators: dict[str, IncrementalEvaluator]) -> None:
-        with (
-            patch.object(tasks, "EVALUATORS", make_evaluators()),
-            patch.object(tasks, "INCREMENTAL_EVALUATORS", incremental_evaluators),
-        ):
-            tasks.recompute_web_analytics_achievements(self.team.id, None)
-
-    def _team_progress(self, track_key: str) -> WebAnalyticsAchievementProgress:
-        return WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(
-            user__isnull=True, track_key=track_key
-        )
+            tasks.recompute_web_analytics_achievements(self.team, self.user)
 
     def _progress(self, track_key: str) -> WebAnalyticsAchievementProgress:
         return WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(user=self.user, track_key=track_key)
@@ -71,138 +49,6 @@ class TestRecomputeTask(BaseTest):
         self._run_user(make_evaluators(loyal_days=loyal))
         self.assertEqual(calls["count"], 0)
         self.assertEqual(self._progress("loyalty").current_stage, 5)
-
-    def test_recently_computed_team_track_is_not_recomputed(self) -> None:
-        WebAnalyticsAchievementProgress(
-            team=self.team,
-            user=None,
-            track_key="traffic",
-            current_stage=0,
-            progress_value=0,
-            state={},
-            last_computed_at=timezone.now() - timedelta(hours=2),
-        ).save()
-        calls = {"count": 0}
-
-        def pageviews(_ctx: EvalContext, _prior: PriorProgress) -> TrackEvaluation:
-            calls["count"] += 1
-            return TrackEvaluation(value=10_000, checkpoint={})
-
-        self._run_team({**make_incremental_evaluators(), "cumulative_pageviews": pageviews})
-        self.assertEqual(calls["count"], 0)
-
-    @parameterized.expand(
-        [
-            ("query_failure", ValueError("scan failed"), True),
-            ("contention", ConcurrencyLimitExceeded(), False),
-        ]
-    )
-    def test_failed_team_track_backs_off_until_a_successful_run(
-        self, _name: str, failure: Exception, backs_off: bool
-    ) -> None:
-        calls = 0
-
-        def pageviews(_ctx: EvalContext, _prior: PriorProgress) -> TrackEvaluation:
-            nonlocal calls
-            calls += 1
-            if calls == 1:
-                raise failure
-            return TrackEvaluation(value=10_000, checkpoint={})
-
-        evaluators = {**make_incremental_evaluators(), "cumulative_pageviews": pageviews}
-        self._run_team(evaluators)
-        self._run_team(evaluators)
-        self.assertEqual(calls, 1 if backs_off else 2)
-
-        with time_machine.travel(timezone.now() + tasks.RETRY_BACKOFF_BASE + timedelta(minutes=1), tick=False):
-            self._run_team(evaluators)
-        progress = self._team_progress("traffic")
-        self.assertEqual(calls, 2)
-        self.assertEqual(progress.current_stage, 1)
-        self.assertEqual(progress.failed_attempts, 0)
-        self.assertIsNone(progress.retry_after)
-
-    def test_team_track_stores_the_evaluator_checkpoint(self) -> None:
-        checkpoint: dict[str, object] = {"counted_through": "2026-01-02T00:00:00+00:00"}
-        self._run_team(
-            {
-                **make_incremental_evaluators(),
-                "cumulative_pageviews": lambda ctx, prior: TrackEvaluation(value=10_000, checkpoint=checkpoint),
-            }
-        )
-        progress = self._team_progress("traffic")
-        self.assertEqual(progress.current_stage, 1)
-        self.assertEqual(progress.state["checkpoint"], checkpoint)
-
-    def test_partial_conversion_checkpoint_stays_due_for_next_sweep(self) -> None:
-        checkpoint: dict[str, object] = {"bootstrap": {"next_start": "2026-01-09T00:00:00+00:00"}}
-        calls = 0
-
-        def conversions(_ctx: EvalContext, _prior: PriorProgress) -> TrackEvaluation:
-            nonlocal calls
-            calls += 1
-            return TrackEvaluation(value=calls, checkpoint=checkpoint, complete=False)
-
-        evaluators = {**make_incremental_evaluators(), "conversions": conversions}
-        self._run_team(evaluators)
-        self._run_team(evaluators)
-
-        progress = self._team_progress("conversions")
-        self.assertEqual(calls, 2)
-        self.assertEqual(progress.progress_value, 0)
-        self.assertEqual(progress.current_stage, 0)
-        self.assertEqual(progress.state["checkpoint"], checkpoint)
-        self.assertIsNone(progress.last_computed_at)
-
-    @parameterized.expand([("racing_recompute", True), ("racing_backfill", False)])
-    def test_overlapping_team_recompute_keeps_the_first_checkpoint(
-        self, _name: str, bumps_last_computed_at: bool
-    ) -> None:
-        progress = WebAnalyticsAchievementProgress(
-            team=self.team,
-            user=None,
-            track_key="traffic",
-            current_stage=0,
-            progress_value=100,
-            state={},
-            last_computed_at=timezone.now() - timedelta(days=1),
-        )
-        progress.save()
-        winning_checkpoint = {"counted_through": "2026-01-02T00:05:00+00:00"}
-
-        def pageviews_racing_another_run(_ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
-            row = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(pk=progress.pk)
-            row.progress_value = 150
-            if bumps_last_computed_at:
-                row.last_computed_at = timezone.now()
-            row.state = {"checkpoint": winning_checkpoint}
-            row.save(update_fields=["progress_value", "last_computed_at", "state"])
-            return TrackEvaluation(value=prior.value + 20, checkpoint={"counted_through": "2026-01-02T00:01:00+00:00"})
-
-        self._run_team({**make_incremental_evaluators(), "cumulative_pageviews": pageviews_racing_another_run})
-        progress.refresh_from_db()
-        self.assertEqual(progress.progress_value, 150)
-        self.assertEqual(progress.state["checkpoint"], winning_checkpoint)
-
-    def test_cheap_user_track_recomputes_intraday(self) -> None:
-        WebAnalyticsAchievementProgress(
-            team=self.team,
-            user=self.user,
-            track_key="loyalty",
-            current_stage=0,
-            progress_value=0,
-            state={},
-            last_computed_at=timezone.now(),
-        ).save()
-        calls = {"count": 0}
-
-        def loyal(_ctx: EvalContext) -> int:
-            calls["count"] += 1
-            return 10
-
-        self._run_user(make_evaluators(loyal_days=loyal))
-        self.assertEqual(calls["count"], 1)
-        self.assertEqual(self._progress("loyalty").current_stage, 1)
 
     def test_unlock_fires_best_effort_notification(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -251,7 +97,6 @@ class TestRecomputeTask(BaseTest):
             current_stage=1,
             progress_value=5,
             state={"pending_celebrations": [1], "unlocked_stages": {"1": yesterday.isoformat()}},
-            last_computed_at=yesterday,
         )
         progress.save()
 
@@ -272,65 +117,43 @@ class TestRecomputeTask(BaseTest):
             patch.object(tasks, "EVALUATORS", make_evaluators(loyal_days=lambda ctx: 50)),
             patch.object(tasks, "streak_arm_for_user", return_value="control"),
         ):
-            tasks.recompute_web_analytics_achievements(self.team.id, self.user.id)
+            tasks.recompute_web_analytics_achievements(self.team, self.user)
         self.assertFalse(WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user=self.user).exists())
 
 
-class TestSweep(BaseTest):
-    def _team_with_traffic_progress(
-        self,
-        name: str,
-        last_computed_at: datetime | None,
-        current_stage: int = 0,
-        visit_days_ago: int = 0,
-        retry_after: datetime | None = None,
-    ) -> int:
-        team = Team.objects.create(organization=self.organization, name=name)
-        WebAnalyticsVisit(
-            team=team, user=self.user, visit_date=timezone.now().date() - timedelta(days=visit_days_ago)
-        ).save()
-        WebAnalyticsAchievementProgress(
-            team=team,
-            user=None,
-            track_key="traffic",
-            current_stage=current_stage,
-            progress_value=0,
-            state={},
-            last_computed_at=last_computed_at,
-            retry_after=retry_after,
-        ).save()
-        return team.id
+@pytest.mark.django_db(transaction=True)
+def test_user_recompute_skips_a_locked_progress_row_instead_of_waiting(team: Team, user: User) -> None:
+    locked_row = WebAnalyticsAchievementProgress(team=team, user=user, track_key="explorer")
+    locked_row.save()
 
-    def _sweep(self, batch_size: int, kill_switch: KillSwitchLevel) -> list[int]:
-        with (
-            override_settings(WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE=batch_size),
-            patch.object(tasks, "get_kill_switch_level", return_value=kill_switch),
-            patch.object(tasks.recompute_web_analytics_achievements, "delay") as delay,
-        ):
-            tasks.sweep_web_analytics_achievement_team_tracks()
-        return [call.args[0] for call in delay.call_args_list]
+    def recompute() -> None:
+        tasks.recompute_web_analytics_achievements(team, user)
 
-    @parameterized.expand(
-        [
-            ("all_due", 10, KillSwitchLevel.OFF, ["never", "two_days", "twenty_one_hours"]),
-            ("batch_limit_keeps_oldest", 2, KillSwitchLevel.OFF, ["never", "two_days"]),
-            ("disabled_by_zero_batch", 0, KillSwitchLevel.OFF, []),
-            ("clickhouse_kill_switch", 10, KillSwitchLevel.LIGHT, []),
-        ]
-    )
-    def test_sweep_enqueues_due_active_teams_oldest_first(
-        self, _name: str, batch_size: int, kill_switch: KillSwitchLevel, expected: list[str]
-    ) -> None:
-        now = timezone.now()
-        team_ids = {
-            "twenty_one_hours": self._team_with_traffic_progress("21h", now - timedelta(hours=21)),
-            "never": self._team_with_traffic_progress("never", None),
-            "two_days": self._team_with_traffic_progress("2d", now - timedelta(days=2)),
-            "fresh": self._team_with_traffic_progress("fresh", now - timedelta(hours=1)),
-            "maxed": self._team_with_traffic_progress("maxed", now - timedelta(days=2), current_stage=5),
-            "inactive": self._team_with_traffic_progress("inactive", now - timedelta(days=2), visit_days_ago=30),
-            "backing_off": self._team_with_traffic_progress(
-                "backing off", None, retry_after=now + timedelta(minutes=5)
-            ),
-        }
-        self.assertEqual(self._sweep(batch_size, kill_switch), [team_ids[name] for name in expected])
+    def recompute_on_another_connection() -> None:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '1s'")
+            recompute()
+        finally:
+            connection.close()
+
+    with (
+        patch.object(tasks, "EVALUATORS", make_evaluators(data_events=lambda ctx: 1, recordings_opened=lambda ctx: 1)),
+        patch.object(tasks, "streak_arm_for_user", return_value="daily-only"),
+    ):
+        with transaction.atomic():
+            WebAnalyticsAchievementProgress.objects.for_team(team.id).select_for_update().get(pk=locked_row.pk)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(recompute_on_another_connection).result(timeout=10)
+
+        stages = dict(
+            WebAnalyticsAchievementProgress.objects.for_team(team.id)
+            .filter(user=user)
+            .values_list("track_key", "current_stage")
+        )
+        assert (stages["explorer"], stages["detective"]) == (0, 1)
+
+        recompute()
+
+    locked_row.refresh_from_db()
+    assert locked_row.current_stage == 1

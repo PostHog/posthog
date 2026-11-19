@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from django.core.cache import cache
 
@@ -13,7 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.permissions import TeamMemberAdminManagementPermission
 
 from products.warehouse_sources.backend.facade.source_management import (
@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     OAuthMixin,
     filter_integration_accounts,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from . import base, helpers
 
@@ -132,7 +131,7 @@ class ExternalDataSourceOAuthAccountsMixin(base.ExternalDataSourceViewSetBase):
             raise ValidationError("integration_id must be an integer")
 
         try:
-            source = base.SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
+            source = base.SourceRegistry.get_source(source_type)
         except ValueError:
             raise ValidationError(f"Unknown source type: {source_type}")
 
@@ -146,9 +145,9 @@ class ExternalDataSourceOAuthAccountsMixin(base.ExternalDataSourceViewSetBase):
         expected_kinds = helpers.get_oauth_integration_kinds(source.get_source_config.fields)
         if not expected_kinds:
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
-        if not Integration.objects.filter(
-            id=integration_id_int, team_id=self.team_id, kind__in=expected_kinds
-        ).exists():
+        if integration_id_int not in IntegrationManager.kinds(*expected_kinds).get_many(
+            self.team_id, [integration_id_int]
+        ):
             # One message for "gone" and "wrong kind" alike: from the UI both mean the picker is holding
             # a connection this source can't use, and neither tells the caller anything about ids it
             # isn't already allowed to see.
@@ -202,7 +201,7 @@ class ExternalDataSourceOAuthAccountsMixin(base.ExternalDataSourceViewSetBase):
 
         source_type = data["source_type"]
         try:
-            source = base.SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
+            source = base.SourceRegistry.get_source(source_type)
         except ValueError:
             raise ValidationError(f"Unknown source type: {source_type}")
 

@@ -16,6 +16,9 @@ pub const PART_CLEANUP_TOTAL: &str = "batch_import_part_cleanup_total";
 pub const JOB_COMPLETION_TOTAL: &str = "batch_import_job_completion_total";
 pub const COMPLETED_JOB_EVENTS: &str = "batch_import_completed_job_events";
 pub const COMPLETED_JOB_PARTS: &str = "batch_import_completed_job_parts";
+pub const OPERATOR_STOP_TOTAL: &str = "batch_import_operator_stop_total";
+pub const INTERRUPTED_COMMIT_PAUSED_TOTAL: &str = "batch_import_interrupted_commit_paused_total";
+pub const INTERRUPTED_COMMIT_RESENT_TOTAL: &str = "batch_import_interrupted_commit_resent_total";
 
 use metrics::{counter, gauge, histogram};
 
@@ -26,6 +29,22 @@ pub fn backoff_event(delay_secs: f64) {
 
 pub fn unpause_event() {
     counter!(UNPAUSE_TOTAL).increment(1);
+}
+
+/// Count jobs a worker stopped because the row left the running status, by commit stage
+/// ("before_send" / "after_send").
+pub fn operator_stop(stage: &'static str) {
+    counter!(OPERATOR_STOP_TOTAL, "stage" => stage).increment(1);
+}
+
+/// Count jobs paused at claim because an earlier worker stopped mid-commit.
+pub fn interrupted_commit_paused() {
+    counter!(INTERRUPTED_COMMIT_PAUSED_TOTAL).increment(1);
+}
+
+/// Count jobs rewound at claim to re-send a chunk an earlier worker stopped sending.
+pub fn interrupted_commit_resent() {
+    counter!(INTERRUPTED_COMMIT_RESENT_TOTAL).increment(1);
 }
 
 pub fn staging_sweep_removed(count: u64) {

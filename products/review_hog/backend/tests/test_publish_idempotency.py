@@ -309,10 +309,17 @@ class TestPublishIdempotency(BaseTest):
     @parameterized.expand(
         [
             ("automatic_draft_with_commands", "automatic", True, True, "Comment `@posthog review` to review", False),
-            ("automatic_draft_without_commands", "automatic", True, False, "Add the `posthog-review` label to", False),
+            (
+                "automatic_draft_without_commands",
+                "automatic",
+                True,
+                False,
+                "Start a review in PostHog Review to",
+                False,
+            ),
             ("automatic_ready", "automatic", False, True, None, False),
-            # A label review also runs for authors without automatic reviews, so it cannot promise one on ready.
-            ("label_draft", "label", True, True, None, True),
+            # A Stamphog handoff also runs for authors without automatic reviews, so it cannot promise one on ready.
+            ("stamphog_draft", "stamphog", True, True, None, True),
             ("comment_ready", "comment", False, True, None, True),
             ("ui_ready", "ui", False, True, None, True),
             ("inbox_ready", "inbox", False, True, None, False),

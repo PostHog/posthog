@@ -4,6 +4,7 @@ from typing import Any
 
 from django.db import models
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.types import ResourcePayload, ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 from posthog.models.resource_transfer.visitors.common import (
@@ -24,6 +25,8 @@ class CohortVisitor(
         "last_backfill_events_at",
         "last_backfill_person_properties_at",
         "last_realtime_cohort_calculation_at",
+        # A copy arrives with realtime off, because turning it on runs checks and starts a build.
+        "realtime_enabled_at",
         "filters_shape_hash",
         "behavioral_filters_shape_hash",
         "person_filters_shape_hash",
@@ -42,7 +45,6 @@ class CohortVisitor(
 
     @classmethod
     def get_dynamic_edges(cls, resource: Any) -> list[ResourceTransferEdge]:
-        from products.actions.backend.models.action import Action
         from products.cohorts.backend.models.cohort import Cohort
 
         cohort_ids = cls._extract_cohort_ids(resource.filters)
@@ -50,7 +52,9 @@ class CohortVisitor(
 
         edges: list[ResourceTransferEdge] = []
         edges.extend(build_edges_for_ids(cohort_ids, Cohort, "cohort", cls._rewrite_cohort_in_payload))
-        edges.extend(build_edges_for_ids(action_ids, Action, "action", cls._rewrite_action_in_payload))
+        edges.extend(
+            build_edges_for_ids(action_ids, registered_model("Action"), "action", cls._rewrite_action_in_payload)
+        )
         return edges
 
     @classmethod

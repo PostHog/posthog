@@ -112,6 +112,11 @@ pub const ETCD_PAYLOAD_SIZE_BUCKETS_BYTES: &[f64] = &[
     1024.0, 8192.0, 65536.0, 262144.0, 524288.0, 1048576.0, 1572864.0, 2097152.0, 4194304.0,
 ];
 
+/// Pinned like the payload ladder, since every `EtcdStore` user emits the metric.
+pub const ETCD_OP_LATENCY_BUCKETS_MS: &[f64] = &[
+    1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+];
+
 fn build_prometheus_builder(product: Option<String>) -> PrometheusBuilder {
     const BUCKETS: &[f64] = &[
         1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
@@ -123,6 +128,11 @@ fn build_prometheus_builder(product: Option<String>) -> PrometheusBuilder {
         .set_buckets_for_metric(
             Matcher::Full("assignment_coordination_etcd_payload_bytes".into()),
             ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_op_ms".into()),
+            ETCD_OP_LATENCY_BUCKETS_MS,
         )
         .unwrap();
     if let Some(product) = product {

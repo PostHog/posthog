@@ -54,11 +54,11 @@ def _build_session() -> requests.Session:
     it. This is the same reason `posthog.security.outbound_proxy.internal_requests` exists, and
     the reason we cannot simply reuse a plain tracked session.
 
-    `Retry(total=0)` — the client holds no cache, so there is no last known good and a retry here
-    would only add latency in front of a failure Temporal already retries with backoff. It matches
-    the shared internal session, whose adapter also does not retry. (`DEFAULT_RETRY` would be a
-    no-op anyway, since it retries only GET/HEAD/OPTIONS and this is a POST — stated explicitly so
-    it stays true if that policy changes.)
+    `Retry(total=0)` — the client already retries a dropped connection or a gateway status itself,
+    for every session it is given. A second retry layer here would multiply those attempts. It
+    matches the shared internal session, whose adapter also does not retry. (`DEFAULT_RETRY` would
+    be a no-op anyway, since it retries only GET/HEAD/OPTIONS and this is a POST — stated
+    explicitly so it stays true if that policy changes.)
     """
     session = make_tracked_session(retry=Retry(total=0), capture=False)
     session.trust_env = False

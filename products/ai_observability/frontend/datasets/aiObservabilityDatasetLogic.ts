@@ -32,7 +32,7 @@ import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, ExportedAssetType, ExporterFormat } from '~/types'
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
-import { CodeEnumApi, DatasetExportReadStatusEnumApi } from '../generated/api.schemas'
+import { CodeEnumApi, ExportStatusEnumApi } from '../generated/api.schemas'
 import type {
     DatasetExportReadApi,
     DatasetItemReadApi,
@@ -40,6 +40,7 @@ import type {
     PaginatedDatasetItemReadListApi,
     PaginatedDatasetRevisionReadListApi,
 } from '../generated/api.schemas'
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { truncateValue } from '../utils'
 import { aiObservabilityDatasetsLogic, getDatasetDetailUrl, getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
@@ -114,7 +115,7 @@ function datasetExportToExportedAsset(datasetExport: DatasetExportReadApi): Expo
     return {
         id: datasetExport.id,
         export_format: ExporterFormat.JSONL,
-        has_content: datasetExport.status === DatasetExportReadStatusEnumApi.Complete,
+        has_content: datasetExport.status === ExportStatusEnumApi.Complete,
         filename: datasetExport.filename,
         created_at: datasetExport.created_at,
         expires_after: datasetExport.expires_after,
@@ -879,6 +880,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                         })
                         lemonToast.success('Dataset updated successfully')
                     }
+                    aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                     aiObservabilityDatasetsLogic.findMounted()?.actions.loadDatasets(false)
                     actions.setDataset(savedDataset)
                     actions.editDataset(false)
@@ -985,7 +987,10 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                     { value: 'latest', label: 'Latest' },
                     ...revisionNumbers
                         .sort((a, b) => b - a)
-                        .map((revision) => ({ value: String(revision), label: `Revision ${revision}` })),
+                        .map((revision) => ({
+                            value: String(revision),
+                            label: `Revision ${revision}${revisions.results.find((entry) => entry.revision === revision)?.expiring_soon ? ' · Expiring soon' : ''}`,
+                        })),
                 ]
             },
         ],
@@ -1021,6 +1026,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
             if (props.datasetId !== 'new') {
                 try {
                     await datasetsApi.archiveDataset(props.datasetId)
+                    aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                     const datasetName = values.dataset?.name || 'Dataset'
                     lemonToast.info(`${datasetName} has been archived.`, {
                         button: {
@@ -1029,6 +1035,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                             action: async () => {
                                 try {
                                     await datasetsApi.restoreDataset(props.datasetId)
+                                    aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                                     aiObservabilityDatasetsLogic.findMounted()?.actions.loadDatasets(false)
                                     lemonToast.success(`${datasetName} has been restored.`)
                                 } catch {
@@ -1052,6 +1059,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
             try {
                 const restoredDataset = await datasetsApi.restoreDataset(props.datasetId)
                 actions.setDataset(restoredDataset)
+                aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                 aiObservabilityDatasetsLogic.findMounted()?.actions.loadDatasets(false)
                 lemonToast.success(`${restoredDataset.name} has been unarchived.`)
             } catch (error) {
@@ -1181,7 +1189,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         },
 
         exportDatasetSuccess: ({ datasetExport }) => {
-            if (datasetExport.status === DatasetExportReadStatusEnumApi.Failed) {
+            if (datasetExport.status === ExportStatusEnumApi.Failed) {
                 lemonToast.error(datasetExport.exception || "Couldn't start dataset export. Try again.")
                 return
             }
@@ -1281,15 +1289,19 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         },
     })),
 
-    trackedActionToUrl(({ values }) => ({
-        setActiveTab: () => [
-            router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                tab: values.activeTab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined,
-            },
-            router.values.hashParams,
-        ],
+    trackedActionToUrl(({ props, values }) => ({
+        setActiveTab: () => {
+            const tab = values.activeTab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined
+            // urlToAction also syncs the tab from a URL the person went back to, and that URL must keep its open trace.
+            if ((router.values.searchParams.tab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined) === tab) {
+                return
+            }
+            return [
+                router.values.location.pathname,
+                { ...withoutTraceDrawerParams(router.values.searchParams), tab },
+                router.values.hashParams,
+            ]
+        },
         setFilters: () => {
             const nextSearchParams = {
                 ...router.values.searchParams,
@@ -1299,7 +1311,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                 revision: values.filters.revision ?? undefined,
             }
             return [
-                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
+                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : props.datasetId),
                 nextSearchParams,
                 {},
                 { replace: true },
@@ -1308,7 +1320,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         closeModalAndRefetchDatasetItems: () => {
             const nextSearchParams = { ...router.values.searchParams, item: undefined }
             return [
-                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
+                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : props.datasetId),
                 nextSearchParams,
                 {},
                 { replace: false },

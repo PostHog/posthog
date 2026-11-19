@@ -54,7 +54,7 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
         category: 'Engineering & monitoring',
         fields: [],
     } as unknown as SourceConfigResponseApi,
-    // Unreleased duplicates of a connector that already works, `BingAds` and the self-managed `aws`.
+    // An unreleased duplicate of a connector that already works.
     BingAds: {
         name: 'BingAds',
         label: 'Bing Ads',
@@ -67,10 +67,17 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
         unreleasedSource: true,
         fields: [],
     } as unknown as SourceConfigResponseApi,
+    // Bucket sources, so a search for a file format or a bucket provider has something to find.
     AmazonS3: {
         name: 'AmazonS3',
         label: 'Amazon S3',
-        featureFlag: 'dwh-amazon-s3-test',
+        keywords: ['amazon', 'aws', 's3', 'bucket', 'csv', 'parquet'],
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
+    GoogleCloudStorage: {
+        name: 'GoogleCloudStorage',
+        label: 'Google Cloud Storage',
+        keywords: ['gcs', 'gcp', 'bucket', 'csv', 'parquet'],
         fields: [],
     } as unknown as SourceConfigResponseApi,
 }
@@ -156,27 +163,24 @@ describe('sourceCatalogLogic', () => {
     })
 
     // Each of these dead-ended on "no sources match" and pushed the user to request a source we
-    // already have. "self-managed" is the name the sources list itself gives these connectors.
-    it.each(['csv', 'parquet', 'self-managed', 'self managed', 'bring your own'])(
-        'surfaces the self-managed connectors when searching for "%s"',
-        (search) => {
-            const logic = sourceCatalogLogic()
-            logic.actions.setSearch(search)
+    // already have.
+    it.each(['csv', 'parquet'])('surfaces the bucket sources when searching for "%s"', (search) => {
+        const logic = sourceCatalogLogic()
+        logic.actions.setSearch(search)
 
-            expect(logic.values.filteredItems.map((item) => item.name)).toContain('aws')
-        }
-    )
+        expect(logic.values.filteredItems.map((item) => item.name)).toContain('AmazonS3')
+    })
 
     // Fuse matches the whole search term as one pattern, so one extra word buries a term that
     // matches on its own: each of these returned nothing at all, which sent the user to "request
     // a source" for connectors we already have.
-    it.each(['source files', 'parquet file storage', 'amazon s3 bucket'])(
+    it.each(['parquet file storage', 'amazon s3 bucket'])(
         'retries a multi-word search word by word for "%s"',
         (search) => {
             const logic = sourceCatalogLogic()
             logic.actions.setSearch(search)
 
-            expect(logic.values.filteredItems.some((item) => item.selfManaged)).toBe(true)
+            expect(logic.values.filteredItems.length).toBeGreaterThan(0)
         }
     )
 
@@ -184,11 +188,11 @@ describe('sourceCatalogLogic', () => {
         const logic = sourceCatalogLogic()
         logic.actions.setSearch('amazon gcs gcp')
 
-        // `google-cloud` matches "gcs" and "gcp"; `aws` only "amazon". The closer match must lead,
-        // even though the first word found `aws` and word order alone would keep it first.
+        // `GoogleCloudStorage` matches "gcs" and "gcp"; `AmazonS3` only "amazon". The closer match must
+        // lead, even though the first word found `AmazonS3` and word order alone would keep it first.
         const names = logic.values.filteredItems.map((item) => item.name)
-        expect(names).toContain('aws')
-        expect(names.indexOf('google-cloud')).toBeLessThan(names.indexOf('aws'))
+        expect(names).toContain('AmazonS3')
+        expect(names.indexOf('GoogleCloudStorage')).toBeLessThan(names.indexOf('AmazonS3'))
     })
 
     // "database" already found these through the category name. The word in the product's own
@@ -200,13 +204,10 @@ describe('sourceCatalogLogic', () => {
         expect(logic.values.filteredItems.map((item) => item.name)).toContain('Postgres')
     })
 
-    it.each([
-        { category: 'Sales' as const, search: 'Datadog' },
-        { category: 'self-managed' as const, search: 'Datadog' },
-    ])('flags a cross-category match when a $category search only hits another category', ({ category, search }) => {
+    it('flags a cross-category match when a category search only hits another category', () => {
         const logic = sourceCatalogLogic()
-        logic.actions.setSelectedCategory(category)
-        logic.actions.setSearch(search)
+        logic.actions.setSelectedCategory('Sales')
+        logic.actions.setSearch('Datadog')
 
         // The category filter hides the only match, so the list dead-ends...
         expect(logic.values.filteredItems).toHaveLength(0)
@@ -247,35 +248,17 @@ describe('sourceCatalogLogic', () => {
         }
     )
 
-    // No other test covers narrowing the catalog by category: `self-managed` is the one filter that
-    // narrows on the connection model rather than on `item.category`, so it needs its own coverage.
-    it('narrows the catalog to the self-managed connectors', () => {
-        const logic = sourceCatalogLogic()
-        const selfManagedCount = logic.values.catalogItems.filter((item) => item.selfManaged).length
-        expect(selfManagedCount).toBeGreaterThan(0)
-
-        expect(logic.values.categoriesWithCounts).toContainEqual({
-            category: 'self-managed',
-            label: 'Self-managed',
-            count: selfManagedCount,
-        })
-
-        logic.actions.setSelectedCategory('self-managed')
-        expect(logic.values.filteredItems).toHaveLength(selfManagedCount)
-        expect(logic.values.filteredItems.every((item) => item.selfManaged)).toBe(true)
-        expect(logic.values.selectedCategoryLabel).toEqual('Self-managed')
-    })
-
-    it('opens on the category the sources list linked to', () => {
+    it('opens on the category a link names', () => {
         const logic = sourceCatalogLogic()
         expect(logic.values.selectedCategory).toEqual('all')
 
-        router.actions.push(urls.dataPipelinesNew('source'), { category: 'self-managed' })
-        expect(logic.values.selectedCategory).toEqual('self-managed')
+        router.actions.push(urls.dataPipelinesNew('source'), { category: 'Databases' })
+        expect(logic.values.selectedCategory).toEqual('Databases')
 
-        // An unknown value leaves the catalog as it is rather than filtering it down to nothing.
-        router.actions.push(urls.dataPipelinesNew('source'), { category: 'not-a-category' })
-        expect(logic.values.selectedCategory).toEqual('self-managed')
+        // An unknown value, such as the old `self-managed` link, leaves the catalog as it is rather than
+        // filtering it down to nothing.
+        router.actions.push(urls.dataPipelinesNew('source'), { category: 'self-managed' })
+        expect(logic.values.selectedCategory).toEqual('Databases')
     })
 
     it('clears the request text when the modal is closed', () => {
@@ -324,25 +307,14 @@ describe('sourceCatalogLogic', () => {
         }
     )
 
-    it.each([
-        { search: 'microsoft advertising', hidden: ['MicrosoftAdvertising'], live: 'BingAds', flagOn: false },
-        { search: 'amazon s3', hidden: ['AmazonS3'], live: 'aws', flagOn: false },
-        { search: 'amazon s3', hidden: [], live: 'AmazonS3', flagOn: true },
-    ])(
-        'offers $live and not a "Coming soon" duplicate for "$search" (flag on: $flagOn)',
-        ({ search, hidden, live, flagOn }) => {
-            const logic = sourceCatalogLogic()
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags(flagOn ? ['dwh-amazon-s3-test'] : [], {
-                'dwh-amazon-s3-test': flagOn,
-            })
-            logic.actions.setSearch(search)
+    it('offers BingAds and not a "Coming soon" duplicate for "microsoft advertising"', () => {
+        const logic = sourceCatalogLogic()
+        logic.actions.setSearch('microsoft advertising')
 
-            const names = logic.values.filteredItems.map((item) => item.name)
-            expect(names).toContain(live)
-            expect(names.filter((name) => hidden.includes(name))).toEqual([])
-        }
-    )
+        const names = logic.values.filteredItems.map((item) => item.name)
+        expect(names).toContain('BingAds')
+        expect(names).not.toContain('MicrosoftAdvertising')
+    })
 
     it('flags the source types the project already has', () => {
         const logic = sourceCatalogLogic()

@@ -15,6 +15,7 @@ from posthog.ownership.paths import PathOwnership
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import SignalFinding, SuggestedReviewers
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.ownership_reviewers import (
     OwnershipReviewer,
@@ -211,14 +212,16 @@ def test_ownership_suggestions_follow_repository_owners_then_commit_authors():
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("proposed", [[], [{"github_login": "automatic"}]])
-def test_later_research_does_not_replace_a_human_reviewer_edit(team, user, proposed):
+@pytest.mark.parametrize("authorized", [False, True])
+def test_later_research_does_not_replace_a_human_reviewer_edit(team, user, proposed, authorized):
     report = SignalReport.objects.create(team=team, status=SignalReport.Status.IN_PROGRESS)
     manually_selected = SuggestedReviewers.model_validate([{"github_login": "chosen"}])
-    SignalReportArtefact.append_status(
+    original = SignalReportArtefact.append_status(
         team_id=team.id,
         report_id=str(report.id),
         content=manually_selected,
         attribution=ArtefactAttribution.from_user(user.id),
+        implementation_authorization=ImplementationAuthorization(mode="user", user_id=user.id) if authorized else None,
         reevaluate_autostart=False,
     )
 
@@ -234,6 +237,8 @@ def test_later_research_does_not_replace_a_human_reviewer_edit(team, user, propo
     )
 
     assert not wrote_reviewers
+    original.refresh_from_db()
+    assert original.implementation_authorization == ({"mode": "user", "user_id": user.id} if authorized else None)
     assert (
         SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
@@ -244,7 +249,8 @@ def test_later_research_does_not_replace_a_human_reviewer_edit(team, user, propo
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("change", ["none", "wording", "order", "member", "commits", "owner", "research", "skill"])
-def test_pipeline_skips_unchanged_reviewer_selections(team, change):
+@pytest.mark.parametrize("authorized", [False, True])
+def test_pipeline_skips_unchanged_reviewer_selections(team, change, authorized):
     report = SignalReport.objects.create(team=team, status=SignalReport.Status.IN_PROGRESS)
     original = SuggestedReviewers.model_validate([{"github_login": "first"}, {"github_login": "second"}])
     SignalReportArtefact.append_status(
@@ -252,6 +258,7 @@ def test_pipeline_skips_unchanged_reviewer_selections(team, change):
         report_id=str(report.id),
         content=original,
         attribution=ArtefactAttribution.system(),
+        implementation_authorization=ImplementationAuthorization(mode="reviewer") if authorized else None,
         reevaluate_autostart=False,
     )
     proposed = original.model_copy(deep=True)
@@ -293,7 +300,8 @@ def test_pipeline_skips_unchanged_reviewer_selections(team, change):
 @pytest.mark.django_db
 @pytest.mark.parametrize("selection", ["member", "empty", "inactive", "outsider", "private_project", "missing"])
 @pytest.mark.parametrize("selection_enabled", [False, True])
-def test_research_decision_controls_persisted_reviewers(team, selection, selection_enabled):
+@pytest.mark.parametrize("repository", [None, "example/app"])
+def test_research_decision_controls_persisted_reviewers(team, selection, selection_enabled, repository):
     member = User.objects.create(email="candidate@example.com", is_active=selection != "inactive")
     if selection != "outsider":
         OrganizationMembership.objects.create(organization=team.organization, user=member)
@@ -349,14 +357,14 @@ def test_research_decision_controls_persisted_reviewers(team, selection, selecti
             team.id,
             str(report.id),
             result,
-            RepoSelectionResult(repository=None, reason="No repository"),
+            RepoSelectionResult(repository=repository, reason="Research access"),
             reviewer_selection_enabled=selection_enabled,
         )
     latest = SignalReportArtefact.objects.filter(
         report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
     ).latest("created_at")
     reviewers = SuggestedReviewers.model_validate_json(latest.content).root
-    if selection_enabled and selection not in {"member", "empty"}:
+    if (selection_enabled or repository is None) and selection not in {"member", "empty"}:
         assert [entry.github_login for entry in reviewers] == ["previous"]
         capture.assert_not_called()
         return

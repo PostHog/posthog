@@ -48,7 +48,7 @@ import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
+import { InternalPerson, Team } from '~/types'
 
 import { BatchWritingPersonsCache, hasLanes, retireCarried, takeRow } from './batch-writing-persons-cache'
 import { MergeMappingDebounce } from './merge-mapping-debounce'
@@ -80,6 +80,7 @@ type MethodName =
     | 'releaseLifecycleMarks'
     | 'isPersonLive'
     | 'readMergeRows'
+    | 'readPerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
@@ -1332,6 +1333,19 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return await tx.readMergeRows(teamId, targetId, sourceIds)
     }
 
+    /**
+     * Reads on the caller's transaction and leaves the batch caches untouched, so a caller that
+     * commits on the result must not assume it carries this pod's pending changes.
+     */
+    async readPerson(
+        teamId: number,
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<InternalPerson | undefined> {
+        this.incrementDatabaseOperation('readPerson', distinctId)
+        return await tx.readPerson(teamId, distinctId)
+    }
+
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
         const cached = this.personCache.getCachedPersonForUpdateByPersonId(teamId, personId)
         return cached
@@ -1680,8 +1694,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: Team['id'],
         isUserId: number | null,
         isIdentified: boolean,
@@ -1696,8 +1708,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const result = await (tx || this.personRepository).createPerson(
             createdAt,
             properties,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
             teamId,
             isUserId,
             isIdentified,
@@ -1904,8 +1914,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const person = toInternalPerson(personUpdate)
         const [, messages] = await this.personRepository.handleOversizedPersonProperties(person, {
             properties: person.properties,
-            properties_last_updated_at: person.properties_last_updated_at,
-            properties_last_operation: person.properties_last_operation,
             is_identified: person.is_identified,
             created_at: person.created_at,
             last_seen_at: person.last_seen_at,
@@ -2169,8 +2177,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             uuid: currentPerson.uuid,
             distinct_id: personUpdate.distinct_id,
             properties: currentPerson.properties,
-            properties_last_updated_at: personUpdate.properties_last_updated_at,
-            properties_last_operation: personUpdate.properties_last_operation,
             created_at: DateTime.min(currentPerson.created_at, personUpdate.created_at),
             version: currentPerson.version,
             is_identified: currentPerson.is_identified || personUpdate.is_identified,

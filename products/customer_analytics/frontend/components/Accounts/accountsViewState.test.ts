@@ -1,7 +1,7 @@
 import { AccountsTableAccountField, AccountsTableCustomPropertyOperator } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { ACCOUNTS_DEFAULT_COLUMNS } from './accountsColumnConfigLogic'
+import { ACCOUNTS_DEFAULT_COLUMNS, relationshipAlias } from './accountsColumnConfigLogic'
 import {
     AccountsViewState,
     accountsViewIdStorageKey,
@@ -15,6 +15,10 @@ import {
     writeAccountsViewId,
 } from './accountsViewState'
 import { DEFAULT_TILES } from './constants'
+
+const RELATIONSHIP_ID = '11111111-2222-3333-4444-555555555555'
+const RELATIONSHIP_ALIAS = relationshipAlias(RELATIONSHIP_ID)
+const RELATIONSHIP_COLUMN = `accounts.relationships.values.\`${RELATIONSHIP_ID}\` AS ${RELATIONSHIP_ALIAS}`
 
 describe('accountsViewState', () => {
     describe('saved-view references', () => {
@@ -66,8 +70,13 @@ describe('accountsViewState', () => {
         })
 
         it('round-trips a descending role/tuple column by its logical name', () => {
-            expect(sortOrderToOrderBy({ column: 'csm', direction: 'desc' })).toEqual(['csm DESC'])
-            expect(orderByToSortOrder(['csm DESC'])).toEqual({ column: 'csm', direction: 'desc' })
+            expect(sortOrderToOrderBy({ column: RELATIONSHIP_ALIAS, direction: 'desc' })).toEqual([
+                `${RELATIONSHIP_ALIAS} DESC`,
+            ])
+            expect(orderByToSortOrder([`${RELATIONSHIP_ALIAS} DESC`])).toEqual({
+                column: RELATIONSHIP_ALIAS,
+                direction: 'desc',
+            })
         })
 
         it('treats null / empty as no sort', () => {
@@ -99,8 +108,8 @@ describe('accountsViewState', () => {
     describe('serializeAccountsView / deserializeAccountsView', () => {
         it('round-trips a fully populated view', () => {
             const state: AccountsViewState = {
-                columns: ['name', 'csm'],
-                sortOrder: { column: 'csm' as const, direction: 'desc' as const },
+                columns: ['name', RELATIONSHIP_COLUMN],
+                sortOrder: { column: RELATIONSHIP_ALIAS, direction: 'desc' as const },
                 filters: {
                     search: 'acme',
                     assignmentStatus: 'assigned',
@@ -149,8 +158,8 @@ describe('accountsViewState', () => {
                 },
             }
             const payload = serializeAccountsView(state)
-            expect(payload.order_by).toEqual(['csm DESC'])
-            expect(payload.columns).toEqual(['name', 'csm'])
+            expect(payload.order_by).toEqual([`${RELATIONSHIP_ALIAS} DESC`])
+            expect(payload.columns).toEqual(['name', RELATIONSHIP_COLUMN])
             expect(payload.properties).toEqual({ tiles: state.tiles, column_display: state.columnDisplay })
             expect(deserializeAccountsView(payload)).toEqual(state)
         })

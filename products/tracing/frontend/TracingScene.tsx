@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -20,10 +20,14 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { AggregatedSpanRow, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
+import { TracesAlertFromRowModals } from './alerting/TracesAlertFromRowModals'
+import { TracesAlertPreset, buildPresetForm } from './alerting/tracesAlertPresets'
+import { TracesAlertsTab } from './alerting/TracesAlertsTab'
+import { TracesAlertFormType } from './alerting/tracesAlertUtils'
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { TracingFacetRail } from './components/FacetRail/TracingFacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
@@ -48,6 +52,12 @@ import { traceViewId, tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
+
+const SCENE_TAB_LABELS: Record<TracingSceneTab, string> = {
+    viewer: 'Viewer',
+    sql: 'SQL',
+    alerts: 'Alerts',
+}
 
 export const scene: SceneExport = {
     component: TracingScene,
@@ -124,9 +134,10 @@ function TracingSceneContents(): JSX.Element {
         latencyHeatmapData,
         latencyHeatmapLoading,
         showHeatmap,
-        activeTracingTab,
+        displayMode,
         compareActive,
         sceneTabsEnabled,
+        availableSceneTabs,
         activeSceneTab,
     } = useValues(tracingSceneLogic())
     const { traceLoadFiltersActive } = useValues(tracingDataLogic)
@@ -154,9 +165,7 @@ function TracingSceneContents(): JSX.Element {
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed, spanColumns } = useValues(tracingConfigLogic)
-    const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
-    const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
     const impactStripEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
@@ -179,6 +188,15 @@ function TracingSceneContents(): JSX.Element {
         },
         [openTrace]
     )
+
+    const [alertDraft, setAlertDraft] = useState<TracesAlertFormType | null>(null)
+    const createAlertFromRow = useCallback((row: AggregatedSpanRow, preset: TracesAlertPreset): void => {
+        posthog.capture('tracing operation alert preset opened', { preset })
+        setAlertDraft(buildPresetForm(row, preset))
+    }, [])
+    const closeAlertDraft = useCallback((): void => setAlertDraft(null), [])
+    // The platform API serves traces alerts only when the Alerts tab is available.
+    const alertsAvailable = availableSceneTabs.includes('alerts')
 
     // Absent while the flag is off, which is how the list decides whether to keep a badge column.
     const spanErrors = useMemo(
@@ -275,10 +293,7 @@ function TracingSceneContents(): JSX.Element {
                 <LemonTabs<TracingSceneTab>
                     activeKey={activeSceneTab}
                     onChange={selectSceneTab}
-                    tabs={[
-                        { key: 'viewer', label: 'Viewer' },
-                        { key: 'sql', label: 'SQL' },
-                    ]}
+                    tabs={availableSceneTabs.map((key) => ({ key, label: SCENE_TAB_LABELS[key] }))}
                     sceneInset
                 />
             )}
@@ -300,7 +315,7 @@ function TracingSceneContents(): JSX.Element {
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
                     chartType={filters.chartType}
-                    onChartTypeChange={heatmapEnabled ? setChartType : undefined}
+                    onChartTypeChange={setChartType}
                     latencyHeatmap={showHeatmap ? latencyHeatmapData : null}
                     latencyHeatmapLoading={latencyHeatmapLoading}
                     onHeatmapBrush={applyHeatmapBrush}
@@ -312,19 +327,35 @@ function TracingSceneContents(): JSX.Element {
                     {facetRailEnabled && !facetRailCollapsed && <TracingFacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
-                        {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (
+                        {compareActive && displayMode !== 'operations' && displayMode !== 'endpoints' && (
                             <ComparisonBar />
                         )}
-                        {operationsViewEnabled && activeTracingTab === 'operations' ? (
+                        {displayMode === 'operations' || displayMode === 'endpoints' ? (
                             <OperationsTable
                                 rows={aggregation.current}
                                 loading={aggregationLoading}
                                 windowMs={operationsWindowMs}
                                 showImpact={impactStripEnabled}
-                                onRowClick={(row) =>
-                                    router.actions.push(
-                                        urls.tracingOperation(row.service_name, row.name, filters.dateRange)
-                                    )
+                                groupedByEndpoint={displayMode === 'endpoints'}
+                                // Operations only: an endpoint row can merge span names, and an alert
+                                // filters on one span name.
+                                onCreateAlert={
+                                    displayMode === 'operations' && alertsAvailable ? createAlertFromRow : undefined
+                                }
+                                // Rows can still be the endpoints tab's until the operations load.
+                                createAlertDisabledReason={
+                                    aggregationLoading ? 'Wait for the operations to load' : undefined
+                                }
+                                // No row click on endpoints yet: an endpoint row can merge span
+                                // names, and the operation page opens one span name. Rows stay
+                                // unclickable while loading, because they can still be the other tab's.
+                                onRowClick={
+                                    displayMode === 'operations' && !aggregationLoading
+                                        ? (row) =>
+                                              router.actions.push(
+                                                  urls.tracingOperation(row.service_name, row.name, filters.dateRange)
+                                              )
+                                        : undefined
                                 }
                             />
                         ) : compareActive ? (
@@ -340,6 +371,7 @@ function TracingSceneContents(): JSX.Element {
                                     dataSource={listRows}
                                     spanColumns={spanColumns}
                                     showRootTag={filters.viewMode === 'spans'}
+                                    showTraceDuration={filters.viewMode === 'traces'}
                                     loading={spansLoading}
                                     hasMoreToLoad={hasMoreToLoad}
                                     onLoadMore={fetchNextPage}
@@ -378,6 +410,8 @@ function TracingSceneContents(): JSX.Element {
                 </div>
             </div>
             {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
+            {activeSceneTab === 'alerts' && <TracesAlertsTab />}
+            {alertDraft !== null && <TracesAlertFromRowModals initialForm={alertDraft} onDone={closeAlertDraft} />}
             <TraceDrawer
                 viewId={traceViewId(TRACING_SCENE_VIEWER_ID)}
                 isOpen={isTraceOpen}

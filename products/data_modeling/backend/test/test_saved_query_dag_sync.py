@@ -7,11 +7,13 @@ from unittest import mock
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
+from products.data_modeling.backend.facade.contracts import HasDependentsError
+from products.data_modeling.backend.facade.modeling import ResolutionCycleError
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
-    HasDependentsError,
     blocked_lineage_node_id,
     delete_node_from_dag,
     describe_dependents,
@@ -22,8 +24,9 @@ from products.data_modeling.backend.logic.saved_query_dag_sync import (
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import ResolutionCycleError
 from products.data_modeling.backend.models.node import NodeType
+from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.views.core import SourceHandle
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -170,6 +173,36 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert edge is not None
         self.assertEqual(edge.dag_id, dag.id)
 
+    def test_sync_creates_table_node_for_an_in_memory_revenue_view(self):
+        revenue_view = RevenueAnalyticsChargeView(
+            id="stub-view",
+            name="stripe.stub.charges",
+            query="SELECT 'x' AS id",
+            fields={"id": StringDatabaseField(name="id")},
+            prefix="stub",
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="revenue_reader",
+            team=self.team,
+            query={"query": "SELECT id FROM stripe.stub.charges", "kind": "HogQLQuery"},
+        )
+        orchestrator = "products.revenue_analytics.backend.views.orchestrator"
+
+        with (
+            mock.patch(
+                f"{orchestrator}.list_revenue_source_handles",
+                return_value=[SourceHandle(type="stripe", team=self.team)],
+            ),
+            mock.patch(f"{orchestrator}.build_revenue_views_for_handles", return_value=[revenue_view]),
+            mock.patch(f"{orchestrator}.build_all_revenue_analytics_views", return_value=[revenue_view]),
+        ):
+            node = sync_saved_query_to_dag(saved_query)
+
+        revenue_node = Node.objects.get(team=self.team, name="stripe.stub.charges", saved_query__isnull=True)
+        self.assertEqual(revenue_node.type, NodeType.TABLE)
+        self.assertEqual(revenue_node.properties, {"origin": "managed_view"})
+        self.assertTrue(Edge.objects.filter(source=revenue_node, target=node).exists())
+
     def test_sync_refreshes_the_table_id_when_a_warehouse_table_is_recreated(self):
         old_table = DataWarehouseTable.objects.create(team=self.team, name="orders", format="Parquet")
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -230,31 +263,48 @@ class TestSyncSavedQueryToDag(BaseTest):
         after.refresh_from_db()
         self.assertEqual(after.name, "updated_view")
 
-    def test_sync_deletes_old_edges_when_dependencies_change(self):
+    def test_sync_keeps_unchanged_incoming_edges(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
             team=self.team,
             query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
         )
+        node = sync_saved_query_to_dag(saved_query)
+        edge = Edge.objects.get(target=node)
+        edge.properties = {"label": "events input"}
+        edge.save(update_fields=["properties"])
+        original_edge = (edge.id, edge.created_at, edge.updated_at, edge.properties)
+
+        sync_saved_query_to_dag(saved_query)
+
+        edge = Edge.objects.get(target=node)
+        self.assertEqual((edge.id, edge.created_at, edge.updated_at, edge.properties), original_edge)
+
+    def test_sync_deletes_old_edges_when_dependencies_change(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={
+                "query": "SELECT 1 FROM events CROSS JOIN persons",
+                "kind": "HogQLQuery",
+            },
+        )
 
         node = sync_saved_query_to_dag(saved_query)
+        original_edges = {edge.source.name: edge.id for edge in Edge.objects.filter(target=node)}
 
-        # initially depends on events
-        edge = Edge.objects.filter(target=node).first()
-        assert edge is not None
-        self.assertEqual(Edge.objects.filter(target=node).count(), 1)
-        self.assertEqual(edge.source.name, "events")
-
-        # change to depend on persons instead
-        saved_query.query = {"query": "SELECT * FROM persons", "kind": "HogQLQuery"}
+        saved_query.query = {
+            "query": "SELECT 1 FROM events CROSS JOIN groups",
+            "kind": "HogQLQuery",
+        }
         saved_query.save()
         sync_saved_query_to_dag(saved_query)
 
-        edge = Edge.objects.filter(target=node).first()
-        assert edge is not None
-        self.assertEqual(Edge.objects.filter(target=node).count(), 1)
-        self.assertEqual(edge.source.name, "persons")  # not events
-        self.assertFalse(Node.objects.filter(team=self.team, name="events", type=NodeType.TABLE).exists())
+        updated_edges = {edge.source.name: edge.id for edge in Edge.objects.filter(target=node)}
+        self.assertEqual(updated_edges["events"], original_edges["events"])
+        self.assertNotIn("persons", updated_edges)
+        self.assertIn("groups", updated_edges)
+        self.assertFalse(Node.objects.filter(team=self.team, name="persons", type=NodeType.TABLE).exists())
 
     def test_a_failed_resolution_leaves_the_previous_edges_in_place(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -310,6 +360,59 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         edge = Edge.objects.filter(source=upstream_node, target=downstream_node).first()
         self.assertIsNotNone(edge)
+
+    @parameterized.expand(
+        [
+            ("read_under_models_root", "models.revenue", True),
+            ("the_bare_name_still_reads_the_table", "revenue", False),
+        ]
+    )
+    def test_a_model_parent_survives_a_same_named_warehouse_table(self, _name: str, reference: str, reads_model: bool):
+        model = DataWarehouseSavedQuery.objects.create(
+            name="revenue",
+            team=self.team,
+            query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
+            columns={"event": "String"},
+        )
+        sync_saved_query_to_dag(model)
+        # the API refuses this collision when the model is created, so the table arrives afterwards
+        DataWarehouseTable.objects.create(team=self.team, name="revenue", format="Parquet")
+        child = DataWarehouseSavedQuery.objects.create(
+            name="revenue_by_event",
+            team=self.team,
+            query={"query": f"SELECT * FROM {reference}", "kind": "HogQLQuery"},
+        )
+
+        child_node = sync_saved_query_to_dag(child)
+
+        sources = [(edge.source.type, edge.source.saved_query_id) for edge in Edge.objects.filter(target=child_node)]
+        expected_source = (NodeType.VIEW, model.id) if reads_model else (NodeType.TABLE, None)
+        self.assertEqual(sources, [expected_source])
+
+    @parameterized.expand(
+        [
+            ("read_by_its_stored_name", "accounts"),
+            ("read_under_models_root", "models.accounts"),
+        ]
+    )
+    def test_a_view_stored_under_the_models_root_is_a_separate_parent(self, _name: str, stored_name: str):
+        for name in ("accounts", "models.accounts"):
+            parent = DataWarehouseSavedQuery.objects.create(
+                name=name,
+                team=self.team,
+                query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
+                columns={"event": "String"},
+            )
+            sync_saved_query_to_dag(parent)
+        child = DataWarehouseSavedQuery.objects.create(
+            name="active_accounts",
+            team=self.team,
+            query={"query": f"SELECT * FROM {stored_name}", "kind": "HogQLQuery"},
+        )
+
+        child_node = sync_saved_query_to_dag(child)
+
+        self.assertEqual([edge.source.name for edge in Edge.objects.filter(target=child_node)], [stored_name])
 
     def test_sync_rolls_back_its_node_when_a_parent_view_has_no_node(self):
         DataWarehouseSavedQuery.objects.create(

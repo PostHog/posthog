@@ -12,6 +12,7 @@ from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExcee
 
 SANDBOX_RATE_LIMIT_BASE_DELAY_SECONDS = 45
 SANDBOX_RATE_LIMIT_MAX_DELAY_SECONDS = 300
+TEMPORAL_TIMEOUT_ERROR_TYPES = frozenset({"start_to_close", "schedule_to_start", "schedule_to_close", "heartbeat"})
 
 
 def sandbox_rate_limit_retry_delay(attempt: int) -> float:
@@ -52,6 +53,18 @@ class ProcessTaskTransientError(ProcessTaskError):
 
     def __init__(self, message: str, context: dict[str, Any], cause: BaseException, **kwargs):
         super().__init__(message, context, cause, non_retryable=False, **kwargs)
+
+
+def is_transient_failure_error_type(error_type: str | None) -> bool:
+    if error_type in TEMPORAL_TIMEOUT_ERROR_TYPES:
+        return True
+    pending = [ProcessTaskTransientError]
+    while pending:
+        error_class = pending.pop()
+        if error_class.__name__ == error_type:
+            return True
+        pending.extend(error_class.__subclasses__())
+    return False
 
 
 class TaskNotFoundError(ProcessTaskFatalError):
@@ -128,6 +141,18 @@ class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
         super().__init__(
             message,
             {**context, "reason": reason},
+            None,
+            capture=False,
+            non_retryable=True,
+        )
+
+
+class ActiveSessionCapError(ProcessTaskError):
+    def __init__(self, context: dict[str, Any], scope: str, message: str):
+        self.scope = scope
+        super().__init__(
+            message,
+            {**context, "scope": scope},
             None,
             capture=False,
             non_retryable=True,
@@ -220,18 +245,6 @@ class SandboxCleanupError(ProcessTaskTransientError):
     pass
 
 
-class SnapshotNotFoundError(ProcessTaskTransientError):
-    """Snapshot does not exist."""
-
-    pass
-
-
-class SnapshotNotReadyError(ProcessTaskTransientError):
-    """Snapshot exists but is not ready for use."""
-
-    pass
-
-
 class SnapshotCreationError(ProcessTaskTransientError):
     """Failed to create snapshot."""
 
@@ -267,13 +280,6 @@ class RepositoryCloneError(ProcessTaskTransientError):
 
 
 class RepositoryAccessError(ProcessTaskFatalError, NonReportableError):
-    """GitHub refused to serve the repository with the credential the sandbox has.
-
-    The run has no token, or its token does not cover the repository. A retry reuses the same
-    credential, so it cannot succeed. This is an expected customer setup state, so it is not
-    captured to error tracking.
-    """
-
     def __init__(self, message: str, context: dict[str, Any]):
         ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
 
@@ -309,17 +315,11 @@ class CredentialUnavailableError(ProcessTaskFatalError, NonReportableError):
 
 
 class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
-    """No Go token for a posthog_code run, for a reason a retry won't change. Expected customer
+    """No Go token for a run, for a reason a retry won't change. Expected customer
     state, so not captured."""
 
     def __init__(self, message: str, context: dict[str, Any]):
         ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
-
-
-class PersonalAPIKeyError(ProcessTaskTransientError):
-    """Failed to create or inject personal API key."""
-
-    pass
 
 
 class OAuthTokenError(ProcessTaskTransientError):

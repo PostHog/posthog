@@ -1,5 +1,8 @@
 import type { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
+import type { SDKStartupFailureReason } from "@anthropic-ai/claude-agent-sdk";
+import type { StartupFailure } from "@posthog/agent-contracts/startup-failure";
+import { z } from "zod";
 
 export type InitializationPhase = "sdk_initialization" | "setup_hooks";
 
@@ -22,6 +25,40 @@ type InitializationResult<Value> =
 const MAX_OBSERVED_LINE_LENGTH = 256 * 1024;
 const MAX_MESSAGE_TYPE_LENGTH = 100;
 
+const startupRetryability = {
+  org_pin_api_key_conflict: "requires_action",
+  org_verify_failed: "unknown",
+  org_pin_mismatch: "requires_action",
+  managed_settings_invalid: "requires_action",
+  remote_settings_required_unavailable: "unknown",
+  gateway_signin_required: "requires_action",
+  gateway_access_denied: "requires_action",
+  proxy_invalid: "requires_action",
+  temp_dir_unusable: "unknown",
+  cwd_unavailable: "unknown",
+  shell_tool_missing: "requires_action",
+  session_held_by_background: "transient",
+  worktree_resume_refused: "unknown",
+  worktree_unverified: "transient",
+  cli_version_too_old: "requires_action",
+  bypass_root: "requires_action",
+  sandbox_required_unavailable: "requires_action",
+  provider_not_allowed: "requires_action",
+  org_config_required_unavailable: "unknown",
+  org_config_refused: "requires_action",
+} satisfies Record<SDKStartupFailureReason, StartupFailure["retryability"]>;
+
+const startupResultSchema = z.object({
+  type: z.literal("result"),
+  subtype: z.literal("error_during_execution"),
+  startup_failure_reason: z.enum(
+    Object.keys(startupRetryability) as [
+      SDKStartupFailureReason,
+      ...SDKStartupFailureReason[],
+    ],
+  ),
+});
+
 export class SessionInitialization {
   private activeHooks = new Set<string>();
   private hooksStartedAt: number | undefined;
@@ -32,6 +69,7 @@ export class SessionInitialization {
   private reschedule: (() => void) | undefined;
   private detach: (() => void) | undefined;
   private disposed = false;
+  private failureReason: SDKStartupFailureReason | null = null;
 
   constructor(
     private onPhaseChange: (phase: InitializationPhase) => void,
@@ -41,6 +79,17 @@ export class SessionInitialization {
 
   get phase(): InitializationPhase {
     return this.activeHooks.size > 0 ? "setup_hooks" : "sdk_initialization";
+  }
+
+  get failure(): StartupFailure {
+    return {
+      provider: "claude",
+      phase: this.phase,
+      reason: this.failureReason,
+      retryability: this.failureReason
+        ? startupRetryability[this.failureReason]
+        : "unknown",
+    };
   }
 
   get timeoutMs(): number {
@@ -83,6 +132,10 @@ export class SessionInitialization {
       message = JSON.parse(line);
     } catch {
       return;
+    }
+    const startupResult = startupResultSchema.safeParse(message);
+    if (startupResult.success) {
+      this.failureReason = startupResult.data.startup_failure_reason;
     }
     if (
       message &&

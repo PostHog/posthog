@@ -8,6 +8,7 @@ import asyncio
 import datetime
 import dataclasses
 from collections import Counter
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -26,8 +27,15 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.activity_summary.config import read_config
+from products.signals.backend.activity_summary.config import (
+    DEFAULT_MODEL_SPLIT_SALT,
+    ModelVariant,
+    read_config,
+    split_variants,
+    variant_for_pair,
+)
 from products.signals.backend.activity_summary.logic import (
+    CALLED_MODEL_STATUSES,
     MAX_SKIP_BACKOFF,
     MAX_VERSIONS,
     VIEW_UPDATE_INTERVAL,
@@ -37,30 +45,47 @@ from products.signals.backend.activity_summary.logic import (
     record_update_exception,
     update_activity_summary,
 )
-from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
+from products.signals.backend.activity_summary.mcp_buffer import publish_team_ids
+from products.signals.backend.activity_summary.prompt import (
+    EMBEDDING_DOCUMENT_TYPE,
+    EMBEDDING_RENDERING,
+    EMBEDDING_RENDERING_PROFILE,
+    PROMPT_VERSION,
+    summary_profile_text,
+)
 from products.signals.backend.activity_summary.queue import (
     TRIGGERS,
     VIEW_TRIGGERS,
     ActivitySummaryPair,
     ActivitySummaryTierStats,
+    McpFeed,
     daily_usage,
     enrollment,
+    feed_mcp_queue,
     feed_queue,
     is_team_enrolled_for_generation,
     max_update_cost_usd,
+    mcp_buffer_team_ids,
     select_pairs,
     sync_pair_state,
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, RenderLimits
-from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, PIPELINE_DISTINCT_ID
+from products.signals.backend.activity_summary.summaries import (
+    FLEX_REQUEST_TIMEOUT_SECONDS,
+    MAX_ATTEMPTS,
+    PIPELINE_DISTINCT_ID,
+    REQUEST_TIMEOUT_SECONDS,
+    SummaryVariant,
+)
 from products.signals.backend.models import UserActivitySummary
+from products.signals.backend.personal_ranking_tasks import start_first_summary_build
 from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
 
 logger = structlog.get_logger(__name__)
 
 TICK_WORKFLOW_NAME = "activity-summary-tick"
-EMBEDDING_DOCUMENT_TYPE = "activity_summary"
-EMBEDDING_RENDERING = "summary_text"
+# Where a summary came from: the tick, or a build as of a past date.
+SOURCE_LIVE = "live"
 
 # Stop reasons of a tick. Null when the tick updated every due pair.
 STOP_MAX_PAIRS_PER_TICK = "max_pairs_per_tick"
@@ -75,8 +100,11 @@ STOP_ERROR_RATE = "error_rate"
 _MIN_ERROR_RATE_SAMPLE = 10
 
 _PLAN_TIMEOUT = datetime.timedelta(minutes=5)
-# One model call has a 120 second request timeout and one retry on a malformed answer.
-_PAIR_TIMEOUT = datetime.timedelta(minutes=5)
+# One summary sends at most `MAX_ATTEMPTS` flex requests and one standard request, because a refused flex request
+# moves the rest of the summary to the standard tier. The margin covers the reads and writes around the call.
+_PAIR_TIMEOUT = datetime.timedelta(
+    seconds=MAX_ATTEMPTS * FLEX_REQUEST_TIMEOUT_SECONDS + REQUEST_TIMEOUT_SECONDS
+) + datetime.timedelta(minutes=1)
 _PAIR_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
 # An attempt that raises is retried. The last attempt records the exception as a failed update instead.
 _PAIR_RETRY_POLICY = RetryPolicy(maximum_attempts=2, initial_interval=datetime.timedelta(seconds=10))
@@ -93,6 +121,7 @@ class EnrollmentCounts:
     qualifying_organizations: int = 0
     enrolled_organizations: int = 0
     enrolled_teams: int = 0
+    mcp_buffer_teams: int = 0
 
 
 @frozen
@@ -120,6 +149,14 @@ class ActivitySummaryTickPlan:
     enrollment: EnrollmentCounts = dataclasses.field(default_factory=EnrollmentCounts)
     view_update_interval_hours: float = VIEW_UPDATE_INTERVAL.total_seconds() / 3600
     due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
+    # The days of the MCP intent buffer each update reads. None when `mcp_render_enabled` is off.
+    mcp_buffer_days: int | None = None
+    emit_profile_embeddings: bool = False
+    mcp_feed: McpFeed = dataclasses.field(default_factory=McpFeed)
+    outdated_pairs: int = 0
+    current_version_share: float | None = None
+    model_variants: tuple[ModelVariant, ...] = ()
+    model_split_salt: str = DEFAULT_MODEL_SPLIT_SALT
 
 
 @frozen
@@ -139,6 +176,11 @@ class ActivitySummaryPairInput:
     # Why the queue picked the pair. A view trigger waits `view_update_interval_hours` after a good update.
     trigger: str | None = None
     view_update_interval_hours: float | None = None
+    mcp_buffer_days: int | None = None
+    emit_profile_embeddings: bool = False
+    # The split of the plan, not of the flag at dispatch, so the pair uses only variants inside the plan's cost bound.
+    model_variants: tuple[ModelVariant, ...] = ()
+    model_split_salt: str = DEFAULT_MODEL_SPLIT_SALT
 
 
 @frozen
@@ -166,6 +208,9 @@ class ActivitySummaryTickResult:
     refresh_builds: int = 0
     # Due pairs at the start of the tick, per trigger.
     due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
+    mcp_feed: McpFeed = dataclasses.field(default_factory=McpFeed)
+    outdated_pairs: int = 0
+    current_version_share: float | None = None
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickPlan:
@@ -177,15 +222,21 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
     enabled = config.enabled and not gateway_missing
     # One enrollment read serves the feed, the selection and the counts.
     enrolled = enrollment(config)
+    buffer_team_ids = mcp_buffer_team_ids(config, enrolled)
     counts = EnrollmentCounts(
         qualifying_organizations=len(enrolled.qualifying_organization_ids),
         enrolled_organizations=len(enrolled.organization_ids),
         enrolled_teams=len(enrolled.team_ids),
+        mcp_buffer_teams=len(buffer_team_ids),
     )
     logger.info("activity_summary_enrollment_read", **dataclasses.asdict(counts))
+    publish_team_ids(buffer_team_ids if config.enabled and config.mcp_buffer_enabled else None)
     if config.enabled:
         # The cursors move even when a cap stops the tick, so new rows do not pile up behind them.
         feed_queue(config, now, enrolled.team_ids)
+    mcp_feed = McpFeed()
+    if config.enabled and config.mcp_queue_enabled and config.mcp_render_enabled:
+        mcp_feed = feed_mcp_queue(config, now, enrolled.team_ids)
     usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
@@ -209,53 +260,112 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         candidates=due_pairs,
         updates_left=updates_left,
         cost_left_usd=cost_left,
-        max_update_cost_usd=max_update_cost_usd(config.limits),
+        # The most expensive variant of the split, so a costly candidate cannot pass `max_cost_usd_per_day`.
+        max_update_cost_usd=max(
+            max_update_cost_usd(config.limits, variant) for variant in split_variants(config.model_variants)
+        ),
         max_concurrency=config.max_concurrency,
         min_units=config.min_units,
         min_update_interval_hours=config.min_update_interval_hours,
         view_update_interval_hours=config.view_update_interval_hours,
         emit_embeddings=config.emit_embeddings,
+        emit_profile_embeddings=config.emit_profile_embeddings,
         capture_events=config.capture_events,
         limits=config.limits,
         max_error_rate=config.max_error_rate,
         max_skip_backoff_hours=config.max_skip_backoff_hours,
         tiers=selection.tiers if selection else [],
         due_by_trigger=selection.due_by_trigger if selection else {},
+        outdated_pairs=selection.outdated_pairs if selection else 0,
+        current_version_share=selection.current_version_share if selection else None,
         enrollment=counts,
         stop_reason=stop_reason,
         rebuild_before=config.rebuild_before,
         max_versions=config.max_versions,
+        mcp_buffer_days=config.mcp_buffer_days if config.mcp_render_enabled else None,
+        mcp_feed=mcp_feed,
+        model_variants=config.model_variants,
+        model_split_salt=config.model_split_salt,
     )
 
 
-def _emit_embedding(team_id: int, user_id: int) -> None:
+def emit_summary_embedding(
+    team_id: int,
+    *,
+    content: str,
+    document_type: str,
+    document_id: str,
+    timestamp: datetime.datetime,
+    metadata: dict[str, Any],
+    rendering: str = EMBEDDING_RENDERING,
+) -> None:
     # Deferred so importing the tick does not load the Kafka and ClickHouse chain behind the producer.
     from posthog.api.embedding_worker import emit_embedding_request  # noqa: PLC0415
 
-    stored = UserActivitySummary.objects.for_team(team_id).filter(user_id=user_id).first()
-    if stored is None or not stored.summary_text or stored.generated_at is None:
-        return
     emit_embedding_request(
-        content=stored.summary_text,
+        content=content,
         team_id=team_id,
         product=EMBEDDING_PRODUCT,
-        document_type=EMBEDDING_DOCUMENT_TYPE,
-        rendering=EMBEDDING_RENDERING,
-        # One vector per user per day, so an analysis can read the vector a user had on a given day.
-        document_id=f"{user_id}:{stored.generated_at.date().isoformat()}",
+        document_type=document_type,
+        rendering=rendering,
+        document_id=document_id,
         # The models of the report embeddings, so both share one vector space.
         models=[model.value for model in EmbeddingModelName],
-        timestamp=stored.generated_at,
-        metadata={
-            "prompt_version": stored.prompt_version,
-            "render_version": stored.render_version,
-            "model": stored.model,
-        },
+        timestamp=timestamp,
+        metadata=metadata,
     )
 
 
-def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate, trigger: str | None) -> None:
+def _emit_embedding(team_id: int, user_id: int, *, emit_profile: bool) -> None:
+    stored = UserActivitySummary.objects.for_team(team_id).filter(user_id=user_id).first()
+    if stored is None or not stored.summary_text or stored.generated_at is None:
+        return
+    # One vector per user per day, so an analysis can read the vector a user had on a given day.
+    document_id = f"{user_id}:{stored.generated_at.date().isoformat()}"
+    metadata = {
+        "prompt_version": stored.prompt_version,
+        "render_version": stored.render_version,
+        "model": stored.model,
+    }
+    emit_summary_embedding(
+        team_id,
+        content=stored.summary_text,
+        document_type=EMBEDDING_DOCUMENT_TYPE,
+        document_id=document_id,
+        timestamp=stored.generated_at,
+        metadata=metadata,
+    )
+    if not emit_profile:
+        return
+    try:
+        profile_text = summary_profile_text(stored.summary) if isinstance(stored.summary, dict) else None
+        if profile_text is not None:
+            emit_summary_embedding(
+                team_id,
+                content=profile_text,
+                document_type=EMBEDDING_DOCUMENT_TYPE,
+                document_id=document_id,
+                timestamp=stored.generated_at,
+                metadata=metadata,
+                rendering=EMBEDDING_RENDERING_PROFILE,
+            )
+    except Exception:
+        logger.exception("activity_summary_profile_embedding_failed", team_id=team_id, user_id=user_id)
+
+
+def capture_generated(
+    team_id: int,
+    user_id: int,
+    update: ActivitySummaryUpdate,
+    trigger: str | None,
+    *,
+    variant: SummaryVariant,
+    model_split_salt: str | None = None,
+    source: str = SOURCE_LIVE,
+) -> None:
+    """`model_split_salt` is null when no model split picked `variant`."""
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    inputs_used = update.inputs_used or {}
     # Counts and accounting only. The summary and the rendered input are user content.
     ph_background_capture()(
         distinct_id=PIPELINE_DISTINCT_ID,
@@ -266,7 +376,11 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
             "deployment": settings.CLOUD_DEPLOYMENT,
             "status": update.status.value,
             "error": update.error,
-            "model": DEFAULT_MODEL,
+            "model": variant.model,
+            "service_tier": variant.service_tier.value,
+            "served_tier": update.served_tier,
+            "fell_back": update.fell_back,
+            "model_split_salt": model_split_salt,
             "prompt_version": PROMPT_VERSION,
             "render_version": RENDER_VERSION,
             "tokens_in": update.tokens_in,
@@ -274,8 +388,14 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
             "cost_usd": update.cost_usd,
             "latency_ms": update.latency_ms,
             "inputs_used": update.inputs_used,
+            # Top level, so the MCP rollout can be measured without reading Redis. None while the section is off.
+            "mcp_sessions": inputs_used.get("mcp_sessions"),
+            "mcp_lines": inputs_used.get("mcp_lines"),
+            "mcp_read_error": inputs_used.get("mcp_read_error"),
             "rebuilt": update.rebuilt,
+            "outdated": update.outdated,
             "trigger": trigger,
+            "source": source,
         },
         groups={"organization": str(team.organization_id), "project": str(team.uuid)},
     )
@@ -292,6 +412,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
         return ActivitySummaryPairResult(
             status=UpdateStatus.SKIPPED_NOT_ENROLLED.value, cost_usd=None, called_model=False
         )
+    variant = variant_for_pair(input.model_variants, input.model_split_salt, input.team_id, input.user_id)
     interval_hours = input.min_update_interval_hours
     if input.trigger in VIEW_TRIGGERS and input.view_update_interval_hours is not None:
         interval_hours = input.view_update_interval_hours
@@ -305,8 +426,10 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             rebuild_before=input.rebuild_before,
             max_versions=input.max_versions,
             max_skip_backoff=datetime.timedelta(hours=input.max_skip_backoff_hours),
+            mcp_buffer_days=input.mcp_buffer_days,
+            variant=variant,
         )
-        called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
+        called_model = update.status in CALLED_MODEL_STATUSES
     except Exception as error:
         if not last_attempt:
             raise
@@ -319,14 +442,29 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
     except Exception:
         # The pair stays due, so the next tick picks it, skips it as not eligible yet, and syncs it then.
         logger.exception("activity_summary_queue_sync_failed", team_id=input.team_id, user_id=input.user_id)
+    if update.status == UpdateStatus.OK and update.new_summary:
+        try:
+            start_first_summary_build(input.team_id, input.user_id)
+        except Exception:
+            # The personal ranking tick builds the first list later, because the pair still has no list.
+            logger.exception(
+                "activity_summary_first_ranking_build_failed", team_id=input.team_id, user_id=input.user_id
+            )
     if update.status == UpdateStatus.OK and input.emit_embeddings:
         try:
-            _emit_embedding(input.team_id, input.user_id)
+            _emit_embedding(input.team_id, input.user_id, emit_profile=input.emit_profile_embeddings)
         except Exception:
             logger.exception("activity_summary_embedding_failed", team_id=input.team_id, user_id=input.user_id)
-    if update.status in (UpdateStatus.OK, UpdateStatus.FAILED) and input.capture_events:
+    if update.status in CALLED_MODEL_STATUSES and input.capture_events:
         try:
-            _capture_generated(input.team_id, input.user_id, update, input.trigger)
+            capture_generated(
+                input.team_id,
+                input.user_id,
+                update,
+                input.trigger,
+                variant=variant,
+                model_split_salt=input.model_split_salt if input.model_variants else None,
+            )
         except Exception:
             logger.exception("activity_summary_capture_failed", team_id=input.team_id, user_id=input.user_id)
     return ActivitySummaryPairResult(
@@ -350,6 +488,9 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
         new_builds=result.new_builds,
         refresh_builds=result.refresh_builds,
         due_by_trigger=result.due_by_trigger,
+        outdated_pairs=result.outdated_pairs,
+        current_version_share=result.current_version_share,
+        **{f"mcp_feed_{name}": value for name, value in dataclasses.asdict(result.mcp_feed).items()},
         **dataclasses.asdict(result.enrollment),
     )
     ph_background_capture()(
@@ -366,11 +507,14 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
             "new_builds": result.new_builds,
             "refresh_builds": result.refresh_builds,
             **{f"due_{trigger}": result.due_by_trigger.get(trigger, 0) for trigger in TRIGGERS},
+            "outdated_pairs": result.outdated_pairs,
+            "current_version_share": result.current_version_share,
+            **{f"mcp_feed_{name}": value for name, value in dataclasses.asdict(result.mcp_feed).items()},
             **dataclasses.asdict(result.enrollment),
             **{
                 f"{tier.tier}_{name}": getattr(tier, name)
                 for tier in result.tiers
-                for name in ("due_pairs", "oldest_due_hours", "fresh_share")
+                for name in ("due_pairs", "oldest_due_hours", "fresh_share", "recent_share", "due_overdue")
             },
         },
     )
@@ -449,6 +593,7 @@ class ActivitySummaryTickWorkflow:
                             min_units=plan.min_units,
                             min_update_interval_hours=plan.min_update_interval_hours,
                             emit_embeddings=plan.emit_embeddings,
+                            emit_profile_embeddings=plan.emit_profile_embeddings,
                             capture_events=plan.capture_events,
                             limits=plan.limits,
                             rebuild_before=plan.rebuild_before,
@@ -456,6 +601,9 @@ class ActivitySummaryTickWorkflow:
                             max_skip_backoff_hours=plan.max_skip_backoff_hours,
                             trigger=pair.trigger,
                             view_update_interval_hours=plan.view_update_interval_hours,
+                            mcp_buffer_days=plan.mcp_buffer_days,
+                            model_variants=plan.model_variants,
+                            model_split_salt=plan.model_split_salt,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,
@@ -496,6 +644,9 @@ class ActivitySummaryTickWorkflow:
             new_builds=builds[True],
             refresh_builds=builds[False],
             due_by_trigger=plan.due_by_trigger,
+            mcp_feed=plan.mcp_feed,
+            outdated_pairs=plan.outdated_pairs,
+            current_version_share=plan.current_version_share,
         )
         await workflow.execute_activity(
             capture_activity_summary_tick_activity,

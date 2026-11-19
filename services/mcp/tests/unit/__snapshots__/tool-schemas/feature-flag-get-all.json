@@ -15,6 +15,11 @@
             "description": "Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.",
             "type": "string"
         },
+        "deleted": {
+            "description": "Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.",
+            "enum": ["false", "true"],
+            "type": "string"
+        },
         "eligible_for_experiment": {
             "description": "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
             "enum": ["true"],
@@ -38,6 +43,10 @@
             "enum": ["false", "true"],
             "type": "string"
         },
+        "ids": {
+            "description": "Comma-separated flag IDs, at most 200. Returns exactly those flags, including archived flags and flags that surveys or product tours own. Other filters are ignored, and soft-deleted flags are left out unless deleted=true.",
+            "type": "string"
+        },
         "key": {
             "description": "Filter by exact feature flag key match. Case insensitive.",
             "type": "string"
@@ -51,7 +60,7 @@
             "type": "number"
         },
         "search": {
-            "description": "Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.",
+            "description": "Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags. Use this to find the flag ID for get/update/delete tools.",
             "type": "string"
         },
         "tags": {

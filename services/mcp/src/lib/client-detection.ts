@@ -25,9 +25,9 @@
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Desktop Tasks wrapper.
  *
- * - `isClaudeUiHost()` matches Claude web/desktop and Cowork — MCP Apps hosts
- *   that render interactive UI (iframes). Used to advertise the `render-ui`
- *   tool to them.
+ * - `isRenderUiHost()` uses declared MCP Apps support when the client sends it.
+ *   Otherwise it matches Claude web/desktop, Cowork, and the exact `openai-mcp`
+ *   client name.
  *
  * - `isClaudeChatHost()` matches Claude web/desktop only — the chat surfaces that
  *   report `supportsInstructions` but never surface the `instructions` payload to
@@ -52,6 +52,11 @@ function matchesAnyFragment(clientName: string | undefined, fragments: readonly 
         return false
     }
     return fragments.some((fragment) => normalized.includes(normalizeClientName(fragment)))
+}
+
+function matchesProductName(value: string | undefined, names: readonly string[]): boolean {
+    const product = value?.trim().split(/[\s/]/, 1)[0]?.toLowerCase()
+    return !!product && names.includes(product)
 }
 
 // Coding agents and LLM-driven clients that render text rather than MCP Apps UI.
@@ -134,11 +139,11 @@ export const ANTHROPIC_CLIENT_NAME_FRAGMENTS = ['claudecode', 'claudeai', 'cowor
 
 // Anthropic clients connect through a pooled MCP transport and usually omit the
 // `initialize` body's `clientInfo.name`, reporting their live product only in the
-// `x-anthropic-client` (`vendorClient`) header. Map that vendor value to the
-// canonical client-name token the MCP analytics dashboard buckets on, so these
-// sessions are attributed to a real client instead of falling into "Other".
-// Mirrors the vendor→name mapping in the dashboard (harnessRegistry.ts and
-// models-mcp.md) — keep the three in sync.
+// `x-anthropic-client` (`vendorClient`) header. Map that vendor value to a
+// canonical client-name token for `$mcp_client_name` and the API client header.
+// A vendor missing from this map keeps its raw header value as the client name.
+// The analytics harness label does not depend on this map, because
+// mcp_harness.py in products/mcp_analytics reads the vendor header first.
 const VENDOR_CLIENT_TO_CLIENT_NAME: Readonly<Record<string, string>> = {
     claudecode: 'claude-code',
     claudeai: 'claude-ai',
@@ -202,7 +207,22 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 // too — so it drives CLI-mode detection; the UI-host check reuses it as its own
 // user-agent fallback.
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
+
+// Claude Code connecting directly sends `claude-code/<version> (<entrypoint>, ...)`. The
+// entrypoint `cli` is the interactive terminal. Desktop sends `claude-desktop`, the IDE
+// extensions send `claude-vscode`, and headless and SDK runs send `sdk-*`.
+const TERMINAL_CLAUDE_CODE_USER_AGENT = /^claude-code\/\S+ \(cli[,)]/i
+
+// Published Claude artifact pages call the MCP from page code to fill in their data, so no model
+// reads the responses.
+export const ARTIFACT_RUNTIME_VENDOR_FRAGMENTS = ['claudeartifacts'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
+
+// OpenAI clients send no vendor header, so the shared `openai-mcp` client is matched
+// on `clientInfo.name` or the User-Agent product token. The match is exact because a
+// substring match on `codex` also matches Codex CLI (`codex-mcp-client`), which cannot
+// render UI.
+export const OPENAI_RENDER_UI_CLIENT_NAMES = ['openai-mcp'] as const
 
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
@@ -244,6 +264,7 @@ type MCPClientProfileInput = {
     vendorClient?: string | undefined
     // Per-request `User-Agent` (e.g. `Claude-User` for Claude web/desktop).
     userAgent?: string | undefined
+    uiSupported?: boolean | undefined
 }
 
 export class MCPClientProfile {
@@ -253,6 +274,7 @@ export class MCPClientProfile {
     readonly oauthClientName: string | undefined
     readonly vendorClient: string | undefined
     readonly userAgent: string | undefined
+    readonly uiSupported: boolean | undefined
 
     private _capabilities: ClientCapabilities | undefined
 
@@ -263,6 +285,14 @@ export class MCPClientProfile {
         this.oauthClientName = input.oauthClientName
         this.vendorClient = input.vendorClient
         this.userAgent = input.userAgent
+        this.uiSupported = input.uiSupported
+    }
+
+    isCursor(): boolean {
+        return (
+            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
+        )
     }
 
     isToolsModeClient(): boolean {
@@ -271,10 +301,7 @@ export class MCPClientProfile {
         // the self-reported `clientInfo.name` and the User-Agent (older Cursor
         // builds identify only through the UA); never on the vendor header, so
         // Anthropic pooled transports can't land in tools mode.
-        return (
-            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
-            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
-        )
+        return this.isCursor()
     }
 
     isCliModeEnabled(): boolean {
@@ -294,7 +321,7 @@ export class MCPClientProfile {
         // is the reliable signal of the live product when present. Some surfaces
         // (Claude.ai web/desktop, internal tools) connect without that header, so
         // also accept the `Claude-User` user-agent and the pooled `Anthropic/…`
-        // `clientInfo.name`. Unlike `isClaudeUiHost`, matching the pooled name here
+        // `clientInfo.name`. Unlike `isRenderUiHost`, matching the pooled name here
         // is safe and intended: every Anthropic product belongs in CLI mode, so
         // there is nothing to misclassify.
         return matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) || this.isAnthropicConnector()
@@ -308,6 +335,13 @@ export class MCPClientProfile {
         )
     }
 
+    isArtifactRuntime(): boolean {
+        return (
+            matchesAnyFragment(this.vendorClient, ARTIFACT_RUNTIME_VENDOR_FRAGMENTS) ||
+            matchesAnyFragment(this.clientName, ARTIFACT_RUNTIME_VENDOR_FRAGMENTS)
+        )
+    }
+
     isLegacyDialectOnly(): boolean {
         return matchesAnyFragment(this.clientName, LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS)
     }
@@ -316,20 +350,30 @@ export class MCPClientProfile {
         return this.consumer === POSTHOG_CODE_CONSUMER
     }
 
-    isClaudeUiHost(): boolean {
+    isRenderUiHost(): boolean {
+        // A client that declares the MCP Apps extension states its own support, so the
+        // declaration wins over name detection in both directions. Clients that omit the
+        // extension fall back to the hosts known to render `render-ui`.
+        if (this.uiSupported !== undefined) {
+            return this.uiSupported
+        }
         // The per-request vendor client (`x-anthropic-client`) is authoritative: it
         // distinguishes the Claude surfaces that pool the same MCP transport —
         // `ClaudeAI` (web/desktop) and `Cowork`, both `render-ui` hosts, from
         // `ClaudeCode`, which only renders UI apps inline on the `exec` response
         // (see `isInlineExecUiHost`). When it's present, trust it exclusively; only
-        // fall back to the `Claude-User` user-agent when the vendor header is
+        // fall back to the user-agent and client name when the vendor header is
         // absent. Otherwise a non-render-ui surface like Claude Code — which can
         // share the `Claude-User` user-agent with web/desktop — would be
         // misclassified as a UI host.
         if (this.vendorClient) {
             return matchesAnyFragment(this.vendorClient, ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS)
         }
-        return matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS)
+        return (
+            matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS) ||
+            matchesProductName(this.userAgent, OPENAI_RENDER_UI_CLIENT_NAMES) ||
+            matchesProductName(this.clientName, OPENAI_RENDER_UI_CLIENT_NAMES)
+        )
     }
 
     isInlineExecUiHost(): boolean {
@@ -341,8 +385,15 @@ export class MCPClientProfile {
         return matchesAnyFragment(this.vendorClient, INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS)
     }
 
+    drawsTimeSeriesCharts(): boolean {
+        // Through a claude.ai connector, Claude Code sends `x-anthropic-client: ClaudeCode` with the
+        // `Claude-User` User-Agent from the terminal and from Desktop alike. Those requests are
+        // included too, because most Claude Code sessions connect that way.
+        return TERMINAL_CLAUDE_CODE_USER_AGENT.test(this.userAgent?.trim() ?? '') || this.isInlineExecUiHost()
+    }
+
     isClaudeChatHost(): boolean {
-        // Same vendor-authoritative shape as `isClaudeUiHost`, narrowed to the chat
+        // Same vendor-authoritative shape as `isRenderUiHost`, narrowed to the chat
         // surfaces (Claude web/desktop) that ignore the `instructions` payload. The
         // `Claude-User` user-agent fallback is kept for requests without the vendor
         // header — those are predominantly chat sessions, and keeping env-context
@@ -388,11 +439,4 @@ export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean 
 
 export function isToolsModeClient(clientName: string | undefined, userAgent?: string | undefined): boolean {
     return new MCPClientProfile({ clientName, userAgent }).isToolsModeClient()
-}
-
-export function isClaudeUiHostClient(args: {
-    vendorClient?: string | undefined
-    userAgent?: string | undefined
-}): boolean {
-    return new MCPClientProfile(args).isClaudeUiHost()
 }

@@ -2,6 +2,7 @@ import { MakeLogicType, connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
 import type { Params } from 'scenes/sceneTypes'
@@ -11,6 +12,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { settingsLogic } from './settingsLogic'
+import { SETTINGS_SECTION_SCENES } from './settingsSectionScenes'
 import { SettingId, SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
 import type { Setting, SettingSection } from './types'
 
@@ -37,6 +39,11 @@ const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
     // in-app assistant has suggested. Keep it even once those links age out; it only becomes wrong
     // if members ever become project-scoped.
     'project-members': 'organization-members',
+    privacy: 'project-privacy',
+    'project-general': 'project-details',
+    'organization-ai': 'organization-details',
+    // Without this, the redirect in scenes.ts loops and overflows the stack once this logic is mounted.
+    'organization-rbac': 'organization-roles',
 }
 
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
@@ -69,7 +76,7 @@ const canonicalSettingsSection = (section: string): string => {
         return SETTINGS_SECTION_ALIASES[section]
     }
 
-    if (section.startsWith('environment') && !section.endsWith('-details') && !section.endsWith('-danger-zone')) {
+    if (section.startsWith('environment')) {
         return section.replace(/^environment/, 'project')
     }
 
@@ -233,6 +240,15 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                 return
             }
 
+            // Sections such as Billing have their own page, and the settings page renders nothing for them.
+            const scene = SETTINGS_SECTION_SCENES.find(
+                (s) => s.sectionId === section.replace(/^project-/, 'environment-')
+            )
+            if (scene) {
+                router.actions.replace(scene.url)
+                return
+            }
+
             const canonicalSection = canonicalSettingsSection(section)
             const [hashParams, didCanonicalizeHashParams] = canonicalSettingsHashParams(router.values.hashParams)
             const targetSection = sectionForMovedSetting(canonicalSection, hashParams) ?? canonicalSection
@@ -289,7 +305,9 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             return [urls.settings(level), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSection({ section }) {
-            return [urls.settings(section), router.values.searchParams, router.values.hashParams]
+            const sectionUrl = urls.settings(section)
+            const sameSection = removeProjectIdIfPresent(router.values.location.pathname) === sectionUrl
+            return [sectionUrl, router.values.searchParams, sameSection ? router.values.hashParams : {}]
         },
         selectSetting({ setting }) {
             return [

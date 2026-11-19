@@ -53,6 +53,19 @@ export const MultiSeries: Story = {
     name: 'Multi-series',
 }
 
+const HOURS = Array.from({ length: 9 }, (_, index) => {
+    const hour = (20 + index) % 24
+    return `2025-05-${hour >= 20 ? '26' : '27'} ${String(hour).padStart(2, '0')}:00:00`
+})
+
+export const Hourly: Story = {
+    render: () =>
+        renderTrends({ ...trendsQuery('ActionsLineGraph'), interval: 'hour' }, [
+            { label: 'Pageviews', data: [42, 38, 51, 30, 12, 8, 6, 9, 15], days: HOURS },
+        ]),
+    name: 'Hourly',
+}
+
 export const AreaChart: Story = {
     render: () =>
         renderTrends(trendsQuery('ActionsAreaGraph'), [

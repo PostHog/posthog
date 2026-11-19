@@ -6,8 +6,9 @@ This fake keeps rows and labels per table and applies the writer's load, copy, d
 drop-column statements to them, which lets a test assert the table's contents.
 
 It also refuses a `MERGE` whose source matches one target row twice, whose source holds a column
-the target does not have, or whose source holds a column as a different type than the target, the
-way BigQuery does, so those batches fail here too rather than passing quietly.
+the target does not have, or whose source holds a column as a different type than the target, and
+refuses an append load job that sends an existing column as a different type, the way BigQuery
+does, so those batches fail here too rather than passing quietly.
 """
 
 from __future__ import annotations
@@ -38,6 +39,34 @@ _ADD_COLUMN_CLAUSE = re.compile(r"ADD COLUMN IF NOT EXISTS\s+`([^`]+)`\s+(\w+)",
 
 # What schema autodetect gives a parquet column, in the legacy names `SchemaField` reports.
 _AUTODETECTED_TYPE = {pa.int64(): "INTEGER", pa.float64(): "FLOAT", pa.bool_(): "BOOLEAN"}
+
+# NUMERIC's own range: scale 9, 29 integer digits. A decimal column outside it needs BIGNUMERIC
+# in the job's `decimal_target_types`, the way real BigQuery's autodetect does.
+_NUMERIC_MAX_SCALE = 9
+_NUMERIC_MAX_PRECISION = 38
+
+
+def _autodetected_type(arrow_type: pa.DataType, decimal_target_types: frozenset[str]) -> str:
+    if pa.types.is_decimal(arrow_type):
+        if arrow_type.scale <= _NUMERIC_MAX_SCALE and arrow_type.precision <= _NUMERIC_MAX_PRECISION:
+            return "NUMERIC"
+        if "BIGNUMERIC" in decimal_target_types:
+            return "BIGNUMERIC"
+        raise BadRequest(
+            "Error while reading data, error message: The value for column is out of valid NUMERIC range: "
+            f"Value will lose precision after scaling down to NUMERIC type; scale: {arrow_type.scale}. Consider "
+            "specifying decimal target types to allow a larger range of values."
+        )
+    return _AUTODETECTED_TYPE.get(arrow_type, "STRING")
+
+
+# `get_table` reports a column's type using the legacy names regardless of which standard SQL
+# name the DDL that created it used, so a column added as INT64 still comes back as INTEGER.
+_REPORTED_TYPE = {"INT64": "INTEGER", "FLOAT64": "FLOAT", "BOOL": "BOOLEAN"}
+
+# INTEGER and BOOLEAN are valid GoogleSQL DDL aliases for INT64 and BOOL, but FLOAT64 has no
+# "FLOAT" alias, so real BigQuery rejects an `ADD COLUMN` naming it with "Type not found: FLOAT".
+_DDL_TYPES_WITHOUT_ALIAS = {"FLOAT"}
 
 
 class MergeMultiMatchError(RuntimeError):
@@ -109,13 +138,21 @@ class FakeBigQueryClient:
     def load_table_from_file(self, buffer, ref: str, job_config: bigquery.LoadJobConfig) -> _Job:
         data = pq.read_table(buffer)
         rows = data.to_pylist()
-        types = {field.name: _AUTODETECTED_TYPE.get(field.type, "STRING") for field in data.schema}
+        decimal_target_types = job_config.decimal_target_types or frozenset({"NUMERIC"})
+        types = {field.name: _autodetected_type(field.type, decimal_target_types) for field in data.schema}
         name = _ref_of(ref)
 
         if job_config.write_disposition == bigquery.WriteDisposition.WRITE_TRUNCATE or name not in self.tables:
             self.tables[name] = FakeTable(types)
         else:
-            self.tables[name].add_columns(types)
+            existing = self.tables[name]
+            for column, field_type in types.items():
+                if column in existing.types and existing.types[column] != field_type:
+                    raise BadRequest(
+                        f"Provided Schema does not match Table {name}. Field {column} has changed type "
+                        f"from {existing.types[column]} to {field_type}"
+                    )
+            existing.add_columns(types)
 
         table = self.tables[name]
         for row in rows:
@@ -168,7 +205,12 @@ class FakeBigQueryClient:
         if not match:
             return False
         table = self.get_table(match.group(1))
-        table.add_columns(dict(_ADD_COLUMN_CLAUSE.findall(match.group(2))))
+        additions: dict[str, str] = {}
+        for name, field_type in _ADD_COLUMN_CLAUSE.findall(match.group(2)):
+            if field_type in _DDL_TYPES_WITHOUT_ALIAS:
+                raise BadRequest(f"Type not found: {field_type}")
+            additions[name] = _REPORTED_TYPE.get(field_type, field_type)
+        table.add_columns(additions)
         return True
 
     def _merge(self, statement: str) -> bool:

@@ -4,13 +4,17 @@ from posthog.test.base import BaseTest
 
 from django import forms
 from django.contrib.admin import AdminSite
-from django.db.models.fields import BLANK_CHOICE_DASH
 from django.test import RequestFactory
 from django.urls import reverse
 
 from posthog.models.organization import Organization
 
-from products.growth.backend.admin import ProductPushCampaignAdmin, ProductPushCampaignInline, product_key_choices
+from products.growth.backend.admin import (
+    BLANK_PRODUCT_KEY_CHOICE,
+    ProductPushCampaignAdmin,
+    ProductPushCampaignInline,
+    product_key_choices,
+)
 from products.growth.backend.models import ProductPushCampaign
 
 
@@ -118,7 +122,7 @@ class TestProductPushCampaignAdmin(BaseTest):
 
         product_key_field = formset_class.form(instance=None).fields["product_key"]
         assert isinstance(product_key_field, forms.ChoiceField)
-        assert product_key_field.choices == BLANK_CHOICE_DASH + product_key_choices()
+        assert product_key_field.choices == [BLANK_PRODUCT_KEY_CHOICE, *product_key_choices()]
 
         formset = formset_class(
             instance=self.organization,

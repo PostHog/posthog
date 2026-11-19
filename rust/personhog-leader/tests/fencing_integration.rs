@@ -12,6 +12,7 @@ use std::time::Duration;
 use envconfig::Envconfig;
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::HandoffHandler;
+use personhog_coordination::types::{ChangelogTarget, ClusterEndpoint};
 use personhog_leader::fencing::{
     heal_fence, FenceGuard, FencedChangelogProducers, FencedProduceError, FencedProducerConfig,
     HealOutcome,
@@ -37,11 +38,15 @@ fn test_person(version: i64) -> Person {
 /// Count the records a `read_committed` consumer can see on partition 0
 /// — the same isolation the warming path uses.
 async fn read_committed_count(topic: &str) -> usize {
+    read_committed_count_on(KAFKA_BOOTSTRAP, topic).await
+}
+
+async fn read_committed_count_on(bootstrap: &str, topic: &str) -> usize {
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
 
     let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("bootstrap.servers", bootstrap)
         .set(
             "group.id",
             format!("fence-abort-probe-{}", uuid::Uuid::new_v4()),
@@ -59,11 +64,16 @@ async fn read_committed_count(topic: &str) -> usize {
     let mut seen = 0;
     // Anything committed is available immediately; the quiet period only
     // has to outlast delivery, not a transaction timeout.
-    while let Ok(Ok(message)) =
-        tokio::time::timeout(Duration::from_millis(750), consumer.recv()).await
-    {
-        if message.payload().is_some() {
-            seen += 1;
+    loop {
+        match tokio::time::timeout(Duration::from_millis(750), consumer.recv()).await {
+            Ok(Ok(message)) => {
+                if message.payload().is_some() {
+                    seen += 1;
+                }
+            }
+            Ok(Err(error)) if common::is_transient_broker_error(&error) => {}
+            Ok(Err(error)) => panic!("kafka error reading {topic}: {error}"),
+            Err(_quiet) => break,
         }
     }
     seen
@@ -141,16 +151,31 @@ async fn acquiring_on_another_topic_produces_there_and_discards_a_stale_preconne
 }
 
 /// Sealing claims every lane's id on the old topic, so a holder still producing
-/// there is fenced and nothing more lands, on the cold and the prepared path.
+/// there is fenced and nothing more lands, on the cold and the prepared path,
+/// and on the old topic's own cluster when it is not the default one.
 #[tokio::test]
 async fn a_seal_fences_the_holder_on_the_old_topic() {
-    for prepared in [false, true] {
+    let secondary = common::secondary_kafka_bootstrap();
+    let mut cases = vec![(false, None), (true, None)];
+    if let Some(hosts) = &secondary {
+        let old_cluster = ClusterEndpoint {
+            name: "old-cluster".to_string(),
+            hosts: hosts.clone(),
+            tls: false,
+        };
+        cases.extend([
+            (false, Some(old_cluster.clone())),
+            (true, Some(old_cluster)),
+        ]);
+    }
+    for (prepared, cluster) in cases {
         let topic = format!("fence_seal_{}", uuid::Uuid::new_v4().simple());
+        let old = ChangelogTarget {
+            cluster: cluster.clone(),
+            ..target(&topic)
+        };
         let holder = fenced_producers(2);
-        holder
-            .acquire(0, &target(&topic))
-            .await
-            .expect("holder acquires");
+        holder.acquire(0, &old).await.expect("holder acquires");
         holder
             .produce(0, &test_person(1))
             .await
@@ -158,22 +183,27 @@ async fn a_seal_fences_the_holder_on_the_old_topic() {
 
         let sealer = fenced_producers(2);
         if prepared {
-            sealer.preconnect(0, &target(&topic)).await;
+            sealer.preconnect(0, &old).await;
         }
         let path = sealer
-            .seal(0, &target(&topic))
+            .seal(0, &old)
             .await
             .expect("the seal claims every lane");
         assert_eq!(path, if prepared { "prepared" } else { "cold" });
 
         match holder.produce(0, &test_person(2)).await {
             Err(FencedProduceError::Fenced) | Err(FencedProduceError::NotAcquired) => {}
-            other => panic!("prepared={prepared}: the holder must be fenced, got {other:?}"),
+            other => panic!(
+                "prepared={prepared} cluster={cluster:?}: the holder must be fenced, got {other:?}"
+            ),
         }
+        let bootstrap = cluster
+            .as_ref()
+            .map_or(KAFKA_BOOTSTRAP, |c| c.hosts.as_str());
         assert_eq!(
-            read_committed_count(&topic).await,
+            read_committed_count_on(bootstrap, &topic).await,
             1,
-            "prepared={prepared}: nothing lands after the seal"
+            "prepared={prepared} cluster={cluster:?}: nothing lands after the seal"
         );
     }
 }
@@ -284,6 +314,104 @@ async fn concurrent_preconnects_collapse_to_one_dial() {
     assert!(
         producers.has_prepared(3),
         "the one dial parks its connection"
+    );
+}
+
+async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !done() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
+        sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// An acquire during a preconnect's dial must reuse it, not open a second connection.
+#[tokio::test]
+async fn an_acquire_during_a_dial_reuses_its_connection() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(1));
+    producers.hold_dials_for_test();
+
+    let dial = {
+        let p = Arc::clone(&producers);
+        let t = target(&topic);
+        tokio::spawn(async move { p.preconnect(4, &t).await })
+    };
+    wait_until("the preconnect to start dialing", || {
+        producers.connect_attempts_for_test() == 1
+    })
+    .await;
+    let acquire = {
+        let p = Arc::clone(&producers);
+        let t = target(&topic);
+        tokio::spawn(async move { p.acquire(4, &t).await })
+    };
+    // Either the acquire waits for the held dial, or it dials its own.
+    wait_until("the acquire to wait or dial", || {
+        producers.dial_waits_for_test() == 1 || producers.connect_attempts_for_test() == 2
+    })
+    .await;
+    producers.release_dials_for_test();
+
+    dial.await.unwrap();
+    acquire.await.unwrap().expect("the acquire succeeds");
+    assert_eq!(
+        producers.connect_attempts_for_test(),
+        1,
+        "the acquire must reuse the dial in flight, not open a second connection"
+    );
+}
+
+/// The wait ends at the dial's own bound, not a full timeout from the acquire.
+#[tokio::test]
+async fn an_acquire_waits_only_for_what_the_dial_has_left() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    // The helper's 10s init timeout bounds the dial.
+    let producers = fenced_producers(1);
+    producers.stage_connecting_for_test(2, Duration::from_millis(9_500));
+
+    let start = std::time::Instant::now();
+    producers
+        .acquire(2, &target(&topic))
+        .await
+        .expect("the acquire goes cold once the dial's bound passes");
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "waited {:?}; the wait must end at the dial's bound, not a full timeout",
+        start.elapsed()
+    );
+}
+
+/// The wait follows only the first dial, so replacement dials cannot hold the acquire.
+#[tokio::test]
+async fn an_acquire_does_not_wait_out_a_replacement_dial() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(1));
+    producers.stage_connecting_for_test(3, Duration::from_millis(9_000));
+
+    let start = std::time::Instant::now();
+    let acquire = {
+        let p = Arc::clone(&producers);
+        let t = target(&topic);
+        tokio::spawn(async move { p.acquire(3, &t).await })
+    };
+    wait_until("the acquire to wait on the first dial", || {
+        producers.dial_waits_for_test() == 1
+    })
+    .await;
+    producers.stage_connecting_for_test(3, Duration::ZERO);
+
+    acquire
+        .await
+        .unwrap()
+        .expect("the acquire goes cold once the dial it followed is gone");
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "waited {:?}; the acquire must not follow the replacement dial",
+        start.elapsed()
     );
 }
 
@@ -1460,6 +1588,115 @@ async fn a_resume_does_not_fence_the_window_its_own_warm_admitted() {
         result.is_ok(),
         "a resume must not fence the window this convergence's own warm \
          admitted, got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn every_warm_of_a_partition_gets_a_fill_and_tracking_ends_with_it() {
+    use personhog_leader::cache::{CacheLookup, FillOutcome, PartitionedCache, PersonCacheKey};
+    use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
+
+    let topic = format!("fence_fill_{}", uuid::Uuid::new_v4().simple());
+    common::create_broker_topic(&topic, 1).await;
+    // A group of the test's own: a standalone commit is refused while a group has members.
+    let writer_group = format!("writer_{topic}");
+    let producers = Arc::new(fenced_producers(1));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let fill = personhog_leader::warming::FillConfig {
+        lookback: Duration::from_secs(3600),
+        chunk_offsets: 4,
+        room_fraction: 0.9,
+    };
+    let handler = common::test_handoff_handler_with_fill(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&cache),
+        Some(fill),
+        &writer_group,
+    );
+
+    // Applied history: the writer has committed past it, so only a fill restores it.
+    let writer: BaseConsumer = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("group.id", &writer_group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("writer-group consumer");
+    producers
+        .acquire(0, &target(&topic))
+        .await
+        .expect("acquire");
+    for version in 1..=4 {
+        producers
+            .produce(0, &test_person(version))
+            .await
+            .expect("history record");
+    }
+    let (_, end) = writer
+        .fetch_watermarks(&topic, 0, Duration::from_secs(5))
+        .expect("watermarks");
+    let mut tpl = rdkafka::TopicPartitionList::new();
+    tpl.add_partition_offset(&topic, 0, rdkafka::Offset::Offset(end))
+        .expect("tpl");
+    writer
+        .commit(&tpl, CommitMode::Sync)
+        .expect("writer commit");
+
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 7,
+    };
+    let filled = || matches!(cache.get(0, &key), CacheLookup::Found(_));
+    let tracking_ended = || {
+        let probe = PersonCacheKey {
+            team_id: 1,
+            person_id: 999,
+        };
+        let outcome = cache
+            .serving_cache(0)
+            .map(|serving| serving.fill(probe, common::test_cached_person()));
+        outcome == Some(FillOutcome::NotTracking)
+    };
+
+    handler.warm_partition(0).await.expect("warm");
+    wait_until("the first build's fill", filled).await;
+    wait_until("put tracking to end", tracking_ended).await;
+
+    handler.release_partition(0).await.expect("release");
+    handler.warm_partition(0).await.expect("warm again");
+    wait_until("the second build's fill", filled).await;
+}
+
+#[tokio::test]
+async fn a_warm_tracks_no_puts_when_no_fill_is_configured() {
+    use personhog_leader::cache::{FillOutcome, PartitionedCache, PersonCacheKey};
+
+    let topic = format!("fence_fill_off_{}", uuid::Uuid::new_v4().simple());
+    common::create_broker_topic(&topic, 1).await;
+    let producers = Arc::new(fenced_producers(1));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let handler = common::test_handoff_handler_with_fill(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&cache),
+        None,
+        &format!("writer_{topic}"),
+    );
+    producers
+        .acquire(0, &target(&topic))
+        .await
+        .expect("acquire");
+
+    handler.warm_partition(0).await.expect("warm the partition");
+
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 999,
+    };
+    let serving = cache.serving_cache(0).expect("the partition is serving");
+    assert_eq!(
+        serving.fill(key, common::test_cached_person()),
+        FillOutcome::NotTracking
     );
 }
 

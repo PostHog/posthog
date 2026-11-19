@@ -1,13 +1,15 @@
-"""Nightly activity bands for the background scout lane.
+"""Nightly activity bands for the background scout lanes.
 
-The coordinator samples a percentage of each band from the `background.bands` block of the
-`signals-scout` flag payload (see `team_limits._parse_background`). This module decides which
-projects are eligible and which band each one is in, once a day, so the 30-minute coordinator tick
-reads one small table instead of ClickHouse.
+Each lane samples a percentage of each band from its `bands` block in the `signals-scout` flag
+payload (see `team_limits.parse_background_lanes`). This module decides which projects are
+eligible, which band each one is in, and which audience it belongs to, once a day, so the
+30-minute coordinator tick reads one small table instead of ClickHouse.
+
+The audience is `set_up` when the project set Signals up (`suggestions.set_up_team_q`) and
+`not_set_up` otherwise. A lane samples only the rows of its own audience.
 
 A project is eligible only when all of these hold:
 
-- it did not set Signals up (`suggestions.set_up_team_q`)
 - its organization approved AI data processing
 - it is a root project, not a demo, and its organization is not the internal-metrics one
 - it is the project where the most recently active member of its organization last worked
@@ -68,6 +70,18 @@ class _OrgActivity:
     last_login: datetime
 
 
+@frozen
+class TeamBand:
+    band: int
+    audience: SignalScoutBackgroundBand.Audience
+
+
+@frozen
+class _Eligibility:
+    paying: bool
+    set_up: bool
+
+
 def _id_batches(ids: Collection[int]) -> Iterator[tuple[int, ...]]:
     return batched(sorted(ids), ID_BATCH_SIZE, strict=False)
 
@@ -96,22 +110,22 @@ def _most_active_project_by_org(login_cutoff: datetime) -> dict[int, _OrgActivit
     return by_org
 
 
-def _eligible_teams(team_ids: set[int]) -> dict[int, bool]:
-    """`team_id -> paying` for each project in `team_ids` that can get a background scout."""
-    eligible: dict[int, bool] = {}
+def _eligible_teams(team_ids: set[int]) -> dict[int, _Eligibility]:
+    """Whether each project in `team_ids` that can get a background scout is paying and set up."""
+    eligible: dict[int, _Eligibility] = {}
     for batch in _id_batches(team_ids):
-        rows = (
-            Team.objects.filter(
-                Q(parent_team_id__isnull=True) | Q(parent_team_id=F("id")),
-                id__in=batch,
-                is_demo=False,
-                organization__is_ai_data_processing_approved=True,
-                organization__for_internal_metrics=False,
-            )
-            .exclude(set_up_team_q())
-            .values_list("id", "organization__has_active_subscription")
+        teams = Team.objects.filter(
+            Q(parent_team_id__isnull=True) | Q(parent_team_id=F("id")),
+            id__in=batch,
+            is_demo=False,
+            organization__is_ai_data_processing_approved=True,
+            organization__for_internal_metrics=False,
         )
-        eligible.update((team_id, paying is True) for team_id, paying in rows)
+        set_up = set(teams.filter(set_up_team_q()).values_list("id", flat=True))
+        eligible.update(
+            (team_id, _Eligibility(paying=paying is True, set_up=team_id in set_up))
+            for team_id, paying in teams.values_list("id", "organization__has_active_subscription")
+        )
     return eligible
 
 
@@ -153,13 +167,13 @@ def band_for(*, paying: bool, events_per_day: float, last_login: datetime, now: 
     return 1 if events_per_day >= HIGH_VOLUME_EVENTS_PER_DAY else 2
 
 
-def compute_background_bands(now: datetime | None = None) -> dict[int, int]:
-    """`team_id -> band` for every eligible project."""
+def compute_background_bands(now: datetime | None = None) -> dict[int, TeamBand]:
+    """The band and audience of every eligible project."""
     now = now or timezone.now()
     activity_by_org = _most_active_project_by_org(now - timedelta(days=MAX_LOGIN_DAYS))
     eligible = _eligible_teams({activity.team_id for activity in activity_by_org.values()})
     # The org's most active project must itself be eligible. The org never falls back to a
-    # quieter project, so a set-up org does not get a background scout next to its own setup.
+    # quieter project, so a set-up org does not get a `not_set_up` scout next to its own setup.
     activity_by_org = {
         organization_id: activity
         for organization_id, activity in activity_by_org.items()
@@ -169,16 +183,22 @@ def compute_background_bands(now: datetime | None = None) -> dict[int, int]:
         return {}
     day_end = now.replace(hour=0, minute=0, second=0, microsecond=0)
     events_by_org = _events_per_day_by_org(activity_by_org.keys(), day_end - timedelta(days=EVENT_WINDOW_DAYS), day_end)
-    bands: dict[int, int] = {}
+    bands: dict[int, TeamBand] = {}
     for organization_id, activity in activity_by_org.items():
+        eligibility = eligible[activity.team_id]
         band = band_for(
-            paying=eligible[activity.team_id],
+            paying=eligibility.paying,
             events_per_day=events_by_org.get(organization_id, 0.0),
             last_login=activity.last_login,
             now=now,
         )
         if band is not None:
-            bands[activity.team_id] = band
+            audience = (
+                SignalScoutBackgroundBand.Audience.SET_UP
+                if eligibility.set_up
+                else SignalScoutBackgroundBand.Audience.NOT_SET_UP
+            )
+            bands[activity.team_id] = TeamBand(band=band, audience=audience)
     return bands
 
 
@@ -193,10 +213,13 @@ def refresh_background_bands(now: datetime | None = None) -> BandOutcome:
             deleted, _ = SignalScoutBackgroundBand.all_teams.filter(team_id__in=batch).delete()
             removed += deleted
         SignalScoutBackgroundBand.all_teams.bulk_create(
-            [SignalScoutBackgroundBand(team_id=team_id, band=band, computed_at=now) for team_id, band in bands.items()],
+            [
+                SignalScoutBackgroundBand(team_id=team_id, band=entry.band, audience=entry.audience, computed_at=now)
+                for team_id, entry in bands.items()
+            ],
             update_conflicts=True,
             unique_fields=["team"],
-            update_fields=["band", "computed_at"],
+            update_fields=["band", "audience", "computed_at"],
             batch_size=1000,
         )
     return BandOutcome(written=len(bands), removed=removed)

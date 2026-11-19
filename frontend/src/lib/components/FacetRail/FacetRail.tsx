@@ -4,10 +4,11 @@ import { Fragment, ReactNode, useMemo, useRef } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
+import { cn } from 'lib/utils/css-classes'
 
 import { CustomFacetsProduct, customFacetsLogic } from './customFacetsLogic'
 import { FacetGroupItem, facetsByGroup, filterFacetsByName } from './facetGroups'
@@ -37,6 +38,8 @@ export interface FacetRailProps<T extends FacetGroupItem> {
     dataAttrPrefix: string
     /** Shown above the facets, such as an error when the facet list itself failed to load. */
     notice?: ReactNode
+    /** Stack above results without changing the saved desktop width. */
+    stacked?: boolean
 }
 
 /** Resizable left-hand facet rail: a facet-name search, an add-custom-facet button, and the grouped facets. */
@@ -52,6 +55,7 @@ export function FacetRail<T extends FacetGroupItem>({
     resizerPersistPrefix,
     dataAttrPrefix,
     notice,
+    stacked = false,
 }: FacetRailProps<T>): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
 
@@ -78,7 +82,10 @@ export function FacetRail<T extends FacetGroupItem>({
         <div
             ref={railRef}
             // In a narrow host the rail stacks above the results, so the full width replaces the dragged width.
-            className="relative flex flex-col shrink-0 border rounded bg-surface-primary overflow-hidden @max-[48rem]/facet-rail-host:!w-full @max-[48rem]/facet-rail-host:!max-w-full @max-[48rem]/facet-rail-host:max-h-48"
+            className={cn(
+                'relative flex flex-col shrink-0 border rounded bg-surface-primary overflow-hidden @max-[48rem]/facet-rail-host:!w-full @max-[48rem]/facet-rail-host:!max-w-full @max-[48rem]/facet-rail-host:max-h-48',
+                stacked && '!w-full !max-w-full max-h-64'
+            )}
             // The width is the user's alone: a fixed min (not min-content) so a long facet value
             // can never force the rail wider — values truncate to fit instead.
             // eslint-disable-next-line react/forbid-dom-props
@@ -121,13 +128,15 @@ export function FacetRail<T extends FacetGroupItem>({
                     </div>
                 ))}
             </div>
-            <Resizer
-                {...resizerLogicProps}
-                visible={false}
-                offset="0.25rem"
-                className="@max-[48rem]/facet-rail-host:hidden"
-                handleClassName="rounded my-1"
-            />
+            {!stacked && (
+                <Resizer
+                    {...resizerLogicProps}
+                    visible={false}
+                    offset="0.25rem"
+                    className="@max-[48rem]/facet-rail-host:hidden"
+                    handleClassName="rounded my-1"
+                />
+            )}
         </div>
     )
 }

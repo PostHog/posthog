@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-190",
+    "kind": "native",
+    "runtimeVersion": "1.9.0",
+    "previousRelease": "native-180",
+    "notes": "This release includes connection recovery, offline access to recent analytics and inbox data, improved chat navigation, regional service status, iPhone Duo layouts, and Android notification startup fixes. Verify sign-in, recovery after going offline, cached reports and views, queued chats across restarts, regional status, narrow and wide layouts, and notification taps from a cold start on iOS and Android."
+}

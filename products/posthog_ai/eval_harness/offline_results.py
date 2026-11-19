@@ -282,6 +282,7 @@ class OfflineEvalPublisher:
         omitted: list[str] = []
         for key, value in {
             "case_key": name,
+            "model_version": case.output.get("model") if isinstance(case.output, dict) else None,
             "application_trace_id": case.metadata.get("trace_id") if self.application_trace_ids_enabled else None,
             "dataset_item_identifier": case.metadata.get("dataset_item_identifier"),
             "dataset_item_version_identifier": case.metadata.get("dataset_item_version_identifier"),

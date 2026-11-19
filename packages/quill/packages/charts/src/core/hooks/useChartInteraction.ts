@@ -12,6 +12,7 @@ import {
 import { defaultResolveValue } from '../types'
 import type {
     AreaSelectData,
+    BandSlot,
     ChartDimensions,
     ChartScales,
     DateRangeZoomData,
@@ -45,6 +46,8 @@ interface UseChartInteractionOptions<Meta> {
     /** See `TooltipConfig.resolveClickToNearestSeries`. */
     resolveClickToNearestSeries?: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.onPointContextMenu`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     /** See `ChartProps.isPointClickable`. */
     isPointClickable?: (dataIndex: number) => boolean
     onDateRangeZoom?: (data: DateRangeZoomData) => void
@@ -112,6 +115,7 @@ interface UseChartInteractionResult<Meta> {
         onMouseLeave: () => void
         onClick: (e: React.MouseEvent<HTMLDivElement>) => void
         onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void
+        onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void
     }
 }
 
@@ -126,6 +130,7 @@ export function useChartInteraction<Meta = unknown>({
     pinnable,
     resolveClickToNearestSeries = false,
     onPointClick,
+    onPointContextMenu,
     isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
@@ -248,13 +253,20 @@ export function useChartInteraction<Meta = unknown>({
         [scales, dimensions, interactionAxis, labelPositions, resolveHoverIndex]
     )
 
-    const buildCtxAt = useCallback(
-        (index: number, position: { x: number; y: number }): TooltipContext<Meta> | null => {
+    // Rows depend only on the index and the bar slot, so a move inside one band reuses them
+    // instead of walking every series. The memo deps drop the cache when the rows go stale.
+    const buildCtxAt = useMemo(() => {
+        let last: { ctx: TooltipContext<Meta>; slot: BandSlot | undefined } | null = null
+        return (index: number, position: { x: number; y: number }): TooltipContext<Meta> | null => {
             if (!scales) {
                 return null
             }
             const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-            return buildTooltipContext(
+            const slot = scales.bandSlotAtCursor?.(labels[index], position)
+            if (last && last.ctx.dataIndex === index && last.slot?.x === slot?.x && last.slot?.width === slot?.width) {
+                return { ...last.ctx, hoverPosition: position, canvasBounds }
+            }
+            const ctx = buildTooltipContext(
                 index,
                 series,
                 labels,
@@ -268,21 +280,22 @@ export function useChartInteraction<Meta = unknown>({
                 effectivePositionResolve,
                 resolveBottomValue,
                 scales.extent?.(labels[index]),
-                scales.bandSlotAtCursor?.(labels[index], position)
+                slot
             )
-        },
-        [
-            scales,
-            series,
-            labels,
-            labelToCoord,
-            canvasRef,
-            resolveValue,
-            interactionAxis,
-            effectivePositionResolve,
-            resolveBottomValue,
-        ]
-    )
+            last = ctx ? { ctx, slot } : null
+            return ctx
+        }
+    }, [
+        scales,
+        series,
+        labels,
+        labelToCoord,
+        canvasRef,
+        resolveValue,
+        interactionAxis,
+        effectivePositionResolve,
+        resolveBottomValue,
+    ])
 
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -480,6 +493,42 @@ export function useChartInteraction<Meta = unknown>({
         ]
     )
 
+    // Resolves the point from the event position, not the hover state, because a pinned tooltip
+    // freezes the hover state at the pinned point.
+    const onContextMenu = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            if (!onPointContextMenu || originatesInTooltip(e)) {
+                return
+            }
+            const rect = e.currentTarget.getBoundingClientRect()
+            const position = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+            const index = resolveIndexAt(position.x, position.y)
+            if (index < 0 || index >= labels.length || !(isPointClickable?.(index) ?? true)) {
+                return
+            }
+            const ctx = buildCtxAt(index, position)
+            const clickData =
+                ctx && ctx.seriesData.length > 1
+                    ? resolveNearestSeriesClickData(index, series, labels, ctx, interactionAxis, position)
+                    : buildPointClickData(index, series, labels, resolveValue, position)
+            if (clickData) {
+                onPointContextMenu(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+            }
+        },
+        [
+            onPointContextMenu,
+            isPointClickable,
+            series,
+            labels,
+            resolveValue,
+            interactionAxis,
+            wrapClickData,
+            scales,
+            resolveIndexAt,
+            buildCtxAt,
+        ]
+    )
+
     const guardedMouseDown = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             if (originatesInTooltip(e) || originatesInInteractiveOverlay(e)) {
@@ -491,8 +540,8 @@ export function useChartInteraction<Meta = unknown>({
     )
 
     const handlers = useMemo(
-        () => ({ onMouseDown: guardedMouseDown, onMouseMove, onMouseLeave, onClick, onPointerDown }),
-        [guardedMouseDown, onMouseMove, onMouseLeave, onClick, onPointerDown]
+        () => ({ onMouseDown: guardedMouseDown, onMouseMove, onMouseLeave, onClick, onPointerDown, onContextMenu }),
+        [guardedMouseDown, onMouseMove, onMouseLeave, onClick, onPointerDown, onContextMenu]
     )
 
     return { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers }

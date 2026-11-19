@@ -21,6 +21,11 @@ export const WORKER_ENTRIES = [
         outfileName: 'hogqlParserWorker.js',
     },
     {
+        name: 'ELK Layout Worker',
+        entryPoint: 'src/lib/elkWorker.ts',
+        outfileName: 'elkWorker.js',
+    },
+    {
         name: 'Monaco Editor Worker',
         entryPoint: 'src/lib/monaco/workers/editor.worker.ts',
         outfileName: 'monacoEditorWorker.js',

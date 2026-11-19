@@ -60,8 +60,6 @@ from typing import Final
 import click
 from hogli.manifest import REPO_ROOT
 
-from posthog.dataclasses import frozen
-
 API_TS: Final = Path("frontend/src/lib/api.ts")
 CORE_GENERATED: Final = Path("frontend/src/generated/core/api.ts")
 PRODUCT_GENERATED_GLOB: Final = "products/*/frontend/generated/api.ts"
@@ -361,7 +359,7 @@ def _blocks_with_return(lines: list[str], paths: list[tuple[int, ...]]) -> froze
     return frozenset(has_return)
 
 
-@frozen
+@dataclass(frozen=True, kw_only=True, slots=True)
 class SameLevelIfGuard:
     """A same-level if-block found before a return, and the variable it guards on."""
 

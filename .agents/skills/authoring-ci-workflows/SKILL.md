@@ -1,7 +1,7 @@
 ---
 name: authoring-ci-workflows
 description: >
-  Use when adding or editing a GitHub Actions workflow, composite action, or reusable workflow under `.github/` — new CI jobs, triggers, matrices, checkout/clone tuning, action pinning, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, caching, or runner choice.
+  Use when adding or editing a GitHub Actions workflow, composite action, reusable workflow, or `actions.lock` under `.github/`: new CI jobs, triggers, matrices, checkout/clone tuning, action pinning and lockfiles, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, reusing an earlier passing result, caching, or runner choice.
   Covers PostHog's workflow-authoring conventions and the reasons behind them: the 500-runs/10s dispatch cap, shallow vs full clone, per-SHA push concurrency, dedicated App-token rate-limit buckets, and fork-safe secrets on a public repo.
   Points to the linters (`bin/hogli lint:workflows`, actionlint) that enforce the mechanical rules, and to the narrower skills for production deploys, secrets, and Depot runners.
   Not for debugging red CI (use debugging-ci-failures) or wiring a new secret end to end (use managing-github-actions-secrets).
@@ -30,7 +30,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
 Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, Storybook path-filter coverage of every `staticDirs` source, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
-Third-party action digests are bumped by Renovate.
+Renovate does not bump actions. Action bumps are manual.
 
 ## Check what a condition does before you push it
 
@@ -281,8 +281,13 @@ Measured checkout-step durations, from the GitHub API on real runs:
   Name any file a step reads that way in the sparse set — `ci-dagster.yml` does this for `docker-compose.base.yml`, whose contents feed a cache key.
 
 - **`changes` / paths-filter gating jobs:** on `pull_request` the vendored `.github/actions/paths-filter` diffs via the GitHub API and never touches the tree.
+  Its opt-in reuse of an earlier passing result also reads only the API (see [Reusing an earlier passing result](#reusing-an-earlier-passing-result)).
   The only reason to check out is that a local action must exist on disk, so sparse-checkout `.github/actions/paths-filter` plus any file the job's own steps read.
   **Never pass `base: HEAD` to paths-filter from a sparse job** — that routes it to `git diff HEAD`, which a sparse worktree makes return nothing, so every downstream job silently skips green.
+
+- **If one step in a gating job needs history, check the history out in a second, conditional step.**
+  `ci-nodejs.yml`'s affected-crate detection diffs the merge base, so its `changes` job used to carry a full-history checkout: 75s of an 80s job (median of 12 runs), and every job in the workflow waits on it.
+  A sparse filter-action checkout for the gate first, then a `fetch-depth: 0` + `filter: blob:none` + sparse `rust/ proto/ .github/` checkout behind `steps.filter.outputs.rust == 'true'`, puts the ~2s path on every run that does not touch Rust and leaves Rust runs paying what they paid before.
 
 - **Foot-gun:** `git fetch --deepen=N` with **no refspec** falls back to the wildcard `refs/heads/*` and pulls _every branch_.
   Always pass an explicit, `--no-tags`, `--filter=blob:none` refspec scoped to the base ref.
@@ -293,9 +298,11 @@ Measured checkout-step durations, from the GitHub API on real runs:
 
 ## Pinning and tool versions
 
-- **Pin every third-party action to a full 40-char commit SHA** with a `# vX.Y.Z` comment.
-  A moved tag can ship malicious code; pinning is also reproducible and skips a per-run GitHub-API version lookup.
-  The only sanctioned exception is a debug-only action.
+- **Pin third-party actions to full 40-character commit SHAs** with `# vX.Y.Z` comments.
+  Workflows already listed in `.github/workflows/actions.lock` may use exact version tags backed by locked commits.
+  Before editing one or the lockfile, read [Maintaining workflow lockfiles](references/workflow-lockfiles.md).
+  Keep inline SHA pins elsewhere: copying an onboarded workflow does not onboard its copy.
+  The other sanctioned exception is a debug-only action.
   In-repo composites use a local path with no ref (`uses: ./.github/actions/pnpm-install`).
 - **Node version comes from `.nvmrc`** — `node-version-file: .nvmrc`, never a hardcoded `node-version:`.
   Sparse-checkout `.nvmrc` if the job has no checkout.
@@ -408,12 +415,16 @@ The only sanctioned exception is a job whose purpose is validating the migration
 
 ## Runners
 
-`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
+`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs, except light jobs on the critical path of a merge-queue required check, which pick Depot on `trunk-merge/` runs only because GitHub-hosted runners queue longer at busy hours.
 **Name the OS version, never `ubuntu-latest`.**
 GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
 A runner matrix that an expression builds (`fromJSON(needs.plan.outputs.val)`) is opaque to the linter, so it fails closed: pin the labels where they are generated (`dist-workspace.toml` for the release workflows) and put `# hogli-lint: allow-generated-runner-matrix -- <where they are pinned>` above the job key.
 New Depot labels must be added to the allow-list in `.github/actionlint.yaml` or actionlint fails.
+**Size a test job from its own queue, not from its average.** A shard count that hides setup work, or a runner that cannot host the workers a test phase needs, is a wall-clock floor no cache removes. Compare the same job on the two sizes before you pick one: the merge queue and a pull request run the same suite, so a queue run is the A/B.
+
+Sizing the Playwright job: the E2E `playwright` job runs on `depot-ubuntu-24.04-16` with 12 Playwright workers and 8 Granian workers in the merge queue, and on `depot-ubuntu-24.04-8` with 6 and 4 on a pull request. Ten full runs a side, the test step takes a median 426s at 6 workers on 8 vCPU against 252s at 12 workers on 16 vCPU, and the job wall 12.6 min against 9.1 min. Workers scale together: extra Playwright workers without extra Granian workers added test failures and no speedup, so the size is what buys the wall. The larger runner costs about 45% more billed vCPU minutes for that job, which is why it stays with the queue: a queue run's wall gates a merge, and a pull request mostly runs selected specs where setup dominates. Sizing every pull request run up was measured at about +$1.9k a month, so it needs a week of `runner_billing_multiplier` telemetry from the capture job before anyone proposes it again.
+
 Details: `/depot-github-runners`.
 
 ## Draft vs ready-for-review
@@ -421,6 +432,7 @@ Details: `/depot-github-runners`.
 The merge gate is the merge queue's run on a `trunk-merge/` branch.
 So a heavy suite runs its narrowed subset on drafts _and_ on ready PRs, and only the queue run takes the full matrix.
 `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml` all work this way.
+A later push that changes none of a suite's files can skip it instead (see [Reusing an earlier passing result](#reusing-an-earlier-passing-result)).
 Exclude the queue with `!startsWith(github.head_ref, 'trunk-merge/')`, or with `draft != true` since those PRs open as drafts — not with `draft == true`.
 
 Still add `ready_for_review` to the `pull_request` types — a `no-ci` draft skips the workflow outright, and that event is what gives it a run — and make aggregator "... Tests Pass" jobs treat `skipped` as success so drafts still report.
@@ -454,6 +466,16 @@ It takes effect on the next push, or when the PR is marked ready for review. An 
 git commit --allow-empty -m "chore(ci): run the full matrix" && git push
 ```
 
+The empty commit works because both labels are in `reuse-blocking-labels`.
+Without a blocking label, an empty commit changes no file, so a workflow that reuses results skips its suite and keeps the previous verdict.
+To make every suite that reuses results run again, add the `ci-no-reuse` label and push, or re-run the workflow: a re-run never reuses.
+
+`run-ci-backend` buys one full run, not one per push.
+The `Django Tests Pass on Depot` gate removes the label once a run with it completes, and later pushes select tests again.
+A run that is superseded, or that cancels itself on a deterministic failure, keeps the label for the next run.
+Add the label again for another full run.
+A `labeled` event is not a usable one-shot signal here, for the reasons below.
+
 Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
 GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
 Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: !cancelled()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
@@ -476,6 +498,54 @@ What this still does not answer is whether a narrowed run would have **caught** 
 Only backend scores that, in `tools/test_selection_verdict.py`, which reads the run's JUnit and reports recall.
 The cheap oracle for the rest is the queue: the `trunk-merge/**` run tests the same code with the full suite, so a failure there whose file was reachable from the diff and was not selected is a miss, at no extra compute.
 
+### Reusing an earlier passing result
+
+Without reuse, every push to a PR re-runs each suite whose filter matches anything in the whole PR, even when the push touched none of its files.
+The vendored paths-filter can instead report its filters as unchanged when the files they match are identical to those of the last head where the suite really ran and passed.
+The gated jobs skip and the gate passes through its "nothing to test" path.
+The [paths-filter README](../../../.github/actions/paths-filter/README.md#reusing-an-earlier-passing-result-opt-in) owns the inputs, outputs, and the conditions under which it never reuses.
+`ci-frontend.yml`, `ci-storybook.yml`, `ci-rust.yml`, `ci-nodejs.yml`, `ci-e2e-playwright.yml`, `ci-mcp.yml`, `ci-python.yml` and `.depot/workflows/ci-backend.yml` use it, all behind the `DISABLE_CI_REUSE` variable.
+Depot CI reads variables from its own store, so the switch has to be set there as well as on GitHub to stop backend reuse.
+
+Adopt it only where two things already hold: the gate treats `skipped` as success, and the merge queue runs the full suite.
+Reuse compares the PR's own changed files, not the base, so every reused result keeps the master side of the run it reuses, up to 24 hours old. The queue run never reuses, and it is what catches a break from master.
+
+The judgment calls when you adopt or change it:
+
+- **Scope only the filters that can clear.**
+  All filters in `reuse-filters` are compared as one set and cleared together, so one broad filter (`'**'`) in scope means reuse never fires.
+  Leave such filters out; they keep answering from the real file list. `ci-frontend.yml` is the reference: it scopes four filters and leaves `all_files` out.
+- **The scoped filters must match every file the suite reads.**
+  Reuse compares only those files, so a file the suite reads outside them can change without stopping a reuse.
+  That covers the local actions its gated jobs run, and any file a selector reads from the diff.
+  When the trigger filter is narrower on purpose, add a scoped filter that no job reads, as `specSelection` does in `ci-e2e-playwright.yml`.
+- **`reuse-checks` names every check whose failure must stop a reuse.**
+  That is the required gate, plus any job the scoped filters gate that is not in the gate's `needs`.
+  `ci-rust.yml` names `PersonHog e2e gate`, and backend names the `product.yaml` owners job.
+  A job that is missing from both shows as skipped after a reuse, even when it failed on the previous head.
+- **A check name that embeds a runner label is brittle.**
+  Renaming the job or its runner silently stops reuse, and the only sign is `previous-not-green` with `no check run` in the `posthog-ci-reuse-decision` events.
+  When you rename a job, update `reuse-checks` in the same change.
+- **`reuse-proof-checks` names a job that runs only when the suite really runs.**
+  A gate also passes when its suite was skipped: a reused result, Playwright's debounce, the Storybook bot's baseline push, a `no-ci` label.
+  The action walks back to the newest head where a proof check concluded `success`, so a green skip is never the result it reuses.
+  Pick a job gated by the scoped filters and by nothing else, such as a build or a selection job, not one that also runs on unrelated changes.
+- **Keep filters out of scope when a job they gate must post on every head.**
+  Backend leaves its migration filters out, so `check-migrations` still runs on a migration PR and posts the `Migration risk` check that stamphog waits for.
+  The job also starts on `migrations_any`: a ClickHouse or async migration matches only `backend` among the filters that start it, and `backend` is cleared by a reuse.
+- **Bind the checks to the App that posts them with `reuse-check-apps`.**
+  It defaults to `github-actions`. Backend lists the three Depot apps, because Depot posts one check name from more than one of them.
+- **Labels that force a fuller run go in `reuse-blocking-labels`** (`run-ci-backend`, `run-ci-frontend`, `test-new-events-schema`), plus `ci-no-reuse` in every workflow.
+- **Anything that acts on a filter being `false` must also check `reused`.**
+  After a reuse, `false` means "unchanged since a green run", not "nothing here".
+  Backend's coverage cleanup is the example: it clears stale coverage only when `needs.changes.outputs.reused != 'true'`.
+- **Without `ready_for_review` in the trigger types, the first push after a draft is marked ready always runs.**
+  The action refuses a previous run that started before the PR was ready, and `ci-rust.yml` and `ci-nodejs.yml` have a bare `pull_request:` trigger.
+- **Declaring outputs in the action's `action.yml` changes the object type** that the ignore pattern in `.github/actionlint.yaml` anchors on.
+  Update both patterns in the same change, or actionlint fails on every per-filter output.
+
+Before you widen reuse, read the measured alternatives in [things already tried](../../../docs/internal/ci-things-already-tried.md#treat-comment-only-or-formatting-only-edits-as-unchanged-for-reuse).
+
 ## The hourly master lane
 
 The merge queue's `trunk-merge/**` run tests every commit before it lands, so re-running a heavy suite on the master push tests a commit that CI already covered.
@@ -491,12 +561,15 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 | `ci-dagster.yml`                    | 33     |
 | `ci-python.yml`                     | 43     |
 | `ci-mcp.yml`                        | 53     |
+| `ci-rust.yml`                       | 3      |
 | `ci-backend-update-test-timing.yml` | 17     |
+| `ci-storybook.yml`                  | 27     |
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
 
 `ci-backend-update-test-timing.yml` sits in the table too.
 It is one small job that merges the artifacts of the hourly runs, not a suite, so it does not need the ten-minute gap.
+`ci-storybook.yml` fires once a day, at 02:27 UTC, for its webkit and firefox shards, so it does not need the gap either.
 
 **Give the cron its own concurrency group.**
 `cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.
@@ -521,12 +594,15 @@ A lane that stops producing runs is invisible to the master-red alerter: it read
 Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
 
 Backend CI runs on Depot CI from `.depot/workflows/ci-backend.yml` for same-repository pull requests, master pushes, manual runs, and the hourly schedule.
+Its full scheduled matrix runs only on the `23 */3 * * *` cron.
+The other cron sets `CORE_ONLY_RUN`, which keeps the default-variant Core shards and drops products, Temporal, compat, persons-on-events off, and the events_json rows.
+A schedule that matches neither cron string runs the full matrix.
 Depot stores those runs and their original artifacts; GitHub receives check results.
 Use `.github/scripts/depot_backend_runs.py` to read the Depot runs and artifacts.
 The consumers are:
 
-- The alerter lists Backend CI in `DEPOT_WORKFLOWS` and reads master push and scheduled runs from the files that script writes.
-- `ci-backend-update-test-timing.yml` downloads timing artifacts from Depot.
+- The alerter lists Backend CI in `DEPOT_WORKFLOWS` and reads master push and scheduled runs from the files that script writes. `SCHEDULED_FULL_MATRIX_WORKFLOWS` splits the scheduled runs into a Core-only lane and a full-matrix lane, so a green Core-only run cannot reset a red full-matrix streak.
+- `ci-backend-update-test-timing.yml` downloads timing artifacts from Depot, from full-matrix runs only (`--matrix full`).
 - `ci-backend-schema-mirror.yml` copies the newest master schema dump into a GitHub artifact and GitHub Actions cache every ten minutes so GitHub-hosted jobs and fork pull requests can read it.
 - The master run trace reporter reads master push and scheduled runs from Depot. Depot's public API exposes workflow and job timestamps, but no step or job-queue timestamps, so those traces stop at jobs.
 
@@ -545,7 +621,8 @@ Before that date, fix or add to the baseline every violation that landed during 
 - [ ] Canonical `concurrency:` block (per-SHA push arm if it publishes on push).
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
 - [ ] Checkout names only the paths the job reads (`sparse-checkout` + cone mode off), or is shallow; bounded `1000 + blob:none` only for base diffing.
-- [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned; runner labels name an OS version (`ubuntu-24.04`, never `ubuntu-latest`).
+- [ ] Third-party actions SHA-pinned, or the already-onboarded workflow's lockfile regenerated and verified.
+- [ ] Node from `.nvmrc`; `setup-uv` version pinned; runner labels name an OS version (`ubuntu-24.04`, never `ubuntu-latest`).
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.

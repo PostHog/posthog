@@ -1,7 +1,10 @@
-import { WAREHOUSE_ITEMS, isWarehouseToolHref, warehouseItemForLocation } from './todayWarehouseItems'
+import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
+
+import { WAREHOUSE_ITEMS, hrefPath, isWarehouseToolHref, warehouseItemForLocation } from './todayWarehouseItems'
 
 describe('todayWarehouseItems', () => {
     test.each([
+        ...DEFINITIONS_TABS.map((tab) => [hrefPath(tab.url), 'definitions']),
         ['/sql', 'sql_editor'],
         ['/data-management/sources/abc/schemas', 'sources'],
         ['/models', 'models'],

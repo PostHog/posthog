@@ -5,13 +5,17 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { PENDING_AI_PROMPT_KEY } from '~/layout/ai/pendingAiPrompt'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import {
     ModelAccessEnumApi,
@@ -20,7 +24,7 @@ import {
     TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { runStreamLogic } from '../../api/logics'
 import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
@@ -107,6 +111,11 @@ describe('taskTrackerSceneLogic', () => {
             },
         })
         initKeaTests()
+        // Without PostHog AI 2.0 the scene sends `/tasks` URLs to classic PostHog AI.
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_SANDBOX_MODE], {
+            [FEATURE_FLAGS.TASKS]: true,
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+        })
         toolEvents = toolStreamEventsLogic()
         toolEvents.mount()
         toolEvents.actions.registerToolListener('editor', {
@@ -120,6 +129,158 @@ describe('taskTrackerSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         toolEvents?.unmount()
+        jest.useRealTimers()
+    })
+
+    it.each([
+        { description: '', repository: undefined },
+        { description: 'Explain this funnel', repository: undefined },
+        { description: '', repository: 'example/project' },
+        { description: 'Explain this funnel', repository: 'example/project' },
+    ])(
+        'warms only without a repository (draft: $description, repository: $repository)',
+        async ({ description, repository }) => {
+            const warmBodies: Record<string, unknown>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/warm/': async ({ request }) => {
+                        warmBodies.push((await request.json()) as Record<string, unknown>)
+                        return [200, { task_id: 'warm-task', run_id: 'warm-run' }]
+                    },
+                },
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewTaskData({
+                repositoryConfig: {
+                    repository,
+                    integrationId: repository ? 1 : undefined,
+                    branch: repository ? 'main' : undefined,
+                },
+            })
+            const warm = taskWarmLogic({ panelId: undefined })
+            expect(warm.values.warmLease).toBeNull()
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(true)
+            jest.advanceTimersByTime(700)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+
+            expect(warmBodies).toEqual(
+                repository
+                    ? []
+                    : [expect.objectContaining({ repository: null, github_integration: null, branch: null })]
+            )
+            expect(warm.values.warmLease).toEqual(
+                repository ? null : expect.objectContaining({ taskId: 'warm-task', runId: 'warm-run' })
+            )
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(true)
+            logic.actions.setNewTaskData({ description })
+            jest.advanceTimersByTime(5000)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+            expect(warmBodies).toHaveLength(repository ? 0 : 1)
+            expect(cancelledWarmRuns).toEqual([])
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(false)
+            jest.advanceTimersByTime(5000)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+            expect(cancelledWarmRuns).toEqual(repository || description ? [] : ['warm-run'])
+        }
+    )
+
+    it.each([
+        { target: 'environment:env-1', expected: { sandbox_environment_id: 'env-1' } },
+        { target: 'image:img-1', expected: { custom_image_id: 'img-1' } },
+    ])('waits for the saved cloud target before warming on focus ($target)', async ({ target, expected }) => {
+        let finishConfig!: (response: [number, Record<string, unknown>]) => void
+        const config = new Promise<[number, Record<string, unknown>]>((resolve) => {
+            finishConfig = resolve
+        })
+        const warmBodies: Record<string, unknown>[] = []
+        useMocks({
+            get: { '/api/projects/:team/tasks/@me/config/': () => config },
+            post: {
+                '/api/projects/:team/tasks/warm/': async ({ request }) => {
+                    warmBodies.push((await request.json()) as Record<string, unknown>)
+                    return [200, { task_id: 'warm-task', run_id: 'warm-run' }]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_QUILL], { [FEATURE_FLAGS.PHAI_QUILL]: true })
+        logic.mount()
+        logic.actions.setCloudTargets(
+            [{ id: 'env-1', name: 'Example environment' } as SandboxEnvironmentDTOApi],
+            [{ id: 'img-1', name: 'Example image', status: 'ready' } as SandboxCustomImageDTOApi]
+        )
+        const warm = taskWarmLogic({ panelId: undefined })
+
+        jest.useFakeTimers()
+        logic.actions.setComposerFocused(true)
+        await jest.advanceTimersByTimeAsync(700)
+        jest.useRealTimers()
+        const beforeConfig = [...warmBodies]
+
+        finishConfig([200, { ...myConfigResponse(null), task_defaults: { default_cloud_target: target } }])
+        await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+        expect(beforeConfig).toEqual([])
+        await waitFor(() => expect(warmBodies).toEqual([expect.objectContaining(expected)]), { timeout: 5000 })
+        await expectLogic(warm).toFinishAllListeners()
+        expect(warm.values.warmLease).toMatchObject({ taskId: 'warm-task', runId: 'warm-run' })
+    })
+
+    it('releases an unused warm run when a repository is attached', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': () => [200, { task_id: 'warm-task', run_id: 'warm-run' }],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const warm = taskWarmLogic({ panelId: undefined })
+
+        jest.useFakeTimers()
+        logic.actions.setComposerFocused(true)
+        jest.advanceTimersByTime(700)
+        jest.useRealTimers()
+        await expectLogic(warm).toFinishAllListeners()
+        expect(warm.values.warmLease).not.toBeNull()
+
+        await expectLogic(logic, () =>
+            logic.actions.setNewTaskData({ repositoryConfig: { repository: 'example/project', integrationId: 1 } })
+        ).toFinishAllListeners()
+        await expectLogic(warm).toFinishAllListeners()
+
+        expect(warm.values.warmLease).toBeNull()
+        expect(cancelledWarmRuns).toEqual(['warm-run'])
+    })
+
+    it.each([true, false])('resets the warm budget only after a successful cold run (success: %s)', async (success) => {
+        let warmCalls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': () => {
+                    warmCalls++
+                    return [200, {}]
+                },
+                '/api/projects/:team/tasks/:id/run/': () =>
+                    success ? [200, { run: { id: 'cold-run' } }] : [500, { detail: 'Run failed' }],
+            },
+        })
+        logic.mount()
+        const warm = taskWarmLogic({ panelId: undefined })
+        logic.actions.setNewTaskData({ description: 'First draft' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(warm, () => warm.actions.prewarm({ branch: null })).toFinishAllListeners()
+        expect(warmCalls).toBe(1)
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+        await expectLogic(warm, () => warm.actions.prewarm({ branch: null })).toFinishAllListeners()
+        expect(warmCalls).toBe(success ? 2 : 1)
     })
 
     describe('file attachments', () => {
@@ -190,6 +351,22 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toHaveProperty('branch', null)
         expect(uploadStagedTaskAttachments).not.toHaveBeenCalled()
         expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
+    })
+
+    // An Inbox task link must still open its transcript without 2.0. The Tasks flag alone does not grant the composer,
+    // because the server decides 2.0 from one flag.
+    it.each([
+        ['/tasks', '/ai', {}],
+        ['/tasks/new', '/ai', {}],
+        ['/tasks/new', '/ai', { [FEATURE_FLAGS.TASKS]: true }],
+        ['/tasks/a1b2c3d4-0000-4000-8000-000000000001', '/tasks/a1b2c3d4-0000-4000-8000-000000000001', {}],
+    ])('without PostHog AI 2.0, %s lands on %s (flags %j)', async (start, expected, flags) => {
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        logic.mount()
+        router.actions.push(start)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(`/project/997${expected}`)
     })
 
     it.each([
@@ -388,6 +565,43 @@ describe('taskTrackerSceneLogic', () => {
             expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
         }
     )
+
+    // A page can still show 2.0 after the server stopped allowing it. The refused message must reach classic
+    // PostHog AI without passing through the URL, and the switch must also hold in an OAuth session, which
+    // has no server-rendered app context.
+    it.each([
+        ['with the server-rendered decision', true],
+        ['without an app context', false],
+    ])('hands a send the server refuses to classic PostHog AI %s', async (_, hasAppContext) => {
+        const originalAppContext = window.POSTHOG_APP_CONTEXT
+        window.POSTHOG_APP_CONTEXT = hasAppContext
+            ? ({ ...originalAppContext, posthog_ai_access: true } as AppContext)
+            : undefined
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': () => [
+                    403,
+                    { type: 'permission_denied', code: 'task_unavailable', error: "This task isn't available to you." },
+                ],
+            },
+        })
+        try {
+            logic.mount()
+            router.actions.push('/tasks/new')
+            logic.actions.setNewTaskData({ description: 'Explain the example chart' })
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]).toBe(false)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/ai')
+            expect(router.values.searchParams).toEqual({})
+            expect(JSON.parse(sessionStorage.getItem(PENDING_AI_PROMPT_KEY) ?? '{}')).toMatchObject({
+                prompt: 'Explain the example chart',
+            })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = originalAppContext
+            sessionStorage.clear()
+        }
+    })
 
     // PostHog AI can run without a repo: a description-only submit must still create and run the task with a
     // null repository, not bail. Guards against re-adding a "Repository is required" gate on the send path.
@@ -601,7 +815,7 @@ describe('taskTrackerSceneLogic', () => {
     // Issuing the usual run-create on top would strand that warm sandbox and cold-boot a second one —
     // exactly the ~16s the warm existed to avoid. The create must also carry the warm-reuse hints, since
     // the backend never even attempts a match unless `branch` is present as a key.
-    it('skips the run create when the backend activated a warm run', async () => {
+    it.each([false, true])('targets a capable warm and skips a second run (mutable: %s)', async (mutable) => {
         useMocks({
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -616,6 +830,13 @@ describe('taskTrackerSceneLogic', () => {
         })
         logic.mount()
         logic.actions.setNewTaskData({ description: 'do the thing' })
+        const warm = taskWarmLogic({ panelId: undefined })
+        warm.actions.setWarmLease({
+            key: 'k',
+            taskId: 'warm-task',
+            runId: 'warm-run-1',
+            permissionModeMutable: mutable,
+        })
         logic.actions.submitNewTask()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -629,6 +850,8 @@ describe('taskTrackerSceneLogic', () => {
         // stored default for warm matching the same way the warm was provisioned.
         expect(createBody?.model).toBeUndefined()
         expect(createBody?.runtime_adapter).toBeUndefined()
+        expect(createBody?.warm_run_id).toBe(mutable ? 'warm-run-1' : undefined)
+        expect(createBody?.warm_submission_id).toEqual(mutable ? expect.any(String) : undefined)
         expect(runBody).toBeNull()
         expect(logic.values.activeCreation?.runId).toBe('warm-run-1')
     })
@@ -728,6 +951,25 @@ describe('taskTrackerSceneLogic', () => {
         }
     )
 
+    it('toasts the active-session cap refusal and keeps the draft', async () => {
+        const detail =
+            'You already have 10 cloud sandboxes running. Wait for one to finish or stop one, then try again.'
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/:id/run/': () => [400, { detail, code: 'active_session_cap' }],
+            },
+        })
+        const toast = jest.spyOn(lemonToast, 'error')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Inspect the example chart' })
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(toast).toHaveBeenCalledWith(detail)
+        expect(logic.values.isSubmittingTask).toBe(false)
+        expect(logic.values.newTaskData.description).toBe('Inspect the example chart')
+        toast.mockRestore()
+    })
+
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
@@ -763,12 +1005,36 @@ describe('taskTrackerSceneLogic', () => {
             expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({
                 'new-task': source === 'both' ? ['insight:scene-sig', 'insight:sig'] : ['insight:sig'],
             })
+            expect(attachedContextLogic().values.chatChipsByTask['new-task'].map((chip) => chip.id)).toEqual(
+                source === 'both' ? ['insight:scene-sig', 'insight:sig', 'text:Text'] : ['insight:sig', 'text:Text']
+            )
             expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
             expect(attachedContextLogic().values.contextItems).toHaveLength(
                 source === 'seed' ? 0 : source === 'both' ? 1 : 2
             )
         }
     )
+
+    // A pinned surface replaces the page's context, but the user's own pick must still reach the first message.
+    it('sends a new chat pick alongside pinned context and clears the draft', async () => {
+        const pinned = taskTrackerSceneLogic({
+            panelId: 'pinned-context',
+            contextItems: [{ type: 'insight', key: 'pinned', label: 'Pinned' }],
+        })
+        pinned.mount()
+        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'page', label: 'Page' }])
+        attachedContextLogic().actions.pickItem({ type: 'dashboard', key: 7, label: 'Weekly' })
+
+        pinned.actions.setNewTaskData({ description: 'why the drop?' })
+        pinned.actions.submitNewTask()
+        await expectLogic(pinned).toFinishAllListeners()
+
+        expect(runBody?.pending_user_message).toContain('- insight pinned ("Pinned")')
+        expect(runBody?.pending_user_message).toContain('- dashboard 7 ("Weekly")')
+        expect(runBody?.pending_user_message).not.toContain('- insight page')
+        expect(attachedContextLogic().values.pickedByChat['']).toEqual([])
+        pinned.unmount()
+    })
 
     // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
     // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox
@@ -784,6 +1050,7 @@ describe('taskTrackerSceneLogic', () => {
         blockedLogic.mount()
 
         await expectLogic(blockedLogic, () => {
+            blockedLogic.actions.setComposerFocused(true)
             blockedLogic.actions.setNewTaskData({ description: 'do the thing' })
             blockedLogic.actions.submitNewTask()
         })
@@ -860,7 +1127,7 @@ describe('taskTrackerSceneLogic', () => {
     })
 
     it('bills a codex default to the saved chatgpt plan when the task submits before the defaults load', async () => {
-        const flag = FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD
+        const flag = FEATURE_FLAGS.PHAI_SANDBOX_MODE
         featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
         useMocks({
             get: {
@@ -916,7 +1183,17 @@ describe('taskTrackerSceneLogic', () => {
     // A channel host starts on its own repo instead of the remembered one, files the task in its channel, and
     // keeps the shared last-used repo intact.
     it('creates the task in the host channel from the host repository default', async () => {
+        let finishCreation!: (response: [number, Record<string, unknown>]) => void
+        const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
+            finishCreation = resolve
+        })
         useMocks({
+            post: {
+                '/api/projects/:team/tasks/': async ({ request }) => {
+                    createBody = (await request.json()) as Record<string, any>
+                    return creation
+                },
+            },
             get: {
                 '/api/projects/:team/integrations/': {
                     results: [{ id: 7, kind: 'github', display_name: 'acme', config: {} }],
@@ -940,7 +1217,11 @@ describe('taskTrackerSceneLogic', () => {
 
         logic.actions.setNewTaskData({ description: 'ship it' })
         logic.actions.submitNewTask()
-        await expectLogic(logic).toFinishAllListeners()
+        const nextOnTaskCreated = jest.fn()
+        taskTrackerSceneLogic({ ...logic.props, onTaskCreated: nextOnTaskCreated })
+        await expectLogic(logic, () =>
+            finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
+        ).toFinishAllListeners()
 
         expect(createBody).toMatchObject({
             channel: 'channel-1',
@@ -948,6 +1229,7 @@ describe('taskTrackerSceneLogic', () => {
             github_integration: 7,
         })
         expect(onTaskCreated).toHaveBeenCalledWith('new-task')
+        expect(nextOnTaskCreated).not.toHaveBeenCalled()
         expect(logic.values.newTaskData.repositoryConfig.repository).toBe('acme/space-repo')
         expect(logic.values.persistedRepositoryConfig).toEqual({ integrationId: 7, repository: 'acme/remembered' })
     })
@@ -1006,6 +1288,34 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toMatchObject({ repository: null, github_integration: null })
 
         overrides.unmount()
+    })
+
+    // Warm sandboxes are GitHub-only, and the backend rejects a GitLab integration sent with a GitHub one.
+    it('creates a GitLab task cold and gives back a warm sandbox held for GitHub', async () => {
+        const warm = taskWarmLogic({ panelId: undefined })
+        warm.mount()
+        warm.actions.setWarmLease({ key: 'k', taskId: 'warm-task', runId: 'warm-run' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().clearHistory()
+
+        await expectLogic(logic, () => {
+            logic.actions.setNewTaskData({
+                repositoryConfig: { integrationId: 7, repositoryIntegrationId: 12, repository: 'acme/platform/api' },
+            })
+            logic.actions.setNewTaskData({ description: 'fix the flaky job' })
+        })
+            .toNotHaveDispatchedActions(['noteDraft'])
+            .toFinishAllListeners()
+        expect(cancelledWarmRuns).toEqual(['warm-run'])
+
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ repository: 'acme/platform/api', repository_integration: 12 })
+        expect(createBody).not.toHaveProperty('github_integration')
+        expect(createBody).not.toHaveProperty('branch')
+        expect(runBody).toMatchObject({ branch: null })
+        expect(logic.values.persistedRepositoryConfig).toEqual({})
+        warm.unmount()
     })
 
     it('keeps runner composer settings independent of scene overrides', () => {

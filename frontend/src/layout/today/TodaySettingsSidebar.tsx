@@ -11,9 +11,10 @@ import { SettingsPaneLevel } from 'scenes/settings/settingsSectionScenes'
 import { SettingLevelNames, SettingSection } from 'scenes/settings/types'
 import { urls } from 'scenes/urls'
 
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
-import { TodayPaneRow } from './TodayPaneRow'
-import { TodayPaneSearchList } from './TodayPaneSearchList'
 
 export function TodaySettingsSidebar(): JSX.Element {
     // The scene's own key, so a search here and the open section stay in step with the settings page.
@@ -29,7 +30,7 @@ export function TodaySettingsSidebar(): JSX.Element {
     const renderSection = (section: SettingSection, destructive = false): JSX.Element => {
         const href = section.to ?? urls.settings(section.id)
         return (
-            <TodayPaneRow
+            <SidebarRow
                 key={section.id}
                 value={`section:${section.id}`}
                 label={settingsSectionLabel(section)}
@@ -44,7 +45,7 @@ export function TodaySettingsSidebar(): JSX.Element {
 
     return (
         <div className="TodayPane" data-quill>
-            <TodayPaneSearchList
+            <SidebarSearchList
                 query={searchTerm}
                 onQueryChange={setSearchTerm}
                 searchLabel="Search all settings"
@@ -83,7 +84,7 @@ export function TodaySettingsSidebar(): JSX.Element {
                                     <span className="ml-1 font-normal">({SettingLevelNames[group.level]})</span>
                                 </TodayPaneGroupLabel>
                                 {group.results.map((result) => (
-                                    <TodayPaneRow
+                                    <SidebarRow
                                         key={result.settingId}
                                         value={`setting:${result.sectionId}:${result.settingId}`}
                                         label={result.settingTitle}
@@ -122,7 +123,7 @@ export function TodaySettingsSidebar(): JSX.Element {
                         )
                     })
                 )}
-            </TodayPaneSearchList>
+            </SidebarSearchList>
         </div>
     )
 }

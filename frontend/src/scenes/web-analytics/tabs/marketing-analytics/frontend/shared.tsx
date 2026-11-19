@@ -24,6 +24,12 @@ export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<ChartDisplayType>[
     { value: ChartDisplayType.ActionsBar, icon: <IconGraph /> },
 ]
 
+export const MARKETING_CHART_TYPE_LABELS: Partial<Record<ChartDisplayType, string>> = {
+    [ChartDisplayType.ActionsLineGraph]: 'Line chart',
+    [ChartDisplayType.ActionsAreaGraph]: 'Area chart',
+    [ChartDisplayType.ActionsBar]: 'Bar chart',
+}
+
 const formatMarketingItem = (
     value: number | string | undefined,
     kind: WebAnalyticsItemKind,

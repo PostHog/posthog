@@ -83,8 +83,14 @@ export const PersonsSplitCreateBody = /* @__PURE__ */ zod.object({
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export const PersonsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().describe('The property key to set.'),
-    value: zod.unknown().describe('The property value. Can be a string, number, boolean, or object.'),
+    key: zod.string().optional().describe("The property key to set. Pair it with 'value' to set one property."),
+    value: zod.unknown().optional().describe('The property value. Can be a string, number, boolean, or object.'),
+    properties: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event."
+        ),
 })
 
 /**
@@ -134,14 +140,4 @@ export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(personsBulkDeleteCreateBodyKeepPersonDefault)
         .describe('If true, keep the person records but delete their events and recordings.'),
-})
-
-/**
- * Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.
- */
-export const PersonsResetPersonDistinctIdCreateBody = /* @__PURE__ */ zod.object({
-    properties: zod
-        .unknown()
-        .optional()
-        .describe('Key-value map of person properties set via $set and $set_once operations.'),
 })

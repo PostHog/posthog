@@ -7,7 +7,7 @@ from django.db.models import F, QuerySet
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.cleanup_property_definitions.types import (
     CleanupPropertyDefinitionsError,
@@ -18,7 +18,11 @@ from posthog.temporal.cleanup_property_definitions.types import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.event_definitions.backend.models import effective_project_id_expr, group_type_index_key_expr
+from products.event_definitions.backend.models import (
+    PropertyDefinition,
+    effective_project_id_expr,
+    group_type_index_key_expr,
+)
 from products.event_definitions.backend.models.event_property import EventProperty
 
 LOGGER = get_write_only_logger()
@@ -45,9 +49,9 @@ def _definitions_matching(project_id: int, property_type: int, pattern: str) -> 
         _project_definitions(project_id, property_type)
         .filter(name__regex=pattern)
         .order_by(
-            "effective_project_id",
+            F("effective_project_id"),
             "type",
-            "group_type_index_key",
+            F("group_type_index_key"),
             F("query_usage_30_day").desc(nulls_last=True),
             "name",
         )

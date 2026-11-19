@@ -278,6 +278,22 @@ export function buildSummary(state: ScheduleState, startsAt: string | null, time
 }
 
 /** Parse natural language like "every week on Monday and Wednesday" into a ScheduleState. */
+// parseRRuleToState falls back to weekly outside these four, and the API accepts any rule
+// dateutil parses, so anything else is shown as written rather than described wrongly.
+const SUMMARIZABLE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
+
+export function summarizeSchedule(rrule: string, startsAt: string | null, timezone?: string): string {
+    if (isOneTimeSchedule(rrule)) {
+        const at = startsAt ? (timezone ? dayjs(startsAt).tz(timezone) : dayjs(startsAt)) : null
+        return at ? `Runs once on ${at.format('D MMM YYYY, HH:mm')}` : 'Runs once'
+    }
+    const frequency = rrule.match(/FREQ=([A-Z]+)/)?.[1]
+    if (!frequency || !SUMMARIZABLE_FREQUENCIES.includes(frequency)) {
+        return rrule
+    }
+    return buildSummary(parseRRuleToState(rrule), startsAt, timezone)
+}
+
 export function parseNaturalLanguage(text: string): ScheduleState | null {
     const trimmed = text.trim().toLowerCase()
     if (!trimmed || !trimmed.includes('every')) {

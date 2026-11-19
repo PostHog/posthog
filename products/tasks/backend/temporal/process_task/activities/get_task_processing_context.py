@@ -2,6 +2,7 @@ import json
 import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 from typing import Any, Literal
 
 from django.conf import settings
@@ -19,8 +20,8 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
-    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
@@ -30,10 +31,10 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PERSIST_AGENT_MEMORY_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
-    STORE_SKILLS_STATE_KEY,
     SUBSCRIPTION_PLAN_NAMES,
     is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
@@ -49,14 +50,21 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
-from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
+from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
+from products.tasks.backend.logic.services.agent_instructions import (
+    agent_instructions_state_update,
+    receives_agent_memory,
+)
 from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_domains,
     _get_debug_only_ports,
     enforced_egress_domains,
 )
+from products.tasks.backend.logic.services.desktop_gateway_token import POSTHOG_CODE_PRODUCT
+from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
     NetworkPolicyValidationError,
@@ -68,14 +76,15 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
-from products.tasks.backend.logic.services.store_skills import resolve_store_skills
+from products.tasks.backend.logic.services.store_skills import disabled_store_skills_state, resolve_store_skills_state
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_generation
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.metrics import StepTimer, sandbox_runtime_label
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
-from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
+from products.tasks.backend.temporal.observability import emit_agent_log, get_bound_logger, log_with_activity_context
+from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_actor_distinct_id,
@@ -112,10 +121,14 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    profile_key: str | None = None
+    profile_idle_minutes: int | None = None
+    profile_max_wake_minutes: int | None = None
     startup_requested_at: str | None = None
     task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
     github_user_integration_id: str | None = None
+    repository_integration_id: int | None = None
     task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
@@ -132,10 +145,8 @@ class TaskProcessingContext:
     json_schema: dict | None = None
     ci_prompt: str | None = None
     # Captured at workflow start so snapshot creation is deterministic across
-    # activity retries. This means "create any Modal resume snapshot"; filesystem
-    # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
+    # activity retries.
     use_modal_resume_snapshots: bool = True
-    use_modal_directory_resume_snapshots: bool = True  # Temporal payload compatibility
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
@@ -151,7 +162,9 @@ class TaskProcessingContext:
     overlap_clone_boot_enabled: bool = False
     # Captured at workflow start so the warmup decision stays stable across retries.
     desktop_workspace_warm_enabled: bool = False
+    baked_repo_clone_enabled: bool = False
     agent_shadow_enabled: bool = False
+    agent_egress_observation_config: str | None = None
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -167,10 +180,9 @@ class TaskProcessingContext:
     # default is what pre-existing run histories decode, so replays schedule no new timer
     # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
     interactive_max_run_duration_seconds: int | None = None
-    # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
-    # Exposure only: the peers endpoints re-check authorization server-side on every call.
-    peer_messaging_enabled: bool = False
     pi_acp_conversation_enabled: bool = False
+    # Captured at workflow start; the memory persist commands are gated on it together with a patch marker.
+    persist_agent_memory_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
     # and out-of-band consumers route deterministically for the run's whole life.
@@ -182,6 +194,7 @@ class TaskProcessingContext:
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    gateway_ai_product: str | None = None
 
     @property
     def model_access(self) -> ModelAccess:
@@ -216,11 +229,26 @@ class TaskProcessingContext:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 
     @property
+    def has_gitlab_credentials(self) -> bool:
+        return self.repository_integration_id is not None
+
+    @property
     def repositories(self) -> list[str]:
         repositories = (self.state or {}).get("repositories")
         if isinstance(repositories, list) and all(isinstance(repository, str) for repository in repositories):
             return repositories
         return [self.repository] if self.repository else []
+
+    @property
+    def github_access_repositories(self) -> list[str]:
+        """Repositories the run's GitHub token covers: the cloned ones plus any granted at creation.
+
+        Only token minting reads this. Remote rewrites and cloning stay on ``repositories``.
+        """
+        access = (self.state or {}).get("github_access_repositories")
+        if isinstance(access, list) and access and all(isinstance(repository, str) for repository in access):
+            return access
+        return self.repositories
 
     @property
     def github_read_access(self) -> bool:
@@ -230,6 +258,11 @@ class TaskProcessingContext:
         that carries ``contents: read`` and nothing else.
         """
         return (self.state or {}).get("github_read_access") is True
+
+    @property
+    def github_token_scope(self) -> Literal["read", "push"] | None:
+        scope = (self.state or {}).get("github_token_scope")
+        return scope if scope in ("read", "push") else None
 
     @property
     def sandbox_environment_id(self) -> str | None:
@@ -254,7 +287,15 @@ class TaskProcessingContext:
     @property
     def model(self) -> str | None:
         value = (self.state or {}).get("model")
-        return value if isinstance(value, str) else None
+        if not isinstance(value, str):
+            return None
+        product = self.gateway_ai_product
+        if product is None and self.origin_product == Task.OriginProduct.POSTHOG_AI:
+            product = "posthog_ai"
+        # posthog_code keeps an off-pin model so its refusal can tell the user to pick another.
+        if product and product != POSTHOG_CODE_PRODUCT and not model_allowed_by_product_pin(product, value):
+            return None
+        return value
 
     @property
     def reasoning_effort(self) -> str | None:
@@ -298,7 +339,10 @@ class TaskProcessingContext:
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
         return resolve_inactivity_timeout(
-            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
+            is_user_origin=self._is_user_origin(),
+            origin_product=self.origin_product,
+            state=self.state,
+            profile_idle_minutes=self.profile_idle_minutes,
         )
 
     def _is_user_origin(self) -> bool:
@@ -316,13 +360,23 @@ class TaskProcessingContext:
         sessions can legitimately run for hours, so they are uncapped — except interactive
         signals-origin runs, whose inference is unbilled and which therefore get their own
         (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
-        the cap as a safety net unless the setting disables it deployment-wide.
+        the cap as a safety net unless the setting disables it deployment-wide. A task with
+        a profile takes the exemption from the profile's `max_wake_minutes`. Its cap is the
+        lower of `max_wake_minutes` and the setting.
         """
-        if self.mode == "interactive" or self._is_user_origin():
+        if self.mode == "interactive" or self._exempt_from_max_run_duration():
             if self.interactive_max_run_duration_seconds:
                 return timedelta(seconds=self.interactive_max_run_duration_seconds)
             return None
-        return resolve_max_run_duration()
+        cap = resolve_max_run_duration()
+        if cap is None or self.profile_max_wake_minutes is None:
+            return cap
+        return min(cap, timedelta(minutes=self.profile_max_wake_minutes))
+
+    def _exempt_from_max_run_duration(self) -> bool:
+        if self.profile_key:
+            return self.profile_max_wake_minutes is None
+        return self._is_user_origin()
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.
@@ -389,6 +443,7 @@ class TaskProcessingContext:
 
 
 PR_LOOP_FEATURE_FLAG = "tasks-pr-loop"
+CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY = "custom_image_fallback_reason"
 
 RUN_FEATURE_FLAG_KEYS: list[str] = [
     PR_LOOP_FEATURE_FLAG,
@@ -396,13 +451,14 @@ RUN_FEATURE_FLAG_KEYS: list[str] = [
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
-    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
+    PERSIST_AGENT_MEMORY_FEATURE_FLAG,
 ]
 
 
@@ -435,22 +491,6 @@ def _flag_enabled(flags: FlagsAndPayloads, key: str) -> bool:
 
 def _flag_payload(flags: FlagsAndPayloads, key: str) -> object:
     return (flags.get("featureFlagPayloads") or {}).get(key)
-
-
-def _is_peer_messaging_enabled(
-    *,
-    flags: FlagsAndPayloads,
-    run_id: str,
-) -> bool:
-    """Whether the agent peer-messaging tools should surface in the sandbox.
-
-    Fail-closed exposure gate only — the peers list/message endpoints enforce the
-    flag and runtime again server-side, so a stale env var in a resumed sandbox
-    can never authorize anything."""
-    enabled = _flag_enabled(flags, AGENT_PEER_MESSAGING_FEATURE_FLAG)
-    if enabled:
-        log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
-    return enabled
 
 
 def _is_pi_acp_enabled(*, flags: FlagsAndPayloads) -> bool:
@@ -793,6 +833,21 @@ def _is_desktop_workspace_warm_enabled(
     return enabled
 
 
+def _is_baked_repo_clone_enabled(
+    *,
+    flags: FlagsAndPayloads,
+    run_id: str,
+) -> bool:
+    enabled = _flag_enabled(flags, BAKED_REPO_CLONE_FEATURE_FLAG)
+
+    log_with_activity_context(
+        "baked_repo_clone_flag_checked",
+        run_id=run_id,
+        baked_repo_clone_enabled=enabled,
+    )
+    return enabled
+
+
 def _is_dev_stack_preview_enabled(
     *,
     flags: FlagsAndPayloads,
@@ -884,6 +939,15 @@ def _resolve_sandbox_backend(
     return "hogland" if enabled else "modal"
 
 
+def _profile_allowed_domains(network: NetworkPolicy) -> list[str] | None:
+    level = network.levels[0]
+    if level == NetworkAccess.FULL:
+        return None
+    return SandboxEnvironment.effective_domains(
+        level, network.allowed_domains, include_default_domains=network.include_default_domains
+    )
+
+
 def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
     debug_domains = _get_debug_only_domains() if settings.DEBUG else []
     debug_ports = _get_debug_only_ports() if settings.DEBUG else []
@@ -893,6 +957,34 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
         debug_domains=debug_domains,
         debug_ports=debug_ports,
     )
+
+
+def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed: bool) -> str | None:
+    path = settings.AGENT_EGRESS_OBSERVATION_CONFIG
+    if (
+        not path
+        or not settings.DEBUG
+        or settings.SANDBOX_PROVIDER != "MODAL_DOCKER"
+        or resumed
+        or context.is_snapshot_resume
+        or context.environment != "cloud"
+        or context.mode == "interactive"
+        or context.sandbox_backend != "modal"
+        or not context.use_modal_vm_sandbox
+        or context.allowed_domains is not None
+    ):
+        return None
+    try:
+        config = AgentEgressProbeConfig.load(Path(path))
+    except ValueError:
+        get_bound_logger(run_id=context.run_id, team_id=context.team_id).warning(
+            "agent_egress_observation_disabled",
+            reason="invalid_configuration",
+        )
+        return None
+    if config.team_id != context.team_id or str(config.run_id) != context.run_id:
+        return None
+    return path
 
 
 @activity.defn
@@ -910,7 +1002,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             task_run = TaskRun.objects.select_related(
                 "task__created_by",
                 "task__team",
-                "task__github_integration",
                 "task__github_user_integration",
             ).get(id=run_id)
             posthoganalytics.tag("origin_product", task_run.task.origin_product)
@@ -957,6 +1048,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     distinct_id = (
         get_actor_distinct_id(actor_user) if actor_user else task.created_by.distinct_id or "process_task_workflow"
     )
+    profile = task.stored_profile
     sandbox_environment_id = state.get("sandbox_environment_id")
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
@@ -983,7 +1075,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                         "warn",
                         f"Custom image '{custom_image.name}' is private to its creator; using the default base image",
                     )
-                elif custom_image.is_ready:
+                elif custom_image.has_usable_build:
                     environment_custom_image_name = custom_image.modal_image_name
                 else:
                     emit_agent_log(
@@ -992,7 +1084,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                         f"Custom image '{custom_image.name}' is not ready (status: {custom_image.status}); "
                         "using the default base image",
                     )
-            if sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
+            if profile is not None and sandbox_environment.internal:
+                allowed_domains = _profile_allowed_domains(profile.network)
+            elif sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
                 allowed_domains = None
             else:
                 allowed_domains = sandbox_environment.get_effective_domains()
@@ -1006,17 +1100,21 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 log_with_activity_context(
                     f"Resolved sandbox environment '{sandbox_environment.name}' with full network access", run_id=run_id
                 )
+    elif profile is not None:
+        allowed_domains = _profile_allowed_domains(profile.network)
 
     # A per-run image (picked at task start) wins over the environment's image.
     state_custom_image_id = state.get("custom_image_id")
+    custom_image_fallback_reason: str | None = None
     if state_custom_image_id:
         with StepTimer("load_custom_image"):
             state_custom_image = SandboxCustomImage.get_accessible_for_task(
                 image_id=state_custom_image_id, team_id=task.team_id, task_created_by_id=task.created_by_id
             )
-        if state_custom_image is not None and state_custom_image.is_ready:
+        if state_custom_image is not None and state_custom_image.has_usable_build:
             environment_custom_image_name = state_custom_image.modal_image_name
         else:
+            custom_image_fallback_reason = "unavailable" if state_custom_image is None else "not_ready"
             emit_agent_log(
                 run_id,
                 "warn",
@@ -1044,8 +1142,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # that gates other origins. This mirrors the babysitting the Slack coding bot
     # gets for its PRs.
     flags = _fetch_run_flags(distinct_id=distinct_id, organization_id=organization_id, run_id=run_id)
-    pr_loop_enabled = task.origin_product == Task.OriginProduct.SIGNAL_REPORT or _flag_enabled(
-        flags, PR_LOOP_FEATURE_FLAG
+    # The PR follow-up loop reads GitHub checks and reviews, so it stays off for GitLab merge requests.
+    pr_loop_enabled = task.repository_integration_id is None and (
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT or _flag_enabled(flags, PR_LOOP_FEATURE_FLAG)
     )
     log_with_activity_context(f"pr_loop_enabled: {pr_loop_enabled} for this task run", run_id=run_id)
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
@@ -1053,18 +1152,19 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
+    store_skills_updates: dict[str, Any] | None
     try:
-        if not include_live_context:
-            store_skills: list[dict[str, Any]] | None = []
-            state[STORE_SKILLS_STATE_KEY] = []
+        if not include_live_context or state.get("disable_skills") is True:
+            store_skills_updates = disabled_store_skills_state()
+            state.update(store_skills_updates)
         else:
             with StepTimer("store_skills"):
-                store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
+                store_skills_updates = resolve_store_skills_state(team, actor_user or task.created_by, run_id=run_id)
     except Exception as e:
         log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
-        store_skills = None
-    if store_skills is not None:
-        state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+        store_skills_updates = None
+    if store_skills_updates is not None:
+        state_updates.update(store_skills_updates)
     # The sandbox writes these as the agent's user-level AGENTS.md / CLAUDE.md at session start.
     # Best-effort for the same reason as store skills.
     state_remove_keys: list[str] = []
@@ -1158,6 +1258,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             custom_image_name = environment_custom_image_name
             log_with_activity_context(f"Using custom base image: {custom_image_name}", run_id=run_id)
         else:
+            if state_custom_image_id and custom_image_fallback_reason is None:
+                custom_image_fallback_reason = "runtime_not_enabled"
             emit_agent_log(
                 run_id,
                 "warn",
@@ -1172,6 +1274,22 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         log_with_activity_context(
             f"Using the organization's default custom base image: {custom_image_name}", run_id=run_id
         )
+    if (
+        input.launches_agent
+        and input.resumed_sandbox_id is None
+        and (custom_image_fallback_reason is not None or CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY in state)
+    ):
+        try:
+            if custom_image_fallback_reason is None:
+                state.pop(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY)
+                TaskRun.update_state_atomic(task_run.id, remove_keys=[CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY])
+            else:
+                state[CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY] = custom_image_fallback_reason
+                TaskRun.update_state_atomic(
+                    task_run.id, updates={CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: custom_image_fallback_reason}
+                )
+        except Exception as e:
+            log_with_activity_context("custom_image_fallback_reason_stamp_failed", run_id=run_id, error=str(e))
     burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
         run_id=run_id,
         state=state,
@@ -1193,6 +1311,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     )
     log_with_activity_context(
         f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run", run_id=run_id
+    )
+    baked_repo_clone_enabled = _is_baked_repo_clone_enabled(
+        flags=flags,
+        run_id=run_id,
     )
     agent_shadow_enabled = input.launches_agent and _is_agent_shadow_enabled(flags=flags)
     rtk_enabled = _is_rtk_enabled(
@@ -1287,22 +1409,27 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 
-    return TaskProcessingContext(
+    context = TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
         startup_requested_at=task_run.startup_requested_at,
         team_id=task.team_id,
         team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),
-        github_integration_id=task.github_integration_id,
-        github_user_integration_id=user_github_integration_id,
+        # A GitLab task gets no GitHub credential, so the GitHub refresh loop never rewrites its remote.
+        github_integration_id=task.github_integration_id if task.repository_integration_id is None else None,
+        github_user_integration_id=user_github_integration_id if task.repository_integration_id is None else None,
+        repository_integration_id=task.repository_integration_id,
         repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        profile_key=profile.key if profile else None,
+        profile_idle_minutes=profile.idle_minutes if profile else None,
+        profile_max_wake_minutes=profile.max_wake_minutes if profile else None,
         task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
-        create_pr=input.create_pr,
+        create_pr=input.create_pr and (profile is None or profile.create_pr),
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_loop_enabled,
         context_layer_enabled=context_layer_enabled,
@@ -1325,7 +1452,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ci_prompt=task.ci_prompt,
         # Hogland has no resume-snapshot support yet; every run cold-boots there.
         use_modal_resume_snapshots=sandbox_backend != "hogland",
-        use_modal_directory_resume_snapshots=sandbox_backend != "hogland",
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         sandbox_rotation_enabled=True,
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
@@ -1335,6 +1461,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_hogland_hotplug_golden=use_hogland_hotplug_golden,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
+        baked_repo_clone_enabled=baked_repo_clone_enabled,
         agent_shadow_enabled=agent_shadow_enabled,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
@@ -1346,12 +1473,22 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
-        # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
-        # so ACP runs never even evaluate it.
-        peer_messaging_enabled=task.runtime == Task.Runtime.PI
-        and _is_peer_messaging_enabled(
-            flags=flags,
-            run_id=run_id,
-        ),
         pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI and _is_pi_acp_enabled(flags=flags),
+        gateway_ai_product=resolve_sandbox_ai_product(
+            task.origin_product,
+            state.get("ai_stage"),
+            internal=task.internal,
+            billing_product=state.get("billing_product"),
+            profile_billing_product=profile.billing_product if profile else None,
+        ),
+        # Memory belongs to the task's creator, so a run another person drives must not read or write it.
+        persist_agent_memory_enabled=receives_agent_memory(task)
+        and (actor_user is None or actor_user.id == task.created_by_id)
+        and not state.get("agent_memory_locked")
+        and _flag_enabled(flags, PERSIST_AGENT_MEMORY_FEATURE_FLAG),
     )
+    if input.launches_agent:
+        context.agent_egress_observation_config = _agent_egress_observation_config(
+            context, resumed=input.resumed_sandbox_id is not None
+        )
+    return context

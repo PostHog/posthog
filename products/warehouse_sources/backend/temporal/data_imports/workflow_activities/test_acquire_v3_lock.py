@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError
 
+import psycopg
 from temporalio.client import WorkflowExecutionStatus
 
 from posthog.models import Organization, Team
@@ -470,6 +471,30 @@ class TestTakeOverStaleRunningJob:
     ) -> None:
         mock_conn_cls.connect.side_effect = RuntimeError("connection refused")
         assert self._run() is False
+
+    # A PgBouncer pool-saturation blip (query_wait_timeout) clears on its own, so it must not be
+    # reported to error tracking as a bug - unlike a genuine failure from the queue DB query.
+    @pytest.mark.parametrize(
+        "error,expect_captured",
+        [
+            pytest.param(psycopg.errors.ProtocolViolation("query_wait_timeout"), False, id="transient_pool_timeout"),
+            pytest.param(ValueError("unexpected row shape"), True, id="genuine_bug"),
+        ],
+    )
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.BatchQueue")
+    @patch(f"{MODULE}.psycopg.Connection")
+    def test_capture_exception_skipped_for_transient_queue_db_errors(
+        self,
+        mock_conn_cls: MagicMock,
+        mock_queue: MagicMock,
+        mock_capture: MagicMock,
+        error: Exception,
+        expect_captured: bool,
+    ) -> None:
+        mock_queue.get_run_activity_summary.side_effect = error
+        assert self._run() is False
+        assert mock_capture.called is expect_captured
 
     @patch(f"{MODULE}._release_and_acquire", return_value=True)
     @patch(f"{MODULE}.update_external_job_status")

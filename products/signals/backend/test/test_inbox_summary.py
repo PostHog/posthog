@@ -6,7 +6,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from celery.exceptions import Retry
 from parameterized import parameterized
@@ -20,8 +22,17 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user_integration import UserIntegration
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import PullRequestLink
 from products.signals.backend.inbox_summary import sync_pull_request_participants
-from products.signals.backend.models import SignalReport, SignalReportPullRequest, SignalReportTask
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+    SignalReportMonitoringAttempt,
+    SignalReportPullRequest,
+    SignalReportTask,
+)
 from products.signals.backend.pull_requests import schedule_participant_refresh, update_pull_request_state
 from products.signals.backend.tasks import refresh_pull_request_participants, refresh_pull_request_review_decision
 from products.tasks.backend.facade import api as tasks_facade
@@ -125,11 +136,23 @@ class TestInboxSummary(APIBaseTest):
         assert self.summary()["merged_pr_count"] == 1
 
     def test_window_is_half_open_and_uses_merge_time(self) -> None:
-        self.make_pr(1, merged_at=NOW - timedelta(days=7), participant_ids=[])
-        self.make_pr(2, merged_at=NOW - timedelta(days=7, microseconds=1), participant_ids=[])
-        self.make_pr(3, merged_at=NOW, participant_ids=[])
-        self.make_pr(4, merged_at=None, participant_ids=[])
-        assert self.summary()["merged_pr_count"] == 1
+        included = self.make_pr(1, merged_at=NOW - timedelta(days=7), participant_ids=[])
+        excluded = [
+            self.make_pr(2, merged_at=NOW - timedelta(days=7, microseconds=1), participant_ids=[]),
+            self.make_pr(3, merged_at=NOW, participant_ids=[]),
+            self.make_pr(4, merged_at=None, participant_ids=[]),
+        ]
+        with CaptureQueriesContext(connection) as queries:
+            assert self.summary()["merged_pr_count"] == 1
+        pull_request_queries = [
+            query["sql"] for query in queries if 'FROM "signals_signalreportpullrequest"' in query["sql"]
+        ]
+        assert len(pull_request_queries) == 2
+        candidate_query, provenance_query = pull_request_queries
+        assert '"signals_signalreportpullrequest"."merged_at" >= ' in candidate_query
+        assert '"posthog_task_run"' not in candidate_query
+        assert included.id.hex in provenance_query
+        assert all(pr.id.hex not in provenance_query for pr in excluded)
 
     def test_missing_participation_is_unknown_not_a_partial_count(self) -> None:
         self.make_pr(1, participant_ids=[10])
@@ -410,14 +433,56 @@ class TestInboxSummary(APIBaseTest):
         assert pr.participant_logins is None
         assert pr.participants_synced_at is None
 
-    def test_an_old_missing_merge_time_is_repaired_without_fetching_reviews(self) -> None:
+    @parameterized.expand([("recent", 1, False), ("old", 30, False), ("reviews_unavailable", 1, True)])
+    @patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
+    def test_merge_time_repair_retries_report_completion_after_commit(
+        self, _name: str, days_ago: int, reviews_fail: bool, _flag: MagicMock
+    ) -> None:
         pr = self.make_pr(merged_at=None)
+        report = SignalReportTask.objects.get(team=self.team).report
+        report.status = SignalReport.Status.READY
+        report.save(update_fields=["status"])
+        link = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=PullRequestLink(url=pr.url),
+            attribution=ArtefactAttribution.system(),
+        )
+        link.pull_request = pr
+        link.save(update_fields=["pull_request"])
+        check = SignalReportCheck.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            report=report,
+            title="Verify the implementation",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={},
+            soak_minutes=60,
+            next_run_at=NOW,
+            expires_at=NOW + timedelta(days=30),
+        )
+        merged_at = NOW - timedelta(days=days_ago)
         github = self.github()
-        github.get_pull_request.return_value["merged_at"] = (NOW - timedelta(days=30)).isoformat()
-        self.sync(github)
-        github.get_pull_request_reviews.assert_not_called()
+        github.get_pull_request.return_value["merged_at"] = merged_at.isoformat()
+        if reviews_fail:
+            github.get_pull_request_reviews.side_effect = GitHubIntegrationError("Reviews unavailable")
+        with self.captureOnCommitCallbacks(execute=True):
+            if reviews_fail:
+                with self.assertRaises(GitHubIntegrationError):
+                    self.sync(github)
+            else:
+                self.sync(github)
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.READY
+        if days_ago > 7:
+            github.get_pull_request_reviews.assert_not_called()
         pr.refresh_from_db()
-        assert pr.merged_at == NOW - timedelta(days=30)
+        completed_report = SignalReport.objects.get(team_id=self.team.id, id=report.id)
+        assert pr.merged_at == merged_at
+        assert completed_report.status == SignalReport.Status.MONITORING
+        assert completed_report.monitoring_started_at == merged_at
+        attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).get(report=completed_report)
+        assert attempt.monitoring_started_at == merged_at
+        assert list(attempt.check_versions) == [str(check.id)]
 
     def test_a_failed_refresh_keeps_the_last_complete_snapshot(self) -> None:
         pr = self.make_pr(participant_ids=[10, 20])

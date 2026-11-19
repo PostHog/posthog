@@ -5,17 +5,13 @@ from .enforce_self_driving_quota import EnforceSelfDrivingRunQuotaInput, enforce
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .forward_pending_message import forward_pending_user_message
 from .get_sandbox_exit_reason import GetSandboxExitReasonInput, get_sandbox_exit_reason
-from .get_sandbox_for_repository import (
-    GetSandboxForRepositoryInput,
-    GetSandboxForRepositoryOutput,
-    get_sandbox_for_repository,
-)
 from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
 from .materialize_context_layer import (
     MaterializeContextLayerInput,
     MaterializeContextLayerOutput,
     materialize_context_layer_in_sandbox,
 )
+from .persist_agent_memory import PersistAgentMemoryInput, PersistAgentMemoryOutput, persist_agent_memory
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
@@ -24,6 +20,7 @@ from .provision_sandbox import (
     CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
+    GetSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
@@ -37,11 +34,6 @@ from .provision_sandbox import (
     restore_sandbox_connection_state,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
-from .record_peer_message_outcome import (
-    RecordPeerMessageOutcomeInput,
-    peer_message_id_from_context,
-    record_peer_message_outcome,
-)
 from .refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     RefreshSandboxCredentialsOutput,
@@ -54,14 +46,6 @@ from .relay_sandbox_events import (
 )
 from .run_wizard import RunWizardInput, run_wizard
 from .send_followup_to_sandbox import STEER_DECLINED_OUTCOME, SendFollowupToSandboxInput, send_followup_to_sandbox
-from .send_permission_response_to_sandbox import (
-    PostPermissionDeliveryFailureInput,
-    SendPermissionDenialGuidanceInput,
-    SendPermissionResponseToSandboxInput,
-    post_permission_delivery_failure_notice,
-    send_permission_denial_guidance,
-    send_permission_response_to_sandbox,
-)
 from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
     CollectAgentShadowResultInput,
@@ -94,7 +78,6 @@ __all__ = [
     "EmitProgressInput",
     "ExecuteTaskInput",
     "ExecuteTaskOutput",
-    "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
     "CheckoutBranchInSandboxInput",
     "CheckoutBranchInSandboxOutput",
@@ -123,17 +106,14 @@ __all__ = [
     "UpdateTaskRunStatusInput",
     "RelayAgentDesignSignalsInput",
     "RelaySandboxEventsInput",
-    "PostPermissionDeliveryFailureInput",
-    "SendPermissionDenialGuidanceInput",
-    "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
     "STEER_DECLINED_OUTCOME",
-    "RecordPeerMessageOutcomeInput",
-    "peer_message_id_from_context",
-    "record_peer_message_outcome",
     "cleanup_sandbox",
     "complete_run_stream",
     "create_resume_snapshot",
+    "PersistAgentMemoryInput",
+    "PersistAgentMemoryOutput",
+    "persist_agent_memory",
     "create_sandbox_for_repository",
     "emit_progress_activity",
     "EnforceSelfDrivingRunQuotaInput",
@@ -145,11 +125,7 @@ __all__ = [
     "GetSandboxExitReasonInput",
     "get_sandbox_exit_reason",
     "relay_sandbox_events_deferred_completion",
-    "post_permission_delivery_failure_notice",
-    "send_permission_denial_guidance",
-    "send_permission_response_to_sandbox",
     "send_followup_to_sandbox",
-    "get_sandbox_for_repository",
     "get_task_processing_context",
     "inject_fresh_tokens_on_resume",
     "restore_sandbox_connection_state",

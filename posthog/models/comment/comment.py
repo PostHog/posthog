@@ -76,6 +76,10 @@ TICKET_COMMENT_SCOPES = frozenset({"Ticket", "conversations_ticket"})
 # Product-owned content in these scopes is available only through the owning product's API.
 COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API = frozenset({"EmailThread"})
 
+# Notes on a Replay Vision observation discuss recording-derived output, so reading, writing and
+# being mentioned in them all require access to the observation itself.
+OBSERVATION_COMMENT_SCOPES = frozenset({"ReplayObservation"})
+
 CANVAS_COMMENT_SCOPES = frozenset({"canvas", "desktop_canvas"})
 STORED_CANVAS_COMMENT_SCOPE = "canvas"
 

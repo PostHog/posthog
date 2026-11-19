@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -12,10 +13,13 @@ from posthog.models.team import Team
 
 from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
+from products.warehouse_suggestions.backend.logic.candidates.base import MeasurementRequest
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.job import TeamRunResult, TeamRunStatus
 from products.warehouse_suggestions.backend.logic.reads import RollupDays
+from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.logic.suggestions import upsert_suggestions
+from products.warehouse_suggestions.backend.logic.view_costs import MeasurementOutcome
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 from products.warehouse_suggestions.backend.temporal import (
     ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
@@ -30,6 +34,7 @@ from products.warehouse_suggestions.backend.temporal.contracts import (
 from products.warehouse_suggestions.backend.tests.factories import context, team_reads, view_subject
 
 ACTIVITIES = "products.warehouse_suggestions.backend.temporal.activities"
+WORKFLOWS_MODULE = "products.warehouse_suggestions.backend.temporal.workflows"
 
 
 class TestTeamBatches(BaseTest):
@@ -39,7 +44,7 @@ class TestTeamBatches(BaseTest):
             ("kill_switch_on", KillSwitchLevel.LIGHT, False),
         ]
     )
-    def test_picks_flagged_main_environments_skips_demo_teams_and_stops_under_the_kill_switch(
+    def test_picks_main_environments_without_the_flag_skips_demo_teams_and_stops_under_the_kill_switch(
         self, _name: str, kill_switch: KillSwitchLevel, expect_team: bool
     ) -> None:
         demo_team = Team.objects.create(organization=self.organization, is_demo=True)
@@ -47,11 +52,10 @@ class TestTeamBatches(BaseTest):
         child_environment = Team.objects.create(
             organization=self.organization, project=self.project, parent_team=self.team
         )
-        flagged = {self.team.pk, demo_team.pk, child_environment.pk}
 
         with (
             patch(f"{ACTIVITIES}.get_kill_switch_level", return_value=kill_switch),
-            patch(f"{ACTIVITIES}.is_warehouse_suggestions_enabled", side_effect=lambda team: team.pk in flagged),
+            patch("posthoganalytics.feature_enabled", return_value=False),
         ):
             batches = team_batches(
                 WarehouseSuggestionsInputs(
@@ -59,7 +63,7 @@ class TestTeamBatches(BaseTest):
                 )
             )
 
-        assert batches == ([[self.team.pk]] if expect_team else [])
+        assert batches == ([[self.team.pk, unflagged_team.pk]] if expect_team else [])
 
     def test_picks_an_idle_team_that_still_has_an_accepted_suggestion(self) -> None:
         dismissed_team = Team.objects.create(organization=self.organization)
@@ -80,22 +84,38 @@ class TestTeamBatches(BaseTest):
         with (
             patch(f"{ACTIVITIES}.get_kill_switch_level", return_value=KillSwitchLevel.OFF),
             patch(f"{ACTIVITIES}._teams_with_reads", return_value=[]),
-            patch(f"{ACTIVITIES}.is_warehouse_suggestions_enabled", return_value=True),
         ):
             batches = team_batches(WarehouseSuggestionsInputs())
 
         assert batches == [[self.team.pk]]
 
 
-async def test_a_worker_runs_a_nonempty_batch_without_failing_a_team() -> None:
+async def test_a_worker_measures_the_most_recomputed_views_across_teams_first() -> None:
     task_queue = str(uuid.uuid4())
+    rarely_recomputed_view = uuid.uuid4()
+    often_recomputed_view = uuid.uuid4()
+    measurement_requests = {
+        1: (MeasurementRequest(subject=view_subject(rarely_recomputed_view), consumer_runs_per_month=10),),
+        2: (MeasurementRequest(subject=view_subject(often_recomputed_view), consumer_runs_per_month=100),),
+        3: (),
+    }
+    one_measurement_per_run = dataclasses.replace(
+        RULES, measurement=dataclasses.replace(RULES.measurement, max_per_run=1)
+    )
     with (
-        patch(f"{ACTIVITIES}.team_batches", return_value=[[1, 2]]),
+        patch(f"{ACTIVITIES}.team_batches", return_value=[[1, 2, 3]]),
+        patch(f"{ACTIVITIES}.RULES", one_measurement_per_run),
+        patch(f"{WORKFLOWS_MODULE}.RULES", one_measurement_per_run),
         patch(f"{ACTIVITIES}.read_rollup_days", return_value=RollupDays(days_with_data=30, recent_days_with_data=7)),
         patch(
             f"{ACTIVITIES}.run_team",
-            side_effect=lambda team_id, **_: TeamRunResult(team_id=team_id, status=TeamRunStatus.PROCESSED),
+            side_effect=lambda team_id, **_: TeamRunResult(
+                team_id=team_id,
+                status=TeamRunStatus.PROCESSED,
+                measurement_requests=measurement_requests[team_id],
+            ),
         ),
+        patch(f"{ACTIVITIES}.measure_view_cost", return_value=MeasurementOutcome.MEASURED) as measure_view_cost,
     ):
         async with await WorkflowEnvironment.start_time_skipping() as environment:
             async with Worker(
@@ -113,4 +133,5 @@ async def test_a_worker_runs_a_nonempty_batch_without_failing_a_team() -> None:
                     result_type=BatchOutcome,
                 )
 
-    assert outcome == BatchOutcome(processed=2)
+    assert outcome.processed == 3
+    measure_view_cost.assert_called_once_with(2, often_recomputed_view, one_measurement_per_run.measurement)

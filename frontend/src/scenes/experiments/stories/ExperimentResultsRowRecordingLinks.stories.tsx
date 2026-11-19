@@ -57,12 +57,12 @@ const meta: Meta = {
                 // The linkability check decides whether the menu items are offered or disabled, so
                 // it is answered here rather than left to fail open on a missing handler.
                 '/api/projects/:team_id/property_definitions/seen_together': {},
+                // Answered so the scene does not raise a failure toast over the table.
+                '/api/projects/:team_id/experiments/:id/running_time_target/': {},
             },
             post: {
                 ...FUNNEL_RECALCULATION.post,
                 ...MEAN_RECALCULATION.post,
-                // Answered so the scene does not raise a failure toast over the table.
-                '/api/projects/:team_id/experiments/calculate_running_time/': {},
                 // Exposures still load through experimentLogic; metric results come from the recalculation run.
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>

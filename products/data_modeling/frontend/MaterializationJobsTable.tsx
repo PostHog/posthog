@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     Badge,
     Button,
@@ -24,6 +23,7 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
+    Skeleton,
     Spinner,
     Table,
     TableBody,
@@ -33,11 +33,18 @@ import {
     TableHeader,
     TableRow,
     Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
     getPaginationRange,
 } from 'lib/ui/quill'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { computeJobDuration } from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
+import {
+    computeJobDuration,
+    jobsPageCount,
+    jobsPageRowRange,
+} from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
 import { urls } from 'scenes/urls'
 
 import { DataModelingJobsListStatus } from 'products/data_warehouse/frontend/generated/api.schemas'
@@ -59,10 +66,11 @@ function JobStatus({ status, error }: { status: string; error: string | null }):
     )
 
     return error ? (
-        <Tooltip title={<span className="whitespace-pre-wrap">{error}</span>} interactive>
-            <span tabIndex={0} aria-label={`${status}. ${error}`}>
-                {badge}
-            </span>
+        <Tooltip>
+            <TooltipTrigger render={<span tabIndex={0} aria-label={`${status}. ${error}`} />}>{badge}</TooltipTrigger>
+            <TooltipContent>
+                <span className="whitespace-pre-wrap">{error}</span>
+            </TooltipContent>
         </Tooltip>
     ) : (
         badge
@@ -79,11 +87,15 @@ export function MaterializationJobsTable({
     const { refreshJobs, setJobsPage, setSelectedJobStatus, openModel } = useActions(modelsUsageLogic)
     const count = materializationJobs?.count ?? 0
     const jobs = materializationJobs?.results ?? []
-    const pageCount = Math.max(Math.ceil(count / MATERIALIZATION_JOBS_PAGE_SIZE), 1)
+    const pageCount = jobsPageCount(materializationJobs, jobsPage, MATERIALIZATION_JOBS_PAGE_SIZE)
     const pageIndex = jobsPage - 1
     const pageRange = getPaginationRange(pageCount, pageIndex)
-    const firstRow = count === 0 ? 0 : pageIndex * MATERIALIZATION_JOBS_PAGE_SIZE + 1
-    const lastRow = Math.min(firstRow + jobs.length - 1, count)
+    const { firstRow, lastRow, countLabel } = jobsPageRowRange(
+        materializationJobs,
+        jobsPage,
+        MATERIALIZATION_JOBS_PAGE_SIZE,
+        jobs.length
+    )
 
     return (
         <Card size="sm" className="min-w-0 gap-0">
@@ -208,14 +220,30 @@ export function MaterializationJobsTable({
                                 })}
                             </TableBody>
                         ) : jobsLoading && !materializationJobs ? (
-                            <TableBody>
-                                <TableRow>
-                                    <TableCell colSpan={managedWarehouseEnabled ? 7 : 6}>
-                                        <div className="flex justify-center py-8">
-                                            <Spinner />
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
+                            <TableBody aria-label="Loading materialization jobs">
+                                {Array.from({ length: 4 }, (_, index) => (
+                                    <TableRow key={index} aria-hidden="true">
+                                        <TableCell expand>
+                                            <Skeleton className="motion-reduce:animate-none h-4 w-40 max-w-full" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Skeleton className="motion-reduce:animate-none h-4 w-20" />
+                                        </TableCell>
+                                        {managedWarehouseEnabled ? (
+                                            <TableCell>
+                                                <Skeleton className="motion-reduce:animate-none h-4 w-24" />
+                                            </TableCell>
+                                        ) : null}
+                                        {Array.from({ length: 4 }, (_, column) => (
+                                            <TableCell
+                                                key={column}
+                                                className="hidden @min-[48rem]/main-content:table-cell"
+                                            >
+                                                <Skeleton className="motion-reduce:animate-none h-4 w-16" />
+                                            </TableCell>
+                                        ))}
+                                    </TableRow>
+                                ))}
                             </TableBody>
                         ) : (
                             <TableEmpty className="py-8 text-secondary">
@@ -233,7 +261,7 @@ export function MaterializationJobsTable({
             {!jobsFailed && count > 0 ? (
                 <CardFooter className="flex flex-row flex-wrap items-center justify-between gap-2 border-t border-border">
                     <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                        {firstRow}-{lastRow} of {pluralize(count, 'job')}
+                        {`${firstRow}-${lastRow} of ${countLabel} ${pluralize(count, 'job', undefined, false)}`}
                     </Text>
                     {pageCount > 1 ? (
                         <Pagination className="w-auto">

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en"
+      data-env="{{ console_env }}"
+      theme="{% firstof request.user.theme_mode 'light' %}">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {# Inline and before the stylesheet, so a system dark mode does not flash light on every page load. #}
+        <script nonce="{{ request.csp_nonce }}">
+            if (document.documentElement.getAttribute('theme') === 'system') {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
+                const applyTheme = () => document.documentElement.setAttribute('theme', prefersDark.matches ? 'dark' : 'light')
+                applyTheme()
+                prefersDark.addEventListener('change', applyTheme)
+            }
+        </script>
+        <title>{% block title %}PostHog Admin{% endblock %}</title>
+        {# Not the static tag: production hashes its URLs, and the CDN only serves unhashed names. #}
+        <link rel="stylesheet"
+              href="/static/admin-console/console.css?v={{ console_asset_version }}" />
+        <link rel="icon" href="/static/posthog-icon.svg" />
+        <script src="/static/admin-console/console.js?v={{ console_asset_version }}"
+                defer></script>
+    </head>
+    <body class="@container console-body m-0 min-h-screen bg-background text-foreground text-[13px]">
+        <a class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-10 focus:px-3 focus:py-2 focus:rounded focus:bg-background"
+           href="#content">Skip to content</a>
+        <div class="console-env-stripe h-1"></div>
+        <header class="flex flex-wrap items-center gap-4 min-h-12 px-4 py-2 bg-chrome border-b border-border">
+            <a href="{% url 'admin_console_home' %}"
+               class="flex items-center gap-2 font-extrabold text-[15px] whitespace-nowrap text-foreground no-underline">
+                <img src="/static/posthog-icon.svg" class="h-[18px] dark:hidden" alt="" />
+                <img src="/static/admin-console/posthog-icon-mono.svg"
+                     class="h-[18px] hidden dark:block"
+                     alt="" />
+                PostHog Admin
+            </a>
+            <span class="console-env-pill inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide whitespace-nowrap">
+                <span class="console-env-dot size-[7px] rounded-full"></span>{{ console_env_label }}
+            </span>
+            {% block header_search %}
+                <form method="get"
+                      action="{% url 'admin_console_home' %}"
+                      class="flex-1 min-w-[240px] max-w-[520px]">
+                    <input class="quill-input"
+                           id="team-search"
+                           type="search"
+                           name="q"
+                           placeholder="Look up a team, organization, user or API token"
+                           aria-label="Look up"
+                           aria-keyshortcuts="/" />
+                </form>
+            {% endblock %}
+            <div class="ml-auto flex items-center gap-3">
+                <span class="hidden sm:inline text-muted-foreground whitespace-nowrap">{{ request.user.email }}</span>
+                <a class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex @3xl:hidden shrink-0 items-center justify-center whitespace-nowrap"
+                   href="#console-nav">Menu</a>
+            </div>
+        </header>
+        <div class="@container">
+            <div class="grid min-h-[calc(100vh-3.25rem)] @3xl:grid-cols-[16rem_1fr]">
+                {# On a narrow screen the page comes first and the header's Menu link jumps down to the navigation. #}
+                <nav id="console-nav"
+                     class="order-2 @3xl:order-none min-w-0 bg-chrome border-t @3xl:border-t-0 @3xl:border-r border-border"
+                     aria-label="Console">
+                    <div class="flex flex-col gap-0.5 p-2 @3xl:sticky @3xl:top-0 @3xl:max-h-screen @3xl:overflow-y-auto"
+                         data-nav-scroller>
+                        {% url 'admin_console_home' as home_url %}
+                        {% url 'admin_console_tools' as tools_url %}
+                        <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
+                           href="{{ home_url }}"
+                           {% if request.path == home_url %}aria-current="page"{% endif %}><span class="truncate">Look up</span></a>
+                        {% if console_tool_groups %}
+                            <h2 class="mt-4 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Tools</h2>
+                            {# console.js shows the filter, so a page without the script never shows a box that does nothing. #}
+                            <input class="quill-input mb-1"
+                                   type="search"
+                                   placeholder="Filter tools"
+                                   aria-label="Filter tools"
+                                   aria-controls="console-tool-groups"
+                                   data-tool-filter
+                                   hidden />
+                            <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
+                               href="{{ tools_url }}"
+                               {% if request.path == tools_url %}aria-current="page"{% endif %}><span class="truncate">All tools</span></a>
+                            <ul id="console-tool-groups" class="m-0 p-0 list-none flex flex-col">
+                                {% for group, tools in console_tool_groups.items %}
+                                    <li>
+                                        <details class="group/group"
+                                                 {% if tool.group == group %}open{% endif %}
+                                                 data-tool-group>
+                                            <summary class="flex items-center gap-1.5 px-2 py-1.5 rounded cursor-pointer select-none list-none text-xs font-semibold text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+                                                <svg class="size-3 shrink-0 transition-transform group-open/group:rotate-90 motion-reduce:transition-none"
+                                                     viewBox="0 0 12 12"
+                                                     aria-hidden="true">
+                                                    <path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                                                </svg>
+                                                <span class="truncate">{{ group }}</span>
+                                                <span class="ml-auto font-normal tabular-nums" data-tool-count>{{ tools|length }}</span>
+                                            </summary>
+                                            <ul class="m-0 mb-1 p-0 list-none flex flex-col gap-0.5">
+                                                {% for nav_tool in tools %}
+                                                    {% url 'admin_console_tool' tool_key=nav_tool.key as tool_url %}
+                                                    <li data-tool-title="{{ nav_tool.title|lower }}">
+                                                        <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button flex w-full min-w-0 items-center whitespace-nowrap pl-6 aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
+                                                           href="{{ tool_url }}"
+                                                           title="{{ nav_tool.description|default:nav_tool.title }}"
+                                                           {% if request.path == tool_url %}aria-current="page"{% endif %}><span class="truncate">{{ nav_tool.title }}</span></a>
+                                                    </li>
+                                                {% endfor %}
+                                            </ul>
+                                        </details>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                            <p class="m-0 mx-2 py-1 text-xs text-muted-foreground"
+                               data-tool-filter-empty
+                               hidden>No tool matches.</p>
+                        {% endif %}
+                        <div class="mt-auto mx-2 mb-2 pt-4 flex flex-col gap-1 text-xs text-muted-foreground">
+                            <p class="m-0">Need a raw database table? Django admin still has every model.</p>
+                            <a class="quill-button quill-button--variant-link-muted quill-button--size-sm justify-start px-0 group/button inline-flex shrink-0 items-center whitespace-nowrap"
+                               href="/admin/">Leave for Django admin &rarr;</a>
+                        </div>
+                    </div>
+                </nav>
+                <main id="content"
+                      class="order-1 @3xl:order-none min-w-0 px-4 @3xl:px-6 pt-5 pb-20 @container">
+                    {% if messages %}
+                        <div class="flex flex-col gap-2 mb-4">
+                            {% for message in messages %}
+                                {% include "admin_console/_message.html" %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    {% block content %}{% endblock %}
+                </main>
+            </div>
+        </div>
+    </body>
+</html>

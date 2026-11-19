@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 from drf_spectacular.utils import extend_schema
@@ -25,13 +25,14 @@ from products.data_warehouse.backend.facade.api import (
     sync_external_data_job_workflow,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     Config,
     ExternalWebhookInfo,
     SourceSchema,
     WebhookSource,
+    known_source_key,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from . import base
 
@@ -160,6 +161,17 @@ class CreateWebhookResponseSerializer(serializers.Serializer):
     )
 
 
+class UpdateWebhookInputsRequestSerializer(serializers.Serializer):
+    inputs = serializers.DictField(
+        child=serializers.CharField(),
+        help_text=(
+            "Webhook input values keyed by the source's declared webhook field names, for example "
+            '`{"signing_secret": "..."}`. Only keys the source type declares as webhook fields are accepted, '
+            "and a required field cannot be blank."
+        ),
+    )
+
+
 class UpdateWebhookInputsResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField(help_text="Whether the inputs were saved and pushed to the external service.")
 
@@ -185,6 +197,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         source_id: str,
         source_schemas: list[SourceSchema],
         permission_errors: Mapping[str, str | None] | None = None,
+        only_tables: Collection[str] | None = None,
     ) -> dict | None:
         """Best-effort webhook auto-registration for one-shot setup.
 
@@ -202,6 +215,9 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         webhook_capable = {
             s.name for s in source_schemas if s.supports_webhooks and s.should_sync_default and s.name not in denied
         }
+        if only_tables is not None:
+            # The caller chose its tables, so the webhook must not turn on any others.
+            webhook_capable &= set(only_tables)
         if not webhook_capable or source.webhook_template is None:
             return None
 
@@ -313,10 +329,11 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         """Ask the source whether this connection can never create the provider-side webhook.
         Best-effort: an unparseable config or a source-side failure leaves the button offered,
         which is the behavior before the check existed."""
-        if not instance.job_inputs:
-            return None
         try:
-            return source.webhook_creation_blocked_reason(source.parse_config(instance.job_inputs), self.team_id)
+            source_inputs = SourceInputsStore.load(instance)
+            if not source_inputs:
+                return None
+            return source.webhook_creation_blocked_reason(source.parse_config(source_inputs), self.team_id)
         except Exception as e:
             base.capture_exception(e)
             return None
@@ -325,7 +342,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -376,19 +393,20 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         external_status: ExternalWebhookInfo | None = None
         missing_events: list[str] = []
 
-        if instance.job_inputs:
-            try:
-                config = source.parse_config(instance.job_inputs)
+        try:
+            source_inputs = SourceInputsStore.load(instance)
+            if source_inputs:
+                config = source.parse_config(source_inputs)
                 external_status = source.get_external_webhook_info(
                     config, webhook_url, self.team_id, api_version=source.resolve_api_version(instance.api_version)
                 )
                 missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
-            except Exception as e:
-                base.capture_exception(e)
-                external_status = ExternalWebhookInfo(
-                    exists=False,
-                    error="PostHog couldn't read this source's webhook to check its status. Check the source's credentials, then reload.",
-                )
+        except Exception as e:
+            base.capture_exception(e)
+            external_status = ExternalWebhookInfo(
+                exists=False,
+                error="PostHog couldn't read this source's webhook to check its status. Check the source's credentials, then reload.",
+            )
 
         schema_mapping = {}
         if hog_function.inputs:
@@ -422,18 +440,19 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
             ).data,
         )
 
-    @extend_schema(responses=CreateWebhookResponseSerializer)
+    @extend_schema(request=None, responses=CreateWebhookResponseSerializer)
     @action(methods=["POST"], detail=True)
     def create_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
-        if not instance.job_inputs:
+        source_inputs = SourceInputsStore.load(instance)
+        if not source_inputs:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Source has no configuration"},
             )
 
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -449,7 +468,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
 
         effective_api_version = source.resolve_api_version(instance.api_version)
         try:
-            config = source.parse_config(instance.job_inputs)
+            config = source.parse_config(source_inputs)
             source_schemas = source.get_schemas(config, self.team_id, api_version=effective_api_version)
         except ValidationError as e:
             return Response(
@@ -517,18 +536,19 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
             ).data,
         )
 
-    @extend_schema(responses=UpdateWebhookInputsResponseSerializer)
+    @extend_schema(request=UpdateWebhookInputsRequestSerializer, responses=UpdateWebhookInputsResponseSerializer)
     @action(methods=["POST"], detail=True)
     def update_webhook_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
-        if not instance.job_inputs:
+        source_inputs = SourceInputsStore.load(instance)
+        if not source_inputs:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Source has no configuration"},
             )
 
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -577,7 +597,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
             )
 
         try:
-            config = source.parse_config(instance.job_inputs)
+            config = source.parse_config(source_inputs)
         except ValidationError as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -612,12 +632,12 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
 
         return Response(status=status.HTTP_200_OK, data=UpdateWebhookInputsResponseSerializer({"success": True}).data)
 
-    @extend_schema(responses=DeleteWebhookResponseSerializer)
+    @extend_schema(request=None, responses=DeleteWebhookResponseSerializer)
     @action(methods=["POST"], detail=True)
     def delete_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -644,7 +664,8 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                 },
             )
 
-        if not instance.job_inputs:
+        source_inputs = SourceInputsStore.load(instance)
+        if not source_inputs:
             # No config means we can't call the external API, but we can still
             # clean up the HogFunction.
             try:
@@ -666,7 +687,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
             )
 
         try:
-            config = source.parse_config(instance.job_inputs)
+            config = source.parse_config(source_inputs)
         except Exception as e:
             base.capture_exception(e)
             return Response(

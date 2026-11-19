@@ -19,7 +19,7 @@
 // failed diff in the workflow, which never reaches this script. That is a
 // different statement from "everything": it means "unknown".
 //
-// The bias is relaxed in exactly two places, both bounded by what one PR can
+// The bias is relaxed in exactly three places, all bounded by what one PR can
 // name in another. The conflict that lanes exist to prevent is semantic rather
 // than textual, because a textual one would force a rebase and a retest: PR A
 // renames a facade function and updates every current caller, PR B adds a new
@@ -72,6 +72,49 @@
 //      the product graph means every member reaches every other, so any seed inside it
 //      expanded to the whole backend and the cascade could not distinguish
 //      products at all.
+//
+//   3. A warehouse source vendor directory (products/warehouse_sources/sources/
+//      <vendor>/, every directory there except the SDK) claims only the vendor
+//      lane, not the warehouse_sources product lane. A vendor imports nothing but
+//      the SDK and third-party packages, and tach, import-linter and a repo
+//      invariant enforce that, so no code outside the vendor can reference its
+//      symbols. That makes the SDK the vendors' only direct import, and narrowing
+//      2 already bounds a cascade at direct importers. The lane is therefore
+//      claimed by the SDK and every other file of the warehouse_sources product,
+//      by the products/ root files that vendor tests collect, by the repo
+//      invariants that walk the vendor tree, and by the Python toolchain domain,
+//      because a lockfile change reaches a vendor's third-party packages
+//      directly. The core modules that the SDK, or a conftest every vendor test
+//      collects, imports directly claim it too, in addition to their own lanes,
+//      and the set is read from those sources.
+//      The generated registries that a new source regenerates (the field
+//      classification audit and the two credential maps) claim only the vendor
+//      lane too, as they already count as vendor files in PR CI. The audit has
+//      no runtime reader. The maps are read by warehouse_sources code and the
+//      integrations SDK, which both claim the vendor lane, and by Django startup,
+//      which the warehouse sources job runs. A new source only adds entries.
+//      Changing an existing entry needs --allow-changed and a data migration,
+//      and the migration claims the product lanes.
+//      The rest of posthog/, common/ and other products do not claim it, because
+//      they reach a vendor only through one of those modules.
+//
+//      This keeps a vendor PR out of the lane that every core PR claims. A vendor
+//      PR queued in that lane is tested on top of the core PRs ahead of it, and
+//      that diff starts the full backend suite for a change no backend test
+//      imports. In its own lane, the queue run holds only vendor changes, and the
+//      warehouse sources job in ci-python.yml narrows it to the changed vendors.
+//
+//      ACCEPTED RISK: two kinds of change can break a vendor, or be broken by
+//      one, without sharing its lane. The first is a posthog/, common/ or other
+//      product change that alters what the SDK returns through a module the SDK
+//      does not import directly, which is the same bound as narrowing 2. The
+//      second is code that
+//      loads every vendor at runtime through the source registry, with no import
+//      edge, such as a product test that checks each vendor's catalog entry.
+//      Either PR can merge in parallel with a vendor PR, and then no queue run
+//      held both. The other PR's own queue run tests every vendor already on
+//      master, so the gap is the new vendor code only. The hourly master run of
+//      the full vendor suite is the net for it.
 //
 // That bias is the opposite of the one in ci-*.yml path filters. Those filters
 // decide which tests to run, where an over-broad match wastes runner minutes
@@ -131,6 +174,19 @@ const UNIVERSAL = 'universal'
 const PYTHON = 'python'
 const JAVASCRIPT = 'javascript'
 const RUST = 'rust'
+
+// The python lanes without the warehouse source vendor lane, for suites that
+// never import a vendor or load the vendor catalog: the side checks of the
+// backend suite, the ClickHouse and hogql parser builds, dagster, and the
+// signals ranking suite. A vendor-only PR runs none of them, so a change to one
+// cannot change how a vendor PR is checked, and no vendor change can fail one.
+const PYTHON_NO_VENDORS = 'python-no-vendors'
+
+// The docker services the suites test against: the compose files and the
+// configuration they mount. Every lane except one, because the warehouse
+// sources job runs without Postgres, ClickHouse, Redis or Kafka, so a vendor
+// PR is checked without any of these files.
+const SERVICE_STACK = 'service-stack'
 
 // The product manifests and the artifacts generated from them. Not a toolchain
 // domain: it names the two lane families that read that data rather than a
@@ -258,17 +314,18 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-mcp.yml', JAVASCRIPT],
     ['.depot/workflows/ci-backend.yml', PYTHON],
     ['.github/workflows/ci-backend-update-test-timing.yml', PYTHON],
-    ['.github/workflows/ci-backend-schema-mirror.yml', PYTHON],
-    ['.github/workflows/ci-depot-action-mirrors.yml', PYTHON],
-    ['.github/workflows/ci-dagster.yml', PYTHON],
+    ['.github/workflows/ci-backend-schema-mirror.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-depot-action-mirrors.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-dagster.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-inbox-ranking.yml', PYTHON_NO_VENDORS],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
     // These two gate suites that run only Python: the tools and
     // approval-agent pytest suites, and the ClickHouse multinode migration
     // smoke.
     ['.github/workflows/ci-python.yml', PYTHON],
-    ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
-    ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON_NO_VENDORS],
     // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
     // changes, so all three families interact with an edit to the gate.
     ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
@@ -279,7 +336,7 @@ const TRIPWIRE_RULES = [
     // the cd-*-image rule below.
     ['.github/workflows/ci-e2e-playwright.yml', FULLSTACK],
     ['.github/workflows/ci-e2e-playwright-audit.yml', FULLSTACK],
-    ['.github/workflows/ci-hog.yml', FULLSTACK],
+    ['.github/workflows/ci-hoglang.yml', FULLSTACK],
     ['.github/workflows/container-images-ci.yml', FULLSTACK],
     ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
     ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
@@ -315,6 +372,7 @@ const TRIPWIRE_RULES = [
     // request or in the merge queue. See addDeployLane.
     ['.github/workflows/container-images-cd.yml', DEPLOY],
     ['.github/workflows/cd-*-image.yml', DEPLOY],
+    ['.github/workflows/release-toolbar-extension.yml', DEPLOY],
     ['.github/workflows/rust-docker-build.yml', DEPLOY],
     ['.github/workflows/release-cli.yml', DEPLOY],
     ['.github/workflows/publish-hogli.yml', DEPLOY],
@@ -329,12 +387,13 @@ const TRIPWIRE_RULES = [
     // CI scripts held to the workflows that run them: the backend test-timing
     // pair and the IDOR coverage check run only in ci-backend and its timing
     // workflow, while report_test_timings is read by the backend, frontend,
-    // and nodejs workflows alike.
+    // and nodejs workflows alike. The IDOR check reads Django models, which no
+    // vendor has.
     ['.github/scripts/optimize_test_durations.py', PYTHON],
     ['.github/scripts/test_optimize_test_durations.py', PYTHON],
-    ['.github/scripts/check-idor-model-coverage.py', PYTHON],
+    ['.github/scripts/check-idor-model-coverage.py', PYTHON_NO_VENDORS],
     // ci-backend's events_json leg and its test selection read this list.
-    ['.github/new-events-schema-targets.txt', PYTHON],
+    ['.github/new-events-schema-targets.txt', PYTHON_NO_VENDORS],
     ['.github/scripts/report_test_timings.py', FULLSTACK],
     ['.github/scripts/test_report_test_timings.py', FULLSTACK],
     // Bot, report, sync, and canary workflows. None is a required check; each
@@ -366,13 +425,15 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/update-bot-ips.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
+    ['.github/workflows/renovate-dashboard-digest.yml', REPO_AUTOMATION],
+    ['.github/workflows/update-sandbox-agent-version.yml', REPO_AUTOMATION],
     // More single-suite workflows, held to the trees their suites read:
     // ClickHouse HCL checks are Python; the
     // hogql parser builds wheels (python), an npm package (both families), and
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
-    ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
-    ['.github/workflows/build-hogql-parser.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/build-hogql-parser.yml', PYTHON_NO_VENDORS],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
     ['.github/workflows/build-hogql-parser-rs.yml', RUST],
     ['.github/workflows/rust-smoke-test-build.yml', RUST],
@@ -417,6 +478,7 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/monitor-github-rate-limit.test.js', REPO_AUTOMATION],
     ['.github/scripts/weekly-*.mjs', REPO_AUTOMATION],
     ['.github/scripts/eng-analytics-weekly-digest.mjs', REPO_AUTOMATION],
+    ['.github/scripts/eng-analytics-weekly-digest.test.mjs', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.js', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.test.js', REPO_AUTOMATION],
     ['.github/scripts/report_workflow_run_traces.py', REPO_AUTOMATION],
@@ -595,7 +657,7 @@ const TRIPWIRE_RULES = [
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
     ['.depot/workflows/**', UNIVERSAL],
-    ['docker-compose*.yml', UNIVERSAL],
+    ['docker-compose*.yml', SERVICE_STACK],
     // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
     // Dockerfile.llm-analytics is built only by its master-push CD workflow,
@@ -642,13 +704,16 @@ const TRIPWIRE_RULES = [
     // suite's tests run on a PR, so an under-selection can only mask conflicts
     // that suite's lanes already serialize: the snob shadow, its verdict, and
     // the testmon fanout list select Django tests, the dagster selector its
-    // own suite, and the playwright pair the E2E specs.
+    // own suite, the warehouse sources selector the vendor tests, and the
+    // playwright pair the E2E specs.
     ['tools/snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_selection_verdict.py', PYTHON],
     ['tools/test_test_selection_verdict.py', PYTHON],
     ['tools/dagster_test_selection.py', PYTHON],
     ['tools/test_dagster_test_selection.py', PYTHON],
+    ['tools/warehouse_sources_vendor_selection.py', PYTHON],
+    ['tools/test_warehouse_sources_vendor_selection.py', PYTHON],
     ['tools/testmon_high_fanout_files.txt', PYTHON],
     ['tools/playwright_spec_selection.py', FULLSTACK],
     ['tools/test_playwright_spec_selection.py', FULLSTACK],
@@ -718,12 +783,11 @@ const TRIPWIRE_RULES = [
     ['bin/lint-feature-flag-sorting.mjs', JAVASCRIPT],
     ['bin/fix-rdkafka-paths', JAVASCRIPT],
     ['bin/create-notebook-node.sh', JAVASCRIPT],
-    // The Hog CLI backs the Hog suite, the jest-timing helpers feed
+    // bin/hoglang backs the HogLang suite, the jest-timing helpers feed
     // report_test_timings, the dockerignore check runs in container-images-ci,
     // and the sandbox scripts are baked into the sandbox image; all of those
     // sit on the fullstack lanes already.
-    ['bin/hog', FULLSTACK],
-    ['bin/hoge', FULLSTACK],
+    ['bin/hoglang', FULLSTACK],
     ['bin/report-jest-timings', FULLSTACK],
     ['bin/render-jest-timings-example', FULLSTACK],
     ['bin/dockerignore-drop-check', FULLSTACK],
@@ -760,6 +824,8 @@ const TRIPWIRE_RULES = [
     ['bin/setup-gateway-e2e', DEV_ENV],
     ['bin/sync-storage', DEV_ENV],
     ['bin/warm-flags-cache', DEV_ENV],
+    // Run by the worktree hooks of local agent apps, never by CI.
+    ['bin/devbox-worktree-hook', DEV_ENV],
     // bin/ appears in the backend, frontend, and E2E path filters alike, and
     // what remains here is read across families: hogli and turbo drive the
     // suites, bin/docker is the image entrypoint, and download-mmdb and the
@@ -784,10 +850,10 @@ const TRIPWIRE_RULES = [
     // files ride along rather than earning a rule of their own.
     ['.env*', UNIVERSAL],
     // ClickHouse, Postgres, and Temporal configuration mounted by every
-    // docker-compose file, so it defines the services all the suites test
-    // against. The collector config is mounted the same way, from the root.
-    ['docker/**', UNIVERSAL],
-    ['otel-collector-config*.yaml', UNIVERSAL],
+    // docker-compose file, so it defines the services the suites test against.
+    // The collector config is mounted the same way, from the root.
+    ['docker/**', SERVICE_STACK],
+    ['otel-collector-config*.yaml', SERVICE_STACK],
     // duckgres.yaml is mounted into the same stack, and intent-map.yaml steers
     // bin/sandbox and hogli, both already tripwires.
     ['devenv/**', UNIVERSAL],
@@ -842,8 +908,10 @@ const STANDALONE_TREES = new Map([
     // the pnpm workspace). ci-cli.yml also builds it from services/mcp sources,
     // so the two trees have to share a lane.
     ['cli', ['cli', 'svc:mcp']],
-    // Go service with its own CI. ci-hog.yml ignores livestream/** explicitly,
-    // so its Hog implementation is not covered by the shared hog suite either.
+    // The TypeScript successor to cli/. Nothing outside it builds or imports it.
+    ['hog', ['hog']],
+    // Go service with its own CI. ci-hoglang.yml ignores livestream/** explicitly,
+    // so its Hog implementation is not covered by the shared HogLang suite either.
     ['livestream', ['livestream']],
     // Another standalone cargo workspace, and nothing in the dev or CI stack
     // builds it: the UDF binary reaches ClickHouse through its image.
@@ -1501,6 +1569,107 @@ const pyProduct = (product) => `py:product:${product}`
 const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
 
+// See narrowing 3 at the top of this file. The directory layout and the SDK
+// name match tools/warehouse_sources_vendor_selection.py, which narrows the
+// vendor tests by the same rule.
+const WAREHOUSE_SOURCES_PRODUCT = 'warehouse_sources'
+const WAREHOUSE_SOURCE_PLUGIN_DIR = 'products/warehouse_sources/sources/'
+const WAREHOUSE_SOURCE_SDK_DIR = 'sdk'
+const WAREHOUSE_SOURCE_VENDORS = 'py:warehouse-source-vendors'
+const REPO_INVARIANTS_DIR = 'posthog/test/repo_invariants/'
+
+// Without the product, the lane would name a target that no other PR can
+// claim, so the vendor files fall through to the ordinary rules.
+function hasWarehouseSourceVendorLane(context) {
+    return context.products.includes(WAREHOUSE_SOURCES_PRODUCT)
+}
+
+function isWarehouseSourceVendorFile(file, context) {
+    if (context.warehouseSourceRegistryFiles?.has(file)) {
+        return true
+    }
+    if (!file.startsWith(WAREHOUSE_SOURCE_PLUGIN_DIR)) {
+        return false
+    }
+    // A file directly in the plugin directory (its conftest.py, __init__.py)
+    // is collected by every vendor's tests, so it is not inside one vendor.
+    const segments = file.slice(WAREHOUSE_SOURCE_PLUGIN_DIR.length).split('/')
+    return segments.length >= 2 && segments[0] !== WAREHOUSE_SOURCE_SDK_DIR
+}
+
+// The generated registries that a new source, or a changed source field,
+// regenerates: the field classification audit and the two credential maps. PR
+// CI already treats them as vendor files, so the set is read from
+// VENDOR_REGISTRY_FILES in the selector rather than kept twice. Without the
+// selector the set is empty, and the files keep the product lanes, which is
+// the safe direction.
+const WAREHOUSE_SOURCE_SELECTOR = 'tools/warehouse_sources_vendor_selection.py'
+const WAREHOUSE_SOURCE_REGISTRY_BLOCK = /^VENDOR_REGISTRY_FILES = frozenset\(\s*\{([^}]*)\}/m
+
+function loadWarehouseSourceRegistryFiles(repoRoot) {
+    const selector = path.join(repoRoot, WAREHOUSE_SOURCE_SELECTOR)
+    if (!fs.existsSync(selector)) {
+        return new Set()
+    }
+    const block = fs.readFileSync(selector, 'utf8').match(WAREHOUSE_SOURCE_REGISTRY_BLOCK)
+    return new Set(block ? [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]) : [])
+}
+
+// The core modules that the SDK, or a conftest every vendor test collects,
+// imports directly. A change to one of them can change what every vendor gets
+// from the SDK or its test setup, so it claims the vendor lane as well as its
+// own. The set is read from those sources, so a new import is covered without
+// a list to keep in sync. warehouse_sources modules are left out because every
+// file of the product already claims the lane. A name in `from package import
+// name` can itself be a module, as in `from posthog.test import
+// authentication_checks`, so each name is resolved as a submodule too.
+const WAREHOUSE_SOURCE_SDK_IMPORT = /^\s*(?:from\s+([\w.]+)\s+import\s+(\([^)]*\)|[^\n#]*)|import\s+([\w.]+))/gm
+const WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS = ['posthog', 'common', 'ee', 'products']
+const WAREHOUSE_SOURCE_VENDOR_CONFTESTS = [
+    'conftest.py',
+    'products/conftest.py',
+    `${WAREHOUSE_SOURCE_PLUGIN_DIR}conftest.py`,
+]
+
+function loadWarehouseSourceSdkImports(repoRoot) {
+    const imports = new Set()
+    const sdkDir = path.join(WAREHOUSE_SOURCE_PLUGIN_DIR, WAREHOUSE_SOURCE_SDK_DIR)
+    const sdkSources = fs.existsSync(path.join(repoRoot, sdkDir))
+        ? fs.readdirSync(path.join(repoRoot, sdkDir), { recursive: true }).map((file) => path.join(sdkDir, file))
+        : []
+    const sources = [...sdkSources, ...WAREHOUSE_SOURCE_VENDOR_CONFTESTS].filter(
+        (file) => file.endsWith('.py') && fs.existsSync(path.join(repoRoot, file))
+    )
+    for (const source of sources) {
+        const text = fs.readFileSync(path.join(repoRoot, source), 'utf8')
+        for (const match of text.matchAll(WAREHOUSE_SOURCE_SDK_IMPORT)) {
+            const module = match[1] || match[3]
+            if (!WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS.includes(module.split('.')[0])) {
+                continue
+            }
+            if (module.startsWith(`products.${WAREHOUSE_SOURCES_PRODUCT}.`)) {
+                continue
+            }
+            const base = module.split('.').join('/')
+            const names = (match[2] || '')
+                .replace(/[()]/g, '')
+                .split(',')
+                .map((name) => name.trim().split(/\s+/)[0])
+                .filter((name) => /^\w+$/.test(name))
+            const candidates = [`${base}.py`, `${base}/__init__.py`]
+            for (const name of names) {
+                candidates.push(`${base}/${name}.py`, `${base}/${name}/__init__.py`)
+            }
+            for (const candidate of candidates) {
+                if (fs.existsSync(path.join(repoRoot, candidate))) {
+                    imports.add(candidate)
+                }
+            }
+        }
+    }
+    return imports
+}
+
 // Internal sentinel for a file whose crate radius only the determinator's
 // answer can state, because the path names no crate directory to seed from
 // (rust/Cargo.lock). Consumed by the determinator resolution at the end of
@@ -1559,6 +1728,9 @@ function allKnownTargets(context) {
         targets.add(pyProduct(product))
         targets.add(feProduct(product))
     }
+    if (hasWarehouseSourceVendorLane(context)) {
+        targets.add(WAREHOUSE_SOURCE_VENDORS)
+    }
     for (const service of services) {
         targets.add(`svc:${service}`)
     }
@@ -1593,12 +1765,41 @@ function addPythonLanes(targets, context) {
     for (const product of context.products) {
         targets.add(pyProduct(product))
     }
+    if (hasWarehouseSourceVendorLane(context)) {
+        targets.add(WAREHOUSE_SOURCE_VENDORS)
+    }
     // pyproject.toml roots products, but Python also lives under tools/, and the
     // pr-approval-agent engine holds a lane of its own through .stamphog.
     for (const tool of TOOLS_INDEPENDENT) {
         targets.add(`tools:${tool}`)
     }
     targets.add('tools:pr-approval-agent')
+    return true
+}
+
+// See PYTHON_NO_VENDORS.
+function addPythonNoVendorLanes(targets, context) {
+    const lanes = new Set()
+    addPythonLanes(lanes, context)
+    lanes.delete(WAREHOUSE_SOURCE_VENDORS)
+    for (const lane of lanes) {
+        targets.add(lane)
+    }
+    return true
+}
+
+// See SERVICE_STACK. Built from allKnownTargets, so a lane added later is
+// claimed here too, and fails to universal when that set cannot be built.
+function addServiceStackLanes(targets, context) {
+    const lanes = allKnownTargets(context)
+    if (!lanes) {
+        return false
+    }
+    for (const lane of lanes) {
+        if (lane !== WAREHOUSE_SOURCE_VENDORS) {
+            targets.add(lane)
+        }
+    }
     return true
 }
 
@@ -1858,6 +2059,8 @@ function addProtoLanes(targets, context, file) {
 
 const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
+    [PYTHON_NO_VENDORS, addPythonNoVendorLanes],
+    [SERVICE_STACK, addServiceStackLanes],
     [JAVASCRIPT, addJavaScriptLanes],
     [FRONTEND_SUITE, addFrontendSuiteLanes],
     [JS_LOCKFILE, addJsLockfileLanes],
@@ -2015,12 +2218,26 @@ function computeTargets(changedFiles, context) {
             continue
         }
 
+        if (isWarehouseSourceVendorFile(file, context) && hasWarehouseSourceVendorLane(context)) {
+            targets.add(WAREHOUSE_SOURCE_VENDORS)
+            continue
+        }
+        // No `continue`: the module keeps the lanes its own directory gives it.
+        if (context.warehouseSourceSdkImports?.has(file) && hasWarehouseSourceVendorLane(context)) {
+            targets.add(WAREHOUSE_SOURCE_VENDORS)
+        }
+
         for (const lane of nodeLanesForWorkspaceFile(file, context)) {
             targets.add(lane)
         }
 
         if (top === 'posthog' || top === 'clickhouse-udfs' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
+            // Several repo invariants walk the vendor tree, and the warehouse
+            // sources job in ci-python.yml runs them on every vendor change.
+            if (file.startsWith(REPO_INVARIANTS_DIR) && hasWarehouseSourceVendorLane(context)) {
+                targets.add(WAREHOUSE_SOURCE_VENDORS)
+            }
             continue
         }
         // The desktop app bundles the agent workspace and the desktop-* workflows test it,
@@ -2126,6 +2343,12 @@ function computeTargets(changedFiles, context) {
         if (top === 'products' && segments.length === 2) {
             allPyProducts()
             allFeProducts()
+            // The *_baseline.txt files are ledgers of imports between products,
+            // which the product lint keeps. A vendor can import no product, so it
+            // can neither add a line to them nor be failed by one.
+            if (hasWarehouseSourceVendorLane(context) && !file.endsWith('_baseline.txt')) {
+                targets.add(WAREHOUSE_SOURCE_VENDORS)
+            }
             continue
         }
         if (top === 'products' && segments.length > 2) {
@@ -2151,6 +2374,11 @@ function computeTargets(changedFiles, context) {
                 targets.add(feProduct(product))
             }
             if (isBackend || (!isBackend && !isFrontend && !isWorkspaceOnly)) {
+                // The SDK and the product code it imports are what every vendor
+                // runs on, so they share the vendor lane as well as their own.
+                if (product === WAREHOUSE_SOURCES_PRODUCT) {
+                    targets.add(WAREHOUSE_SOURCE_VENDORS)
+                }
                 if (isBackend && deletedFiles.has(file)) {
                     // The tach map is read from the head tree, so a deleted or
                     // renamed-away file is not in it and its importers are
@@ -2956,6 +3184,8 @@ function buildContext(repoRoot) {
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
+        warehouseSourceSdkImports: loadWarehouseSourceSdkImports(repoRoot),
+        warehouseSourceRegistryFiles: loadWarehouseSourceRegistryFiles(repoRoot),
         rustInventory,
         tachGraph,
     }
@@ -2977,6 +3207,8 @@ module.exports = {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
+    loadWarehouseSourceRegistryFiles,
+    loadWarehouseSourceSdkImports,
     parseCrateName,
     parsePytestIgnores,
     parseSemgrepLanguages,
@@ -3005,8 +3237,11 @@ module.exports = {
 
 if (require.main === module) {
     let result
+    let context = null
+    let changedFiles = []
+    let deletedFiles = null
     try {
-        const changedFiles = fs
+        changedFiles = fs
             .readFileSync(0, 'utf8')
             .split('\n')
             .map((line) => line.trim())
@@ -3015,9 +3250,11 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
+            context = buildContext(REPO_ROOT)
+            deletedFiles = findDeletedFiles(changedFiles)
             result = computeTargets(changedFiles, {
-                ...buildContext(REPO_ROOT),
-                deletedFiles: findDeletedFiles(changedFiles),
+                ...context,
+                deletedFiles,
             })
         }
     } catch (error) {
@@ -3030,4 +3267,16 @@ if (require.main === module) {
         console.error(`Computed ${result.length} target(s): ${JSON.stringify(result)}`)
     }
     process.stdout.write(JSON.stringify(result))
+    if (process.env.LANE_TELEMETRY_FILE) {
+        try {
+            const { summarizeLane } = require('./trunk-lane-telemetry')
+            context = context || buildContext(REPO_ROOT)
+            fs.writeFileSync(
+                process.env.LANE_TELEMETRY_FILE,
+                JSON.stringify(summarizeLane(changedFiles, result, context, deletedFiles))
+            )
+        } catch (error) {
+            console.error(`Could not write lane telemetry (${error.message}); keeping computed targets`)
+        }
+    }
 }

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -63,6 +63,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-instructions.txt'))
     })
 
+    it('matches the tools-mode prompt with the learn tool available', async () => {
+        const formatter = new InstructionsFormatter()
+        const rendered = formatter.buildToolsInstructions({ ...STATIC_CTX, learnToolEnabled: true })
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-instructions-skills.txt'))
+    })
+
     // The exec mode prompt is composed of three pieces wired into different MCP
     // fields (see `src/mcp.ts` and `buildExecCommandReference` for the split):
     //   - `exec-instructions`     — the compact `instructions` payload (only sent
@@ -90,6 +96,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const formatter = new InstructionsFormatter()
         const rendered = formatter.buildExecCommandReference(STATIC_CTX)
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full.txt'))
+    })
+
+    it('matches the exec command reference with skills enabled', async () => {
+        const formatter = new InstructionsFormatter()
+        const rendered = formatter.buildExecCommandReference(STATIC_CTX, { learnEnabled: true })
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full-skills.txt'))
     })
 
     function claudeChatState(toolFeatureFlags: Record<string, boolean> = {}): ResolvedState {
@@ -146,6 +158,25 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
         expect(buildContextFor(['dashboard-create']).notebookCellsEnabled).toBe(false)
         expect(buildContextFor(['dashboard-create', 'notebooks-add-cell']).notebookCellsEnabled).toBe(true)
+    })
+
+    it.each([
+        {
+            name: 'flag on with both tools',
+            flag: true,
+            tools: ['inbox-reports-list', 'inbox-reports-retrieve'],
+            expected: true,
+        },
+        { name: 'flag off', flag: false, tools: ['inbox-reports-list', 'inbox-reports-retrieve'], expected: false },
+        { name: 'flag on without retrieve', flag: true, tools: ['inbox-reports-list'], expected: false },
+    ])('derives inboxFirstEnabled from the flag and the advertised tools: $name', ({ flag, tools, expected }) => {
+        const state = {
+            allTools: tools.map((name) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+            toolFeatureFlags: { [MCP_INBOX_FIRST_FLAG]: flag },
+        } as unknown as ResolvedState
+
+        expect(new InstructionsBuilder(STATIC_CTX.guidelines).buildContext(state).inboxFirstEnabled).toBe(expected)
     })
 
     // ------------------------------------------------------------------------------------------------

@@ -5,10 +5,13 @@
             "inputs": [
                 "backend/facade/**",
                 "backend/tasks/**",
+                "backend/temporal/**",
                 "backend/models.py",
                 "backend/migrations/**",
                 "backend/routes.py",
-                "backend/presentation/**"
+                "backend/presentation/**",
+                "backend/apps.py",
+                "backend/signals.py"
             ],
             "outputs": [],
             "cache": true

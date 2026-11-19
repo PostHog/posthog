@@ -16,6 +16,7 @@ import structlog
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.integrations.contracts import IntegrationNotFound, IntegrationPatch, IntegrationRecord, RepositoryCache
 from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
@@ -23,11 +24,12 @@ from posthog.models.github_integration_base import (
     github_app_oauth_credentials,
 )
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
-from . import common, model, refresh_tracking
+from . import common, model, refresh_tracking, row_writes
 from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
 logger = structlog.get_logger(__name__)
@@ -116,9 +118,7 @@ def invalidate_github_repository_caches_for_installation(installation_id: str | 
     from posthog.models.user_integration import UserIntegration
 
     installation_id_str = str(installation_id)
-    model.Integration.objects.filter(kind="github", integration_id=installation_id_str).update(
-        repository_cache_updated_at=None
-    )
+    row_writes.creator_accessor("github").expire_repository_cache_by_external_id(installation_id_str)
     UserIntegration.objects.filter(
         kind=UserIntegration.IntegrationKind.GITHUB,
         integration_id=installation_id_str,
@@ -177,7 +177,7 @@ class GitHubIntegration(GitHubIntegrationBase):
     @classmethod
     def integration_from_installation_id(
         cls, installation_id: str, team_id: int, created_by: User | None = None
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         installation_access = cls.fetch_installation_access(installation_id)
         now = int(time.time())
         expires_in = int(datetime.fromisoformat(installation_access.token_expires_at).timestamp() - now)
@@ -199,25 +199,18 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         sensitive_config = {"access_token": installation_access.access_token}
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="github",
-            integration_id=installation_id,
-            defaults={
-                "config": config,
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-            },
+        integration, created = row_writes.creator_accessor("github").upsert(
+            team_id,
+            installation_id,
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
 
         if created:
             GitHubAudit.project(integration, created_by).record(
                 "created", customer_visible=True, after_commit=True, outcome="connected"
             )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         # Every other kind reports this from IntegrationSerializer.create(). GitHub also gets created
         # through its App installation callback and through agentic provisioning, which never reach
@@ -240,7 +233,7 @@ class GitHubIntegration(GitHubIntegrationBase):
                         "repo_owner_type": owner_type,
                         "account_type": github_account_type(owner_type),
                     },
-                    team=integration.team,
+                    team=Team.objects.get(id=integration.team_id),
                 )
             except Exception:
                 # The integration row is already committed. Raising here would report a connection
@@ -352,7 +345,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not _is_safe_github_repo_path(repository):
             return None
         exhausted: Exception | None = None
-        for integration in model.Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
+        for integration in row_writes.creator_accessor("github").list(team_id):
             github = cls(integration, source=source, priority=priority)
             try:
                 covers = github.installation_can_access_repository(repository, raise_on_transient=True)
@@ -368,34 +361,67 @@ class GitHubIntegration(GitHubIntegrationBase):
             raise exhausted
         return None
 
-    def __init__(self, integration: model.Integration, *, source: str, priority: Priority) -> None:
+    # The repository cache of the row, read through the SDK on first use.
+    _loaded_repository_cache: RepositoryCache | None = None
+
+    def __init__(self, integration: IntegrationRecord, *, source: str, priority: Priority) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         self.source = source
         self.priority = priority
 
+    def _store_patch(self, patch: IntegrationPatch) -> None:
+        self.integration = model.integration_model(row_writes.update_row(self.integration, patch))
+
+    def _repository_cache(self) -> RepositoryCache:
+        # Read once per adapter, like a deferred model column.
+        if self._loaded_repository_cache is None:
+            self._loaded_repository_cache = row_writes.row_accessor(self.integration).get_repository_cache(
+                self.integration.team_id, self.integration.id
+            )
+        return self._loaded_repository_cache
+
+    def _store_repository_cache(self, repositories: list[dict] | None, updated_at: datetime) -> None:
+        row_writes.row_accessor(self.integration).set_repository_cache(
+            self.integration.team_id, self.integration.id, repositories=repositories, updated_at=updated_at
+        )
+        stored = repositories if repositories is not None else self._repository_cache().repositories
+        self._loaded_repository_cache = RepositoryCache(repositories=stored, updated_at=updated_at)
+
+    def _merge_config_keys(self, patch: dict[str, Any]) -> bool:
+        try:
+            self._store_patch(IntegrationPatch(config_patch=patch))
+        except IntegrationNotFound:
+            return False
+        return True
+
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         logger.warning(f"Failed to refresh token for {self}", response=response.text)
-        self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-        # A permanently-gone installation (uninstalled/suspended) drops expires_in/refreshed_at so the
-        # every-minute beat loop stops re-minting it; the errors + config change persist in one save.
-        self._disarm_proactive_refresh_if_installation_gone(response)
         reason = (
             refresh_tracking.REFRESH_FAILURE_REASON_HTTP_5XX
             if response.status_code >= 500
             else refresh_tracking.REFRESH_FAILURE_REASON_OTHER
         )
-        attempt = refresh_tracking.record_refresh_failure(self.integration, reason=reason)
+        failure, attempt = refresh_tracking.refresh_failure_patch(self.integration, reason=reason)
         refresh_tracking.oauth_refresh_counter.labels(
             kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
         ).inc()
-        self.integration.save()
+        # A permanently-gone installation (uninstalled/suspended) drops expires_in/refreshed_at so the
+        # every-minute beat loop stops re-minting it; the errors + config change persist in one write.
+        self._store_patch(
+            row_writes.merged_patch(
+                failure,
+                self._installation_gone_patch(response) or IntegrationPatch(),
+                IntegrationPatch(errors=common.ERROR_TOKEN_REFRESH_FAILED),
+            )
+        )
+
+    def _token_refreshed_patch(self, patch: IntegrationPatch) -> IntegrationPatch:
+        return row_writes.merged_patch(refresh_tracking.REFRESH_SUCCESS_PATCH, patch, IntegrationPatch(errors=""))
 
     def _on_token_refreshed(self) -> None:
         logger.info(f"Refreshed access token for {self}")
-        self.integration.errors = ""
-        refresh_tracking.record_refresh_success(self.integration)
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
         refresh_tracking.oauth_refresh_counter.labels(
             kind=self.integration.kind, result="success", reason="", attempt=""
@@ -1064,7 +1090,14 @@ class GitHubIntegration(GitHubIntegrationBase):
         return {"content": content, "sha": entry["sha"]}
 
     def create_pull_request(
-        self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None
+        self,
+        repository: str,
+        title: str,
+        body: str,
+        head_branch: str,
+        base_branch: str | None = None,
+        *,
+        draft: bool = False,
     ) -> dict[str, Any]:
         """Create a pull request."""
         org = self.organization()
@@ -1081,6 +1114,7 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "body": body,
                 "head": head_branch,
                 "base": base_branch,
+                "draft": draft,
             },
         )
 

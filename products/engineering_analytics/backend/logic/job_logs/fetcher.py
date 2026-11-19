@@ -1,9 +1,7 @@
-"""Fetch a failed CI job's log from GitHub Actions or Depot CI.
+"""Fetch a CI job's log from GitHub Actions or Depot CI.
 
-``GET /repos/{repo}/actions/jobs/{job_id}/logs`` 302-redirects to a short-lived
-``githubusercontent.com`` archive (plain text, can be MBs). The host is fixed and trusted, so
-following the redirect is fine (no SSRF surface). Rate limits surface as ``GitHubRateLimitError`` so
-the Temporal retry honors the reset.
+GitHub's job-logs endpoint redirects to a short-lived archive on a GitHub-owned host, so the fetch
+follows the redirect.
 """
 
 import json
@@ -22,17 +20,14 @@ from posthog.models.integration.github import _is_safe_github_repo_path
 
 _GITHUB_API = "https://api.github.com"
 _DEPOT_JOB_ATTEMPT_LOGS = "https://api.depot.dev/depot.ci.v1.CIService/GetJobAttemptLogs"
-# A connected repo's failed job can print an arbitrarily large log; cap the bytes we pull into memory
-# before thinning (the thinner only caps line count, after the bytes are already decoded).
+# Caps the bytes held in memory, because the thinner caps only the line count of a decoded log.
 _MAX_LOG_BYTES = 20 * 1024 * 1024
 
 
 class _HeadAndTail:
     """The first and the last ``max_bytes // 2`` bytes of a log that arrives in chunks.
 
-    Stream within the byte budget so a pathological log can't OOM the worker. Keep a bounded head
-    AND a rolling tail: failures surface at the end (the run summary), so a head-only cap could drop
-    the very lines thin_log needs if a job pads the start with noise.
+    The tail is kept because failures show at the end of a log, in the run summary.
     """
 
     def __init__(self, max_bytes: int) -> None:
@@ -50,7 +45,7 @@ class _HeadAndTail:
             self._tail.extend(chunk)
             if len(self._tail) > self._half:
                 self._truncated = True
-                del self._tail[: -self._half]  # keep only the most recent `half` bytes
+                del self._tail[: -self._half]
 
     @property
     def truncated(self) -> bool:
@@ -64,14 +59,14 @@ class _HeadAndTail:
 @frozen
 class FetchedJobLog:
     text: str
-    # True when ``text`` is not the whole log, because the log passed the kept size or the download stopped early.
+    # True when the log passed the kept size or the download stopped early.
     truncated: bool
 
 
 def fetch_job_log(
     repo: str, job_id: int, access_token: str, *, timeout: int = 60, max_bytes: int = _MAX_LOG_BYTES
 ) -> str | None:
-    """Return the job's log text (capped at ``max_bytes``), or None if GitHub purged it (404)."""
+    """The job's log text, capped at ``max_bytes``, or None if GitHub has no log for it (404)."""
     fetched = fetch_bounded_job_log(repo, job_id, access_token, timeout=timeout, max_bytes=max_bytes)
     return fetched.text if fetched is not None else None
 
@@ -86,21 +81,19 @@ def fetch_bounded_job_log(
     max_read_bytes: int | None = None,
     deadline_seconds: float | None = None,
 ) -> FetchedJobLog | None:
-    """The job's log, or None if GitHub purged it (404). The text keeps at most ``max_bytes``.
+    """The job's log, or None if GitHub has no log for it (404). The text keeps at most ``max_bytes``.
 
-    ``timeout`` bounds each read of the response and not the whole download, so a log that arrives
-    slowly can hold the caller without end. ``max_read_bytes`` and ``deadline_seconds`` bound the whole
-    download. When either stops it, the response is closed and the log read so far is returned as
-    truncated. The deadline is checked between chunks, so the download can pass it by one ``timeout``.
+    ``timeout`` bounds each read of the response, not the whole download. ``max_read_bytes`` and
+    ``deadline_seconds`` bound the whole download. When either stops it, the log read so far is
+    returned as truncated. The deadline is checked between chunks, so the download can pass it by
+    one ``timeout``.
     """
     deadline = time.monotonic() + deadline_seconds if deadline_seconds is not None else None
     if not _is_safe_github_repo_path(repo):
-        # repo is team-writable source config; reject anything but plain owner/repo so a crafted
-        # value can't steer this authenticated request to a different GitHub endpoint.
+        # repo is team-writable source config, and a crafted value would steer this authenticated
+        # request to a different GitHub endpoint.
         raise ValueError(f"Unsafe GitHub repo path: {repo!r}")
     url = f"{_GITHUB_API}/repos/{repo}/actions/jobs/{job_id}/logs"
-    # Identity-blind on purpose: the activity already gated this call against the installation
-    # budget before dispatch, so gating here again would consume the budget twice.
     with contextlib.closing(
         github_request(
             "GET",
@@ -132,9 +125,8 @@ def fetch_bounded_job_log(
 
 
 def _depot_line_text(line: dict[str, Any]) -> str:
-    # Rendered as a GitHub log line, `<RFC3339 UTC timestamp> <body>`, so the emitter reads the
-    # line's timestamp the same way for both engines. Depot sends the int64 `timestampMs` as a
-    # JSON string and omits it when it is zero.
+    # Rendered as a GitHub log line, `<RFC3339 UTC timestamp> <body>`, so that the emitter parses
+    # both engines the same way. Depot sends `timestampMs` as a JSON string and omits it when zero.
     body = str(line.get("body", ""))
     timestamp_ms = int(line.get("timestampMs") or 0)
     if not timestamp_ms:
@@ -166,15 +158,12 @@ def fetch_depot_job_log(
     max_bytes: int = _MAX_LOG_BYTES,
     max_read_bytes: int = 4 * _MAX_LOG_BYTES,
 ) -> str | None:
-    """Return the Depot CI attempt's log text (capped at ``max_bytes``), or None if Depot has none (404).
+    """The Depot CI attempt's log text, capped at ``max_bytes``, or None if Depot has none (404).
 
-    ``api_token`` is the team's own Depot organization token, so no shared PostHog egress budget
-    applies. A 429 passes Depot's ``Retry-After`` to the Temporal retry instead.
-
-    The pages stop after ``max_read_bytes`` of responses, so a job that prints an unbounded log
-    cannot hold a worker in the download. The log then keeps its head and the tail read so far.
-    Each page is read as a stream and dropped undecoded once it passes ``_MAX_LOG_BYTES`` or the
-    remaining budget, because decoding a page holds all of its JSON in memory at once.
+    A 429 raises an ``ApplicationError`` that carries Depot's ``Retry-After`` for the Temporal retry.
+    The download stops after ``max_read_bytes`` of responses, and the log then keeps its head and
+    the tail read so far. A page that passes ``_MAX_LOG_BYTES`` or the remaining budget is dropped
+    undecoded, because decoding a page holds all of its JSON in memory.
     """
     log = _HeadAndTail(max_bytes)
     read_budget = max_read_bytes

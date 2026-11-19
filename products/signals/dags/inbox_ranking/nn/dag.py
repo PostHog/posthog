@@ -5,7 +5,7 @@ reads the report's priority levels.
 One examples asset, and a candidate and a champion asset per family, on the dataset dag's daily
 partition, registered by the `signals_ml` code location, which runs on the image that carries torch:
 
-    inbox_ranking_nn_examples/v1/dt=D/                      rows, labels, holdout flags and priority (`nn/examples.py`)
+    inbox_ranking_nn_examples/v1/dt=D/                      rows, labels, holdout flags and state columns (`nn/examples.py`)
     inbox_ranking_models/v1/<model_name>/dt=D/model.onnx    the refit that serves, + model.holdout.onnx and metadata.json
     (no object)                                             the champion asset grades the candidate and records the decision
 
@@ -23,6 +23,7 @@ it stay as they are.
 """
 
 import datetime
+import dataclasses
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -33,13 +34,15 @@ import pyarrow as pa
 from posthog import settings
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import Extras
+from products.signals.backend.ranking.features import Extras, ReportEmbeddingsPriorityScoredFactsFeatureSet
+from products.signals.backend.ranking.model_contract import ZEROED_FEATURE_GROUPS_KEY, zeroed_feature_groups
 from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import (
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
     owner_tags,
+    parquet_file_if_exists,
     partition_object_key,
     read_parquet_if_exists,
     s3_client,
@@ -47,26 +50,51 @@ from products.signals.dags.inbox_ranking.common import (
     write_parquet,
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
-from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE, STATE_TABLE
-from products.signals.dags.inbox_ranking.dataset.project_vectors import EMBEDDING_COLUMNS, LABEL_COLUMNS
-from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs
-from products.signals.dags.inbox_ranking.multihead.local import report_vectors
-from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, report_matrix
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    EMBEDDINGS_TABLE,
+    LABELS_TABLE,
+    STATE_TABLE,
+    peak_rss_metadata,
+)
+from products.signals.dags.inbox_ranking.dataset.project_vectors import CONTEXT_LABEL_COLUMNS, EMBEDDING_COLUMNS
+from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs, ProjectContext
+from products.signals.dags.inbox_ranking.multihead.local import report_vector_presence, report_vectors
+from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
 from products.signals.dags.inbox_ranking.nn.examples import (
+    BIRTH_HORIZONS,
     NN_HEADS,
+    NNExamples,
     build_examples,
     examples_arrow,
     examples_from_arrow,
     network_inputs,
     subset,
 )
+from products.signals.dags.inbox_ranking.nn.feature_backfill import (
+    SCORED_FACTS_SOURCE,
+    SNAPSHOT_SOURCE,
+    BackfillBatchRows,
+    birth_day,
+    fill_from_backfill,
+    late_group_fit_stats,
+    late_group_sources,
+    read_backfill_batch,
+    readiness_block,
+    scored_facts_rows,
+    with_scored_facts_sources,
+)
 from products.signals.dags.inbox_ranking.nn.model import (
     HOLDOUT_MODEL_FILE,
+    TrainedNetwork,
     candidate_metadata,
     champion_grades,
+    feature_group_columns,
+    group_importance_block,
     network_recipe,
     network_vector_kinds,
     vs_baseline_block,
+    zero_groups,
+    zero_unfitted_groups,
 )
 from products.signals.dags.inbox_ranking.training.calibration import bucket_rows
 from products.signals.dags.inbox_ranking.training.dag import (
@@ -87,14 +115,18 @@ from products.signals.dags.inbox_ranking.training.families import (
     MODEL_FAMILIES,
     NN_FAMILY,
     NN_WITH_PRIO_FAMILY,
+    NN_WITH_PRIO_ML_FEATURES_V2_FAMILY,
     ModelFamily,
 )
 from products.signals.dags.inbox_ranking.training.side_inputs import load_side_inputs
 from products.signals.dags.inbox_ranking.training.telemetry import (
+    FamilySkipReason,
     candidate_events,
     capture_training_events,
     experiment_comparison_events,
+    family_skipped_event,
     holdout_calibration_events,
+    run_times,
 )
 from products.signals.dags.inbox_ranking.training.train import HoldoutGrade
 
@@ -104,6 +136,8 @@ NN_CANDIDATE_ASSET = "inbox_ranking_nn_model_candidate"
 NN_CHAMPION_ASSET = "inbox_ranking_nn_model_champion"
 NN_WITH_PRIO_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_model_candidate"
 NN_WITH_PRIO_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_model_champion"
+NN_WITH_PRIO_ML_FEATURES_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_ml_features_model_candidate"
+NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_ml_features_model_champion"
 
 # The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
@@ -130,13 +164,29 @@ def _day_inputs(
         client, bucket, partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key), columns=list(EMBEDDING_COLUMNS)
     )
     labels = read_parquet_if_exists(
-        client, bucket, partition_object_key(prefix, LABELS_TABLE, partition_key), columns=list(LABEL_COLUMNS)
+        client,
+        bucket,
+        partition_object_key(prefix, LABELS_TABLE, partition_key),
+        columns=list(CONTEXT_LABEL_COLUMNS),
     )
     if embeddings is None or labels is None:
         missing = [name for name, table in ((EMBEDDINGS_TABLE, embeddings), (LABELS_TABLE, labels)) if table is None]
         context.log.warning(f"no {', '.join(missing)} snapshot for dt={partition_key}; nn skips this partition")
         return None
     return DayInputs(extras=report_vectors(embeddings), labels=labels, embeddings=embeddings)
+
+
+def _examples_extras(
+    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str
+) -> Extras | None:
+    """The dt=D report-vector side input for the examples step; None when the embeddings snapshot is
+    missing. The step builds no project vectors, so it reads no labels snapshot. It only selects rows,
+    so it takes the light form that `buildable` reads and never holds the decoded vectors."""
+    embeddings = parquet_file_if_exists(client, bucket, partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key))
+    if embeddings is None:
+        context.log.warning(f"no {EMBEDDINGS_TABLE} snapshot for dt={partition_key}; nn skips this partition")
+        return None
+    return report_vector_presence(embeddings)
 
 
 @dagster.asset(
@@ -155,17 +205,17 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
     dates = snapshot_dates(partition_key, settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS)
-    snapshots = load_snapshots(client, bucket, prefix, dates)
+    snapshots = load_snapshots(client, bucket, prefix, dates, birth_horizons=BIRTH_HORIZONS)
     if dates[-1] not in snapshots:
         context.log.warning(f"no state and labels snapshots for dt={partition_key}; nn skips this partition")
         context.add_output_metadata({"skipped": dagster.MetadataValue.bool(True)})
         return
-    day = _day_inputs(context, client, bucket, prefix, partition_key)
-    if day is None:
+    extras = _examples_extras(context, client, bucket, prefix, partition_key)
+    if extras is None:
         context.add_output_metadata({"skipped": dagster.MetadataValue.bool(True)})
         return
     snapshots, excluded = drop_without_training_consent(snapshots, training_consent_team_ids())
-    examples = build_examples(snapshots, day.extras, holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS)
+    examples = build_examples(snapshots, extras, holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS)
     if examples.rows_without_team:
         context.log.warning(f"{examples.rows_without_team} moments have no team and no project vectors; dropped")
 
@@ -175,6 +225,7 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     observed = ~np.isnan(table.labels)
     context.add_output_metadata(
         {
+            **peak_rss_metadata(),
             "snapshots": dagster.MetadataValue.int(len(snapshots)),
             "rows": dagster.MetadataValue.int(len(table.rows)),
             "network_train_rows": dagster.MetadataValue.int(len(table.network_train_rows())),
@@ -193,39 +244,34 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
     )
 
 
+def skip_family(
+    context: dagster.AssetExecutionContext, partition_key: str, family: ModelFamily, reason: FamilySkipReason
+) -> dict[str, dagster.MetadataValue]:
+    """Capture `family`'s skip event and return the asset metadata of the skip. The caller logs why."""
+    capture_training_events(
+        context, partition_key, [family_skipped_event(model_name=family.name, run_id=context.run_id, reason=reason)]
+    )
+    return {"skipped": dagster.MetadataValue.bool(True), "skip_reason": dagster.MetadataValue.text(reason.value)}
+
+
 def _missing_state_columns(family: ModelFamily, table: ExampleTable) -> list[str]:
-    """The state columns `family`'s set reads that the examples rows lack. An examples object written
-    before a column existed lacks it, and building the set from it would raise."""
-    return [column for column in family.feature_set.state_columns if column not in table.rows]
+    """The required state columns of `family`'s set that the examples rows lack. An examples object
+    written before a column existed lacks it, and building the set from it would raise. A set builds
+    without its optional columns and records that they are missing."""
+    return [column for column in family.feature_set.required_state_columns() if column not in table.rows]
 
 
-@frozen
-class _ExperimentInputs:
-    extras: Extras
-    # The baseline family's report input for every examples row, graded against the experiment's.
-    baseline_reports: np.ndarray
-
-
-def _experiment_inputs(
+def _family_extras(
     context: dagster.AssetExecutionContext,
     client,
     bucket: str,
     prefix: str,
     partition_key: str,
     family: ModelFamily,
-    table: ExampleTable,
     day: DayInputs,
-) -> _ExperimentInputs | None:
-    """The side inputs an experiment reads beside the report vectors, and its baseline's report
-    input, or None when either cannot be built and the experiment keeps the partition as it stands."""
-    baseline = next(candidate for candidate in MODEL_FAMILIES if candidate.name == family.baseline)
-    missing_columns = _missing_state_columns(baseline, table)
-    if missing_columns:
-        context.log.warning(
-            f"the nn examples for dt={partition_key} have no {', '.join(missing_columns)} column for baseline "
-            f"{baseline.name}; {family.name} keeps this partition as it stands"
-        )
-        return None
+) -> Extras | None:
+    """The day's report vectors and every other side input `family`'s set reads, or None when one is
+    missing and the family keeps the partition as it stands."""
     extras = {
         **day.extras,
         **load_side_inputs(client, bucket, prefix, partition_key, family.feature_set.missing_extras(day.extras)),
@@ -237,8 +283,94 @@ def _experiment_inputs(
             "as it stands"
         )
         return None
+    return extras
+
+
+@frozen
+class _LateGroupInputs:
+    """The examples a family with late feature groups trains on, and where each row's late values
+    came from. Without a `feature_backfill` selection, the examples are the object's as they are."""
+
+    examples: NNExamples
+    sources: Mapping[str, np.ndarray]
+    batch: BackfillBatchRows | None = None
+    excluded_no_training_consent_rows: int = 0
+
+
+def _late_group_inputs(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    family: ModelFamily,
+    examples: NNExamples,
+) -> _LateGroupInputs | None:
+    """None when an experiment reads a backfill batch that holds none of the examples' birth days. Its
+    fit would then be the plain late-feature fit under another name, so it keeps the partition as it
+    stands. A serving family trains without the batch, and its readiness block shows the gap."""
+    groups = tuple(family.feature_set.late_feature_groups)
+    if family.feature_backfill is None:
+        return _LateGroupInputs(examples=examples, sources=late_group_sources(examples.table.rows, groups))
+    days = {birth_day(value) for value in examples.table.rows["snapshot_date"]}
+    batch = read_backfill_batch(client, bucket, prefix, family.feature_backfill, days)
+    if not batch.days_read:
+        consequence = "keeps this partition as it stands" if family.experiment else "trains without it"
+        context.log.warning(
+            f"feature backfill batch {family.feature_backfill.batch_id} holds none of the {len(days)} birth days "
+            f"of dt={partition_key}; {family.name} {consequence}. Write the batch with "
+            "inbox_ranking_feature_backfill_job"
+        )
+        if family.experiment:
+            return None
+    backfilled = fill_from_backfill(examples.table, batch, groups, training_consent_team_ids())
+    return _LateGroupInputs(
+        examples=dataclasses.replace(examples, table=backfilled.table),
+        sources=backfilled.sources,
+        batch=batch,
+        excluded_no_training_consent_rows=backfilled.excluded_no_training_consent_rows,
+    )
+
+
+@frozen
+class _ExperimentInputs:
+    extras: Extras
+    # The baseline family's report input for every examples row, graded against the experiment's.
+    baseline_reports: np.ndarray
+    # None when the baseline reads the experiment's kinds.
+    baseline_context: ProjectContext | None = None
+
+
+def _experiment_inputs(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    family: ModelFamily,
+    table: ExampleTable,
+    day: DayInputs,
+) -> _ExperimentInputs | FamilySkipReason:
+    """The side inputs an experiment reads beside the report vectors, and its baseline's report
+    input, or the reason the experiment keeps the partition as it stands when either cannot be built."""
+    baseline = next(candidate for candidate in MODEL_FAMILIES if candidate.name == family.baseline)
+    missing_columns = _missing_state_columns(baseline, table)
+    if missing_columns:
+        context.log.warning(
+            f"the nn examples for dt={partition_key} have no {', '.join(missing_columns)} column for baseline "
+            f"{baseline.name}; {family.name} keeps this partition as it stands"
+        )
+        return FamilySkipReason.MISSING_STATE_COLUMN
+    extras = _family_extras(context, client, bucket, prefix, partition_key, family, day)
+    if extras is None:
+        return FamilySkipReason.MISSING_SIDE_INPUT
+    baseline_context = None
+    if baseline.project_vector_kinds != family.project_vector_kinds:
+        baseline_context = project_context(table.rows, day.labels, day.embeddings, baseline.project_vector_kinds)
     return _ExperimentInputs(
-        extras=extras, baseline_reports=report_matrix(table.rows, day.extras, baseline.feature_set)
+        extras=extras,
+        baseline_reports=report_matrix(table.rows, day.extras, baseline.feature_set),
+        baseline_context=baseline_context,
     )
 
 
@@ -247,13 +379,21 @@ def train_candidate(
 ) -> dict[str, dagster.MetadataValue]:
     """Fit the day's network for `family`, write its graphs and `metadata.json` under
     `<model_name>/dt=D/`, and return the asset metadata. A partition without examples or snapshots
-    keeps the objects it already holds, because the served pointer can name them."""
+    keeps the objects it already holds, because the served pointer can name them, and captures a
+    skip event."""
+    started_at = datetime.datetime.now(datetime.UTC)
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     arrow = read_parquet_if_exists(client, bucket, partition_object_key(prefix, NN_EXAMPLES_TABLE, partition_key))
     if arrow is None:
         context.log.warning(f"no nn examples for dt={partition_key}; {family.name} keeps this partition as it stands")
-        return {"skipped": dagster.MetadataValue.bool(True)}
+        return skip_family(context, partition_key, family, FamilySkipReason.MISSING_EXAMPLES)
     examples = examples_from_arrow(arrow)
+    late = None
+    if family.feature_set.late_feature_groups:
+        late = _late_group_inputs(context, client, bucket, prefix, partition_key, family, examples)
+        if late is None:
+            return skip_family(context, partition_key, family, FamilySkipReason.BACKFILL_BATCH_EMPTY)
+        examples = late.examples
     missing = _missing_state_columns(family, examples.table)
     if missing:
         # Zeros in place of the missing column would train a model that never saw the input.
@@ -261,19 +401,50 @@ def train_candidate(
             f"the nn examples for dt={partition_key} have no {', '.join(missing)} column; {family.name} keeps this "
             f"partition as it stands. Re-run the {NN_EXAMPLES_TABLE} asset for dt={partition_key}"
         )
-        return {"skipped": dagster.MetadataValue.bool(True)}
+        return skip_family(context, partition_key, family, FamilySkipReason.MISSING_STATE_COLUMN)
     day = _day_inputs(context, client, bucket, prefix, partition_key)
     if day is None:
-        return {"skipped": dagster.MetadataValue.bool(True)}
-    extras = day.extras
-    baseline_reports = None
+        return skip_family(context, partition_key, family, FamilySkipReason.MISSING_SNAPSHOT)
+    baseline_reports = baseline_context = None
     if family.experiment:
         experiment = _experiment_inputs(context, client, bucket, prefix, partition_key, family, examples.table, day)
-        if experiment is None:
-            return {"skipped": dagster.MetadataValue.bool(True)}
+        if isinstance(experiment, FamilySkipReason):
+            return skip_family(context, partition_key, family, experiment)
         extras, baseline_reports = experiment.extras, experiment.baseline_reports
-    inputs = network_inputs(examples.table, extras, day.labels, day.embeddings, family.feature_set)
+        baseline_context = experiment.baseline_context
+    else:
+        family_extras = _family_extras(context, client, bucket, prefix, partition_key, family, day)
+        if family_extras is None:
+            return skip_family(context, partition_key, family, FamilySkipReason.MISSING_SIDE_INPUT)
+        extras = family_extras
+    facts_sources = None
+    if late is not None and isinstance(family.feature_set, ReportEmbeddingsPriorityScoredFactsFeatureSet):
+        scored = scored_facts_rows(examples.table.rows, extras, family.feature_set)
+        late = dataclasses.replace(late, sources=with_scored_facts_sources(late.sources, scored))
+        facts_sources = np.where(scored, SCORED_FACTS_SOURCE, SNAPSHOT_SOURCE).astype(object)
+    inputs = network_inputs(
+        examples.table, extras, day.labels, day.embeddings, family.feature_set, family.project_vector_kinds
+    )
     del day
+    fit_rows = examples.table.network_train_rows()
+    fit_stats = late_group_fit_stats(inputs.reports, fit_rows, family.feature_set)
+    zeroed_groups = zero_unfitted_groups(inputs.reports, fit_rows, family.feature_set)
+    readiness = None
+    if late is not None:
+        readiness = readiness_block(
+            examples.table,
+            late.sources,
+            fit_stats,
+            zeroed_groups,
+            batch=late.batch,
+            excluded_no_training_consent_rows=late.excluded_no_training_consent_rows,
+            facts_sources=facts_sources,
+        )
+    if zeroed_groups:
+        context.log.info(
+            f"{family.name} reads zeros for {', '.join(zeroed_groups)} on dt={partition_key}: too few training "
+            "rows carry them"
+        )
     check_recipe(
         client,
         bucket,
@@ -284,21 +455,105 @@ def train_candidate(
     )
 
     from products.signals.dags.inbox_ranking.nn.train import (  # noqa: PLC0415 — keeps torch off the location's import path
+        seed_networks,
         seed_scores,
+        shuffled_group_scores,
         train_network,
     )
 
     trained = train_network(examples.table, inputs, NN_HEADS, NETWORK_CONFIG)
     vs_baseline = None
     if baseline_reports is not None and family.baseline is not None:
-        baseline_inputs = NetworkInputs(reports=baseline_reports, context=inputs.context)
+        baseline_inputs = NetworkInputs(reports=baseline_reports, context=baseline_context or inputs.context)
+        experiment_seeds = family.experiment_seeds(EXPERIMENT_SEEDS)
+        networks = seed_networks(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, experiment_seeds)
+        all_rows = np.arange(len(inputs))
+        experiment_scores = [network.predict(inputs, all_rows) for network in networks]
         vs_baseline = vs_baseline_block(
             examples.table,
             baseline=family.baseline,
             seeds=EXPERIMENT_SEEDS,
-            experiment_scores=seed_scores(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
+            experiment_seeds=experiment_seeds,
+            experiment_scores=experiment_scores,
             baseline_scores=seed_scores(examples.table, baseline_inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
         )
+        if family.feature_set.late_feature_groups:
+            vs_baseline["zeroed_feature_groups"] = zeroed_groups
+        groups = feature_group_columns(family.feature_set)
+        if groups:
+            # Scored by the arm's own seed fits, so the read adds no fit.
+            holdout_rows = np.flatnonzero(examples.table.holdout.any(axis=1))
+            vs_baseline["group_importance"] = group_importance_block(
+                examples.table,
+                experiment_scores,
+                holdout_rows,
+                shuffled_group_scores(networks, inputs, holdout_rows, groups),
+            )
+    metadata = write_candidate(
+        context,
+        client,
+        bucket,
+        partition_key,
+        family,
+        trained,
+        windows=examples.windows,
+        vs_baseline=vs_baseline,
+        readiness=readiness,
+        started_at=started_at,
+    )
+    return {**metadata, **history_shares(inputs), **readiness_metadata(readiness)}
+
+
+def readiness_metadata(readiness: Mapping[str, Any] | None) -> dict[str, dagster.MetadataValue]:
+    """The readiness block's headline in the run, so a disabled group shows before anyone opens
+    `metadata.json`."""
+    if readiness is None:
+        return {}
+    groups = readiness["network_fit"]["groups"]
+    return {
+        "enabled_feature_groups": dagster.MetadataValue.text(", ".join(readiness["enabled_feature_groups"]) or "none"),
+        **{
+            f"{group}_fit_carried_share": dagster.MetadataValue.float(stats["carried_share"])
+            for group, stats in groups.items()
+        },
+        **(
+            {"feature_backfill_days_read": dagster.MetadataValue.int(readiness["feature_backfill"]["days_read"])}
+            if readiness["feature_backfill"] is not None
+            else {}
+        ),
+    }
+
+
+def history_shares(inputs: NetworkInputs) -> dict[str, dagster.MetadataValue]:
+    """The share of example rows whose team has history for each project-vector kind, so a kind that
+    is all zero for most rows shows in the run before anyone reads its grade."""
+    if inputs.context is None or len(inputs) == 0:
+        return {}
+    shares = inputs.context.has_history[inputs.context.index].mean(axis=0)
+    return {
+        f"has_{kind}_history_share": dagster.MetadataValue.float(float(share))
+        for kind, share in zip(inputs.context.kinds, shares, strict=True)
+    }
+
+
+def write_candidate(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    partition_key: str,
+    family: ModelFamily,
+    trained: TrainedNetwork,
+    *,
+    windows: Mapping[str, Mapping[str, object]],
+    vs_baseline: Mapping[str, Any] | None,
+    started_at: datetime.datetime,
+    pair_settings: Mapping[str, Any] | None = None,
+    readiness: Mapping[str, Any] | None = None,
+) -> dict[str, dagster.MetadataValue]:
+    """Write a fitted `family` network's graphs and `metadata.json` under `<model_name>/dt=D/`,
+    replacing what a previous run of the partition left, capture its events, and return the asset
+    metadata. `started_at` is when the family's training started."""
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     for head in trained.heads:
         context.log.info(f"{family.name} {head.metrics.head}: {head.metrics.as_dict()}")
     for name in trained.skipped:
@@ -317,12 +572,21 @@ def train_candidate(
         trained,
         family=family,
         config=NETWORK_CONFIG,
-        windows=examples.windows,
+        windows=windows,
         trained_at=datetime.datetime.now(datetime.UTC),
         run_id=context.run_id,
+        pair_settings=pair_settings,
     )
     if vs_baseline is not None:
-        metadata = {**metadata, "vs_baseline": vs_baseline}
+        metadata = {**metadata, "vs_baseline": dict(vs_baseline)}
+    if readiness is not None:
+        # The sweep zeroes the same groups for this version (`zeroed_feature_groups`), so the served
+        # model reads the zeros its weights were fit on.
+        metadata = {
+            **metadata,
+            "readiness": dict(readiness),
+            ZEROED_FEATURE_GROUPS_KEY: list(readiness["zeroed_feature_groups"]),
+        }
     metadata_key = model_object_key(prefix, family.name, partition_key, METADATA_FILE)
     _put_json(client, bucket, metadata_key, metadata)
     written.add(metadata_key)
@@ -335,7 +599,7 @@ def train_candidate(
         context,
         partition_key,
         [
-            *candidate_events(metadata),
+            *candidate_events(metadata, run_times(started_at)),
             *experiment_comparison_events(metadata),
             *holdout_calibration_events(
                 partition_key=partition_key,
@@ -393,7 +657,13 @@ def decide_champion(
                 f"the served {family.name} model is compared on its stored AUC"
             )
             return {}
-        table = examples_from_arrow(arrow).table
+        examples = examples_from_arrow(arrow)
+        if family.feature_set.late_feature_groups:
+            late = _late_group_inputs(context, client, bucket, prefix, partition_key, family, examples)
+            if late is None:
+                return {}
+            examples = late.examples
+        table = examples.table
         missing = _missing_state_columns(family, table)
         if missing:
             context.log.warning(
@@ -404,13 +674,13 @@ def decide_champion(
         day = _day_inputs(context, client, bucket, prefix, partition_key)
         if day is None:
             return {}
+        extras = _family_extras(context, client, bucket, prefix, partition_key, family, day)
+        if extras is None:
+            return {}
         holdout = subset(table, np.flatnonzero(table.holdout.any(axis=1)))
-        return champion_grades(
-            champion,
-            holdout_model,
-            holdout,
-            network_inputs(holdout, day.extras, day.labels, day.embeddings, family.feature_set),
-        )
+        inputs = network_inputs(holdout, extras, day.labels, day.embeddings, family.feature_set)
+        zero_groups(inputs.reports, family.feature_set, zeroed_feature_groups(champion))
+        return champion_grades(champion, holdout_model, holdout, inputs)
 
     return decide_family_champion(context, client, bucket, prefix, partition_key, family, grade_champion=grade_champion)
 
@@ -456,6 +726,14 @@ _NN_WITH_PRIO_ASSETS = family_assets(
 )
 inbox_ranking_nn_with_prio_model_candidate = _NN_WITH_PRIO_ASSETS.candidate
 inbox_ranking_nn_with_prio_model_champion = _NN_WITH_PRIO_ASSETS.champion
+_NN_WITH_PRIO_ML_FEATURES_ASSETS = family_assets(
+    NN_WITH_PRIO_ML_FEATURES_V2_FAMILY,
+    candidate_name=NN_WITH_PRIO_ML_FEATURES_CANDIDATE_ASSET,
+    champion_name=NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET,
+    after=[NN_WITH_PRIO_CHAMPION_ASSET],
+)
+inbox_ranking_nn_with_prio_ml_features_model_candidate = _NN_WITH_PRIO_ML_FEATURES_ASSETS.candidate
+inbox_ranking_nn_with_prio_ml_features_model_champion = _NN_WITH_PRIO_ML_FEATURES_ASSETS.champion
 
 
 inbox_ranking_nn_training_job = dagster.define_asset_job(
@@ -466,6 +744,8 @@ inbox_ranking_nn_training_job = dagster.define_asset_job(
         NN_CHAMPION_ASSET,
         NN_WITH_PRIO_CANDIDATE_ASSET,
         NN_WITH_PRIO_CHAMPION_ASSET,
+        NN_WITH_PRIO_ML_FEATURES_CANDIDATE_ASSET,
+        NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET,
     ],
     tags={
         **owner_tags,

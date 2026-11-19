@@ -5,7 +5,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { PhaiViewMode, maxGlobalLogic } from '../maxGlobalLogic'
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
+
+import { maxGlobalLogic } from '../maxGlobalLogic'
 
 /**
  * Switches the Max scene between the new posthog_ai/frontend surface and the legacy Max chat. Only

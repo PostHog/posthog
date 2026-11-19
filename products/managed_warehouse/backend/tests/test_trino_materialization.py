@@ -21,6 +21,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeTableResult,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
+    StoredColumnType,
     TrinoCompiledQuery,
     TrinoExpansionMode,
     TrinoIncrementalWrite,
@@ -66,7 +67,7 @@ class TestTrinoShadowMaterialization(BaseTest):
     @parameterized.expand([(False,), (True,)])
     def test_compiles_and_executes_without_saved_translation(self, fail_write: bool) -> None:
         if fail_write:
-            self.cursor.fetchall.side_effect = [[], RuntimeError("Trino write failed")]
+            self.cursor.fetchall.side_effect = [[], [], RuntimeError("Trino write failed")]
         with (
             patch(
                 "products.managed_warehouse.backend.trino_materialization.compile_hogql_to_trino_sql",
@@ -88,13 +89,14 @@ class TestTrinoShadowMaterialization(BaseTest):
 
         compile_query.assert_called_once_with(
             self.team.pk,
-            HogQLQuery.model_validate(self.query),
+            HogQLQuery.model_validate({**self.query, "values": {"incremental_window_start": None}}),
             team=self.team,
             bypass_warehouse_access_control=True,
             allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
             expansion_mode=TrinoExpansionMode.DJANGO,
             select_transform=ANY,
             preserve_clickhouse_output_names=True,
+            target=None,
         )
         connect.assert_called_once_with(
             str(self.organization.pk),
@@ -103,7 +105,7 @@ class TestTrinoShadowMaterialization(BaseTest):
         assert self.cursor.execute.call_args_list[0].args == (
             f'CREATE SCHEMA IF NOT EXISTS "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"',
         )
-        assert self.cursor.execute.call_args_list[1].args == (
+        assert self.cursor.execute.call_args_list[2].args == (
             f'CREATE OR REPLACE TABLE "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}" '
             'AS SELECT name FROM "org_catalog"."imports"."orders" WHERE name = ?',
             ["example' OR 1=1 --"],
@@ -216,6 +218,13 @@ class TestTrinoShadowMaterialization(BaseTest):
                 ("hits", "one"),
             ),
             (
+                "union_by_name_unaliased_expression",
+                "SELECT event, max(timestamp) FROM events GROUP BY event "
+                "UNION ALL BY NAME SELECT max(timestamp), event FROM events GROUP BY event",
+                None,
+                ("max(toTimeZone(timestamp, 'UTC'))",),
+            ),
+            (
                 "resolved_calls",
                 "SELECT max(timestamp), toStartOfDay(timestamp), toDate(timestamp), timestamp AS ts "
                 "FROM events GROUP BY timestamp",
@@ -236,7 +245,7 @@ class TestTrinoShadowMaterialization(BaseTest):
                 "guard_names_inner_columns",
                 "SELECT event, count(), max(timestamp), timestamp AS ts FROM events GROUP BY event, timestamp",
                 dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
-                ("count()", "max(timestamp)"),
+                ("count()", "max(toTimeZone(timestamp, 'UTC'))"),
             ),
             (
                 "string_constant",
@@ -261,6 +270,24 @@ class TestTrinoShadowMaterialization(BaseTest):
                 "SELECT event, countIf(match(event, 'sign.?up')), timestamp AS ts FROM events GROUP BY event, timestamp",
                 dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
                 ("countIf(match(event, 'sign.?up'))",),
+            ),
+            (
+                "repeated_name_full_build",
+                "SELECT a.event, a.timestamp AS ts, a.event AS event FROM events AS a",
+                None,
+                ("a.event", "ts", "event"),
+            ),
+            (
+                "array_join_alias_merge_stage",
+                "SELECT event, n, timestamp AS ts FROM events ARRAY JOIN [1, 2] AS n",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("n",),
+            ),
+            (
+                "repeated_name_merge_stage",
+                "SELECT a.event, a.timestamp AS ts, a.event AS event FROM events AS a",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("a.event", "ts", "event"),
             ),
         ]
     )
@@ -393,14 +420,18 @@ class _ScriptedCursor:
         processed_bytes: int = 0,
         cpu_milliseconds: int = 0,
         unreachable_from: str | None = None,
+        output_types: list[tuple[str, ...]] | None = None,
+        existing_columns: list[tuple[str, str]] | None = None,
     ) -> None:
+        self.output_types = output_types
+        self.existing_columns = existing_columns or [("id", "bigint"), ("ts", "timestamp(6) with time zone")]
         self.table_exists = table_exists
         self.staged = staged
         self.duplicate = duplicate
         self.max_key = max_key
         self.statements: list[tuple[str, Any]] = []
         self.rowcount = -1
-        self.description: list[tuple[str]] | None = None
+        self.description: list[tuple[str, ...]] | None = None
         self.processed_bytes = processed_bytes
         self.cpu_milliseconds = cpu_milliseconds
         self.unreachable_from = unreachable_from
@@ -414,13 +445,13 @@ class _ScriptedCursor:
         self.rowcount, self._rows = -1, []
         self.stats = {"processedBytes": self.processed_bytes, "cpuTimeMillis": self.cpu_milliseconds}
         if "information_schema.tables" in statement:
-            self._rows = [(1,)] if self.table_exists else []
+            self._rows = list(self.existing_columns) if self.table_exists else []
         elif statement.startswith("CREATE OR REPLACE TABLE"):
             self.rowcount = self.staged
         elif "HAVING count(*) > 1" in statement:
             self._rows = [(1,)] if self.duplicate else []
         elif statement.endswith("LIMIT 0"):
-            self.description = [("id",), ("ts",)]
+            self.description = list(self.output_types or [("id",), ("ts",)])
         elif statement.startswith("MERGE"):
             self.rowcount = self.staged
         elif statement.startswith("SELECT max("):
@@ -439,7 +470,11 @@ class TestTrinoIncrementalMaterialization(BaseTest):
     since = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
 
     def run_build(
-        self, cursor: _ScriptedCursor, since: Any, control: TrinoQueryControl | None = None
+        self,
+        cursor: _ScriptedCursor,
+        since: Any,
+        control: TrinoQueryControl | None = None,
+        stored_column_types: tuple[StoredColumnType, ...] = (),
     ) -> tuple[DuckLakeTableResult | Exception, list[str], list[Any]]:
         compiled = TrinoCompiledQuery(sql="SELECT id, ts FROM orders", values={})
         connection = MagicMock(catalog="cat")
@@ -461,11 +496,13 @@ class TestTrinoIncrementalMaterialization(BaseTest):
                     saved_query_id=self.saved_query_id,
                     source_query=self.query,
                     incremental=TrinoIncrementalWrite(incremental_key="ts", unique_key=("id",), since=since),
+                    stored_column_types=stored_column_types,
                     control=control,
                 )
             except Exception as error:
                 result = error
         transforms = [call.kwargs["select_transform"] for call in compile_query.call_args_list]
+        self.window_starts = [call.args[1].values["incremental_window_start"] for call in compile_query.call_args_list]
         return result, [statement for statement, _ in cursor.statements], transforms
 
     def test_merges_staged_rows_and_reports_their_watermark(self) -> None:
@@ -477,6 +514,7 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         assert isinstance(result, DuckLakeTableResult)
         assert (result.row_count, result.watermark, result.merged) == (3, latest, True)
         assert len(transforms) == 1 and transforms[0] is not None
+        assert self.window_starts == [self.since]
         table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
         stage = table[:-1] + '__ph_incremental_stage"'
         assert f"CREATE OR REPLACE TABLE {stage} AS SELECT id, ts FROM orders" in statements
@@ -488,6 +526,174 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         ) in statements
         assert f'SELECT max("ts") FROM {stage}' in statements
         assert statements[-1] == f"DROP TABLE IF EXISTS {stage}"
+
+    @parameterized.expand(
+        [
+            (
+                "nested_anonymous_rows",
+                "row(varchar(8), varchar(1), array(row(varchar)))",
+                'row("1" varchar(8), "2" varchar(1), "3" array(row("1" varchar)))',
+            ),
+            (
+                "rows_inside_a_map",
+                "map(varchar, row(timestamp(3) with time zone, decimal(10, 2)))",
+                'map(varchar, row("1" timestamp(3) with time zone, "2" decimal(10, 2)))',
+            ),
+            (
+                "named_fields_kept",
+                'row("a" bigint, date varchar, row(bigint))',
+                'row("a" bigint, "date" varchar, "3" row("1" bigint))',
+            ),
+            ("named_row", 'row("a" bigint)', None),
+            ("named_row_with_percent", 'row("discount %" bigint)', None),
+            (
+                "named_field_with_percent_kept",
+                'row("discount %" bigint, bigint)',
+                'row("discount %" bigint, "2" bigint)',
+            ),
+            (
+                "quoted_parenthesis_in_nested_row",
+                'row(row("metric)" bigint), row("metric(" bigint), bigint)',
+                'row("1" row("metric)" bigint), "2" row("metric(" bigint), "3" bigint)',
+            ),
+            (
+                "quoted_parenthesis_in_nested_array",
+                'row(array(row("x)" bigint)), array(row("x(" bigint)))',
+                'row("1" array(row("x)" bigint)), "2" array(row("x(" bigint)))',
+            ),
+            ("plain_column", "array(varchar)", None),
+        ]
+    )
+    def test_names_anonymous_row_fields_in_the_output(self, _name: str, output_type: str, named: str | None) -> None:
+        cursor = _ScriptedCursor(table_exists=False, staged=1, output_types=[("tag", output_type), ("id", "bigint")])
+
+        _, statements, _ = self.run_build(cursor, None)
+
+        table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
+        (write,) = [statement for statement in statements if statement.startswith("CREATE OR REPLACE TABLE")]
+        if named is None:
+            assert write == f"CREATE OR REPLACE TABLE {table} AS SELECT id, ts FROM orders"
+        else:
+            assert write == (
+                f'CREATE OR REPLACE TABLE {table} AS SELECT CAST("__ph_output"."tag" AS {named}) AS "tag", '
+                '"__ph_output"."id" AS "id" FROM (SELECT id, ts FROM orders) AS "__ph_output"'
+            )
+
+    @parameterized.expand(
+        [
+            ("comparison", "boolean", "UInt8", "integer"),
+            ("nullable_comparison", "boolean", "LowCardinality(Nullable(UInt8))", "integer"),
+            ("to_bool", "boolean", "Bool", None),
+            ("nullable_bool", "boolean", "Nullable(Bool)", None),
+            ("no_stored_type", "boolean", None, None),
+            ("array_of_comparisons", "array(boolean)", "Array(UInt8)", "array(integer)"),
+            ("array_of_bools", "array(boolean)", "Array(Bool)", None),
+            ("tuple_of_both", "row(boolean, boolean)", "Tuple(UInt8, Bool)", 'row("1" integer, "2" boolean)'),
+            (
+                "named_tuple",
+                'row("a" boolean, "b" varchar)',
+                "Tuple(a UInt8, b Nullable(String))",
+                'row("a" integer, "b" varchar)',
+            ),
+            (
+                "map_of_arrays",
+                "map(varchar, array(boolean))",
+                "Map(LowCardinality(String), Array(Nullable(UInt8)))",
+                "map(varchar, array(integer))",
+            ),
+            ("shape_differs", "array(boolean)", "UInt8", None),
+        ]
+    )
+    def test_casts_boolean_outputs_to_the_stored_clickhouse_type(
+        self, _name: str, output_type: str, stored_type: str | None, cast_type: str | None
+    ) -> None:
+        cursor = _ScriptedCursor(table_exists=False, staged=1, output_types=[("flag", output_type), ("id", "bigint")])
+        stored: tuple[StoredColumnType, ...] = (StoredColumnType(name="id", clickhouse_type="Int64"),)
+        if stored_type is not None:
+            stored += (StoredColumnType(name="flag", clickhouse_type=stored_type),)
+
+        _, statements, _ = self.run_build(cursor, None, stored_column_types=stored)
+
+        table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
+        (write,) = [statement for statement in statements if statement.startswith("CREATE OR REPLACE TABLE")]
+        if cast_type is None:
+            assert write == f"CREATE OR REPLACE TABLE {table} AS SELECT id, ts FROM orders"
+        else:
+            assert write == (
+                f'CREATE OR REPLACE TABLE {table} AS SELECT CAST("__ph_output"."flag" AS {cast_type}) AS "flag", '
+                '"__ph_output"."id" AS "id" FROM (SELECT id, ts FROM orders) AS "__ph_output"'
+            )
+
+    @parameterized.expand([("type_drifted", "boolean", False), ("type_matches", "integer", True)])
+    def test_rebuilds_instead_of_merging_when_a_column_type_changes(
+        self, _name: str, existing_type: str, merged: bool
+    ) -> None:
+        latest = dt.datetime(2026, 10, 7, tzinfo=dt.UTC)
+        cursor = _ScriptedCursor(
+            table_exists=True,
+            staged=3,
+            max_key=latest,
+            output_types=[("id", "bigint"), ("flag", "boolean")],
+            existing_columns=[("id", "bigint"), ("flag", existing_type)],
+        )
+
+        result, statements, transforms = self.run_build(
+            cursor, self.since, stored_column_types=(StoredColumnType(name="flag", clickhouse_type="UInt8"),)
+        )
+
+        assert isinstance(result, DuckLakeTableResult)
+        assert (result.row_count, result.watermark, result.merged) == (3, latest, merged)
+        table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
+        assert any(statement.startswith("MERGE") for statement in statements) is merged
+        rebuilt = [statement for statement in statements if statement.startswith(f"CREATE OR REPLACE TABLE {table} ")]
+        assert len(rebuilt) == (0 if merged else 1)
+        if not merged:
+            assert 'CAST("__ph_output"."flag" AS integer)' in rebuilt[0]
+            assert transforms[-1](parse_select("SELECT id, ts FROM orders")).where is None
+
+    def test_merges_when_a_probed_varchar_length_differs_from_the_stored_varchar(self) -> None:
+        latest = dt.datetime(2026, 10, 7, tzinfo=dt.UTC)
+        cursor = _ScriptedCursor(
+            table_exists=True,
+            staged=3,
+            max_key=latest,
+            output_types=[("id", "bigint"), ("flag", "boolean"), ("kind", "varchar(1)")],
+            existing_columns=[("id", "bigint"), ("flag", "integer"), ("kind", "varchar")],
+        )
+
+        result, statements, _ = self.run_build(
+            cursor, self.since, stored_column_types=(StoredColumnType(name="flag", clickhouse_type="UInt8"),)
+        )
+
+        assert isinstance(result, DuckLakeTableResult)
+        assert result.merged
+        assert any(statement.startswith("MERGE") for statement in statements)
+
+    def test_skips_the_zero_row_run_when_no_output_can_be_a_row(self) -> None:
+        cursor = _ScriptedCursor(table_exists=False, staged=1, output_types=[("tag", "row(bigint)")])
+        compiled = TrinoCompiledQuery(sql="SELECT id, ts FROM orders", values={}, needs_row_type_probe=False)
+        connection = MagicMock(catalog="cat")
+        connection.cursor.return_value = cursor
+        with (
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.compile_hogql_to_trino_sql",
+                return_value=compiled,
+            ),
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.connect_managed_warehouse_trino"
+            ) as connect,
+        ):
+            connect.return_value.__enter__.return_value = connection
+            execute_trino_model_statements(
+                organization_id=str(self.organization.pk),
+                team_id=self.team.pk,
+                saved_query_id=self.saved_query_id,
+                source_query=self.query,
+            )
+
+        statements = [statement for statement, _ in cursor.statements]
+        assert not any(statement.endswith("LIMIT 0") for statement in statements)
+        assert any(statement.startswith("CREATE OR REPLACE TABLE") for statement in statements)
 
     @parameterized.expand(
         [
@@ -517,6 +723,7 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         assert (result.row_count, result.watermark, result.merged) == (9, latest, False)
         # The table is rebuilt from the unfiltered query.
         assert transforms[-1](parse_select("SELECT id, ts FROM orders")).where is None
+        assert self.window_starts[-1] is None
         table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
         assert f"CREATE OR REPLACE TABLE {table} AS SELECT id, ts FROM orders" in statements
         assert not any("__ph_incremental_stage" in statement for statement in statements)
@@ -524,10 +731,11 @@ class TestTrinoIncrementalMaterialization(BaseTest):
 
     @parameterized.expand(
         [
-            # Schema, table check, stage build, duplicate check, column read, merge and watermark read.
-            ("merge_succeeds", False, 7),
+            # Schema, table check, stored column read, output type read, stage build, duplicate check, column read,
+            # merge and watermark read.
+            ("merge_succeeds", False, 9),
             # The run stops at the duplicate check, and its statements still count.
-            ("duplicate_keys_fail_the_merge", True, 4),
+            ("duplicate_keys_fail_the_merge", True, 6),
         ]
     )
     def test_reports_usage_by_every_statement(self, _name: str, duplicate: bool, statements: int) -> None:
@@ -553,4 +761,4 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         result, _, _ = self.run_build(cursor, self.since, TrinoQueryControl(on_processed_bytes=processed.append))
 
         assert isinstance(result, ConnectionError)
-        assert processed == [100] * 5
+        assert processed == [100] * 7

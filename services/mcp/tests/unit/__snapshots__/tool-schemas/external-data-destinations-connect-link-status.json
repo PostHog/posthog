@@ -1,0 +1,13 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "connect_token": {
+            "description": "The connect_token that the connect link returned.",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["connect_token"],
+    "type": "object"
+}

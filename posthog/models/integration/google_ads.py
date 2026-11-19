@@ -11,8 +11,9 @@ from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 
-from . import common, model
+from . import common, row_writes
 
 logger = structlog.get_logger(__name__)
 
@@ -42,16 +43,16 @@ class GoogleAdsQuotaExhaustedError(Exception):
 def _google_ads_request(method: str, url: str, **kwargs) -> requests.Response:
     """`requests.request` with retries for a transient timeout/connection blip.
 
-    `list_google_ads_accessible_accounts` walks the account hierarchy with a chain of sequential
-    requests, so a single transient blip on any one of them would otherwise fail the whole walk.
+    Google Ads intermittently answers slower than our timeout. Without a retry, one slow reply fails a
+    picker the user is waiting on, or the whole chain of requests in the accessible-accounts walk.
     """
     return requests.request(method, url, **kwargs)
 
 
 class GoogleAdsIntegration:
-    integration: model.Integration
+    integration: IntegrationRecord
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "google-ads":
             raise Exception("GoogleAdsIntegration init called with Integration with wrong 'kind'")
 
@@ -64,7 +65,7 @@ class GoogleAdsIntegration:
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         # Only CDP destinations list conversion actions.
         developer_token = get_or_settings(DEVELOPER_TOKEN_KEY, CredentialsCaller.CDP)
-        response = requests.request(
+        response = _google_ads_request(
             "POST",
             f"https://googleads.googleapis.com/v24/customers/{customer_id}/googleAds:searchStream",
             json={
@@ -85,8 +86,9 @@ class GoogleAdsIntegration:
                 status_code=response.status_code,
                 integration_id=self.integration.id,
             )
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-            self.integration.save(update_fields=["errors"])
+            self.integration = row_writes.update_row(
+                self.integration, IntegrationPatch(errors=common.ERROR_TOKEN_REFRESH_FAILED)
+            )
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."
@@ -128,8 +130,9 @@ class GoogleAdsIntegration:
                 status_code=response.status_code,
                 integration_id=self.integration.id,
             )
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-            self.integration.save(update_fields=["errors"])
+            self.integration = row_writes.update_row(
+                self.integration, IntegrationPatch(errors=common.ERROR_TOKEN_REFRESH_FAILED)
+            )
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."

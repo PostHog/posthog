@@ -257,6 +257,9 @@ class TestTraceSpansDurationOrdering(_TraceSpansTestBase):
 # displays the root span, so slowest/fastest must rank by ROOT duration, not the longest child.
 ROOT_DURATIONS = [10, 5, 8]  # seconds, per trace i=0,1,2 → root order desc = [0, 2, 1]
 CHILD_DURATIONS = [1, 50, 2]  # trace 1's child is the longest span anywhere
+MULTI_ROOT_TRACE = 3
+MULTI_ROOT_OFFSETS = [0, 20]
+MULTI_ROOT_DURATION = 3
 
 
 class TestTraceSpansDurationRootScope(_TraceSpansTestBase):
@@ -286,6 +289,15 @@ class TestTraceSpansDurationRootScope(_TraceSpansTestBase):
                 f"('019e8755-0000-0000-0000-{len(rows):012d}', {cls.team.id}, '{trace_id}', '{child_span_id}', "
                 f"'{root_span_id}', 'db query', 2, '{ts_str}', '{child_end}', '{ts_str}', 0, 'web')"
             )
+        for n, offset_s in enumerate(MULTI_ROOT_OFFSETS):
+            start = base + dt.timedelta(seconds=offset_s)
+            end = start + dt.timedelta(seconds=MULTI_ROOT_DURATION)
+            rows.append(
+                f"('019e8755-0000-0000-0000-{len(rows):012d}', {cls.team.id}, "
+                f"'{_b64(MULTI_ROOT_TRACE.to_bytes(16, 'big'))}', '{_b64((2000 + n).to_bytes(8, 'big'))}', '', "
+                f"'agent turn', 2, '{start.strftime('%Y-%m-%d %H:%M:%S.%f')}', "
+                f"'{end.strftime('%Y-%m-%d %H:%M:%S.%f')}', '{ts_str}', 0, 'agent')"
+            )
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
             "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
@@ -295,12 +307,13 @@ class TestTraceSpansDurationRootScope(_TraceSpansTestBase):
         [
             # Root durations [10, 5, 8] → DESC = [0, 2, 1], ASC = [1, 2, 0]. Trace 1's 50s child must
             # NOT change the rank (that would be ranking by whole-trace max, not the displayed root).
-            ("slowest_by_root", "DESC", [0, 2, 1]),
-            ("fastest_by_root", "ASC", [1, 2, 0]),
+            ("slowest_by_root", "DESC", 10, [3, 0, 2, 1]),
+            ("fastest_by_root", "ASC", 10, [1, 2, 0, 3]),
+            ("slowest_selected_first", "DESC", 1, [3]),
         ]
     )
-    def test_ranks_by_root_span_duration(self, _name, order_direction, expected):
-        self.assertEqual(self._ordered_trace_indices(order_direction=order_direction, limit=10), expected)
+    def test_ranks_by_root_span_duration(self, _name, order_direction, limit, expected):
+        self.assertEqual(self._ordered_trace_indices(order_direction=order_direction, limit=limit), expected)
 
 
 # Trace 1 started first but owns the newest span; trace 4 never got a root; trace 5 has 15 spans.

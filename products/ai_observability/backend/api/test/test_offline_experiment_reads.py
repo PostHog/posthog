@@ -224,8 +224,9 @@ class TestOfflineExperimentReads(APIBaseTest):
                 if expected_count:
                     assert response.data["results"][0]["experiment"]["tags"] == ["production", "quality"]
                 seen = [point["experiment"]["id"] for point in response.data["results"]]
-                while response.data["next_cursor"]:
-                    response = self.client.get(self._history(), {**query, "cursor": response.data["next_cursor"]})
+                while response.data["next"]:
+                    assert response.data["next_cursor"]
+                    response = self.client.get(response.data["next"])
                     assert response.status_code == 200, response.data
                     seen.extend(point["experiment"]["id"] for point in response.data["results"])
                 assert len(seen) == len(set(seen)) == expected_count

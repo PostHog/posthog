@@ -28,6 +28,7 @@ from psycopg import OperationalError as PsycopgOperationalError
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
+from products.posthog_ai.backend.message_routing import POSTHOG_AI_INTERACTION_ORIGIN
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext, TurnPollTimeout
 
@@ -43,6 +44,7 @@ from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .offline_results import OfflineEvalPublisher, OfflineEvalSettings, OfflineEvalSuite, OfflineUploadError
 from .runner import AgentNeverRanError, EvalCaseResult, SandboxedCaseRunner, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
+from .tool_chain import build_tool_chain, summarize_tool_chain
 from .trace_events import RunMetadata, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
@@ -404,9 +406,7 @@ class _BaseEvalRun:
                         settings,
                         self.offline_suite,
                         application_trace_ids_enabled=(
-                            self.posthog_client is not None
-                            and not self.posthog_client.disabled
-                            and settings.host == self.ctx.posthog_trace_host
+                            settings.host == self.ctx.posthog_trace_host
                             and settings.project_id == self.ctx.posthog_trace_project_id
                         ),
                     )
@@ -595,9 +595,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     )
                     if original_case is not None and original_case.interaction_origin:
                         sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
+                    elif self.ctx.surface == "app":
+                        sandbox_context = replace(sandbox_context, interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN)
                     elif self.ctx.skill_delivery == "exec":
                         sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
-                    if sandbox_context.interaction_origin == "posthog_ai":
+                    if sandbox_context.interaction_origin == POSTHOG_AI_INTERACTION_ORIGIN:
                         prompt = PromptService.build()
                         sandbox_context = replace(
                             sandbox_context,
@@ -735,6 +737,21 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 except Exception:
                     logger.exception("Failed to emit trace events for '%s'", eval_case.name)
 
+        tool_chain: list[dict[str, Any]] | None = None
+        try:
+            steps = build_tool_chain(
+                {
+                    "raw_log": result.raw_log,
+                    "prompt": eval_case.prompt,
+                    "turn_logs": result.turn_logs,
+                    "turn_prompts": [eval_case.prompt, *eval_case.followups],
+                }
+            )
+            hooks.metadata["tool_chain"] = summarize_tool_chain(steps)
+            tool_chain = [step.model_dump() for step in steps]
+        except Exception:
+            logger.exception("Failed to build the tool chain for '%s'", eval_case.name)
+
         try:
             write_case_logs(
                 case_dir=self.run_log_dir,
@@ -747,6 +764,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 token_usage=self.case_trace_meta.get(trial_id, {}).get("token_usage"),
                 trial_id=hooks.metadata.get("trial_id"),
                 trace_id=result.trace_id,
+                tool_chain=tool_chain,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
@@ -792,6 +810,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "agent_runtime": self.ctx.agent_runtime,
             "skill_delivery": self.ctx.skill_delivery,
             "reasoning_effort": self.ctx.reasoning_effort,
+            "service_tier": self.ctx.service_tier,
+            "eval_surface": self.ctx.surface,
         }
 
 

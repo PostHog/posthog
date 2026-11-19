@@ -196,12 +196,18 @@ class TestTaskRunMetrics(TestCase):
         ):
             self.task.create_run(
                 environment=TaskRun.Environment.CLOUD,
-                extra_state={"run_source": "manual", "runtime_adapter": "codex"},
+                extra_state={"run_source": "manual", "runtime_adapter": "codex", "model": "gpt-5.5"},
             )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
         created_event = next(call for call in capture.call_args_list if call.kwargs.get("event") == "task_run_created")
         assert created_event.kwargs["send_feature_flags"] is False
+        properties = created_event.kwargs["properties"]
+        assert (properties["model"], properties["runtime_adapter"], properties["reasoning_effort"]) == (
+            "gpt-5.5",
+            "codex",
+            None,
+        )
 
     def test_create_run_bounds_unexpected_state_labels(self) -> None:
         labels = {
@@ -350,6 +356,7 @@ class TestTaskRunMetrics(TestCase):
             ("mark_completed", "completed", "unknown"),
             ("dispatch_failure", "failed", "workflow_start_failed"),
             ("claim_and_fail_stale_run", "failed", "sandbox_lost"),
+            ("fail_task_run", "failed", "stale_queued_cleanup"),
         ]
     )
     def test_writers_outside_the_status_activity_count_the_terminal_transition_once(
@@ -381,6 +388,8 @@ class TestTaskRunMetrics(TestCase):
                     run.mark_completed(notify=False)
                 elif writer == "claim_and_fail_stale_run":
                     facade.claim_and_fail_stale_run(run.id, "worker lost", error_type="sandbox_lost")
+                elif writer == "fail_task_run":
+                    facade.fail_task_run(run.id, "stale", error_type="stale_queued_cleanup")
                 else:
                     client._terminalize_unstarted_task_run(str(run.id), "start failed")
 
@@ -391,15 +400,23 @@ class TestTaskRunMetrics(TestCase):
         run.status = TaskRun.Status.COMPLETED
 
         with CaptureQueriesContext(connection) as queries:
-            assert run._save_terminal_status(["status"])
+            assert run._save_terminal_status(["status"]) == "moved"
 
         locks = [query["sql"] for query in queries if "FOR UPDATE" in query["sql"]]
         assert len(locks) == 2
         assert f'FROM "{Task._meta.db_table}"' in locks[0]
         assert f'FROM "{TaskRun._meta.db_table}"' in locks[1]
 
-    @parameterized.expand([("mark_failed",), ("mark_completed",)])
-    def test_finalizer_on_a_stale_instance_does_not_count_a_run_another_writer_ended(self, writer: str) -> None:
+    @parameterized.expand(
+        [
+            ("mark_failed", TaskRun.Status.CANCELLED),
+            ("mark_completed", TaskRun.Status.CANCELLED),
+            ("mark_failed_from_queued", TaskRun.Status.IN_PROGRESS),
+        ]
+    )
+    def test_finalizer_on_a_stale_instance_leaves_a_run_another_writer_moved(
+        self, writer: str, stored_status: str
+    ) -> None:
         def terminal_total() -> float:
             return sum(
                 _sample_value(
@@ -416,15 +433,19 @@ class TestTaskRunMetrics(TestCase):
             )
 
         run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
-        TaskRun.objects.filter(pk=run.pk).update(status=TaskRun.Status.CANCELLED)
+        TaskRun.objects.filter(pk=run.pk).update(status=stored_status)
         before = terminal_total()
 
-        with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed") as notify_failed:
             if writer == "mark_failed":
                 run.mark_failed("stuck", error_type="janitor_timeout")
+            elif writer == "mark_failed_from_queued":
+                run.mark_failed("stuck", error_type="janitor_timeout", expected_status=TaskRun.Status.QUEUED)
             else:
                 run.mark_completed(notify=False)
 
+        assert TaskRun.objects.get(pk=run.pk).status == stored_status
+        notify_failed.assert_not_called()
         assert terminal_total() == before
 
     def test_activating_run_without_prewarmed_marker_does_not_increment(self) -> None:

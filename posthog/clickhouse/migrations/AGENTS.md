@@ -15,11 +15,11 @@ Every environment runs one main cluster plus the same satellites and ingestion n
 - Main cluster (`posthog`) — sharded, several shards, multiple replicas per shard. Holds the
   sharded tables and the `Distributed` read tables the app queries, including those in front of
   satellite tables.
-- Satellites — `ai_events`, `aux`, `batch_exports`, `endpoints`, `logs`, `sessions`, `ops`. Each is
+- Satellites — `ai_events`, `aux`, `batch_exports`, `endpoints`, `logs`, `metrics`, `sessions`, `ops`. Each is
   a single shard with multiple replicas, and owns the tables for one product area, including rollups
   of that data. `aux` holds general product pre-aggregates (see "Satellite storage with a main-cluster
   read table" below).
-- Ingestion nodes — `ingestion-events`, `ingestion-medium`, `ingestion-small`, `ingestion-apm`.
+- Ingestion nodes — `ingestion-events`, `ingestion-medium`, `ingestion-small`, `ingestion-apm`, `ingestion-metrics`.
   Stateless, one shard per node, no replicas. See Ingestion nodes below.
 
 Shard and replica counts differ per environment and change over time, so nothing in a migration may
@@ -50,9 +50,12 @@ The way this is done:
 
 If a destination table is non-sharded, we pick only one node as data for the Distributed table.
 
-The `ingestion-apm` nodes (`NodeRole.APM`) run the same pattern for metrics: a Kafka table feeds a
-`Null` input table, materialized views fan it out to writable `Distributed` tables, and those write
-into the storage tables on the `logs` cluster (`NodeRole.LOGS`).
+The `ingestion-metrics` nodes (`NodeRole.INGESTION_METRICS`) run the same pattern for metrics: a Kafka
+table feeds a `Null` input table, materialized views fan it out to writable `Distributed` tables, and
+those write into the metrics4 storage tables on the `metrics` cluster (`NodeRole.METRICS`). In cloud,
+a metrics4 change targets those two roles. Migrations 0376 and 0379 removed metrics4 from the
+`ingestion-apm` and `logs` nodes in cloud. The local stacks still run it there, so a metrics4 change
+also targets `APM` and `LOGS`.
 
 # Local setup parity
 
@@ -337,6 +340,9 @@ run_sql_with_exceptions(
 )
 ```
 
+`INGESTION_SMALL` is only the default.
+Choose small, medium or events with the node role guide in `.agents/skills/clickhouse-migrations/SKILL.md`.
+
 ### Required settings
 
 `kafka_engine()` returns the ENGINE clause only, so each table appends its own `SETTINGS`.
@@ -347,6 +353,7 @@ SETTINGS kafka_skip_broken_messages = 100,
          kafka_num_consumers = {kafka_num_consumers(1)},
          kafka_thread_per_consumer = 1,
          kafka_poll_timeout_ms = 10000,
+         kafka_flush_interval_ms = 7500,
          kafka_max_block_size = 100000
 ```
 
@@ -357,8 +364,8 @@ SETTINGS kafka_skip_broken_messages = 100,
   `fetch.min.bytes`, so a short timeout buys many small fetches instead of a few large ones.
 - `kafka_thread_per_consumer` serializes flushes when off, and changes nothing unless
   `kafka_num_consumers` is above 1.
-- Leave `kafka_flush_interval_ms` unset; it defaults to 7500. Leave `kafka_max_wait_ms` alone, it is
-  a user-profile setting.
+- `kafka_flush_interval_ms` matches the default of 7500. Set it so the table shows its flush interval.
+- Leave `kafka_max_wait_ms` alone, it is a user-profile setting.
 
 ### Sizing
 
@@ -371,8 +378,8 @@ about 1000 to avoid trading tiny parts for merge pressure.
 `kafka_num_consumers` is per node. Nodes of a role share the topic's partitions and a consumer with
 no partition still holds a thread, so the total across the role must not exceed the partition count
 — a role on many nodes reaches that ceiling at 1. Each consumer also takes a slot in
-`background_message_broker_schedule_pool_size`, a server-level pool of 16 shared by every Kafka
-table on the node. Resolve the count through `kafka_num_consumers()` in
+`background_message_broker_schedule_pool_size`, a server-level pool shared by every Kafka
+table on the node. Check its live size with Housekeeper. Resolve the count through `kafka_num_consumers()` in
 `posthog/clickhouse/kafka_engine.py`, which returns 1 outside deployed cloud.
 
 ### Changing a Kafka table or its materialized view

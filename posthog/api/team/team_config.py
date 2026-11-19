@@ -5,9 +5,9 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
-from posthog.models.filters.utils import validate_group_type_index
-from posthog.models.integration.model import Integration
+from posthog.models.property import validate_group_type_index
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.customer_analytics.backend.facade.account_property_pins import (
@@ -320,6 +320,16 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off."
         ),
     )
+    marketing_frequency_cap_hold_hours = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=168,
+        help_text=(
+            "How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. "
+            "Null skips it right away."
+        ),
+    )
 
     replay_vision_scan_rate_limit_per_day = serializers.IntegerField(
         required=False,
@@ -368,6 +378,15 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    email_workflow_run_link_tag_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether tracked links in emails this project sends get a ph_workflow_run parameter with "
+            "the send's run ID. When the landing page runs posthog-js, the parameter links each click "
+            "to the session it starts. Links with click tracking turned off never get it. On by default."
+        ),
+    )
+
     class Meta:
         model = TeamWorkflowsConfig
         fields = [
@@ -375,6 +394,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "email_utm_tags_enabled",
             "email_utm_params",
+            "email_workflow_run_link_tag_enabled",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
             "replay_vision_scan_rate_limit_per_day",
@@ -382,6 +402,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "default_email_integration_id",
             "marketing_frequency_cap_max_messages",
             "marketing_frequency_cap_window_days",
+            "marketing_frequency_cap_hold_hours",
         ]
 
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
@@ -420,11 +441,12 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
     def validate_default_email_integration_id(self, value: int | None) -> int | None:
         if self.parent or value is None:
             return value
-        sender = (
-            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
-            if self.instance is not None
-            else None
-        )
+        sender = None
+        if self.instance is not None:
+            try:
+                sender = IntegrationManager.email.credentials.get(self.instance.team_id, value)
+            except IntegrationNotFound:
+                pass
         if sender is None:
             raise serializers.ValidationError("Choose an email sender from this project.")
         if not sender.config.get("verified"):

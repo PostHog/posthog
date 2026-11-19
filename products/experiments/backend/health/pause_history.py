@@ -28,8 +28,8 @@ def load_pause_history(experiment: Experiment, *, reader_access: ExperimentHealt
 
 
 def _load_pause_history(experiment: Experiment) -> PauseHistory | None:
-    launched_at = experiment.start_date
-    if launched_at is None:
+    start_date = experiment.start_date
+    if start_date is None:
         return None
     # A pause before a reset to draft belongs to an earlier run, so only the entries since launch count.
     latest = (
@@ -38,14 +38,14 @@ def _load_pause_history(experiment: Experiment) -> PauseHistory | None:
             scope="Experiment",
             item_id=str(experiment.id),
             activity__in=(_PAUSED, _RESUMED),
-            created_at__gte=launched_at,
+            created_at__gte=start_date,
         )
         .order_by("-created_at")
         .values_list("activity", "created_at")
         .first()
     )
     return PauseHistory(
-        launched_at=launched_at,
+        start_date=start_date,
         team_timezone=experiment.team.timezone,
         paused_at=latest[1] if latest is not None and latest[0] == _PAUSED else None,
     )

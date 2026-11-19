@@ -41,9 +41,12 @@ import re
 import ast
 import sys
 import json
+import difflib
 import argparse
 import warnings
 import subprocess
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -65,8 +68,6 @@ API_SURFACE_PARTS = {"api", "presentation", "serializers", "views", "urls"}
 # Files/patterns that force a full test run when changed.
 FULL_RUN_PATTERNS = (
     # Python infrastructure
-    "conftest.py",
-    "posthog/settings/",
     "posthog/test/",
     "manage.py",
     "pyproject.toml",
@@ -91,6 +92,10 @@ FULL_RUN_PATTERNS = (
     # Non-Python files that affect generated Python code or test behavior
     # A data file the host guards read at runtime, so a change to it is a behavior change
     "posthog/security/crosslang/",
+    # The AI event limits, which get_ai_event_limits reads at runtime, so a change to them is a behavior change
+    "products/ai_observability/shared/crosslang/",
+    # The flag_evaluations TTL, which sql.py reads at import time, so a change to it is a behavior change
+    "posthog/models/flag_evaluations/crosslang/",
     "frontend/src/queries/schema.json",
     "frontend/src/products.json",
     "frontend/public/email/",
@@ -104,8 +109,89 @@ FULL_RUN_PATTERNS = (
     # The personhog gRPC stubs are an installed package, so the import graph has no edge from
     # `personhog.*` to these files. Every personhog_client consumer depends on them.
     "packages/personhog-proto/",
-    # Generates frontend/src/products.json, which is a full-run pattern in its own right.
-    "manifest.tsx",
+)
+
+SETTINGS_DIR = "posthog/settings/"
+REPO_INVARIANTS_DIR = "posthog/test/repo_invariants/"
+# A settings statement may only call these, so evaluating it cannot change any other state.
+INERT_SETTINGS_CALLS = frozenset(
+    {
+        "bool",
+        "dict",
+        "float",
+        "frozenset",
+        "get_from_env",
+        "get_list",
+        "get_set",
+        "int",
+        "len",
+        "list",
+        "max",
+        "min",
+        "os.environ.get",
+        "os.getenv",
+        "set",
+        "str",
+        "timedelta",
+        "tuple",
+    }
+)
+REPO_CHECKS_ONLY_PATHS = (
+    REPO_INVARIANTS_DIR,
+    "posthog/temporal/workflow_catalog.json",
+)
+INERT_TYPE_CASTS = frozenset({"bool", "float", "int", "json.loads", "list", "str", "str_to_bool", "str_to_int_set"})
+_INERT_EXPRESSION_NODES = (
+    ast.Constant,
+    ast.Name,
+    ast.List,
+    ast.Tuple,
+    ast.Set,
+    ast.Dict,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.BoolOp,
+    ast.Compare,
+    ast.IfExp,
+    ast.JoinedStr,
+    ast.FormattedValue,
+    ast.Subscript,
+    ast.Slice,
+)
+DJANGO_GLOBAL_SETTINGS = frozenset(
+    """
+    ABSOLUTE_URL_OVERRIDES ADMINS ALLOWED_HOSTS APPEND_SLASH AUTHENTICATION_BACKENDS
+    AUTH_PASSWORD_VALIDATORS AUTH_USER_MODEL CACHES CACHE_MIDDLEWARE_ALIAS CACHE_MIDDLEWARE_KEY_PREFIX
+    CACHE_MIDDLEWARE_SECONDS CSRF_COOKIE_AGE CSRF_COOKIE_DOMAIN CSRF_COOKIE_HTTPONLY CSRF_COOKIE_NAME
+    CSRF_COOKIE_PATH CSRF_COOKIE_SAMESITE CSRF_COOKIE_SECURE CSRF_FAILURE_VIEW CSRF_HEADER_NAME
+    CSRF_TRUSTED_ORIGINS CSRF_USE_SESSIONS DATABASES DATABASE_ROUTERS DATA_UPLOAD_MAX_MEMORY_SIZE
+    DATA_UPLOAD_MAX_NUMBER_FIELDS DATA_UPLOAD_MAX_NUMBER_FILES DATETIME_FORMAT DATETIME_INPUT_FORMATS
+    DATE_FORMAT DATE_INPUT_FORMATS DEBUG DEBUG_PROPAGATE_EXCEPTIONS DECIMAL_SEPARATOR DEFAULT_AUTO_FIELD
+    DEFAULT_CHARSET DEFAULT_EXCEPTION_REPORTER DEFAULT_EXCEPTION_REPORTER_FILTER DEFAULT_FROM_EMAIL
+    DEFAULT_INDEX_TABLESPACE DEFAULT_TABLESPACE DISALLOWED_USER_AGENTS EMAIL_BACKEND EMAIL_HOST
+    EMAIL_HOST_PASSWORD EMAIL_HOST_USER EMAIL_PORT EMAIL_SSL_CERTFILE EMAIL_SSL_KEYFILE
+    EMAIL_SUBJECT_PREFIX EMAIL_TIMEOUT EMAIL_USE_LOCALTIME EMAIL_USE_SSL EMAIL_USE_TLS
+    FILE_UPLOAD_DIRECTORY_PERMISSIONS FILE_UPLOAD_HANDLERS FILE_UPLOAD_MAX_MEMORY_SIZE
+    FILE_UPLOAD_PERMISSIONS FILE_UPLOAD_TEMP_DIR FIRST_DAY_OF_WEEK FIXTURE_DIRS FORCE_SCRIPT_NAME
+    FORMAT_MODULE_PATH FORMS_URLFIELD_ASSUME_HTTPS FORM_RENDERER IGNORABLE_404_URLS INSTALLED_APPS
+    INTERNAL_IPS LANGUAGES LANGUAGES_BIDI LANGUAGE_CODE LANGUAGE_COOKIE_AGE LANGUAGE_COOKIE_DOMAIN
+    LANGUAGE_COOKIE_HTTPONLY LANGUAGE_COOKIE_NAME LANGUAGE_COOKIE_PATH LANGUAGE_COOKIE_SAMESITE
+    LANGUAGE_COOKIE_SECURE LOCALE_PATHS LOGGING LOGGING_CONFIG LOGIN_REDIRECT_URL LOGIN_URL
+    LOGOUT_REDIRECT_URL MANAGERS MEDIA_ROOT MEDIA_URL MESSAGE_STORAGE MIDDLEWARE MIGRATION_MODULES
+    MONTH_DAY_FORMAT NUMBER_GROUPING PASSWORD_HASHERS PASSWORD_RESET_TIMEOUT PREPEND_WWW SECRET_KEY
+    SECRET_KEY_FALLBACKS SECURE_CONTENT_TYPE_NOSNIFF SECURE_CROSS_ORIGIN_OPENER_POLICY SECURE_CSP
+    SECURE_CSP_REPORT_ONLY SECURE_HSTS_INCLUDE_SUBDOMAINS SECURE_HSTS_PRELOAD SECURE_HSTS_SECONDS
+    SECURE_PROXY_SSL_HEADER SECURE_REDIRECT_EXEMPT SECURE_REFERRER_POLICY SECURE_SSL_HOST
+    SECURE_SSL_REDIRECT SERVER_EMAIL SESSION_CACHE_ALIAS SESSION_COOKIE_AGE SESSION_COOKIE_DOMAIN
+    SESSION_COOKIE_HTTPONLY SESSION_COOKIE_NAME SESSION_COOKIE_PATH SESSION_COOKIE_SAMESITE
+    SESSION_COOKIE_SECURE SESSION_ENGINE SESSION_EXPIRE_AT_BROWSER_CLOSE SESSION_FILE_PATH
+    SESSION_SAVE_EVERY_REQUEST SESSION_SERIALIZER SHORT_DATETIME_FORMAT SHORT_DATE_FORMAT
+    SIGNED_COOKIE_LEGACY_SALT_FALLBACK SIGNING_BACKEND SILENCED_SYSTEM_CHECKS STATICFILES_DIRS
+    STATICFILES_FINDERS STATIC_ROOT STATIC_URL STORAGES TASKS TEMPLATES TEST_NON_SERIALIZED_APPS
+    TEST_RUNNER THOUSAND_SEPARATOR TIME_FORMAT TIME_INPUT_FORMATS TIME_ZONE URLIZE_ASSUME_HTTPS
+    USE_BLANK_CHOICE_DASH USE_I18N USE_THOUSAND_SEPARATOR USE_TZ USE_X_FORWARDED_HOST
+    USE_X_FORWARDED_PORT WSGI_APPLICATION X_FRAME_OPTIONS YEAR_MONTH_FORMAT
+    """.split()
 )
 
 # Patterns that indicate "broad API tests needed" but not full suite.
@@ -193,25 +279,43 @@ def _name_from_node(node: ast.AST) -> str:
     return ""
 
 
-def _literal_strings(tree: ast.AST) -> set[str]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _SourceFacts:
+    strings: set[str]
+    imports: set[str]
+    calls: list[ast.Call]
+
+
+def _strings_imports_and_calls(tree: ast.AST) -> _SourceFacts:
+    """ast.walk spends most of its time in the generators of ast.iter_child_nodes, so this
+    reads node._fields directly. It visits nodes in a different order than ast.walk, which
+    is safe because the caller treats the results as unordered."""
     strings: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            strings.add(node.value)
-    return strings
-
-
-def _imports(tree: ast.AST) -> set[str]:
     imports: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
+    calls: list[ast.Call] = []
+    stack: list[ast.AST] = [tree]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                strings.add(node.value)
+            continue
+        if isinstance(node, ast.Call):
+            calls.append(node)
+        elif isinstance(node, ast.Import):
             for alias in node.names:
                 imports.add(alias.name)
         elif isinstance(node, ast.ImportFrom) and node.module:
             imports.add(node.module)
             for alias in node.names:
                 imports.add(f"{node.module}.{alias.name}")
-    return imports
+        for name in node._fields:
+            value = getattr(node, name, None)
+            if isinstance(value, list):
+                stack.extend(item for item in value if isinstance(item, ast.AST))
+            elif isinstance(value, ast.AST):
+                stack.append(value)
+    return _SourceFacts(strings=strings, imports=imports, calls=calls)
 
 
 def _normal_tokens(value: str) -> set[str]:
@@ -308,14 +412,11 @@ def classify_test_file(path: str) -> TestFeatures:
     if tree is None:
         return TestFeatures(path=path)
 
-    strings = _literal_strings(tree)
-    imports = _imports(tree)
+    facts = _strings_imports_and_calls(tree)
     calls_http_client = False
     uses_reverse = False
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
+    for node in facts.calls:
         function_name = _name_from_node(node.func)
         if function_name.endswith(".reverse") or function_name == "reverse":
             uses_reverse = True
@@ -324,12 +425,12 @@ def classify_test_file(path: str) -> TestFeatures:
             if receiver.endswith("client") or ".client" in receiver:
                 calls_http_client = True
 
-    imports_api_client = bool(imports & API_CLIENT_IMPORTS)
-    uses_api_url = any("/api/" in value or value.startswith("/api") for value in strings)
-    lower_imports = " ".join(sorted(imports)).lower()
+    imports_api_client = bool(facts.imports & API_CLIENT_IMPORTS)
+    uses_api_url = any("/api/" in value or value.startswith("/api") for value in facts.strings)
+    lower_imports = " ".join(sorted(facts.imports)).lower()
     lower_path = path.lower()
 
-    api_tokens = set(_api_tokens_from_strings(strings))
+    api_tokens = set(_api_tokens_from_strings(facts.strings))
     if path.startswith("posthog/api/test/"):
         api_tokens.update(_tokens_from_name(PurePosixPath(path).stem.removeprefix("test_")))
 
@@ -347,7 +448,11 @@ def classify_test_file(path: str) -> TestFeatures:
 
 
 def classify_tests() -> dict[str, TestFeatures]:
-    return {path: classify_test_file(path) for path in _iter_python_files() if _is_test_file(path)}
+    paths = [path for path in _iter_python_files() if _is_test_file(path)]
+    # Fork makes each worker inherit module state such as a reassigned REPO_ROOT, which
+    # spawn and forkserver would re-import from scratch.
+    with ProcessPoolExecutor(mp_context=multiprocessing.get_context("fork")) as pool:
+        return dict(zip(paths, pool.map(classify_test_file, paths, chunksize=64)))
 
 
 def changed_files_from_git(base_ref: str) -> list[str]:
@@ -421,6 +526,17 @@ def _candidate_conventional_tests(path: str) -> list[str]:
     return [str(candidate) for candidate in candidates if (REPO_ROOT / candidate).is_file()]
 
 
+def _snapshot_owner_tests(path: str, all_test_files: set[str]) -> list[str]:
+    pure = PurePosixPath(path)
+    if pure.suffix != ".ambr" or pure.parent.name != "__snapshots__":
+        return []
+    test_dir = pure.parent.parent
+    sibling = test_dir / f"{pure.name.split('.', 1)[0]}.py"
+    if (REPO_ROOT / sibling).is_file():
+        return [str(sibling)]
+    return sorted(test for test in all_test_files if PurePosixPath(test).parent == test_dir)
+
+
 def _pytest_ignored_prefixes() -> tuple[str, ...]:
     """The --ignore paths in pytest.ini. pytest skips them when it walks a directory, but it still collects a file
     that it gets by name, so a selected file under one of them fails collection."""
@@ -441,14 +557,200 @@ def _add_group(groups: dict[str, set[str]], name: str, tests: list[str] | set[st
     groups.setdefault(name, set()).update(tests)
 
 
-def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestFeatures]) -> AstSelection:
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True)
+
+
+def _git_grep_patterns(names: list[str] | set[str]) -> list[str]:
+    return ["-w", "-F", *(arg for name in sorted(names) for arg in ("-e", name))]
+
+
+def _is_repo_invariants_baseline(path: str) -> bool:
+    pure = PurePosixPath(path)
+    return f"{pure.parent}/" == REPO_INVARIANTS_DIR and pure.suffix == ".txt"
+
+
+def _conftest_reaches_django_matrix(path: str) -> bool:
+    """A product conftest loads only for the tests below it, which run in the product matrix,
+    unless the Temporal leg's product suites sit below it too."""
+    pure = PurePosixPath(path)
+    if pure.name != "conftest.py":
+        return False
+    if not path.startswith("products/"):
+        return True
+    directory = f"{pure.parent}/"
+    return any(root.startswith(directory) or directory.startswith(root) for root in _TEMPORAL_PREFIXES)
+
+
+def _inert_assignment_name(statement: ast.stmt) -> str | None:
+    if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+        target = statement.targets[0]
+    elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+        target = statement.target
+    else:
+        return None
+    if not isinstance(target, ast.Name) or target.id in DJANGO_GLOBAL_SETTINGS:
+        return None
+    if not _is_inert_expression(statement.value):
+        return None
+    if isinstance(statement, ast.AnnAssign) and not _is_inert_expression(statement.annotation):
+        return None
+    return target.id
+
+
+def _is_inert_keyword(keyword: ast.keyword) -> bool:
+    if keyword.arg is None or keyword.arg == "key":
+        return False
+    if keyword.arg == "type_cast":
+        return ast.unparse(keyword.value) in INERT_TYPE_CASTS
+    return _is_inert_expression(keyword.value)
+
+
+def _is_inert_expression(node: ast.expr) -> bool:
+    if isinstance(node, ast.Call):
+        return (
+            ast.unparse(node.func) in INERT_SETTINGS_CALLS
+            and all(not isinstance(arg, ast.Starred) and _is_inert_expression(arg) for arg in node.args)
+            and all(_is_inert_keyword(keyword) for keyword in node.keywords)
+        )
+    if isinstance(node, ast.Name):
+        return isinstance(node.ctx, ast.Load)
+    if not isinstance(node, _INERT_EXPRESSION_NODES):
+        return False
+    return all(
+        isinstance(child, (ast.expr_context, ast.operator, ast.unaryop, ast.boolop, ast.cmpop))
+        or (isinstance(child, ast.expr) and _is_inert_expression(child))
+        for child in ast.iter_child_nodes(node)
+    )
+
+
+def _added_settings_names(path: str, base_ref: str) -> list[str] | None:
+    """The names a settings module newly assigns, or None when the diff changes anything else."""
+    base = _git("show", f"{base_ref}:{path}")
+    if base.returncode != 0:
+        return None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            base_body = ast.parse(base.stdout).body
+            head_body = ast.parse((REPO_ROOT / path).read_text()).body
+    except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+        return None
+    matcher = difflib.SequenceMatcher(
+        a=[ast.dump(statement) for statement in base_body],
+        b=[ast.dump(statement) for statement in head_body],
+        autojunk=False,
+    )
+    names: list[str] = []
+    for tag, _base_start, _base_end, head_start, head_end in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag != "insert":
+            return None
+        for statement in head_body[head_start:head_end]:
+            name = _inert_assignment_name(statement)
+            if name is None:
+                return None
+            names.append(name)
+    return names
+
+
+def _settings_namespace(name: str) -> str:
+    return name.lstrip("_").split("_", 1)[0]
+
+
+def _framework_namespaces(new_names: set[str]) -> set[str] | None:
+    """Namespaces of existing settings that no code outside posthog/settings/ reads. Django or a
+    library reads those by name (CSRF_*, CELERY_*, SOCIAL_AUTH_*), so a new name there can change
+    behavior that no import edge shows."""
+    namespaces = {_settings_namespace(name) for name in new_names}
+    existing: set[str] = set()
+    for module in sorted((REPO_ROOT / SETTINGS_DIR).rglob("*.py")):
+        tree = _read_tree(str(module.relative_to(REPO_ROOT)))
+        if not isinstance(tree, ast.Module):
+            return None
+        for statement in tree.body:
+            targets = statement.targets if isinstance(statement, ast.Assign) else []
+            if isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
+                targets = [statement.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and _settings_namespace(target.id) in namespaces:
+                    existing.add(target.id)
+    existing -= new_names
+    if not existing:
+        return set()
+    read = _git("grep", "-h", "-o", *_git_grep_patterns(existing), "--", ".", f":(exclude){SETTINGS_DIR}")
+    if read.returncode not in (0, 1):
+        return None
+    return {_settings_namespace(name) for name in existing - set(read.stdout.split())}
+
+
+def _settings_change_is_inert(path: str, base_ref: str, changed_files: list[str]) -> bool:
+    """True when the diff only adds settings that nothing read before it: each new top-level name
+    did not exist at the merge base, and only files this diff changes read it, so the selection
+    of those files covers it. Anything the check cannot prove returns False."""
+    names = _added_settings_names(path, base_ref)
+    if names is None:
+        return False
+    if not names:
+        return True
+    existed = _git("grep", "-q", *_git_grep_patterns(names), base_ref, "--", SETTINGS_DIR)
+    if existed.returncode != 1:
+        return False
+    changed = set(changed_files)
+    for name in names:
+        readers = _git("grep", "-l", *_git_grep_patterns([name]), "--", ".", f":(exclude){SETTINGS_DIR}")
+        if readers.returncode != 0:
+            return False
+        reader_paths = set(readers.stdout.split())
+        if not reader_paths <= changed:
+            return False
+    framework = _framework_namespaces(set(names))
+    if framework is None:
+        return False
+    return not framework & {_settings_namespace(name) for name in names}
+
+
+def _full_run_reason(path: str, base_ref: str | None, changed_files: list[str]) -> str | None:
+    if _is_repo_invariants_baseline(path):
+        return None
+    if path.startswith(SETTINGS_DIR) and PurePosixPath(path).name != "owners.yaml":
+        if path.endswith(".py") and base_ref is not None and _settings_change_is_inert(path, base_ref, changed_files):
+            return None
+        return f"{path} changes Django settings beyond adding new, unread names"
+    if _conftest_reaches_django_matrix(path):
+        return f"{path} is a conftest that the Django matrix loads"
+    for pattern in FULL_RUN_PATTERNS:
+        if pattern in path:
+            return f"{path} matches full-run pattern {pattern}"
+    return None
+
+
+def ast_select_tests(
+    changed_files: list[str], features_by_path: dict[str, TestFeatures], base_ref: str | None = None
+) -> AstSelection:
     groups: dict[str, set[str]] = {}
     full_run_reasons: list[str] = []
     all_test_files = set(features_by_path.keys())
+    repo_invariants_baseline_changed = any(_is_repo_invariants_baseline(path) for path in changed_files)
+    changed_files = [path for path in changed_files if not path.startswith(REPO_CHECKS_ONLY_PATHS)]
 
     # ── 1. Changed test files themselves ─────────────────────────────
     changed_tests = _runnable_test_files([path for path in changed_files if _is_test_file(path)])
     _add_group(groups, "changed_tests", changed_tests)
+
+    # Only the guards in posthog/test/repo_invariants/ read their baseline files.
+    if repo_invariants_baseline_changed:
+        _add_group(
+            groups,
+            "repo_invariants_baselines",
+            _runnable_test_files([path for path in all_test_files if path.startswith(REPO_INVARIANTS_DIR)]),
+        )
+
+    snapshot_owners: set[str] = set()
+    for path in changed_files:
+        snapshot_owners.update(_snapshot_owner_tests(path, all_test_files))
+    _add_group(groups, "snapshot_owners", _runnable_test_files(snapshot_owners))
 
     # ── 2. Conventional test neighbors (test_<name>.py next to <name>.py) ─
     conventional: set[str] = set()
@@ -464,11 +766,10 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     high_fanout = _load_high_fanout_files()
 
     for path in changed_files:
-        if not _is_test_file(path):
-            for pattern in FULL_RUN_PATTERNS:
-                if pattern in path:
-                    full_run_reasons.append(f"{path} matches full-run pattern {pattern}")
-                    break
+        if not _is_test_file(path) and not _snapshot_owner_tests(path, all_test_files):
+            reason = _full_run_reason(path, base_ref, changed_files)
+            if reason:
+                full_run_reasons.append(reason)
             if path in high_fanout:
                 full_run_reasons.append(f"{path} is a high-fanout file (testmon: >50% of tests)")
 
@@ -700,7 +1001,7 @@ def build_result(base_ref: str) -> dict[str, Any]:
     os.chdir(REPO_ROOT)
     changed_files = changed_files_from_git(base_ref)
     features_by_path = classify_tests()
-    ast_selection = ast_select_tests(changed_files, features_by_path)
+    ast_selection = ast_select_tests(changed_files, features_by_path, base_ref)
     snob_selection = snob_select_tests(changed_files)
 
     snob_tests = [str(test) for test in snob_selection.get("tests", [])]

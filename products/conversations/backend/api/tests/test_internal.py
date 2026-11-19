@@ -1,9 +1,11 @@
+import json
 import uuid
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -20,8 +22,11 @@ from products.conversations.backend.api.internal import (
     CONVERSATIONS_TICKETS_PURPOSE,
     ConversationsTicketJWTAuthentication,
 )
+from products.conversations.backend.api.ticket_actions import TICKET_RESPONSE_MAX_BYTES
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_NAME, WORKFLOW_AUTHOR_TYPE, Status
+
+_IMAGE_ATTACHMENT = "![image001.png](https://us.posthog.com/uploaded_media/0199a0b1-2c3d-4e5f-8a9b-0c1d2e3f4a5b)"
 
 # Signed with this route's key but carrying another surface's audience — a token minted for a
 # different purpose must never authenticate here even when the signing key checks out.
@@ -69,16 +74,80 @@ class TestInternalTicketAPI(BaseTest):
     def test_get_returns_first_customer_message_text_when_opted_in(self):
         # The field is shared with the external route but gated behind a query param, so confirm
         # the JWT route reads that param and returns the preview through the same handler.
+        self._create_customer_message("How do I export my data?")
+        response = self.client.get(self.url, {"include_first_customer_message_text": "true"}, **self._headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["first_customer_message_text"], "How do I export my data?")
+
+    def _create_customer_message(self, content: str) -> None:
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
-            content="How do I export my data?",
+            content=content,
             item_context={"author_type": "customer"},
         )
-        response = self.client.get(self.url, {"include_first_customer_message_text": "true"}, **self._headers())
+
+    def _get_first_message(self, max_bytes: int | str):
+        return self.client.get(
+            self.url,
+            {"include_first_customer_message_text": "true", "first_customer_message_max_bytes": max_bytes},
+            **self._headers(),
+        )
+
+    @parameterized.expand(
+        [
+            ("longer_budget", "x" * 9000, 2200, "x" * 2197 + "..."),
+            ("clamped_up_to_the_preview", "x" * 900, 50, "x" * 197 + "..."),
+            ("window_cut_is_marked", "It broke " + _IMAGE_ATTACHMENT * 70, 2200, "It broke..."),
+            (
+                "invisible_padding_stripped",
+                "Refund\u034f\u034f please\u00ad now\u200b\u2060\ufeff ok"
+                + "\u200c\u00a0" * 50
+                + "\u200b\u200c" * 20
+                + " می\u200cخواهم",
+                2200,
+                "Refund please now ok می\u200cخواهم",
+            ),
+        ]
+    )
+    def test_get_returns_a_longer_first_message_when_asked(self, _name, content, max_bytes, expected):
+        self._create_customer_message(content)
+
+        response = self._get_first_message(max_bytes)
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["first_customer_message_text"], "How do I export my data?")
+        self.assertEqual(response.json()["first_customer_message_text"], expected)
+
+    def test_get_skips_a_first_message_that_is_only_a_cut_link(self):
+        self._create_customer_message("[report.pdf](https://example.com/files/" + "a" * 5000 + ")")
+        Comment.objects.filter(item_id=str(self.ticket.id)).update(created_at=timezone.now() - timedelta(minutes=10))
+        self._create_customer_message("Actual question")
+
+        response = self._get_first_message(2200)
+
+        self.assertEqual(response.json()["first_customer_message_text"], "Actual question")
+
+    def test_get_fits_a_longer_first_message_into_the_response_budget(self):
+        self._create_customer_message("あ" * 3000)
+        Ticket.objects.filter(id=self.ticket.id).update(email_subject="件名" * 100, last_message_text="あ" * 500)
+
+        response = self._get_first_message(5000)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertLessEqual(
+            len(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()), TICKET_RESPONSE_MAX_BYTES
+        )
+        self.assertTrue(body["first_customer_message_text"].endswith("..."))
+
+    def test_get_rejects_a_first_message_length_that_is_not_a_number(self):
+        self._create_customer_message("Hello")
+
+        response = self._get_first_message("lots")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("first_customer_message_max_bytes", response.json()["error"])
 
     def test_post_sends_a_public_message(self):
         response = self.client.post(

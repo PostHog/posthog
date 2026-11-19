@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconExternal, IconTarget } from '@posthog/icons'
 import { LemonBanner, LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
@@ -23,7 +23,7 @@ import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageN
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
-import { sqlEditorLogic } from '../sqlEditorLogic'
+import { sqlEditorLogic, viewHasLineage } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
 import { ViewDataQualityChecks } from './ViewDataQualityChecks'
 
@@ -40,13 +40,18 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
         upstreamLoading,
         upstreamLoadFailed,
         upstreamViewMode,
+        saveAsViewDisabledReason,
     } = useValues(sqlEditorLogic)
     const targetView = view ?? editingView
     // Mounting it loads the lineage for the view being edited.
-    const infoLogic = infoTabLogic({ tabId, viewId: targetView?.id })
+    const infoLogic = infoTabLogic({
+        tabId,
+        viewId: targetView?.id,
+        skipLineage: !!targetView && !viewHasLineage(targetView),
+    })
     useMountedLogic(infoLogic)
-    const { activeSection, lineageVisited } = useValues(infoLogic)
-    const { setActiveSection } = useActions(infoLogic)
+    const { activeSection, lineageVisited, lineageNodePositions } = useValues(infoLogic)
+    const { setActiveSection, lineageNodeDragStopped, resetLineageNodePositions } = useActions(infoLogic)
     const { saveAsView, setUpstreamViewMode, editView, loadUpstream } = useActions(sqlEditorLogic)
     // The loaded lineage is shared across views, so only use it when it was loaded for this one.
     const upstream = loadedUpstream && targetView && loadedUpstream.modelId === targetView.id ? loadedUpstream : null
@@ -126,6 +131,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                         <LemonButton
                             size="small"
                             onClick={() => saveAsView({ materializeAfterSave: true })}
+                            disabledReason={saveAsViewDisabledReason}
                             type="primary"
                             loading={updatingDataWarehouseSavedQuery}
                         >
@@ -288,13 +294,22 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                         variant="full"
                                         fitViewOptions={tabbed ? { maxZoom: 1 } : undefined}
                                         interactive
+                                        nodesDraggable
+                                        nodePositions={lineageNodePositions}
+                                        onNodeDragStop={(node, position) => lineageNodeDragStopped(node.id, position)}
+                                        onResetNodePositions={resetLineageNodePositions}
                                         showControls
                                         showMinimap
                                         panels={
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"
-                                                to={urls.models('lineage')}
+                                                to={
+                                                    combineUrl(urls.models('lineage'), {
+                                                        search: `+${targetView.name}+`,
+                                                        node_id: currentNodeId,
+                                                    }).url
+                                                }
                                                 targetBlank
                                                 tooltip="Open the full graph"
                                                 aria-label="Open the full graph"

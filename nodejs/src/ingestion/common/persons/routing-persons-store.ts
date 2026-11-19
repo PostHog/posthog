@@ -20,9 +20,9 @@ import { logger } from '~/common/utils/logger'
 import { promiseRetry, retryIfRetriable } from '~/common/utils/retries'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
+import { InternalPerson } from '~/types'
 
-import { PersonMergeCallFailedError, PersonMergeUnsettledError } from './person-merge-types'
+import { PersonMergeCallFailedError, PersonMergeNotAppliedError, PersonMergeUnsettledError } from './person-merge-types'
 import { EventOps } from './person-update'
 import { CREATE_EVENT_NAME, PersonhogPersonsStore } from './personhog-persons-store'
 import {
@@ -377,8 +377,6 @@ export class RoutingPersonsStore implements PersonsStore {
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -394,8 +392,6 @@ export class RoutingPersonsStore implements PersonsStore {
                 this.pg.createPerson(
                     createdAt,
                     properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
                     teamId,
                     isUserId,
                     isIdentified,
@@ -409,8 +405,6 @@ export class RoutingPersonsStore implements PersonsStore {
                 this.personhog.createPerson(
                     createdAt,
                     properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
                     teamId,
                     isUserId,
                     isIdentified,
@@ -426,8 +420,6 @@ export class RoutingPersonsStore implements PersonsStore {
                         this.personhog.createPerson(
                             createdAt,
                             properties,
-                            propertiesLastUpdatedAt,
-                            propertiesLastOperation,
                             teamId,
                             isUserId,
                             isIdentified,
@@ -648,8 +640,13 @@ export class RoutingPersonsStore implements PersonsStore {
                 }
                 return unsettled
             }
-            // Abandoned at the ceiling, the merge is re-driven at a flush under the same op id.
-            if ((error instanceof PersonMergeCallFailedError || error instanceof ShadowVerbTimeoutError) && defer) {
+            // Abandoned at the ceiling or refused before it ran, the merge is re-driven at a flush under the same op id.
+            if (
+                (error instanceof PersonMergeCallFailedError ||
+                    error instanceof PersonMergeNotAppliedError ||
+                    error instanceof ShadowVerbTimeoutError) &&
+                defer
+            ) {
                 this.deferShadowMerge(request, batchId)
             }
             throw error

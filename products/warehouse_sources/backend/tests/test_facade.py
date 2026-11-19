@@ -252,6 +252,36 @@ class TestWarehouseSourcesFacade(BaseTest):
         results = api.list_schemas_for_source(self.source.id, self.team.pk)
         assert [r.id for r in results] == [self.schema.id]
 
+    @parameterized.expand(
+        [
+            ("a repo-qualified schema", "Acme/Widgets.issues", "", {}, {"acme/widgets"}),
+            (
+                "a bare schema on a single-repository source",
+                "issues",
+                "https://github.com/Acme/Widgets",
+                {},
+                {"acme/widgets"},
+            ),
+            ("another endpoint", "acme/widgets.pull_requests", "", {}, set()),
+            ("a schema that stopped syncing", "acme/widgets.issues", "", {"should_sync": False}, set()),
+            ("a deleted schema", "acme/widgets.issues", "", {"deleted": True}, set()),
+        ]
+    )
+    def test_github_repositories_syncing(self, _name, schema_name, repository, schema_fields, expected) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="Github",
+            job_inputs={"repository": repository},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=source, name=schema_name, **{"should_sync": True, **schema_fields}
+        )
+
+        assert api.github_repositories_syncing(self.team.pk, "issues") == expected
+
     @parameterized.expand(["active", "deleted_schema", "deleted_source", "deleted_table", "other_team", "direct"])
     def test_list_imported_schema_snapshots_filters_unavailable_imports(self, state: str) -> None:
         self.table.queryable_folder = "queryable_2026_01_01"

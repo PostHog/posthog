@@ -1,6 +1,7 @@
 import errno
 
 from django.db import InterfaceError, InternalError, OperationalError
+from django.test import override_settings
 
 import deltalake
 import psycopg.errors
@@ -8,6 +9,7 @@ import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    _EREMOTEIO,
     TransientObjectStoreError,
     is_invalid_version_race,
     is_missing_scan_file_race,
@@ -16,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
     is_transient_object_store_error,
+    is_warehouse_bucket_error,
 )
 
 
@@ -43,6 +46,22 @@ class TestIsTransientObjectStoreError:
                 # are exhausted - S3's fixed InternalError message, not a bug in our code.
                 "s3_internal_error_os_error",
                 OSError("[Errno 121] We encountered an internal error. Please try again."),
+                True,
+            ),
+            (
+                # delta-rs's own object_store crate (reqwest/hyper) reports a connection the remote
+                # end dropped mid-response this way, already marked "(temporary)" before this
+                # classifier runs - a retry against a fresh connection self-heals it.
+                "connection_closed_before_message_completed",
+                OSError(
+                    "Generic IoError error: Unexpected (temporary) at read, context: { url: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000002.json, "
+                    "called: http_util::Client::send, service: oss, path: "
+                    "_delta_log/00000000000000000002.json, range: 0-3460 } => send http request, source: "
+                    "error sending request for url (https://example-bucket.oss-us-west-1.aliyuncs.com/"
+                    "_delta_log/00000000000000000002.json) => client error (SendRequest) => connection "
+                    "closed before message completed"
+                ),
                 True,
             ),
             (
@@ -90,6 +109,14 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A non-AWS S3-compatible provider's own wording for the same InternalError/500
+                # response s3fs always maps to this errno (see s3fs/errors.py::translate_boto_error) -
+                # the message needle above only catches AWS's fixed text, so this must match by errno.
+                "s3_compatible_internal_error_non_aws_wording_eremoteio",
+                OSError(_EREMOTEIO, "Please contact the server administrator, oss@service.aliyun.com"),
+                True,
+            ),
+            (
                 # A different errno must not be swept up by the fd-exhaustion check.
                 "unrelated_os_error_with_errno",
                 OSError(errno.ENOENT, "No such file or directory"),
@@ -127,11 +154,85 @@ class TestIsTransientObjectStoreError:
                 ),
                 False,
             ),
+            (
+                # A warehouse bucket backed by Aliyun OSS reports its own 500 as this OSS-specific
+                # error shape instead of one of the S3 messages above - matched on the fixed `code`
+                # field since OSS's own InternalError `message` text isn't fixed the way S3's is.
+                "oss_internal_error",
+                OSError(
+                    "Generic Unexpected error: Unexpected (temporary) at list, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/?list-type=2&prefix=_delta_log/, "
+                    "response: Parts { status: 500, service: oss } } => "
+                    'OssError { code: "InternalError", message: "Please contact the server administrator, '
+                    'oss@service.aliyun.com", request_id: "6AE261CD76EC4B363925E506" }'
+                ),
+                True,
+            ),
+            (
+                # A different OSS error code sharing the same wrapper shape must not be swept up by
+                # the code-field match - only "InternalError" is a transient 5xx.
+                "oss_access_denied_not_transient",
+                OSError(
+                    "Generic Unexpected error: Unexpected at list, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/?list-type=2&prefix=_delta_log/ } => "
+                    'OssError { code: "AccessDenied", message: "Access denied by bucket policy" }'
+                ),
+                False,
+            ),
+            (
+                # Table-level operations (vacuum, optimize, commit) wrap the identical underlying
+                # object-store error in `DeltaError` instead of a bare `OSError` - the same OSS 500
+                # must still classify as transient through that wrapper.
+                "oss_internal_error_wrapped_in_delta_error",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Unexpected (temporary) at commit, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000001.json } => "
+                    'OssError { code: "InternalError", message: "Please contact the server administrator, '
+                    'oss@service.aliyun.com", request_id: "6AE261CD76EC4B363925E507" }'
+                ),
+                True,
+            ),
+            (
+                # delta-rs's generic S3 client reaching a non-AWS S3-compatible bucket (e.g. Alibaba
+                # OSS, addressed virtual-hosted per s3_proxy.py) never goes through s3fs/botocore, so a
+                # dropped connection surfaces as a bare OSError with this fixed OS-level message instead
+                # of one of the typed botocore exceptions above.
+                "non_aws_endpoint_connection_timed_out",
+                OSError(
+                    "Generic error: Unexpected (temporary) at stat, context: ... => send http request, "
+                    "source: error sending request: client error (SendRequest): connection error: "
+                    "Connection timed out (os error 110)"
+                ),
+                True,
+            ),
+            (
+                # pyarrow's S3FileSystem reports a GetObject body that broke off mid-read under the
+                # AWS SDK's client-side INTERNAL_FAILURE code. A fresh read of the same object succeeds.
+                "pyarrow_get_object_response_stream_broke",
+                OSError(
+                    "AWS Error INTERNAL_FAILURE during GetObject operation: "
+                    "Failed to flush response stream (eof: 0, bad: 1)"
+                ),
+                True,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught
             # exception sees the wrapper, not the original — it must still read as transient.
             ("already_wrapped_transient_error", TransientObjectStoreError("Please reduce your request rate"), True),
+            (
+                # delta-rs prefixes a failed client *construction* with the same "Generic S3 error"
+                # text the blips above use, so without the builder-error carve-out this would also
+                # match the broad needle and read as transient — but an http:// endpoint without
+                # AWS_ALLOW_HTTP fails the identical way on every retry, so it must not.
+                "object_store_builder_error_url_scheme_not_allowed",
+                OSError(
+                    "Generic S3 error: Error performing list request: Error performing GET "
+                    "http://objectstorage:19000/data-warehouse?list-type=2&prefix=_delta_log/ "
+                    "in 8.225µs - HTTP error: builder error: URL scheme is not allowed"
+                ),
+                False,
+            ),
             (
                 # An exhausted `ensure_bucket_exists` HeadBucket 403 retry is deliberately NOT folded
                 # in here: under `USE_LOCAL_SETUP` the credentials are operator-configured, so this
@@ -146,6 +247,76 @@ class TestIsTransientObjectStoreError:
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
         assert is_transient_object_store_error(error) is expected
+
+
+OWN_BUCKET = "example-warehouse-bucket"
+
+OWN_BUCKET_LIST_FORBIDDEN = (
+    "Generic S3 error\n  ↳ Error performing list request\n   ↳ Error performing GET "
+    f"https://{OWN_BUCKET}.s3.us-east-1.amazonaws.com/?list-type=2&prefix=dlt%2Fexample_table%2F_delta_log%2F "
+    "in 22ms - Server returned non-2xx status code\n    ↳ 403 Forbidden\n     ↳ "
+    '<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>AccessDenied</Code><Message>User '
+    "arn:aws:iam::111111111111:user/example-user is not authorized to perform s3:ListBucket on resource "
+    f'"arn:aws:s3:::{OWN_BUCKET}" because no identity-based policy allows the s3:ListBucket action</Message></Error>'
+)
+
+OWN_BUCKET_REDIRECT_WITHOUT_LOCATION = (
+    f"Generic S3 error: Error performing GET https://{OWN_BUCKET}.s3.amazonaws.com/?list-type=2"
+    "&prefix=dlt%2Fexample_table%2F_delta_log%2F in 15ms - Received redirect without LOCATION, "
+    "this normally indicates an incorrectly configured region"
+)
+
+
+class TestIsWarehouseBucketError:
+    @parameterized.expand(
+        [
+            ("own_bucket_list_forbidden", OWN_BUCKET_LIST_FORBIDDEN, True),
+            ("own_bucket_redirect_without_location", OWN_BUCKET_REDIRECT_WITHOUT_LOCATION, True),
+            # The finalizer sees the Temporal-wrapped text with its newlines turned into spaces.
+            ("temporal_wrapped", "NonReportableError: " + OWN_BUCKET_LIST_FORBIDDEN.replace("\n", " "), True),
+            (
+                "pyarrow_access_denied",
+                f"When listing objects under key 'dlt/example_table' in bucket '{OWN_BUCKET}': "
+                "AWS Error ACCESS_DENIED during ListObjectsV2 operation: Access Denied",
+                True,
+            ),
+            # An object-storage source reads the customer's bucket, so its denial stays theirs.
+            ("customer_bucket", OWN_BUCKET_LIST_FORBIDDEN.replace(OWN_BUCKET, "acme-uploads"), False),
+            (
+                "customer_bucket_with_our_name_as_suffix",
+                OWN_BUCKET_LIST_FORBIDDEN.replace(OWN_BUCKET, f"acme-{OWN_BUCKET}"),
+                False,
+            ),
+            (
+                "customer_bucket_with_our_name_as_prefix",
+                OWN_BUCKET_LIST_FORBIDDEN.replace(OWN_BUCKET, f"{OWN_BUCKET}-2"),
+                False,
+            ),
+            # Our bucket name alone, outside an object-store error, says nothing about where it failed.
+            ("no_object_store_shape", f"Access denied: user is not authorized to read {OWN_BUCKET}", False),
+            (
+                "own_bucket_builder_error",
+                f"Generic S3 error: Error performing list request: Error performing GET http://{OWN_BUCKET}/"
+                "?list-type=2 in 8µs - HTTP error: builder error: URL scheme is not allowed",
+                False,
+            ),
+        ]
+    )
+    @override_settings(DATAWAREHOUSE_BUCKET=OWN_BUCKET, BUCKET_URL=f"s3://{OWN_BUCKET}")
+    def test_classifies_warehouse_bucket_errors(self, _name: str, error_text: str, expected: bool):
+        assert is_warehouse_bucket_error(error_text) is expected
+
+    @parameterized.expand(
+        [
+            ("bucket_url_only", "", f"s3://{OWN_BUCKET}/warehouse", True),
+            ("bucket_setting_only", OWN_BUCKET, "", True),
+            # An unset bucket must not turn into an empty pattern that matches every error.
+            ("nothing_configured", "", "", False),
+        ]
+    )
+    def test_reads_the_bucket_from_either_setting(self, _name: str, bucket: str, bucket_url: str, expected: bool):
+        with override_settings(DATAWAREHOUSE_BUCKET=bucket, BUCKET_URL=bucket_url):
+            assert is_warehouse_bucket_error(OWN_BUCKET_LIST_FORBIDDEN) is expected
 
 
 class TestIsTransientDeltaMaintenanceError:

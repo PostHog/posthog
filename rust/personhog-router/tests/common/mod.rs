@@ -31,13 +31,14 @@ use personhog_proto::personhog::types::v1::{
     CohortMembershipResponse, CountCohortMembersRequest, CountCohortMembersResponse,
     CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse, CreateGroupRequest,
     CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
-    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
-    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
-    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
-    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteCohortMembersByPersonIdsRequest, DeleteCohortMembersByPersonIdsResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
     EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest,
     GetDistinctIdRowsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -308,6 +309,15 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<DeleteCohortMembersBulkRequest>,
     ) -> Result<Response<DeleteCohortMembersBulkResponse>, Status> {
         Ok(Response::new(DeleteCohortMembersBulkResponse {
+            deleted_count: 0,
+        }))
+    }
+
+    async fn delete_cohort_members_by_person_ids(
+        &self,
+        _request: Request<DeleteCohortMembersByPersonIdsRequest>,
+    ) -> Result<Response<DeleteCohortMembersByPersonIdsResponse>, Status> {
+        Ok(Response::new(DeleteCohortMembersByPersonIdsResponse {
             deleted_count: 0,
         }))
     }
@@ -732,8 +742,6 @@ pub fn create_test_person() -> Person {
         team_id: 1,
         uuid: "00000000-0000-0000-0000-000000000042".to_string(),
         properties: b"{}".to_vec(),
-        properties_last_updated_at: vec![],
-        properties_last_operation: vec![],
         created_at: 0,
         version: 1,
         is_identified: true,
@@ -873,6 +881,27 @@ impl PersonHogLeader for TestLeaderService {
             "fold-unverified".parse().expect("static slug parses"),
         );
         Err(status)
+    }
+
+    async fn raise_person_version(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::RaisePersonVersionRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::RaisePersonVersionResponse>, Status>
+    {
+        require_partition_metadata(&request)?;
+        let req = request.into_inner();
+        let mut person = self
+            .persons
+            .get(&(req.team_id, req.person_id))
+            .map(|entry| entry.value().clone())
+            .ok_or_else(|| Status::not_found("person not found"))?;
+        person.version = person.version.max(req.min_version);
+        Ok(Response::new(
+            personhog_proto::personhog::types::v1::RaisePersonVersionResponse {
+                person: Some(person),
+                raised: true,
+            },
+        ))
     }
 
     async fn get_person(
@@ -1277,6 +1306,7 @@ impl PersonHogLifecycle for TestLifecycleService {
             .map(|person_id| lifecycle::DeletePersonResult {
                 person_id,
                 outcome: lifecycle::DeletePersonOutcome::Deleted as i32,
+                person_version: None,
             })
             .collect();
         Ok(Response::new(lifecycle::DeletePersonsResponse {

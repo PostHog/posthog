@@ -5,7 +5,8 @@
   SELECT countIf(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0)) AS scoped_event_count,
          round(sumIf(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), 'posthog_code'), 0)), 6) AS scoped_cost_usd,
          count() AS event_count,
-         round(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 6) AS total_cost_usd
+         round(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64')), 6) AS total_cost_usd,
+         round(sumIf(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_total_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'ai_product'), ''), 'null'), '^"|"$', ''), tuple('alert_investigation_agent', 'alert_llm_detector', 'hogql_decide', 'posthog_ai', 'posthog_code', 'product_analytics', 'replay_vision', 'slack_app', 'subscriptions', 'surveys', 'workflows'))), 6) AS billable_cost_usd
   FROM events
   WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', ''), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
   LIMIT 100 SETTINGS readonly=2,

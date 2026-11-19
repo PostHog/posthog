@@ -1,7 +1,7 @@
 import os
 from collections.abc import Callable
-from datetime import UTC, datetime
 from typing import Any, Optional
+from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -12,8 +12,8 @@ __all__ = [
     "generate_rsa_private_key_pem",
     "get_from_env",
     "get_list",
+    "get_uuid_set",
     "str_to_bool",
-    "str_to_utc_datetime",
 ]
 
 
@@ -70,16 +70,22 @@ def get_from_env(
     return value
 
 
-def str_to_utc_datetime(value: str) -> datetime:
-    # Read without an offset as UTC, so the value compares with the aware datetimes Django produces.
-    parsed = datetime.fromisoformat(value)
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
-
-
 def get_list(text: str) -> list[str]:
     if not text:
         return []
     return [item.strip() for item in text.split(",")]
+
+
+def get_uuid_set(text: str) -> frozenset[str]:
+    ids = set()
+    for item in get_list(text):
+        if not item:
+            continue
+        canonical = str(UUID(item))
+        if canonical != item.lower():
+            raise ValueError(f"{item!r} is not a UUID in the 8-4-4-4-12 form")
+        ids.add(canonical)
+    return frozenset(ids)
 
 
 def get_set(text: str) -> set[str]:

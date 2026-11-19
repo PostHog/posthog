@@ -10,6 +10,8 @@ They compose as children of a chart:
 </TimeSeriesLineChart>
 ```
 
+`StackedBarList` also accepts overlay children. It places them in the chart area, which excludes the label and value cells.
+
 Trend lines, moving averages, and confidence bands are not overlays.
 They are derived `Series` entries (`overlay: true` for the first two), so the legend, the tooltip, and the axis already know about them.
 
@@ -40,6 +42,10 @@ The default `position="end"` preserves labels at bar ends.
 Use `background={false}` for unboxed text, `fontSize` (8–32 pixels, default 12), and `rotation` (−90° to 90°, default 0).
 Collision detection accounts for the rotated text bounds; centered text uses the bar color to choose readable contrast.
 These options also work in `config.valueLabels` on time-series charts.
+
+Set `color` to override the automatic text color and `backgroundColor` to override the series-colored badge.
+Without a text override, contrast follows the visible badge color.
+`background: false` hides the badge and ignores its color while retaining an explicit text color.
 `series.visibility.valueLabel: false` skips a series.
 On the time-series charts, prefer `config.valueLabels` so the chart sizes its margins for the labels.
 
@@ -51,6 +57,15 @@ The time-series charts render it from `xAxis.label` and `yAxis.label`; compose i
 ### `TrendLineOverlay`
 
 Regression lines on vertical bar and combo charts. See [bars.md](./bars.md).
+
+### `ValueBand`
+
+A translucent band across the plot between `from` and `to` on the value axis, for threshold zones.
+Omit `from` to run it to the plot bottom, or `to` to run it to the top; the part outside the axis range is clipped.
+`yAxisId` picks a secondary axis.
+The fill defaults to the theme's axis color.
+It draws over the series, like a `ReferenceLine` fill, so keep `fillOpacity` low.
+Pair each band with a goal line at its threshold (`GoalLineConfig.stroke: 'solid'` for a solid one), and expect the band to tint that line, because goal lines render first.
 
 ### `HighlightedRange`
 

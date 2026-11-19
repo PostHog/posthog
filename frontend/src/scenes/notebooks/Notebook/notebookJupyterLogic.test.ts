@@ -1,7 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { notebookJupyterLogic } from './notebookJupyterLogic'
@@ -39,6 +41,22 @@ describe('notebookJupyterLogic', () => {
             logic.actions.resetExecutionCounter()
             staleness.actions.nodeRunFinished('b', 'done', null)
         }).toMatchValues({ executionCounter: 1, executionCounts: { a: 3, b: 1 } })
+    })
+
+    it('shows the reason when the API refuses a restart', async () => {
+        const detail = 'You started too many notebook kernels in the last hour. Try again later.'
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation()
+        useMocks({
+            post: { '/api/projects/:team_id/notebooks/:short_id/kernel/restart/': () => [429, { detail }] },
+        })
+        const logic = notebookJupyterLogic({ shortId: SHORT_ID })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.restartKernel(false)
+        }).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith(detail)
     })
 
     it('counts nothing for a notebook outside Jupyter mode', async () => {

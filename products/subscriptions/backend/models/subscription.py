@@ -481,7 +481,7 @@ class Subscription(ModelActivityMixin, models.Model):
             case self.ResourceType.INSIGHT if self.insight:
                 return SubscriptionResource(
                     "Insight",
-                    f"{self.insight.name or self.insight.derived_name}",
+                    self.insight.name or self.insight.derived_name or "Untitled insight",
                     self.insight.url,
                 )
             case self.ResourceType.DASHBOARD if self.dashboard:

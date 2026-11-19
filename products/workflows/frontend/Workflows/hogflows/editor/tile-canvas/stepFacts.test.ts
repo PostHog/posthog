@@ -75,6 +75,12 @@ describe('stepFacts', () => {
     it.each<[string, HogFlowAction, string, string | undefined]>([
         ['an email', email, 'Welcome to Example Co.', 'Your first doc takes two minutes'],
         [
+            'an email from the sandbox sender',
+            step('welcome', 'email_sandbox', { inputs: { email: (email.config as any).inputs.email } }),
+            'Welcome to Example Co.',
+            'Your first doc takes two minutes',
+        ],
+        [
             'an email that greets the person by name',
             step('greet', 'function_email', {
                 template_id: 'template-email',
@@ -243,6 +249,37 @@ describe('stepFacts', () => {
         const action = step('wait', 'wait_until_condition', { condition: { filters }, events, max_wait_duration: '4d' })
 
         expect(stepFacts(workflow([action]), action).fields).toContainEqual(['Waits for', waitsFor])
+    })
+
+    it('describes a split path whose condition joins filter groups', () => {
+        const plan = (value: string): Config => ({ key: 'plan', type: 'person', value: [value], operator: 'exact' })
+        const groupedSplit = step('by_plan', 'conditional_branch', {
+            conditions: [
+                {
+                    name: 'Paid or enterprise',
+                    filters: {
+                        properties: {
+                            type: 'OR',
+                            values: [
+                                {
+                                    type: 'AND',
+                                    values: [plan('pro'), { key: 'country', type: 'person', value: ['US'] }],
+                                },
+                                { type: 'AND', values: [plan('enterprise')] },
+                                { type: 'AND', values: [] },
+                            ],
+                        },
+                    },
+                },
+            ],
+        })
+
+        const presentation = stepView(workflow([groupedSplit]), groupedSplit).presentation
+
+        expect(presentation).toMatchObject({
+            key: undefined,
+            paths: [{ rule: '(plan is pro and country is US) or plan is enterprise' }, { rule: 'Everyone else' }],
+        })
     })
 
     it.each([

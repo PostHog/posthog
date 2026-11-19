@@ -6,7 +6,7 @@ via `metadata.scanner_id` for later natural-language search. monitor/classifier/
 document under `rendering="summary"`. Empty content is skipped. Failures surface to the workflow, which
 logs and swallows them — the observation is already marked succeeded.
 
-The worker's results topic feeds What to watch ranking, see `watch_rank_consumer`.
+The worker's results topic feeds Highlight feed ranking, see `watch_rank_consumer`.
 
 The structured result (monitor `verdict`, scorer `score`, classifier `tags`) is stamped into `metadata` so
 search can filter by exact outcome inside the same ClickHouse ranking query, with no second-pass lookup.
@@ -111,6 +111,10 @@ async def _emit_embeddings(
 @activity.defn
 @track_activity(side_effect="embed")
 async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
+    return await embed_observation(inputs)
+
+
+async def embed_observation(inputs: EmbedObservationInputs) -> None:
     """Emit an embedding for the observation's explanation text when it is non-empty."""
     metadata = {
         "session_id": inputs.session_id,

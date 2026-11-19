@@ -31,6 +31,7 @@ use metrics::counter;
 use serde_json::Value;
 
 use crate::errors::{Error, Result};
+use crate::history::{history_upsert_with_state, HistoryUpsertOptions, HistoryUpsertStats};
 use crate::limits::{env_switch, switch_setting};
 use crate::logprobe::{check_anchor, commit_path, probe_log, trust_window, LogAnchor, LogProbe};
 use crate::prefetch::CheckpointCache;
@@ -413,6 +414,89 @@ impl TableHandle {
                 Err(e) => return Err(e),
             }
         }
+    }
+
+    /// Run one history upsert (see [`crate::history`]), retrying conflicts against a
+    /// refreshed snapshot. A re-planned attempt reads the open rows again, so a concurrent
+    /// commit cannot make it close a row twice. Unlike [`TableHandle::upsert`], a
+    /// concurrent schema or protocol change is planned against too: every attempt checks
+    /// the refreshed table again, and a history write copies existing rows whole instead of
+    /// replacing them with source values, so the result equals running after that commit.
+    pub async fn history_upsert(
+        &mut self,
+        source_batches: Vec<RecordBatch>,
+        source_schema: SchemaRef,
+        opts: HistoryUpsertOptions,
+        multipart: MultipartConfig,
+    ) -> Result<HistoryUpsertStats> {
+        let result = self
+            .history_upsert_with_retries(source_batches, source_schema, opts, multipart)
+            .await;
+        self.prefetch.clear();
+        result
+    }
+
+    async fn history_upsert_with_retries(
+        &mut self,
+        source_batches: Vec<RecordBatch>,
+        source_schema: SchemaRef,
+        opts: HistoryUpsertOptions,
+        multipart: MultipartConfig,
+    ) -> Result<HistoryUpsertStats> {
+        let mut open_ms = 0u64;
+        let t = Instant::now();
+        self.refresh().await?;
+        open_ms += t.elapsed().as_millis() as u64;
+
+        let mut attempt = 0usize;
+        loop {
+            let view = wrap_multipart_view(self.table.clone(), multipart, self.commit_probe());
+            match history_upsert_with_state(
+                &view,
+                source_batches.clone(),
+                source_schema.clone(),
+                opts.clone(),
+                &mut self.relax_cache,
+            )
+            .await
+            {
+                Err(Error::Conflict(_)) if attempt < CONFLICT_RETRIES => {
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(50 * attempt as u64)).await;
+                    let t = Instant::now();
+                    self.refresh().await?;
+                    open_ms += t.elapsed().as_millis() as u64;
+                }
+                Ok((mut stats, state)) => {
+                    let t = Instant::now();
+                    if let Some(state) = state {
+                        if self.adopt_commit_snapshot {
+                            self.table.state = Some(state);
+                            self.prefetch.clear();
+                            self.list_on_next_refresh = self.on_checkpoint_boundary();
+                        } else {
+                            self.refresh().await?;
+                        }
+                    }
+                    open_ms += t.elapsed().as_millis() as u64;
+                    stats.open_ms = open_ms;
+                    stats.initial_open_ms = self.take_initial_open_ms();
+                    return Ok(stats);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// Bucket ids for splitting a history source by key; see [`crate::history::key_buckets`].
+    /// Uses the loaded snapshot's schema, without a refresh.
+    pub fn key_buckets(
+        &self,
+        batches: &[RecordBatch],
+        key_columns: &[String],
+        n: u32,
+    ) -> Result<arrow_array::UInt32Array> {
+        crate::history::key_buckets(&self.table, batches, key_columns, n)
     }
 
     /// Compact small files (see [`crate::compact`]) against a refreshed snapshot, then

@@ -9,7 +9,8 @@ from django.db import transaction
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import GitHubIntegration
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic import external_references
@@ -149,7 +150,7 @@ def _resolve_issue(job: contracts.GitHubExternalReferenceJob) -> ErrorTrackingIs
     return fingerprint.issue if fingerprint is not None else None
 
 
-def _actor_lacks_write_permission(integration: Integration, job: contracts.GitHubExternalReferenceJob) -> bool:
+def _actor_lacks_write_permission(integration: IntegrationRecord, job: contracts.GitHubExternalReferenceJob) -> bool:
     """Whether the actor's effective permission on the repo is below write.
 
     This is the only gate that proves repo access, because the webhook's author_association
@@ -178,15 +179,7 @@ def _actor_lacks_write_permission(integration: Integration, job: contracts.GitHu
 
 def link_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
     owner, repository = job.repository_full_name.split("/", 1)
-    integration = (
-        Integration.objects.filter(
-            team_id=job.team_id,
-            kind=Integration.IntegrationKind.GITHUB.value,
-            integration_id=job.installation_id,
-        )
-        .order_by("id")
-        .first()
-    )
+    integration = IntegrationManager.github.oauth.find(job.team_id, external_id=job.installation_id)
     if integration is None:
         return False
     try:

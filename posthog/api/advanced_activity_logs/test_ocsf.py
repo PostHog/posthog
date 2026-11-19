@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest
 
@@ -9,17 +9,20 @@ from posthog.models.activity_logging.activity_log import ActivityLog, Change, De
 
 
 class TestActivityLogOCSF(APIBaseTest):
-    def _log(self, activity: str = "updated", detail: Optional[Detail] = None) -> ActivityLog:
+    def _log(self, activity: str = "updated", detail: Optional[Detail] = None, **overrides: Any) -> ActivityLog:
         log = ActivityLog.objects.create(
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            scope="FeatureFlag",
-            activity=activity,
-            item_id="flag-1",
-            user=self.user,
-            ip_address="203.0.113.4",
-            client="posthog-python",
-            detail=detail,
+            **{
+                "team_id": self.team.id,
+                "organization_id": self.organization.id,
+                "scope": "FeatureFlag",
+                "activity": activity,
+                "item_id": "flag-1",
+                "user": self.user,
+                "ip_address": "203.0.113.4",
+                "client": "posthog-python",
+                "detail": detail,
+                **overrides,
+            }
         )
         # Read it back so `detail` is the JSON dict the list endpoint serializes, not the dataclass
         # the freshly built instance holds.
@@ -81,6 +84,30 @@ class TestActivityLogOCSF(APIBaseTest):
 
         assert event["actor"]["app_name"] == "posthog-python"
         assert "client" not in event["unmapped"]
+
+    @parameterized.expand(
+        [
+            (
+                "session",
+                {"credential_type": "session", "credential_id": "session-public-id"},
+                {"uid": "session-public-id"},
+            ),
+            (
+                "project_secret_key_without_user",
+                {"credential_type": "project_secret_key", "credential_id": "key-id", "user": None, "client": None},
+                {"credential_uid": "key-id"},
+            ),
+            ("oauth_id_stays_hidden", {"credential_type": "oauth", "credential_id": "application-id"}, None),
+        ]
+    )
+    def test_customer_visible_credential_is_the_actor_session(
+        self, _name: str, overrides: dict[str, Any], expected_session: Optional[dict[str, str]]
+    ):
+        event = ActivityLogOCSFSerializer(self._log(**overrides)).data
+
+        assert event["actor"].get("session") == expected_session
+        assert event["unmapped"]["credential_type"] == overrides["credential_type"]
+        assert "credential_id" not in event["unmapped"]
 
     def test_time_is_epoch_milliseconds_and_time_dt_is_rfc3339(self):
         log = self._log()

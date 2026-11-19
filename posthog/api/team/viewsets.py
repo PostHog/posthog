@@ -42,13 +42,15 @@ from posthog.permissions import (
     UserCanCreateProjectPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
+    request_subject,
 )
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_realm
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.authorization.backend.presentation.querysets import filter_visible_projects
 
 from . import integration_config, team_config, team_permissions, team_serializer
 
@@ -113,10 +115,8 @@ class TeamViewSet(
     GET_DOWNGRADE_ACTIONS = ("evaluation_context_suggestions",)
 
     def safely_get_queryset(self, queryset):
-        user = cast(User, self.request.user)
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        visible_teams_ids = UserPermissions(user).team_ids_visible_for_user
-        queryset = queryset.filter(id__in=visible_teams_ids)
+        queryset = filter_visible_projects(queryset, subject=request_subject(self.request))
         authenticator = self.request.successful_authenticator
         if scoped_organizations := get_authenticator_scoped_organization_ids(authenticator):
             queryset = queryset.filter(project__organization_id__in=scoped_organizations)
@@ -433,6 +433,7 @@ class TeamViewSet(
             item_ids=[str(team.pk)],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 

@@ -1,3 +1,5 @@
+import './sidebar/sidebar.scss'
+
 import { useActions } from 'kea'
 
 import { todaySceneTabsLogic } from './todaySceneTabsLogic'

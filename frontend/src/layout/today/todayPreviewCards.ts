@@ -50,6 +50,10 @@ export interface TodayObjectPreview {
     folder: string[]
     href: string | null
     lastViewedAt: string | null
+    /** Which part of the UI hosts the trigger, sent with the preview-shown event. */
+    surface: string
+    /** Set by a list that lets people pin its rows, so the card can pin or unpin the object. */
+    pin?: { pinned: boolean; toggle: () => void }
 }
 
 export interface TodayProductPreview extends SidebarProductMeta {
@@ -112,7 +116,7 @@ export function sessionPreview(
     }
 }
 
-export function objectPreview(entry: FileSystemEntry): TodayObjectPreview {
+export function objectPreview(entry: FileSystemEntry, surface: string): TodayObjectPreview {
     return {
         kind: 'object',
         name: libraryObjectName(entry),
@@ -122,6 +126,7 @@ export function objectPreview(entry: FileSystemEntry): TodayObjectPreview {
         folder: splitPath(entry.path).slice(0, -1),
         href: libraryObjectHref(entry),
         lastViewedAt: entry.last_viewed_at ?? null,
+        surface,
     }
 }
 

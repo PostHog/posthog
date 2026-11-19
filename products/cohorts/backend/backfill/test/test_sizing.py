@@ -11,6 +11,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.errors import InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryTimeOut
 
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
 from products.cohorts.backend.backfill.sizing import (
     PersonSeedEstimateScanCapExceeded,
     estimate_behavioral_scan_events,
@@ -105,7 +106,9 @@ class TestBehavioralScanEstimate(SimpleTestCase):
             (date(2026, 9, 28), "signup", 30),
         ]
 
-        estimate = estimate_behavioral_scan_events(7, ["$pageview", "signup"], max_events_per_day=50)
+        estimate = estimate_behavioral_scan_events(
+            7, ["$pageview", "signup"], flag_calls_table=FlagCallsTable.EVENTS, max_events_per_day=50
+        )
 
         self.assertEqual(estimate.peak_day, date(2026, 9, 28))
         self.assertEqual(estimate.peak_day_events, 60)
@@ -125,8 +128,39 @@ class TestBehavioralScanEstimate(SimpleTestCase):
 
     @mock.patch("products.cohorts.backend.backfill.sizing.sync_execute")
     def test_no_event_names_skip_the_query(self, sync_execute: mock.Mock) -> None:
-        estimate = estimate_behavioral_scan_events(7, [], max_events_per_day=50)
+        estimate = estimate_behavioral_scan_events(7, [], flag_calls_table=FlagCallsTable.EVENTS, max_events_per_day=50)
 
         sync_execute.assert_not_called()
         self.assertIsNone(estimate.peak_day)
         self.assertFalse(estimate.over_limit)
+
+    @parameterized.expand(
+        [
+            ("events", FlagCallsTable.EVENTS, {"events": ["$feature_flag_called", "$pageview"]}),
+            (
+                "flag_evaluations",
+                FlagCallsTable.FLAG_EVALUATIONS,
+                {"events": ["$pageview"], "flag_evaluations": ["$feature_flag_called"]},
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 9, 29, 15, 30, tzinfo=UTC), tick=False)
+    def test_flag_calls_are_counted_from_the_table_the_run_scans(
+        self, _name: str, flag_calls_table: FlagCallsTable, expected_reads: dict[str, list[str]]
+    ) -> None:
+        reads: dict[str, list[str]] = {}
+
+        def execute(query: str, params: dict, **kwargs: object) -> list[tuple]:
+            table = "flag_evaluations" if "FROM flag_evaluations" in query else "events"
+            reads[table] = sorted(params.get("event_names", ["$feature_flag_called"]))
+            if table == "flag_evaluations" or "$feature_flag_called" in params["event_names"]:
+                return [(date(2026, 9, 28), "$feature_flag_called", 70)]
+            return [(date(2026, 9, 28), "$pageview", 30)]
+
+        with mock.patch("products.cohorts.backend.backfill.sizing.sync_execute", side_effect=execute):
+            estimate = estimate_behavioral_scan_events(
+                7, ["$pageview", "$feature_flag_called"], flag_calls_table=flag_calls_table, max_events_per_day=50
+            )
+
+        self.assertEqual(reads, expected_reads)
+        self.assertEqual(estimate.peak_day_events_by_name["$feature_flag_called"], 70)

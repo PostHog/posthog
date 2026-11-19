@@ -32,13 +32,39 @@ class OpenFgaStatus:
 
 
 @dataclass(frozen=True, kw_only=True)
+class Parent:
+    """The parent a resource falls back to. `type` must match the fallback map; `id=None` means no parent."""
+
+    type: ResourceType
+    id: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
 class Resource:
-    """One resource, or with `id=None` every resource of `type`, for list and create checks."""
+    """One resource, or with `id=None` every resource of `type`, for list and create checks.
+
+    `created_by_id` and `parent` are the facts the current access rules read from the object.
+    `created_by_id` is the creator's user id. A resource built without it gives the creator no
+    extra access. `parent` is the object it falls back to, such as a warehouse table's source.
+    A check on a type that falls back raises without it, because skipping the parent's rules can
+    give access the parent denies. Build the resource from the model when the model is at hand.
+    """
 
     type: ResourceType
     id: str | None = None
     project_id: int | None = None
     organization_id: UUID | None = None
+    created_by_id: int | None = None
+    parent: Parent | None = None
+
+    @classmethod
+    def project(cls, project_id: int) -> Self:
+        """One project, by the id of its main team."""
+        return cls(type=ResourceType.PROJECT, id=str(project_id))
+
+    @classmethod
+    def organization(cls, organization_id: UUID | str) -> Self:
+        return cls(type=ResourceType.ORGANIZATION, id=str(organization_id))
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -124,8 +150,11 @@ class ObjectIds:
     `excluded=False`: `ids` are the only resources allowed. `excluded=True`: every resource except `ids`
     is allowed, which is the usual answer when the project grants access by default. So an empty `ids`
     means nothing when `excluded` is False and everything when it is True.
+    `ids` follow the organization's access resolution mode, the same mode its list filters use.
     `creator_exempt` means resources the subject created are allowed whatever `ids` say. The caller
-    supplies the creator column, because only the enforcement point knows it.
+    supplies the creator column, because only the enforcement point knows it. `creator_user_id` is the
+    subject's user id, set whenever `creator_exempt` is, so a caller that did not name the subject can
+    still apply the exemption.
     `complete=False` means the list was capped. `ids` is then empty and `excluded` False, so the caller
     fails closed.
     """
@@ -134,21 +163,24 @@ class ObjectIds:
     complete: bool
     excluded: bool = False
     creator_exempt: bool = False
+    creator_user_id: int | None = None
 
     def __post_init__(self) -> None:
         if not self.complete and (self.ids or self.excluded):
             raise ValueError("A capped result allows nothing, so the caller fails closed.")
+        if self.creator_exempt and self.creator_user_id is None:
+            raise ValueError("A creator exemption needs the creator's user id.")
 
     @property
     def restricts(self) -> bool:
         """Whether applying the result can remove rows."""
         return not (self.excluded and not self.ids)
 
-    def allows(self, id: str, *, created_by_user_id: int | None = None, subject_user_id: int | None = None) -> bool:
+    def allows(self, id: str, *, created_by_user_id: int | None = None) -> bool:
         """Whether one resource is allowed. Same rule as the QuerySet and HogQL adapters, for one object."""
         if not self.complete:
             return False
-        if self.creator_exempt and subject_user_id is not None and created_by_user_id == subject_user_id:
+        if self.creator_exempt and created_by_user_id == self.creator_user_id:
             return True
         return (id in self.ids) != self.excluded
 

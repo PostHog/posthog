@@ -18,11 +18,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [
-            FEATURE_FLAGS.TODAY_RAIL_NAV,
-            FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE,
-            FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
-        ],
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE],
         pageUrl: urls.sqlEditor(),
     },
 }

@@ -5,13 +5,11 @@ import { Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
 import { FirstReportProgress } from './FirstReportProgress'
-import { InstallingFlowRow } from './InstallingFlowRow'
 import { ScoutFlowRow } from './ScoutFlowRow'
 import { SignalSourceFlowRow } from './SignalSourceFlowRow'
 
@@ -42,7 +40,6 @@ export function InboxWaitingForWork(): JSX.Element {
 
     const { sourceConfigs, sourceConfigsLoading, hasEmittingScanner } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
-    const { isWizardRunning } = useValues(inboxOnboardingLogic)
     const { completed, savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const enabledSources = [
         ...uniqueEnabledSources(sourceConfigs),
@@ -75,7 +72,7 @@ export function InboxWaitingForWork(): JSX.Element {
                     <p className="m-0 max-w-xl text-sm text-tertiary">
                         {completed
                             ? 'Your sources are listening and your scouts will run on their schedules. Reports appear here when they find something worth investigating.'
-                            : 'Your signal sources and scouts are running in the background. When they find something actionable, a pull request will appear here.'}
+                            : 'Your sources and scouts are running in the background. When they find something actionable, a pull request will appear here.'}
                     </p>
                 </div>
             )}
@@ -84,15 +81,11 @@ export function InboxWaitingForWork(): JSX.Element {
                 <section className="flex flex-col">
                     <div className="flex items-center justify-between gap-2 border-b border-primary px-1 pb-3">
                         <div>
-                            <h3 className="m-0 text-sm font-semibold">Signal sources</h3>
+                            <h3 className="m-0 text-sm font-semibold">Sources</h3>
                             <p className="m-0 text-xs text-tertiary">Events that start an investigation</p>
                         </div>
-                        <span
-                            className={`flex items-center gap-1 text-xs ${isWizardRunning ? 'text-warning' : 'text-success'}`}
-                        >
-                            {isWizardRunning ? (
-                                'Installing'
-                            ) : sourcesLoading ? (
+                        <span className="flex items-center gap-1 text-xs text-success">
+                            {sourcesLoading ? (
                                 'Loading'
                             ) : (
                                 <>
@@ -110,14 +103,13 @@ export function InboxWaitingForWork(): JSX.Element {
                                 outcome={completed ? 'Investigate and create a report.' : undefined}
                             />
                         ))}
-                        {isWizardRunning ? <InstallingFlowRow type="source" /> : null}
-                        {!sourcesLoading && !isWizardRunning && visibleSources.length === 0 ? (
-                            <p className="m-0 p-3 text-xs text-tertiary">No signal sources are active.</p>
+                        {!sourcesLoading && visibleSources.length === 0 ? (
+                            <p className="m-0 p-3 text-xs text-tertiary">No sources are active.</p>
                         ) : null}
                     </div>
                     {enabledSources.length > MAX_VISIBLE_ITEMS ? (
                         <Link
-                            to={urls.inbox('settings')}
+                            to={urls.inbox('sources')}
                             // pinned: analytics and UI tests can depend on these overflow-link selectors.
                             data-attr="inbox-waiting-signal-sources-more"
                             className="border-t border-primary px-1 pt-3 text-xs text-tertiary no-underline hover:text-primary focus-visible:text-primary"
@@ -133,12 +125,8 @@ export function InboxWaitingForWork(): JSX.Element {
                             <h3 className="m-0 text-sm font-semibold">Scouts</h3>
                             <p className="m-0 text-xs text-tertiary">Scheduled checks across your data</p>
                         </div>
-                        <span
-                            className={`flex items-center gap-1 text-xs ${isWizardRunning ? 'text-warning' : 'text-success'}`}
-                        >
-                            {isWizardRunning ? (
-                                'Installing'
-                            ) : scoutsLoading ? (
+                        <span className="flex items-center gap-1 text-xs text-success">
+                            {scoutsLoading ? (
                                 'Loading'
                             ) : (
                                 <>
@@ -152,8 +140,7 @@ export function InboxWaitingForWork(): JSX.Element {
                         {visibleScouts.map((scout) => (
                             <ScoutFlowRow key={scout.id} scout={scout} />
                         ))}
-                        {isWizardRunning ? <InstallingFlowRow type="scout" /> : null}
-                        {!scoutsLoading && !isWizardRunning && visibleScouts.length === 0 ? (
+                        {!scoutsLoading && visibleScouts.length === 0 ? (
                             <p className="m-0 p-3 text-xs text-tertiary">No scouts are active.</p>
                         ) : null}
                     </div>

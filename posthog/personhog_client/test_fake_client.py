@@ -2,9 +2,13 @@ import json
 
 import pytest
 
+import grpc
+from parameterized import parameterized
+from personhog.lifecycle.v1 import lifecycle_pb2
 from personhog.types.v1 import cohort_pb2, common_pb2, group_pb2, person_pb2
 
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
+from posthog.personhog_client.interceptor import semantic_refusal_reason
 
 
 class TestFakePersonHogClientPersons:
@@ -203,6 +207,66 @@ class TestFakePersonHogClientCohorts:
             cohort_pb2.CheckCohortMembershipRequest(person_id=999, cohort_ids=[1])
         )
         assert len(resp.memberships) == 0
+
+    @parameterized.expand(
+        [
+            ("subset", [10, 11], 2, {12}),
+            ("skips_non_members_and_repeats", [10, 10, 99], 1, {11, 12}),
+            ("empty", [], 0, {10, 11, 12}),
+        ]
+    )
+    def test_delete_cohort_members_by_person_ids(self, _name, person_ids, expected_deleted, expected_remaining):
+        for cohort_id in (5, 6):
+            self.client.insert_cohort_members(
+                cohort_pb2.InsertCohortMembersRequest(cohort_id=cohort_id, person_ids=[10, 11, 12])
+            )
+
+        resp = self.client.delete_cohort_members_by_person_ids(
+            cohort_pb2.DeleteCohortMembersByPersonIdsRequest(cohort_id=5, person_ids=person_ids)
+        )
+
+        assert resp.deleted_count == expected_deleted
+        remaining = self.client.list_cohort_member_ids(cohort_pb2.ListCohortMemberIdsRequest(cohort_id=5))
+        assert set(remaining.person_ids) == expected_remaining
+        other = self.client.list_cohort_member_ids(cohort_pb2.ListCohortMemberIdsRequest(cohort_id=6))
+        assert set(other.person_ids) == {10, 11, 12}
+        memberships = self.client.check_cohort_membership(
+            cohort_pb2.CheckCohortMembershipRequest(person_id=10, cohort_ids=[5, 6])
+        )
+        expected_memberships = {5, 6} if 10 in expected_remaining else {6}
+        assert {m.cohort_id for m in memberships.memberships} == expected_memberships
+
+    @parameterized.expand(
+        [
+            (
+                "delete_distinct",
+                "delete_cohort_members_by_person_ids",
+                cohort_pb2.DeleteCohortMembersByPersonIdsRequest,
+                list(range(1, 10_002)),
+            ),
+            (
+                "delete_repeated",
+                "delete_cohort_members_by_person_ids",
+                cohort_pb2.DeleteCohortMembersByPersonIdsRequest,
+                [10] * 10_001,
+            ),
+            (
+                "insert_distinct",
+                "insert_cohort_members",
+                cohort_pb2.InsertCohortMembersRequest,
+                list(range(1, 10_002)),
+            ),
+            ("insert_repeated", "insert_cohort_members", cohort_pb2.InsertCohortMembersRequest, [10] * 10_001),
+        ]
+    )
+    def test_cohort_member_rpcs_reject_more_ids_than_the_service_accepts(
+        self, _name, method_name, request_cls, person_ids
+    ):
+        # The service refuses the request, so a fake that accepted it would pass tests production fails.
+        with pytest.raises(grpc.RpcError) as excinfo:
+            getattr(self.client, method_name)(request_cls(cohort_id=5, person_ids=person_ids))
+        assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        assert "Maximum 10000 person IDs per request" in (excinfo.value.details() or "")
 
 
 class TestCallTracking:
@@ -904,6 +968,7 @@ class TestFakePersonHogClientRepairWrites:
     def test_write_distinct_ids_applies_each_write_only_from_its_expected_state(self):
         insert = person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT
         raise_ = person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE
+        tombstone = person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE
         applied = person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
         failed = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
         not_live = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
@@ -915,6 +980,7 @@ class TestFakePersonHogClientRepairWrites:
             ("live-did", raise_, self.LIVE, 3),
             ("other-did-2", raise_, self.LIVE, 3),
             ("dead-did-raise", raise_, self.TOMB, 3),
+            ("stray-did", tombstone, self.TOMB, 4),
         )
         assert [
             (
@@ -930,7 +996,18 @@ class TestFakePersonHogClientRepairWrites:
             ("live-did", applied, (1, 3, False)),
             ("other-did-2", failed, None),
             ("dead-did-raise", not_live, None),
+            ("stray-did", applied, (3, 4, True)),
         ]
+        (live_owner,) = self._write(("other-did", tombstone, self.OTHER, 4))
+        assert (live_owner.outcome, live_owner.row.version, live_owner.row.is_deleted) == (failed, 0, False)
+        (other_owner,) = self._write(("other-did", tombstone, self.TOMB, 4))
+        assert (other_owner.outcome, other_owner.row.is_deleted) == (failed, False)
+        (retried,) = self._write(("stray-did", tombstone, self.TOMB, 4))
+        assert (retried.outcome, retried.row.version, retried.row.is_deleted) == (
+            person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED,
+            4,
+            True,
+        )
 
     def test_rejects_the_whole_batch_before_any_write(self):
         with pytest.raises(ValueError, match="must not be negative"):
@@ -951,3 +1028,112 @@ class TestFakePersonHogClientRepairWrites:
             )
         live = self.client.stored_person(self.TEAM_ID, self.LIVE)
         assert live is not None and live.version == 2
+
+
+class TestFakePersonHogClientLifecycleDeletes:
+    TEAM_ID = 1
+    OP_A = "11111111-1111-4111-8111-111111111111"
+    OP_B = "22222222-2222-4222-8222-222222222222"
+
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_person(
+            team_id=self.TEAM_ID, person_id=10, uuid="abc-123", version=4, distinct_ids=["user@example.com", "anon-1"]
+        )
+        self.client.add_person(team_id=self.TEAM_ID, person_id=20, uuid="def-456", distinct_ids=["user2@example.com"])
+        self.client.add_cohort_membership(person_id=10, cohort_id=7)
+
+    def _delete(self, person_ids: list[int], op_id: str = OP_A, team_id: int = TEAM_ID):
+        return self.client.lifecycle.delete_persons(
+            lifecycle_pb2.DeletePersonsRequest(team_id=team_id, person_ids=person_ids, op_id=op_id)
+        )
+
+    def test_reports_one_outcome_per_requested_id_and_tombstones_the_deleted_persons(self):
+        response = self._delete([10, 999, 10, 20])
+
+        assert response.op_id == self.OP_A
+        assert [(r.person_id, r.outcome) for r in response.results] == [
+            (10, lifecycle_pb2.DELETE_PERSON_OUTCOME_DELETED),
+            (999, lifecycle_pb2.DELETE_PERSON_OUTCOME_NOT_FOUND),
+            (10, lifecycle_pb2.DELETE_PERSON_OUTCOME_DELETED),
+            (20, lifecycle_pb2.DELETE_PERSON_OUTCOME_DELETED),
+        ]
+        stored = self.client.stored_person(self.TEAM_ID, "abc-123")
+        assert stored is not None and stored.is_deleted and stored.version == 5
+        assert not self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=10)).HasField(
+            "person"
+        )
+        assert not self.client.get_person_by_distinct_id(
+            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="anon-1")
+        ).HasField("person")
+        assert (
+            self.client.check_cohort_membership(
+                cohort_pb2.CheckCohortMembershipRequest(person_id=10, cohort_ids=[7])
+            ).memberships
+            == []
+        )
+        # The saga leaves no publish-queue row; ClickHouse hears about the delete from the changelog.
+        assert self.client.tombstone_queue == {}
+
+    def test_already_tombstoned_and_held_persons_are_not_touched(self):
+        self._delete([10])
+        self.client.hold_lifecycle_mark(team_id=self.TEAM_ID, person_id=20)
+
+        response = self._delete([10, 20], op_id=self.OP_B)
+
+        assert [r.outcome for r in response.results] == [
+            lifecycle_pb2.DELETE_PERSON_OUTCOME_NOT_FOUND,
+            lifecycle_pb2.DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT,
+        ]
+        stored = self.client.stored_person(self.TEAM_ID, "abc-123")
+        assert stored is not None and stored.version == 5
+        assert self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=20)).HasField(
+            "person"
+        )
+
+    def test_retry_with_the_same_op_id_and_request_returns_the_recorded_outcome(self):
+        first = self._delete([10, 20])
+
+        retry = self._delete([10, 20])
+
+        assert retry == first
+        stored = self.client.stored_person(self.TEAM_ID, "abc-123")
+        assert stored is not None and stored.version == 5
+        assert len(self.client.assert_called("lifecycle.delete_persons")) == 2
+
+    @parameterized.expand(
+        [
+            ("different_ids", [10], TEAM_ID),
+            ("different_order", [20, 10], TEAM_ID),
+            ("different_team", [10, 20], 2),
+        ]
+    )
+    def test_same_op_id_with_a_different_request_is_a_definitive_refusal(
+        self, _name: str, person_ids: list[int], team_id: int
+    ):
+        self._delete([10, 20])
+
+        with pytest.raises(grpc.RpcError) as raised:
+            self._delete(person_ids, team_id=team_id)
+
+        assert raised.value.code() == grpc.StatusCode.FAILED_PRECONDITION
+        assert semantic_refusal_reason(raised.value) == "op_id_reused"
+
+    @parameterized.expand(
+        [
+            ("empty", [], OP_A, TEAM_ID),
+            ("over_the_cap", list(range(1, 252)), OP_A, TEAM_ID),
+            ("non_positive_id", [10, 0], OP_A, TEAM_ID),
+            ("malformed_op_id", [10], "not-a-uuid", TEAM_ID),
+            ("team_id_out_of_range", [10], OP_A, 2**31),
+        ]
+    )
+    def test_rejects_requests_the_server_would_reject(
+        self, _name: str, person_ids: list[int], op_id: str, team_id: int
+    ):
+        with pytest.raises(grpc.RpcError) as raised:
+            self._delete(person_ids, op_id=op_id, team_id=team_id)
+
+        assert raised.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        stored = self.client.stored_person(self.TEAM_ID, "abc-123")
+        assert stored is not None and not stored.is_deleted

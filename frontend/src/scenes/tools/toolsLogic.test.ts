@@ -17,14 +17,10 @@ describe('toolsLogic', () => {
         [true, false, true],
         [false, false, true],
     ])('with the rail %s and the warehouse flag %s, lists the warehouse tools: %s', (railOn, warehouseOn, listed) => {
-        featureFlagLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE, FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
-            {
-                [FEATURE_FLAGS.TODAY_RAIL_NAV]: railOn,
-                [FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE]: warehouseOn,
-                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
-            }
-        )
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: railOn,
+            [FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE]: warehouseOn,
+        })
         const logic = toolsLogic()
         logic.mount()
 

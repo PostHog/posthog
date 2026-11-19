@@ -1,16 +1,10 @@
-from contextlib import nullcontext
-
 from parameterized import parameterized
 
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.ratelimits import describe_budgets
-from ee.api.agentic_provisioning.test.base import (
-    TEST_PARTNER_CLIENT_SECRET,
-    ProvisioningTestBase,
-    provisioning_config,
-    signing_required,
-)
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 LIMITS_URL = "/api/agentic/provisioning/limits"
 
@@ -40,7 +34,7 @@ class TestLimitsEndpoint(ProvisioningTestBase):
         assert res.status_code == 200
         body = res.json()
         assert body["tier"] == "jwks"
-        assert body["tier_basis"] == {"client_authentication": "client_secret_post", "attested": False}
+        assert body["tier_basis"] == {"client_authentication": "private_key_jwt", "attested": False}
         # account_requests declares (5, 10); the JWKS tier multiplies by 5.
         assert body["endpoints"]["account_requests"]["per_hour"] == 50
         assert body["endpoints"]["account_requests"]["burst"] == 25
@@ -53,10 +47,7 @@ class TestLimitsEndpoint(ProvisioningTestBase):
     def test_client_authenticated_partner_sees_its_overrides(self):
         self.partner.update_provisioning_rate_limits(resource_creates=7, deep_links=-1)
 
-        res = self.client.post(
-            LIMITS_URL,
-            {"client_id": self.partner.client_id, "client_secret": TEST_PARTNER_CLIENT_SECRET},
-        )
+        res = self.client.post(LIMITS_URL, self._client_auth())
 
         assert res.status_code == 200
         body = res.json()
@@ -72,8 +63,7 @@ class TestLimitsEndpoint(ProvisioningTestBase):
             # GET has nowhere to carry client authentication, so the verb is gone. If it
             # comes back, the bare client_id path comes back with it.
             ("get_with_client_id", "get", True, False, 405),
-            # Its grace lets it call unsigned elsewhere, but a client_id still proves nothing.
-            ("bare_client_id_of_a_switched_partner_in_grace", "post", True, True, 401),
+            ("bare_client_id_of_a_private_key_jwt_partner", "post", True, True, 401),
         ]
     )
     def test_caller_without_proof_is_rejected(
@@ -88,21 +78,30 @@ class TestLimitsEndpoint(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("deactivated", {"active": False}, False),
-            ("grace_ended_without_a_private_key", {}, True),
+            ("deactivated", {"active": False}, False, None, 401),
+            ("dropped_its_private_key", {}, True, None, 401),
+            ("self_registered_without_an_organization", {}, False, "unlinked", 401),
+            ("self_registered_with_an_organization", {}, False, "linked", 200),
         ]
     )
-    def test_bearer_is_rejected_after_partner_changes(
-        self, _name: str, change: dict[str, bool], grace_ended: bool
+    def test_bearer_after_partner_changes(
+        self, _name: str, change: dict[str, bool], drop_key: bool, organization_requirement: str | None, expected: int
     ) -> None:
         token = self._request_bearer_token().json()["access_token"]
         if change:
             self.partner.update_provisioning(**change)
+        if drop_key:
+            self.partner.jwks_uri = None
+            self.partner.save(update_fields=["jwks_uri"])
+        if organization_requirement is not None:
+            self.partner.is_cimd_client = True
+            self.partner.organization = self.organization if organization_requirement == "linked" else None
+            self.partner.save(update_fields=["is_cimd_client", "organization"])
 
-        with signing_required() if grace_ended else nullcontext():
+        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", organization_requirement is not None):
             res = self.client.post(LIMITS_URL, HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        assert res.status_code == 401
+        assert res.status_code == expected, res.json()
 
     def test_describe_budgets_marks_endpoints_the_tier_blocks(self):
         # Reported as blocked rather than as a budget, so a partner is not told it has

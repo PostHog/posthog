@@ -9,10 +9,6 @@
 .flox/log/
 node_modules/
 .vite/
-/products/desktop/apps/mobile/ios/
-/products/desktop/apps/mobile/android/
-/products/desktop/apps/mobilehog/ios/
-/products/desktop/apps/mobilehog/android/
 .parcel-cache/
 .postgres-backups/
 .typegen/

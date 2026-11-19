@@ -21,6 +21,7 @@ import {
     getHomeTabDashboardTemplate,
     getHomeTabExploreUrl,
     getHomeTabInterval,
+    getHomeTabStatInsightQuery,
     getHomeTabStatQueries,
     getHomeTabStatValue,
     isHomeTabStatBucketInProgress,
@@ -288,6 +289,18 @@ describe('homeTabDefaultTiles', () => {
         expect(editorQuery.source.dateRange).toEqual(dateRange)
     })
 
+    it.each([
+        ['sessions', { display: ChartDisplayType.BoldNumber }],
+        ['daily_active_users', { display: ChartDisplayType.Metric, metricSummary: 'average' }],
+    ])('opens the %s tile as an insight that shows the same number', (key, trendsFilter) => {
+        const stat = getHomeTabStatQueries(dateRange, true).find((stat) => stat.key === key)!
+
+        expect(getHomeTabStatInsightQuery(stat)).toMatchObject({
+            kind: NodeKind.InsightVizNode,
+            source: { dateRange, compareFilter: { compare: true }, trendsFilter },
+        })
+    })
+
     it('copies Home into a dashboard template with saved queries and a non-overlapping layout', () => {
         const { tiles } = getHomeTabDashboardTemplate()
 
@@ -296,7 +309,6 @@ describe('homeTabDefaultTiles', () => {
             'Sessions',
             'First-time users',
             'Avg. session duration',
-            'Avg. DAU',
             'Daily active users',
             'Top pages',
             'Top screens',
@@ -318,7 +330,13 @@ describe('homeTabDefaultTiles', () => {
                 }
             }
         }
-        expect(tiles.slice(0, 5).map((tile) => tile.type === 'INSIGHT' && tile.query)).toMatchObject([
+        expect(tiles.slice(0, 4).map((tile) => tile.layouts!.sm)).toMatchObject([
+            { x: 0, y: 0, w: 3 },
+            { x: 3, y: 0, w: 3 },
+            { x: 6, y: 0, w: 3 },
+            { x: 9, y: 0, w: 3 },
+        ])
+        expect(tiles.slice(0, 4).map((tile) => tile.type === 'INSIGHT' && tile.query)).toMatchObject([
             {
                 source: {
                     series: [{ math: BaseMathType.WeeklyActiveUsers }],
@@ -335,12 +353,6 @@ describe('homeTabDefaultTiles', () => {
                         metricSummary: 'average',
                         aggregationAxisFormat: 'duration',
                     },
-                },
-            },
-            {
-                source: {
-                    interval: 'day',
-                    trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'average' },
                 },
             },
         ])

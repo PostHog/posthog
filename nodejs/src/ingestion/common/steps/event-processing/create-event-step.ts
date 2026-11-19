@@ -1,10 +1,9 @@
 import { Message } from 'node-rdkafka'
 import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { UsageRecord, UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { parseTeamsList } from '~/common/utils/env-utils'
 import { createEvent } from '~/ingestion/common/steps/event-processing/create-event'
-import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, Person, PreIngestionEvent, Team } from '~/types'
@@ -18,6 +17,14 @@ const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
 // event's uuid from its source event's uuid.
 const EXPERIMENT_EXPOSURE_UUIDV5_NAMESPACE = parseUuid('1b7c9119-5953-4668-97b7-ab0ef8a6bb48')
 
+// SDKs mark calls to flags on v2 rules with this property and send $experiment_exposure
+// themselves, so duplicating those calls would count each exposure twice. SDKs send the
+// number; the string is matched too because a duplicate costs more than a skipped one.
+function isConfigVersion2FeatureFlagCalledEvent(event: PreIngestionEvent): boolean {
+    const configVersion = event.properties['$feature_flag_config_version']
+    return configVersion === 2 || configVersion === '2'
+}
+
 // Flag definitions aren't available in ingestion, so multivariate is inferred from the
 // response shape; a variant literally keyed "true" or "false" is indistinguishable from
 // a boolean flag response and knowingly skipped.
@@ -26,6 +33,7 @@ function isMultivariateFeatureFlagCalledEvent(event: PreIngestionEvent): boolean
 
     return (
         event.event === FEATURE_FLAG_CALLED_EVENT &&
+        !isConfigVersion2FeatureFlagCalledEvent(event) &&
         typeof response === 'string' &&
         response !== '' &&
         response !== 'true' &&
@@ -41,7 +49,7 @@ export interface CreateEventStepInput {
     historicalMigration: boolean
     headers: EventHeaders
     message: Message
-    eventUsageRecords?: EventUsageRecord[]
+    eventUsageRecords?: UsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 
@@ -51,7 +59,7 @@ export interface CreateEventStepResult<O extends string> {
     teamId: number
     headers: EventHeaders
     message: Message
-    eventUsageRecords?: EventUsageRecord[]
+    eventUsageRecords?: UsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 

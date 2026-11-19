@@ -27,7 +27,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.comment import Comment
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.object_tags.kinds import OBJECT_URL_TEMPLATES, ObjectRef, object_ref_for_url
 from posthog.redis import get_client
@@ -35,6 +35,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import get_instance_region
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
@@ -42,18 +43,22 @@ from products.access_control.backend.facade.user_access_control import (
 from products.canvas.backend.facade import access as canvas_access
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
 from products.error_tracking.backend.facade import api as error_tracking_facade
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade import (
+    api as experiments_facade,
+    slack as experiments_slack,
+)
+from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
 from products.exports.backend.facade import api as exports_facade
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.models import SignalReport
-from products.signals.backend.report_access import may_read_reports
+from products.release.backend.facade import api as releases_api
+from products.signals.backend.facade.reports import get_report_card, may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -69,6 +74,7 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
     SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
     SlackAppUnfurlChartsWorkflow,
@@ -114,6 +120,7 @@ _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "cohort": OBJECT_URL_TEMPLATES["cohort"],
     "error": OBJECT_URL_TEMPLATES["error"],
     "report": ("/inbox/{tab}/{id}", *OBJECT_URL_TEMPLATES["report"]),
+    "release": ("/releases/{id}",),
 }
 
 _KIND_EMOJI: dict[str, str] = {
@@ -129,6 +136,7 @@ _KIND_EMOJI: dict[str, str] = {
     "survey": "📝",
     "cohort": "👥",
     "error": "🐞",
+    "release": "🚀",
     ADHOC_INSIGHT_KIND: "📈",
 }
 
@@ -416,6 +424,8 @@ class _UnfurlCard:
     timestamp_label: str = "Updated"
     button: _CardButton | None = None
     chart_insight_id: int | None = None
+    # Set for a saved insight link with unsaved edits. The chart renders this query instead of the saved one.
+    chart_edited_query: dict | None = None
     # Set for an ad hoc insight. Its card goes out only together with its chart.
     chart_query: dict | None = None
     artifact_image: bool = False
@@ -504,7 +514,7 @@ def _claim_invite_slot(slack_team_id: str, channel: str) -> bool:
     return bool(claimed)
 
 
-def _build_unfurl_invite(integration: Integration, kind: str, channel: str) -> dict | None:
+def _build_unfurl_invite(integration: WorkspaceIntegration, kind: str, channel: str) -> dict | None:
     """The invite block for the first resource we unfurled, or None when it should stay quiet.
 
     Consent is checked before the slot is claimed: the other way round, a workspace that never
@@ -548,7 +558,7 @@ def _is_normal_public_channel(slack: SlackIntegration, channel: str, cache: dict
 
 def _task_owner_can_view_public_slack_channel(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     task: TaskSlackUnfurlDTO,
     cache: dict[str, bool],
 ) -> bool:
@@ -582,7 +592,7 @@ def _task_owner_can_view_public_slack_channel(
 def _attach_public_slack_thread_reference(
     *,
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     task: TaskSlackUnfurlDTO,
     event: dict,
     shared_by_slack_user_id: str,
@@ -623,7 +633,7 @@ def _attach_public_slack_thread_reference(
 @frozen
 class _UnfurlContext:
     slack: SlackIntegration
-    integration: Integration
+    integration: WorkspaceIntegration
     team: Team
     user: User
     uac: UserAccessControl
@@ -721,21 +731,8 @@ def _date_range(query: object) -> str | None:
     return f"Last {unit}" if amount == 1 else f"Last {_count(amount, unit)}"
 
 
-def _primary_metric(metrics: object) -> str | None:
-    first = metrics[0] if isinstance(metrics, list) and metrics else None
-    name = first.get("name") if isinstance(first, dict) else None
-    return name if isinstance(name, str) and name else None
-
-
-def _variant_rows(variants: list[dict]) -> list[_ChartRow]:
-    return [
-        _ChartRow(
-            label=_chart_label(variant["key"]),
-            bar=_bar(variant["rollout_percentage"] / 100),
-            value=f"{variant['rollout_percentage']}%",
-        )
-        for variant in variants
-    ]
+def _variant_row(key: object, rollout_percentage: float) -> _ChartRow:
+    return _ChartRow(label=_chart_label(key), bar=_bar(rollout_percentage / 100), value=f"{rollout_percentage}%")
 
 
 def _flag_variants(flag: FeatureFlag) -> list[dict]:
@@ -752,13 +749,19 @@ def _insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     level = ctx.uac.get_user_access_level(insight)
     if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
         return "no_access"
+    # A link copied from the insight editor carries unsaved edits in `#q`, such as another date
+    # range or hidden series. The person who opens the link sees these edits, so the card shows them too.
+    edited_query = adhoc_insight_query(url)
+    if edited_query == insight.query:
+        edited_query = None
     return _UnfurlCard(
         label=_insight_resource_label(insight),
         title=insight.name or insight.derived_name or "Untitled",
-        details=(*filter(None, [_date_range(insight.query)]), *_by(insight.created_by)),
+        details=(*filter(None, [_date_range(edited_query or insight.query)]), *_by(insight.created_by)),
         body=insight.description,
         timestamp=insight.last_modified_at,
         chart_insight_id=insight.id,
+        chart_edited_query=edited_query,
     )
 
 
@@ -781,19 +784,17 @@ def _adhoc_insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard 
 
 
 def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
-    dashboard = Dashboard.objects.filter(pk=ref, team_id=ctx.team.pk).first() if ref.isdigit() else None
+    dashboard = dashboards_api.get_dashboard(team_id=ctx.team.pk, dashboard_id=int(ref)) if ref.isdigit() else None
     if not dashboard:
         return "not_found"
-    level = ctx.uac.get_user_access_level(dashboard)
-    if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
+    if not dashboards_api.can_access_dashboard(dashboard, user_access_control=ctx.uac):
         return "no_access"
-    tiles = (
-        DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
-        .exclude(deleted=True)
-        .select_related("insight")
-        .order_by("id")
-    )
-    insights = [tile.insight for tile in tiles if tile.insight]
+    insight_ids = [tile.insight_id for tile in dashboards_api.insight_tiles(dashboard_id=dashboard.id)]
+    insights_by_id = {
+        insight.id: insight
+        for insight in insights_including_soft_deleted_for_team(team_id=dashboard.team_id, insight_ids=insight_ids)
+    }
+    insights = [insights_by_id[insight_id] for insight_id in insight_ids if insight_id in insights_by_id]
     ctx.uac.preload_object_access_controls(cast(list, insights))
     names = [
         insight.name or insight.derived_name or "Untitled"
@@ -803,7 +804,7 @@ def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _S
     return _UnfurlCard(
         label="Dashboard",
         title=dashboard.name or "Untitled",
-        details=(_count(len(names), "insight"), *_by(dashboard.created_by)),
+        details=(_count(len(names), "insight"), *_by(_user(dashboard.created_by_id))),
         chart=_tile_grid(names),
         body=dashboard.description,
     )
@@ -866,7 +867,7 @@ def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
     return _UnfurlCard(
         label="Task",
         title=task.title,
-        status=task.latest_run_status,
+        status=task.status,
         details=(*((dto.repository,) if dto and dto.repository else ()), *_by(_user(task.created_by_id))),
         button=_CardButton(label="View pull request", url=pr_url) if pr_url else None,
         timestamp=dto.updated_at if dto else None,
@@ -955,7 +956,7 @@ def _notebook_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Sk
 
 
 def _flag_chart(conditions: list[dict], variants: list[dict]) -> str | None:
-    rows = _variant_rows(variants)
+    rows = [_variant_row(variant["key"], variant["rollout_percentage"]) for variant in variants]
     if len(conditions) == 1 and not conditions[0].get("properties"):
         rollout = condition_rollout_percentage(conditions[0])
         rows.insert(0, _ChartRow(label="Rollout", bar=_bar(rollout / 100), value=f"{rollout}% of users"))
@@ -986,30 +987,102 @@ def _flag_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
 
 def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     experiment = (
-        Experiment.objects.filter(team_id=ctx.team.pk, pk=ref, deleted=False).select_related("feature_flag").first()
-        if ref.isdigit()
-        else None
+        experiments_slack.get_experiment_unfurl(team_id=ctx.team.pk, experiment_id=int(ref)) if ref.isdigit() else None
     )
     if not experiment:
         return "not_found"
-    if not ctx.uac.check_access_level_for_object(experiment, required_level="viewer"):
+    # The experiment can sit on the legacy parent of the sharer's team. Access rules resolve against the sharer's team,
+    # and the check raises for a reference to another team, so the reference names the sharer's team.
+    access_ref = ObjectAccessRef(
+        resource="experiment", id=str(experiment.id), team_id=ctx.team.pk, created_by_id=experiment.created_by_id
+    )
+    if not ctx.uac.check_access_level_for_ref(access_ref, "viewer"):
         return "no_access"
     details: list[str] = []
     if experiment.start_date:
         days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
         details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
-    metric = _primary_metric(experiment.metrics)
+    stats = _stored_primary_result(team_id=ctx.team.pk, experiment_id=experiment.id)
+    metric = stats.metric_name if stats else experiment.primary_metric_name
     if metric:
         details.append(f"Metric: {metric}")
+    if stats:
+        details.append(f"Split {'/'.join(str(variant.rollout_percentage) for variant in experiment.variants)}")
+    variant_rows = [_variant_row(variant.key, variant.rollout_percentage) for variant in experiment.variants]
     return _UnfurlCard(
         label="Experiment",
         title=experiment.name,
-        status=_humanize(experiment.status_label),
+        status=_humanize(experiment.status),
         details=tuple(details),
-        chart=_chart_rows(_variant_rows(_flag_variants(experiment.feature_flag))),
-        body=experiment.description,
+        chart=_experiment_chart(stats) if stats else _chart_rows(variant_rows),
+        body="\n\n".join(
+            part for part in (_experiment_verdict(stats) if stats else None, experiment.description) if part
+        ),
         timestamp=experiment.updated_at,
     )
+
+
+def _stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
+    try:
+        stats = experiments_facade.get_stored_primary_result(team_id=team_id, experiment_id=experiment_id)
+    except Exception:
+        logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment_id)
+        return None
+    if (
+        stats is None
+        or stats.metric_type not in ("funnel", "mean")
+        or stats.baseline.mean is None
+        or not stats.variants
+    ):
+        return None
+    return stats
+
+
+def _variant_delta(stats: StoredPrimaryResult, variant: StoredArmResult) -> float | None:
+    if variant.change is not None:
+        return variant.change
+    if variant.mean is None or stats.baseline.mean is None or stats.baseline.mean <= 0:
+        return None
+    return variant.mean / stats.baseline.mean - 1
+
+
+def _experiment_verdict(stats: StoredPrimaryResult) -> str:
+    control = stats.baseline.key
+    if all(variant.change is None for variant in stats.variants):
+        exposed = stats.baseline.number_of_samples + sum(variant.number_of_samples for variant in stats.variants)
+        return f"⏳ *Too early to call.* {exposed:,} exposed so far."
+    direction = -1 if stats.goal == "decrease" else 1
+    ranked = sorted(
+        ((variant, delta) for variant in stats.variants if (delta := _variant_delta(stats, variant)) is not None),
+        key=lambda pair: pair[1] * direction,
+        reverse=True,
+    )
+    significant = [(variant, delta) for variant, delta in ranked if variant.significant]
+    if significant and significant[0][1] * direction > 0:
+        return f"🏆 *Winner so far: {significant[0][0].key}.* {significant[0][1]:+.1%} vs {control}."
+    if significant:
+        return f"🔻 *Losing: {significant[-1][0].key}.* {significant[-1][1]:+.1%} vs {control}."
+    if ranked and ranked[0][1] * direction > 0:
+        return f"⚖️ *No clear winner yet.* {ranked[0][0].key} leads at {ranked[0][1]:+.1%} vs {control}, but it is not significant."
+    return f"⚖️ *No clear winner yet.* No variant beats {control}."
+
+
+def _experiment_chart(stats: StoredPrimaryResult) -> str | None:
+    arms = [stats.baseline, *stats.variants]
+    means = [arm.mean for arm in arms if arm.mean is not None]
+    show_bars = all(mean >= 0 for mean in means)
+    top = max(means, default=0.0)
+    rows = []
+    for arm in arms:
+        if arm.mean is None:
+            value = "—"
+        else:
+            value = f"{arm.mean:.1%}" if stats.proportion else f"{arm.mean:,.2f}"
+        if arm is not stats.baseline and (delta := _variant_delta(stats, arm)) is not None:
+            value += f"  {delta:+.1%}{' ✓' if arm.significant else ''}"
+        bar = _bar((arm.mean or 0.0) / top if top else 0.0) if show_bars else ""
+        rows.append(_ChartRow(label=_chart_label(arm.key), bar=bar, value=value))
+    return _chart_rows(rows)
 
 
 def _survey_status(survey: Survey) -> str:
@@ -1036,6 +1109,49 @@ def _survey_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         chart=_question_list(survey.questions),
         body=survey.description,
         timestamp=survey.updated_at,
+    )
+
+
+def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    release_id = _uuid(ref)
+    if release_id is None:
+        return "not_found"
+    root_team = Team.objects.get(pk=ctx.team.parent_team_id) if ctx.team.parent_team_id else ctx.team
+    uac = ctx.uac if root_team.pk == ctx.team.pk else UserAccessControl(user=ctx.user, team=root_team)
+    if not uac.check_access_level_for_resource("feature_flag", "viewer"):
+        return "no_access"
+    if not releases_api.releases_enabled(
+        team_id=ctx.team.pk,
+        team_uuid=ctx.team.uuid,
+        organization_id=ctx.team.organization_id,
+        distinct_id=str(ctx.user.distinct_id),
+        email=None if ctx.user.anonymize_data else ctx.user.email,
+        only_evaluate_locally=True,
+    ):
+        return "no_access"
+    try:
+        release = releases_api.get_summary(ctx.team.pk, release_id)
+    except releases_api.ReleaseNotFoundError:
+        return "not_found"
+    flags = list(
+        FeatureFlag.objects_including_soft_deleted.filter(team_id=root_team.pk, pk__in=release.feature_flag_ids).only(
+            "id", "team_id", "created_by_id", "key", "active", "deleted"
+        )
+    )
+    viewable = [flag for flag in flags if uac.check_access_level_for_object(flag, required_level="viewer")]
+    hidden = len(viewable) < len(flags)
+    visible = [flag for flag in viewable if not flag.deleted]
+    lines = [f"{flag.key} · {'Active' if flag.active else 'Disabled'}" for flag in visible]
+    return _UnfurlCard(
+        label="Release",
+        title=releases_api.RESTRICTED_NAME if release.auto_named and hidden else release.name,
+        details=(
+            *((_count(len(visible), "flag"),) if visible else ()),
+            *((f"Owner {release.owner_first_name}",) if release.owner_first_name else ()),
+        ),
+        chart="\n".join(_capped_lines(lines)) or None,
+        body=release.description or None,
+        timestamp=release.updated_at,
     )
 
 
@@ -1078,11 +1194,7 @@ def _error_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipR
 
 
 def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
-    report = (
-        SignalReport.objects.filter(team_id=ctx.team.pk, pk=ref).exclude(status=SignalReport.Status.DELETED).first()
-        if _uuid(ref)
-        else None
-    )
+    report = get_report_card(team_id=ctx.team.pk, report_id=ref) if _uuid(ref) else None
     if not report:
         return "not_found"
     if not may_read_reports(user=ctx.user, team=ctx.team):
@@ -1111,6 +1223,7 @@ _CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _Sk
     "cohort": _cohort_card,
     "error": _error_card,
     "report": _report_card,
+    "release": _release_card,
 }
 
 
@@ -1146,7 +1259,7 @@ def _post_unfurls(slack: SlackIntegration, event: dict, unfurls: dict[str, dict]
 
 def start_unfurl_charts(
     *,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     user: User,
     event: dict,
     unfurls: dict[str, dict],
@@ -1194,7 +1307,7 @@ def start_unfurl_charts(
 
 def _queue_unfurl_charts(
     *,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     user: User,
     event: dict,
     unfurls: dict[str, dict],
@@ -1221,7 +1334,7 @@ def _queue_unfurl_charts(
 
 
 def _queue_unfurl_artifact_image(
-    *, integration: Integration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+    *, integration: WorkspaceIntegration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
 ) -> bool:
     """Reading and storing the file is too slow for the webhook's ack budget, so it runs on Celery."""
     # noqa reason: the task module imports api, which imports this module at load time.
@@ -1252,7 +1365,7 @@ class _ImageLink:
     failure: _ImageFailure | None = None
 
 
-def _artifact_image_link(*, integration: Integration, user: User, url: str, title: str) -> _ImageLink:
+def _artifact_image_link(*, integration: WorkspaceIntegration, user: User, url: str, title: str) -> _ImageLink:
     # The link opens without a PostHog login, so it follows the public sharing setting like chart images do.
     team = integration.team
     if not team.organization.allow_publicly_shared_resources:
@@ -1290,7 +1403,7 @@ def _artifact_image_link(*, integration: Integration, user: User, url: str, titl
 
 
 def add_artifact_image_to_unfurl(
-    *, integration: Integration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+    *, integration: WorkspaceIntegration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
 ) -> None:
     """Post a task artifact card again with its image. Best effort: a failure keeps the text card."""
     link = _artifact_image_link(integration=integration, user=user, url=url, title=title)
@@ -1319,7 +1432,7 @@ def add_artifact_image_to_unfurl(
     )
 
 
-def _bot_reply_actor(integration: Integration, event: dict) -> str | None:
+def _bot_reply_actor(integration: WorkspaceIntegration, event: dict) -> str | None:
     """The Slack user steering the run in this thread, when that run was told to share chart links.
 
     Slack credits a message our app posts to our bot user, and some bot-posted messages to the
@@ -1330,7 +1443,7 @@ def _bot_reply_actor(integration: Integration, event: dict) -> str | None:
         return None
     actors = (
         SlackThreadTaskMapping.objects.filter(
-            integration=integration,
+            integration_id=integration.id,
             channel=event["channel"],
             thread_ts=event["thread_ts"],
             task_run__state__slack_chart_links=True,
@@ -1343,7 +1456,7 @@ def _bot_reply_actor(integration: Integration, event: dict) -> str | None:
     return next((actor for actor in actors or () if actor), None)
 
 
-def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
+def handle_posthog_link_unfurl(event: dict, integration: WorkspaceIntegration) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
 
@@ -1489,7 +1602,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         return
 
     chart_requests = [
-        SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
+        SlackUnfurlChartRequest(url=url, query=card.chart_edited_query, title=card.title)
+        if card.chart_edited_query is not None
+        else SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
         for url, (_, card) in cards.items()
         if card.chart_insight_id is not None and not compact
     ]

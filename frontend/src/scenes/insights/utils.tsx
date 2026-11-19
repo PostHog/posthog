@@ -4,10 +4,8 @@ import { ReactNode } from 'react'
 import { IconWarning } from '@posthog/icons'
 import { LemonButtonProps } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
@@ -21,12 +19,25 @@ import { urls } from 'scenes/urls'
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
+import { cleanInsightQuery } from '~/queries/nodes/InsightViz/queryUtils'
+import {
+    containsHogQLQuery,
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isEventsNode,
+    isGroupNode,
+    isHogQLQuery,
+    isInsightVizNode,
+    isNodeWithSource,
+} from '~/queries/schema/node-guards'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
     ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
+    DataVisualizationNode,
     FileSystemIconType,
     GroupNode,
     HogQLQuery,
@@ -43,32 +54,16 @@ import {
     ResultCustomizationByValue,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import {
-    containsHogQLQuery,
-    isBIVisualizationNode,
-    isDataTableNode,
-    isEventsNode,
-    isGroupNode,
-    isHogQLQuery,
-    isInsightVizNode,
-    isNodeWithSource,
-} from '~/queries/utils'
-import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { getResultSeriesIndex } from '~/scenes/insights/utils/resultSeries'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
-    ActionFilter,
-    AnyPartialFilterType,
     BreakdownKeyType,
     ChartDisplayType,
     CohortType,
-    EntityFilter,
-    EntityTypes,
     EventType,
     FlattenedFunnelStepByBreakdown,
     FunnelStepWithConversionMetrics,
     GroupTypeIndex,
-    InsightShortId,
     InsightType,
     PathType,
     PropertyFilterType,
@@ -76,54 +71,6 @@ import {
 } from '~/types'
 
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
-
-import { insightLogic } from './insightLogic'
-
-export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null | undefined): boolean => {
-    return (
-        filter != null &&
-        filter.type === EntityTypes.EVENTS &&
-        filter.id === null &&
-        (!filter.name || filter.name === 'All events')
-    )
-}
-
-export const formatEventName = (name: string | undefined | null): string | undefined => {
-    if (!name) {
-        return
-    }
-
-    // Handle comma-separated event keys (e.g., "$pageview, $exception" from GroupNode)
-    if (name.includes(',')) {
-        return name
-            .split(',')
-            .map((eventName) => {
-                const trimmed = eventName.trim()
-                return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[trimmed]?.label || trimmed
-            })
-            .join(', ')
-    }
-
-    return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[name]?.label || name
-}
-
-export const getDisplayNameFromEntityFilter = (
-    filter: EntityFilter | ActionFilter | null | undefined,
-    isCustom = true
-): string | null => {
-    // Make sure names aren't blank strings
-    const customName = ensureStringIsNotBlank(filter?.custom_name)
-
-    let name = ensureStringIsNotBlank(filter?.name)
-    name = formatEventName(name) ?? name
-
-    if (isAllEventsEntityFilter(filter)) {
-        name = 'All events'
-    }
-
-    // Return custom name. If that doesn't exist then the name, then the id, then just null.
-    return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
-}
 
 export const getDisplayNameFromEntityNode = (
     node: AnyEntityNode<AnyDataWarehouseNode | ExperimentDataWarehouseNode> | GroupNode,
@@ -158,57 +105,6 @@ export const getDisplayNameFromEntityNode = (
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
-}
-
-export function extractObjectDiffKeys(
-    oldObj: AnyPartialFilterType,
-    newObj: AnyPartialFilterType,
-    prefix: string = ''
-): Record<string, any> {
-    if (Object.keys(oldObj).length === 0) {
-        return []
-    }
-
-    let changedKeys: Record<string, any> = {}
-    for (const [key, value] of Object.entries(newObj)) {
-        const valueOrArray = value || []
-        const oldValue = (oldObj as Record<string, any>)[key] || []
-        if (!objectsEqual(value, oldValue)) {
-            if (key === 'events') {
-                const events = valueOrArray as Record<string, any>[]
-                if (events.length !== oldValue.length) {
-                    changedKeys['changed_events_length'] = oldValue?.length
-                } else {
-                    events.forEach((event, idx) => {
-                        Object.assign(changedKeys, extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`))
-                    })
-                }
-            } else if (key === 'actions') {
-                const actions = valueOrArray as Record<string, any>[]
-                if (actions.length !== oldValue.length) {
-                    changedKeys['changed_actions_length'] = oldValue.length
-                } else {
-                    actions.forEach((action, idx) => {
-                        Object.assign(changedKeys, extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`))
-                    })
-                }
-            } else {
-                changedKeys[`changed_${prefix}${key}`] = oldValue
-            }
-        }
-    }
-
-    return changedKeys
-}
-
-export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
-    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.insight?.id
-
-    return insightId
-        ? insightId
-        : // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
-          (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
-              .results[0]?.id
 }
 
 export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeEventTypes']): string[] {
@@ -766,6 +662,25 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
     return parseQuery(query)
+}
+
+/** Mirrors the queries `urls.insightNew()` sends to the SQL editor or the BI scene */
+export function opensOutsideInsightScene(query: Node | null | undefined): boolean {
+    if (!query) {
+        return false
+    }
+    return (
+        isBIVisualizationNode(query) ||
+        isHogQLQuery(query) ||
+        ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source))
+    )
+}
+
+/** The query to open in the SQL editor for an unsaved SQL insight, which has no other route to its SQL */
+export function unsavedSqlInsightQuery(query: Node | null, isSaved: boolean): DataVisualizationNode | null {
+    return !isSaved && isDataVisualizationNode(query) && !isBIVisualizationNode(query) && isHogQLQuery(query.source)
+        ? query
+        : null
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

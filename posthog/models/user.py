@@ -1,6 +1,8 @@
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, Self, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.management.base import CommandError
@@ -27,6 +29,9 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization_notification_lock import GovernedSetting, effective_notification_settings
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
+
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
 
 from .organization import Organization, OrganizationMembership
 from .team import Team
@@ -56,6 +61,18 @@ class Notifications(TypedDict, total=False):
     mobile_push_tasks_enabled: bool
     mobile_push_reports_enabled: bool
     mobile_push_report_updates_enabled: bool
+    mobile_push_chat_enabled: bool
+    mobile_push_loops_enabled: bool
+    mobile_push_chat_attention_enabled: bool
+    mobile_push_chat_mentions_enabled: bool
+    mobile_push_chat_replies_enabled: bool
+    mobile_push_chat_completions_enabled: bool
+    mobile_push_chat_pr_outcomes_enabled: bool
+    mobile_push_report_attention_enabled: bool
+    mobile_push_report_completions_enabled: bool
+    mobile_push_report_pr_ready_enabled: bool
+    mobile_push_report_pr_outcomes_enabled: bool
+    mobile_push_snooze_enabled: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
     data_pipeline_error_threshold: (
@@ -93,6 +110,18 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "mobile_push_tasks_enabled": True,
     "mobile_push_reports_enabled": True,
     "mobile_push_report_updates_enabled": True,
+    "mobile_push_chat_enabled": True,
+    "mobile_push_loops_enabled": True,
+    "mobile_push_chat_attention_enabled": True,
+    "mobile_push_chat_mentions_enabled": True,
+    "mobile_push_chat_replies_enabled": True,
+    "mobile_push_chat_completions_enabled": True,
+    "mobile_push_chat_pr_outcomes_enabled": True,
+    "mobile_push_report_attention_enabled": True,
+    "mobile_push_report_completions_enabled": True,
+    "mobile_push_report_pr_ready_enabled": True,
+    "mobile_push_report_pr_outcomes_enabled": True,
+    "mobile_push_snooze_enabled": True,
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
@@ -127,11 +156,26 @@ ROLE_CHOICES = (
 )
 
 
+_join_current_organization: ContextVar[bool] = ContextVar("user_join_current_organization", default=False)
+
+
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
     def get_queryset(self):
-        return super().get_queryset().defer(*DEFERED_ATTRS)
+        queryset = super().get_queryset().defer(*DEFERED_ATTRS)
+        if _join_current_organization.get():
+            queryset = queryset.select_related("current_organization")
+        return queryset
+
+    @contextmanager
+    def joining_current_organization(self) -> Iterator[None]:
+        # Authentication backends load the user through this manager, and we cannot pass them a queryset.
+        token = _join_current_organization.set(True)
+        try:
+            yield
+        finally:
+            _join_current_organization.reset(token)
 
     use_in_migrations = True
 
@@ -242,13 +286,7 @@ class OnboardingSkippedReason(models.TextChoices):
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
     CONNECTOR = "connector", "Signed up through an OAuth connector"
-
-
-class OnboardingFlowVariant(models.TextChoices):
-    # pinned: analytics property values. "legacy" names the default flow, because funnel
-    # insights filter on it.
-    LEGACY = "legacy", "Default onboarding"
-    SIMPLE = "simple", "Simple onboarding"
+    DEVICE_LOGIN = "device_login", "Signed up through an OAuth device login"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -376,10 +414,29 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     _original_is_active: bool
 
     @classmethod
-    def from_db(cls, db, field_names, values):
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._original_is_active = instance.is_active
         return instance
+
+    # The stored `is_staff` of an instance whose staff rights are withheld, or None when nothing is withheld.
+    _withheld_is_staff: bool | None = None
+
+    def withhold_staff_rights(self) -> None:
+        """Make this instance act as non-staff without changing the stored value."""
+        self._withheld_is_staff = self.is_staff
+        self.is_staff = False
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self._withheld_is_staff is None:
+            super().save(*args, **kwargs)
+            return
+        # Write the stored value back, so a save neither drops the person's staff rights nor logs a change.
+        self.is_staff = self._withheld_is_staff
+        try:
+            super().save(*args, **kwargs)
+        finally:
+            self.is_staff = False
 
     @property
     def is_superuser(self) -> bool:  # type: ignore[override]
@@ -454,17 +511,19 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         return None
 
     def _get_github_login_from_team_integration(self) -> str | None:
+        # The SDK imports the Integration model, which imports this module.
+        from posthog.integrations import CrossTeamFilter, IntegrationManager  # noqa: PLC0415
+
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
         team_github_integrations = (
             prefetched_integrations
             if prefetched_integrations is not None
-            else self.integration_set.filter(kind="github")
-            .exclude(config__connecting_user_github_login=None)
-            .only("config")
-            .order_by("id")[:1]
+            else IntegrationManager.github.any.list_across_teams(
+                CrossTeamFilter(created_by_ids=(self.id,), has_config_key="connecting_user_github_login")
+            )
         )
         for integration in team_github_integrations:
-            if isinstance(integration.config, dict):
+            if isinstance(integration.config, Mapping):
                 login = integration.config.get("connecting_user_github_login")
                 if login:
                     return str(login)
@@ -542,9 +601,12 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
     @property
     def notification_settings(self) -> Notifications:
+        saved = self.partial_notification_settings or {}
         return {
             **NOTIFICATION_DEFAULTS,
-            **(self.partial_notification_settings if self.partial_notification_settings else {}),
+            "mobile_push_chat_enabled": saved.get("mobile_push_tasks_enabled", True),
+            "mobile_push_loops_enabled": saved.get("mobile_push_tasks_enabled", True),
+            **saved,
         }
 
     def should_send_organization_member_join_email(
@@ -559,8 +621,15 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         return not bool(disabled.get(str(organization_id), False))
 
     def leave(self, *, organization: Organization) -> None:
+        # The facade imports `posthog.models`, which imports this module.
+        from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
+
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
-        if membership.level == OrganizationMembership.Level.OWNER:
+        if authorization.check(
+            resource=Resource.organization(organization.id),
+            action=Action.MANAGE_OWNERS,
+            subject=Subject(user_id=self.pk),
+        ):
             raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
             membership.delete()

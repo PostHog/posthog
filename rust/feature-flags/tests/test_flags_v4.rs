@@ -616,6 +616,41 @@ async fn experiment_rules_carry_the_assigned_variant_and_no_experiment_identity_
         .into_iter()
         .filter(|case| case["family"] != "white_box")
         .collect();
-    assert_eq!(check_on_the_wire(cases).await?, 48);
+    assert_eq!(check_on_the_wire(cases).await?, 47);
+    Ok(())
+}
+
+#[tokio::test]
+async fn known_absent_key_enables_v2_is_not_set_flag_without_failing() -> Result<()> {
+    let (server, token) = serve(
+        true,
+        "ann",
+        json!({"plan": "pro"}),
+        vec![v2(
+            "v2-plan-not-set",
+            11,
+            json!(false),
+            json!([targeted(
+                RULE_A,
+                true,
+                json!([{"key": "plan", "type": "person", "operator": "is_not_set", "value": null}])
+            )]),
+        )],
+    )
+    .await?;
+    let body = json!({"token": token, "distinct_id": "ann"});
+    let mut listed = body.clone();
+    listed["person_property_keys_known_absent"] = json!(["plan"]);
+
+    let with_listing = post(&server, "v=4&config=false", &[], listed).await?;
+    let without_listing = post(&server, "v=4&config=false", &[], body).await?;
+
+    let record = &with_listing["flags"]["v2-plan-not-set"];
+    assert_eq!(record["value"], true, "{record}");
+    assert_eq!(record["reason"]["code"], "targeting_match", "{record}");
+    assert_eq!(record.get("failed"), None, "{record}");
+    let unchanged = &without_listing["flags"]["v2-plan-not-set"];
+    assert_eq!(unchanged["value"], false, "{unchanged}");
+    assert_eq!(unchanged.get("failed"), None, "{unchanged}");
     Ok(())
 }

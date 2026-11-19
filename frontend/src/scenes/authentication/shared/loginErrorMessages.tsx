@@ -26,6 +26,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
             for details.
         </>
     ),
+    sso_verification_email_failed:
+        "We couldn't send a verification email. Try again later, or contact your administrator if this keeps happening.",
     jit_not_enabled:
         'We could not find an account with your email address and your organization does not support automatic enrollment. Please contact your administrator for an invite.',
     saml_sso_enforced:
@@ -38,10 +40,17 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     verified_domain_required:
         "Your organization only allows members with a verified email domain. Contact your organization's admin for access.",
     oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
+    oauth_state_invalid:
+        "We couldn't verify this sign-in, so we stopped it to keep your account safe. Please start again from this page, in one tab only. If it keeps happening, check that your browser allows cookies for this site.",
     reauth_user_mismatch:
         "You signed in with a different account. Please try again with the account you're logged in as.",
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
+    invite_email_mismatch:
+        'This invite was sent to a different email address. Log in with that address, or ask your administrator for a new invite.',
+    invite_already_member: "You're already a member of this organization. Log in to continue.",
+    invite_email_taken:
+        'An account with this email address already belongs to this organization. Log in with that account to continue.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
     access_blocked:
         "We couldn't sign you in. If you think this is a mistake, contact support and quote the code access_blocked.",

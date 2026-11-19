@@ -9,9 +9,8 @@ import { ScannerScoutsTab } from './ScannerScoutsTab'
 
 const SCANNER_ID = '01a014ea-854f-72b5-8192-bb6ac9f212a5'
 
-// The scouts list and the scanner load in parallel, so the create form can open before the scanner
-// answers and the default name it seeds from is still the nameless fallback. These tests hold the
-// scanner response back until after the form is open, which is the real timing, not a simulated one.
+// The templates and the scanner load in parallel, so the create form can open before the scanner
+// answers. This test holds the scanner response back until after the form is open.
 describe('ScannerScoutsTab', () => {
     let resolveScanner: (body: Record<string, unknown>) => void
 
@@ -57,6 +56,19 @@ describe('ScannerScoutsTab', () => {
                 '/api/projects/:team/signals/scout/configs/': [200, []],
                 '/api/projects/:team/signals/scout/runs/recent-per-scout/': [200, []],
                 '/api/projects/:team/signals/scout/metadata/current/': [200, { enrolled: true }],
+                '/api/projects/:team/vision/scanners/:id/scouts/templates/': [
+                    200,
+                    [
+                        {
+                            key: 'daily-digest',
+                            title: 'Daily digest',
+                            description: 'A daily summary of what this scanner found.',
+                            default_name: 'Rage clicks on checkout daily digest',
+                            cron: '0 9 * * *',
+                            body: 'Read the scanner and file a digest.',
+                        },
+                    ],
+                ],
                 '/api/projects/:team/vision/scanners/:id/scout_reports/': [200, []],
             },
         })
@@ -83,32 +95,16 @@ describe('ScannerScoutsTab', () => {
         await waitFor(() => expect(nameInput()).toBeTruthy())
     }
 
-    it('blocks create and shows a placeholder name until the scanner loads, then follows it', async () => {
+    it('seeds the form from the server template and blocks create until the scanner loads', async () => {
         await openDailyDigestForm()
         const submit = (): HTMLElement =>
             document.querySelector('[data-attr="vision-scout-form-submit"]') as HTMLElement
-        // Until the scanner answers, the logic holds a team-named placeholder. The display name seeds
-        // from it, but create has to wait: the skill name is derived from the scanner name at creation
-        // and never changes, so creating now would bake the placeholder into it.
-        expect(nameInput().value).toBe('MockHog App + Marketing monitor daily digest')
+        expect(nameInput().value).toBe('Rage clicks on checkout daily digest')
+        // The skill name is derived from the scanner name at creation and never changes, so creating
+        // before the scanner answers would bake the logic's team-named placeholder into it.
         expect(submit().getAttribute('aria-disabled')).toBe('true')
 
         resolveScanner(scanner)
-        await waitFor(() => expect(nameInput().value).toBe('Rage clicks on checkout daily digest'))
-        expect(submit().getAttribute('aria-disabled')).not.toBe('true')
-    })
-
-    it('keeps a name the person typed once the scanner answers', async () => {
-        await openDailyDigestForm()
-
-        const user = userEvent.setup()
-        await user.clear(nameInput())
-        await user.type(nameInput(), 'My own name')
-
-        resolveScanner(scanner)
-        // The placeholder tracks the template's default, so it proves the loaded name reached the
-        // form; the value then proves the typed name survived it.
-        await waitFor(() => expect(nameInput().placeholder).toBe('Rage clicks on checkout daily digest'))
-        expect(nameInput().value).toBe('My own name')
+        await waitFor(() => expect(submit().getAttribute('aria-disabled')).not.toBe('true'))
     })
 })

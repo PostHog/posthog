@@ -2,6 +2,7 @@ import {
     browserSupportsWebAuthnAutofill,
     type PublicKeyCredentialDescriptorJSON,
     startAuthentication,
+    WebAuthnAbortService,
 } from '@simplewebauthn/browser'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import type { FieldName } from 'kea-forms'
@@ -10,11 +11,15 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
-import { loginLogic, redirectAfterLogin } from 'scenes/authentication/login/loginLogic'
+import { redirectAfterLogin } from 'lib/utils/loginRedirect'
+import { loginLogic } from 'scenes/authentication/auth/loginLogic'
+import { parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
 import { ssoEnforcedMessage } from 'scenes/authentication/shared/loginErrorMessages'
+import { setPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -41,6 +46,8 @@ function routeToEmailVerification(e: unknown): boolean {
         return false
     }
     lemonToast.info('Verify your email to continue. We just sent you a new code.')
+    // A discoverable passkey is picked before any email is typed, so only the provider is known
+    setPendingVerificationEmail(detail, null, parseInboxProvider((e as ApiError).data?.extra?.inbox_provider))
     const next: string | undefined = router.values.searchParams.next
     router.actions.push(urls.verifyEmail(detail), next ? { next } : {})
     return true
@@ -107,6 +114,9 @@ export interface passkeyLogicActions {
         allowCredentials: PublicKeyCredentialDescriptorJSON[] | undefined
         params: BeginPasskeyLoginParams | undefined
     }
+    cancelPasskeyLogin: () => {
+        value: true
+    }
     passkeyAuthenticationCancelled: () => {
         value: true
     }
@@ -160,6 +170,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
         ) => ({ allowCredentials, params }),
         startPasskeyAuthentication: true,
         startConditionalPasskeyLogin: true,
+        cancelPasskeyLogin: true,
         passkeyAuthenticationCancelled: true,
         reset: true,
     }),
@@ -201,15 +212,20 @@ export const passkeyLogic = kea<passkeyLogicType>([
             },
         ],
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         loginWithPasskey: [
             null as null,
             {
                 startPasskeyAuthentication: async () => {
+                    cache.passkeyLoginCancelled = false
                     try {
                         // Step 1: Get authentication options from server
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const beginResponse = await api.create<PasskeyLoginBeginResponse>('api/webauthn/login/begin/')
+                        if (cache.passkeyLoginCancelled) {
+                            actions.passkeyAuthenticationCancelled()
+                            return null
+                        }
 
                         // Step 2: Use SimpleWebAuthn to get assertion from authenticator
                         // Use provided allowCredentials if available (from precheck), otherwise use server response
@@ -217,6 +233,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
                         const credentialsToUse =
                             precheckCredentials.length > 0 ? precheckCredentials : beginResponse.allowCredentials
 
+                        cache.passkeyCeremonyPending = true
                         const assertion = await startAuthentication({
                             optionsJSON: {
                                 challenge: beginResponse.challenge,
@@ -225,7 +242,13 @@ export const passkeyLogic = kea<passkeyLogicType>([
                                 allowCredentials: credentialsToUse,
                                 userVerification: beginResponse.userVerification as UserVerificationRequirement,
                             },
+                        }).finally(() => {
+                            cache.passkeyCeremonyPending = false
                         })
+                        if (cache.passkeyLoginCancelled) {
+                            actions.passkeyAuthenticationCancelled()
+                            return null
+                        }
 
                         // Step 3: Send assertion to server to complete login
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
@@ -260,6 +283,18 @@ export const passkeyLogic = kea<passkeyLogicType>([
             }
             // After setting credentials in reducer, start the authentication
             actions.startPasskeyAuthentication()
+        },
+        // A password login saves the whole session and drops the passkey challenge stored by the
+        // begin request, so a prompt left open would only fail later on the code or 2FA screen.
+        cancelPasskeyLogin: () => {
+            if (!values.loginWithPasskeyLoading) {
+                return
+            }
+            cache.passkeyLoginCancelled = true
+            // Only abort our own ceremony: on WebKit the shared abort service may hold the autofill one.
+            if (cache.passkeyCeremonyPending) {
+                WebAuthnAbortService.cancelCeremony()
+            }
         },
         startConditionalPasskeyLogin: async () => {
             // WebKit-only. Safari/iOS freeze on the auto-modal, so there we offer passkeys via the

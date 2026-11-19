@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { TileId } from 'scenes/web-analytics/common'
 import { getNewInsightUrlFactory } from 'scenes/web-analytics/insightsUtils'
 
 import { useMocks } from '~/mocks/jest'
@@ -23,15 +24,14 @@ import {
     TrendsQuery,
     DataTableNode,
     MarketingAnalyticsAggregatedQuery,
-    MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsSearchRow,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsDrillDownLevel,
     NodeKind,
     SourceMap,
-    WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -40,8 +40,6 @@ import {
     ExternalDataSchemaStatus,
     ExternalDataSource,
     ExternalDataSourceSchema,
-    PropertyFilterType,
-    PropertyOperator,
 } from '~/types'
 
 import { SEARCH_PERFORMANCE_QUERY_KEY } from 'products/marketing_analytics/frontend/search/searchPerformance'
@@ -50,7 +48,6 @@ import { searchPerformanceLogic } from 'products/marketing_analytics/frontend/se
 import {
     MarketingAnalyticsTab,
     MarketingSourceStatus,
-    MarketingDashboardView,
     SetupSection,
     marketingAnalyticsLogic,
 } from './marketingAnalyticsLogic'
@@ -60,6 +57,8 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from './marketingAnalyticsTilesLogic'
+import { activeColumnView, columnsForView, marketingTableDimensionColumns } from './marketingTableColumnViews'
+import { externalTableTypeLabel } from './utils'
 
 jest.mock('posthog-js')
 
@@ -82,27 +81,33 @@ describe('marketingAnalyticsLogic', () => {
         localStorage.clear()
     })
 
-    it('keeps the search date range in the URL when restoring a tab', async () => {
-        router.actions.push(urls.marketingAnalyticsApp(), {
-            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
-            date_from: '-28d',
-            compare: 'true',
-        })
-        logic = marketingAnalyticsLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.dateFilter.dateFrom).toBe('-28d')
-        expect(router.values.searchParams).toMatchObject({
-            date_from: '-28d',
-            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
-        })
-    })
+    it.each(['search-performance', 'ad-performance'])(
+        'opens the Search tab and keeps its date range from tab=%s',
+        async (tab) => {
+            router.actions.push(urls.marketingAnalyticsApp(), {
+                tab,
+                date_from: '-28d',
+                compare: 'true',
+            })
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.activeTab).toBe(MarketingAnalyticsTab.SEARCH_PERFORMANCE)
+            expect(logic.values.dateFilter.dateFrom).toBe('-28d')
+            expect(router.values.searchParams).toMatchObject({
+                date_from: '-28d',
+                tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            })
+        }
+    )
 
     it('keeps the campaign breakdown query while sources refresh in the background', async () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         const tiles = marketingAnalyticsTilesLogic()
         tiles.mount()
+        expect(databaseTableListLogic.values.databaseLoading).toBe(true)
+        expect(tiles.values.tiles.map(({ tileId }) => tileId)).not.toContain(TileId.MARKETING)
         await expectLogic(logic).toFinishAllListeners()
         const breakdown = tiles.values.campaignCostsBreakdown
         expect(breakdown).not.toBeNull()
@@ -167,6 +172,7 @@ describe('marketingAnalyticsLogic', () => {
             expect(searchLogic.values.missingSources).toEqual(['GoogleAds'])
             logic.actions.setCompareFilter({ compare: true })
             logic.actions.setDates('-28d', null)
+            expect(searchLogic.values.hasActiveFilters).toBe(false)
             searchLogic.actions.setChannel('paid')
             searchLogic.actions.setQuerySearch('missing query')
             expect(searchLogic.values.hasActiveFilters).toBe(true)
@@ -177,6 +183,7 @@ describe('marketingAnalyticsLogic', () => {
             expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
             expect(searchLogic.values.query.search).toBe('')
             expect(logic.values.compareFilter).toEqual({ compare: true })
+            expect(logic.values.dateFilter.dateFrom).toBe('-28d')
             const organicSource = logic.values.dataWarehouseSources!.results[0]
             await expectLogic(logic, () =>
                 logic.actions.loadSourcesSuccess({
@@ -238,9 +245,9 @@ describe('marketingAnalyticsLogic', () => {
         { description: 'active draft' },
         { description: 'URL override', overrideFromUrl: true },
         {
-            description: 'Ad performance URL override',
+            description: 'Search URL override',
             overrideFromUrl: true,
-            tab: MarketingAnalyticsTab.AD_PERFORMANCE,
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
         },
         {
             description: 'cleared draft sorted by its goal',
@@ -360,16 +367,72 @@ describe('marketingAnalyticsLogic', () => {
         tiles.mount()
         try {
             await expectLogic(logic).toFinishAllListeners()
+            const select = columnsForView('default', marketingAnalyticsTableLogic.values.defaultColumns)
             expect(tiles.values.campaignCostsBreakdown).toMatchObject({
-                pinnedColumns: [],
-                source: { select: marketingAnalyticsTableLogic.values.defaultColumns, orderBy: [] },
+                pinnedColumns: marketingTableDimensionColumns(select),
+                source: {
+                    select,
+                    orderBy: [],
+                },
             })
         } finally {
             tiles.unmount()
         }
     })
 
-    it('excludes conversion queries only in Ad performance and preserves legacy columns', async () => {
+    it.each([
+        ['at the ad level', 'clicks', MarketingAnalyticsDrillDownLevel.Ad, false],
+        ['with conversion goals hidden', 'conversions', MarketingAnalyticsDrillDownLevel.Campaign, true],
+    ] as const)('keeps the chosen column view %s', async (_, view, level, hideGoals) => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        const tiles = marketingAnalyticsTilesLogic()
+        tiles.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    marketing_analytics_config: {
+                        conversion_goals: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'purchase',
+                                conversion_goal_id: 'purchase-goal',
+                                conversion_goal_name: 'Purchases',
+                                schema_map: {},
+                            },
+                        ],
+                    },
+                })
+            ).toFinishAllListeners()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]: true,
+            })
+            if (hideGoals) {
+                logic.actions.setShowConversionGoals(false)
+            }
+            logic.actions.setDrillDownLevel(level)
+            expect(logic.values.drillDownLevel).toBe(level)
+            expect(logic.values.includeConversionGoals).toBe(!hideGoals)
+            const breakdown = tiles.values.campaignCostsBreakdown!
+            marketingAnalyticsTableLogic.actions.setQuery({
+                ...breakdown,
+                source: {
+                    ...(breakdown.source as MarketingAnalyticsTableQuery),
+                    select: columnsForView(view, tiles.values.tableColumns),
+                },
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            const select = (tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery).select
+            expect(activeColumnView(select, tiles.values.tableColumns)).toBe(view)
+        } finally {
+            tiles.unmount()
+        }
+    })
+
+    it('excludes conversion queries only where goals can be toggled and preserves legacy columns', async () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         const tiles = marketingAnalyticsTilesLogic()
@@ -393,9 +456,9 @@ describe('marketingAnalyticsLogic', () => {
             ).toFinishAllListeners()
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
             })
-            logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
+            logic.actions.setActiveTab(MarketingAnalyticsTab.SEARCH_PERFORMANCE)
             expect(logic.values.includeConversionGoals).toBe(true)
             search.actions.setMetrics('conversions')
             expect(search.values.query.includePostHogConversions).toBe(false)
@@ -440,31 +503,31 @@ describe('marketingAnalyticsLogic', () => {
                 ).toFinishAllListeners()
                 expect(search.values.query.includePostHogConversions).toBe(true)
                 featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
                 })
                 expect(search.values.query.includePostHogConversions).toBe(false)
                 expect(search.values.displayMetrics).toBe('conversions')
                 featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                 })
                 expect(search.values.query.includePostHogConversions).toBe(true)
-                logic.actions.setAdPerformanceConversionGoals(false)
+                logic.actions.setShowConversionGoals(false)
                 expect(search.values.query.includePostHogConversions).toBe(false)
-                logic.actions.setAdPerformanceConversionGoals(true)
+                logic.actions.setShowConversionGoals(true)
             }
             search.actions.setBreakdown('page')
             expect(search.values.query.includePostHogConversions).toBe(true)
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
             })
             expect(logic.values.includeConversionGoals).toBe(true)
             expect(search.values.query.includePostHogConversions).toBe(false)
             expect(search.values.displayMetrics).toBe('traffic')
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
             })
             expect(search.values.query.includePostHogConversions).toBe(true)
@@ -567,13 +630,13 @@ describe('marketingAnalyticsLogic', () => {
             for (const precomputed of [false, true]) {
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: precomputed,
                 })
-                logic.actions.setAdPerformanceConversionGoals(true)
+                logic.actions.setShowConversionGoals(true)
                 expect(search.values.query.includePostHogConversions).toBe(true)
                 const chartBefore = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
-                logic.actions.setAdPerformanceConversionGoals(false)
+                logic.actions.setShowConversionGoals(false)
                 expect(search.values.query.includePostHogConversions).toBe(false)
                 expect(search.values.detailQuery).toMatchObject({
                     normalizePageUrls: false,
@@ -611,7 +674,14 @@ describe('marketingAnalyticsLogic', () => {
                 )
                 expect(logic.values.tileColumnSelection).toBe('reported_conversion')
             }
-            logic.actions.setAdPerformanceConversionGoals(false)
+            expect(tiles.values.tiles.map(({ tileId }) => tileId)).toContain(TileId.MARKETING)
+            // A sync reloads the schema, and the warehouse tables stay empty until it lands.
+            const settledChart = tiles.values.marketingChartTile.query
+            databaseTableListLogic.actions.loadDatabase({ force: true })
+            expect(databaseTableListLogic.values.databaseLoading).toBe(true)
+            expect(tiles.values.marketingChartTile.query).toEqual(settledChart)
+            await expectLogic(databaseTableListLogic).toFinishAllListeners()
+            logic.actions.setShowConversionGoals(false)
             const overview = tiles.values.overviewTile.query as MarketingAnalyticsAggregatedQuery
             const table = tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery
             expect(overview.select).toEqual(Object.values(MarketingAnalyticsBaseColumns))
@@ -620,18 +690,20 @@ describe('marketingAnalyticsLogic', () => {
             expect(table.draftConversionGoal).toBeNull()
             expect(table.orderBy).toEqual([])
             expect(marketingAnalyticsTableLogic.values.query).toEqual(savedQuery)
-            logic.actions.setAdPerformanceConversionGoals(true)
+            logic.actions.setShowConversionGoals(true)
             expect((tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery).select).toContain(
                 'Purchases'
             )
-            logic.actions.setAdPerformanceConversionGoals(false)
+            logic.actions.setShowConversionGoals(false)
             for (const legacyState of ['other-tab', 'flag-off'] as const) {
                 logic.actions.setActiveTab(
-                    legacyState === 'other-tab' ? MarketingAnalyticsTab.DASHBOARD : MarketingAnalyticsTab.AD_PERFORMANCE
+                    legacyState === 'other-tab'
+                        ? MarketingAnalyticsTab.ATTRIBUTION
+                        : MarketingAnalyticsTab.SEARCH_PERFORMANCE
                 )
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: legacyState !== 'flag-off',
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: legacyState !== 'flag-off',
                 })
                 expect(logic.values.includeConversionGoals).toBe(true)
                 expect((tiles.values.overviewTile.query as MarketingAnalyticsAggregatedQuery).select).toBeUndefined()
@@ -640,6 +712,14 @@ describe('marketingAnalyticsLogic', () => {
                 )
                 expect(marketingAnalyticsTableLogic.values.query).toEqual(savedQuery)
             }
+            logic.actions.setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+            })
+            expect(logic.values.includeConversionGoals).toBe(false)
+            expect((tiles.values.overviewTile.query as MarketingAnalyticsAggregatedQuery).select).toEqual(
+                Object.values(MarketingAnalyticsBaseColumns)
+            )
         } finally {
             search.unmount()
             tiles.unmount()
@@ -652,11 +732,11 @@ describe('marketingAnalyticsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
         })
-        logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
-        expect(logic.values.includeConversionGoals).toBe(false)
-        expect(logic.values.adPerformanceConversionGoals).toBe(true)
+        logic.actions.setActiveTab(MarketingAnalyticsTab.SEARCH_PERFORMANCE)
+        expect(logic.values.canToggleConversionGoals).toBe(false)
+        expect(logic.values.showConversionGoals).toBe(true)
         const search = searchPerformanceLogic()
         search.mount()
         search.actions.setBreakdown('page')
@@ -682,7 +762,7 @@ describe('marketingAnalyticsLogic', () => {
         expect(logic.values.includeConversionGoals).toBe(true)
         expect(search.values.displayMetrics).toBe('conversions')
         expect(search.values.conversionsDisabledReason).toBeNull()
-        logic.actions.setAdPerformanceConversionGoals(false)
+        logic.actions.setShowConversionGoals(false)
         expect(search.values.displayMetrics).toBe('traffic')
         expect(search.values.conversionsDisabledReason).toContain('Include conversion goals')
         search.unmount()
@@ -1078,6 +1158,84 @@ describe('marketingAnalyticsLogic', () => {
         }
     })
 
+    describe.each([
+        ['AmazonS3', 'aws', 'https://example-bucket.s3.amazonaws.com/spend/*.csv'],
+        ['GoogleCloudStorage', 'google-cloud', 'https://storage.googleapis.com/example-bucket/spend/*.csv'],
+        ['AzureBlob', 'azure', 'https://example.blob.core.windows.net/spend/*.csv'],
+        ['CloudflareR2', 'cloudflare-r2', 'https://example.r2.cloudflarestorage.com/example-bucket/spend/*.csv'],
+    ])('a %s spend table', (sourceType, provider, customerUrl) => {
+        // A table that was never migrated and one that its source has not synced yet look the same here.
+        it.each([
+            ['still self-managed', 'example-table', provider, 'Self-managed', 'self-managed'],
+            ['adopted by its source', 'example-table', sourceType, 'Files', 'managed'],
+            ['created by its source', 'example-schema', sourceType, 'Files', 'managed'],
+        ])('keeps its mapping when %s', async (state, mappingKey, expectedSourceType, typeLabel, dwSourceType) => {
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const managed = state !== 'still self-managed'
+            const table: DatabaseSchemaDataWarehouseTable = {
+                id: 'example-table',
+                name: managed ? `${sourceType.toLowerCase()}.example_spend` : 'example_spend',
+                type: 'data_warehouse',
+                url_pattern: managed
+                    ? 'https://example-warehouse.s3.amazonaws.com/team_1/example_spend/*.parquet'
+                    : customerUrl,
+                ...(managed
+                    ? {
+                          schema: {
+                              id: 'example-schema',
+                              name: 'example_spend',
+                              should_sync: false,
+                              incremental: false,
+                              status: ExternalDataSchemaStatus.Completed,
+                          },
+                          source: { id: 'example-source', source_type: sourceType, status: 'Completed', prefix: '' },
+                      }
+                    : {}),
+                fields: Object.fromEntries(
+                    ['id', 'campaign', 'source', 'spend', 'day'].map((name) => [
+                        name,
+                        { name, hogql_value: name, type: 'string', schema_valid: true },
+                    ])
+                ),
+            }
+            databaseTableListLogic.actions.loadDatabaseSuccess({ tables: { [table.name]: table }, joins: [] })
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    marketing_analytics_config: {
+                        sources_map: {
+                            [mappingKey]: {
+                                id: 'id',
+                                campaign: 'campaign',
+                                source: 'source',
+                                cost: 'spend',
+                                date: 'day',
+                            } as SourceMap,
+                        },
+                    },
+                })
+            ).toFinishAllListeners()
+
+            expect(logic.values.validExternalTables).toEqual([
+                expect.objectContaining({
+                    source_map_id: mappingKey,
+                    source_type: expectedSourceType,
+                    source_map: expect.objectContaining({ cost: 'spend' }),
+                }),
+            ])
+            expect(logic.values.allExternalTablesWithStatus.filter((row) => row.id === table.id)).toEqual([
+                expect.objectContaining({ source_map_id: mappingKey, source_type: expectedSourceType }),
+            ])
+            expect(externalTableTypeLabel(expectedSourceType)).toBe(typeLabel)
+            expect(logic.values.marketingChartSourceIds).toEqual([mappingKey])
+            expect(logic.values.createMarketingDataWarehouseNodes).toEqual([
+                expect.objectContaining({ id: 'example-table', dw_source_type: dwSourceType }),
+            ])
+        })
+    })
+
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ integrationSourceIds: ['source-1'], removedOption: true }))
 
@@ -1110,6 +1268,10 @@ describe('marketingAnalyticsLogic', () => {
                 entry_point: 'dashboard_customer_cards',
                 section: SetupSection.CONVERSION_GOALS,
             })
+            expect(posthog.capture).not.toHaveBeenCalledWith(
+                'marketing analytics dashboard tab selected',
+                expect.anything()
+            )
 
             await expectLogic(logic, () => logic.actions.setSetupSection(SetupSection.SOURCES))
                 .toFinishAllListeners()
@@ -1125,111 +1287,36 @@ describe('marketingAnalyticsLogic', () => {
             unmountSettings()
         }
     )
-    it('carries dashboard view, breakdown and filters in the URL', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD], {
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
-        })
+
+    it('reports a tab click with the Search tag visibility, but not a click on the open tab', async () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
 
-        await expectLogic(logic, () => logic.actions.setDates('-30d', null)).toFinishAllListeners()
-        expect(router.values.searchParams).not.toHaveProperty('view')
-        expect(router.values.searchParams).not.toHaveProperty('breakdown')
-        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
+        await expectLogic(logic, () => {
+            logic.actions.reportTabSelected(
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                true
+            )
+        }).toFinishAllListeners()
+        expect(posthog.capture).not.toHaveBeenCalledWith(
+            'marketing analytics dashboard tab selected',
+            expect.anything()
+        )
 
-        const filters: WebAnalyticsPropertyFilters = [
-            {
-                type: PropertyFilterType.Session,
-                key: '$channel_type',
-                operator: PropertyOperator.Exact,
-                value: 'Direct',
-            },
-        ]
-        logic.actions.setDashboardView(MarketingDashboardView.ENGAGEMENT)
-        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
-        logic.actions.setDashboardProperties(filters)
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(router.values.searchParams).toMatchObject({
-            view: 'engagement',
-            breakdown: 'campaign',
-            filters,
-        })
-
-        await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
-        expect(router.values.searchParams).toMatchObject({ view: 'engagement', breakdown: 'campaign', filters })
-
-        logic.actions.setDashboardView(MarketingDashboardView.OVERVIEW)
-        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
-        await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.searchParams).toMatchObject({ view: 'overview', breakdown: 'channel' })
-        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
-
-        await expectLogic(logic, () =>
-            router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention', breakdown: 'source' })
-        ).toMatchValues({
-            dashboardView: MarketingDashboardView.RETENTION,
-            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Source,
-            dashboardProperties: [],
-        })
-
-        await expectLogic(logic, () => router.actions.push(urls.marketingAnalyticsApp())).toMatchValues({
-            dashboardView: MarketingDashboardView.OVERVIEW,
-            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
-            dashboardProperties: [],
+        await expectLogic(logic, () => {
+            logic.actions.reportTabSelected(
+                MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                MarketingAnalyticsTab.DASHBOARD,
+                true
+            )
+        }).toFinishAllListeners()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics dashboard tab selected', {
+            tab: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+            previous_tab: MarketingAnalyticsTab.DASHBOARD,
+            search_new_tag_visible: true,
         })
     })
-
-    it.each([
-        {
-            search: { view: 'retention' },
-            savedBreakdown: 'campaign',
-            expectedView: MarketingDashboardView.RETENTION,
-            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
-        },
-        {
-            search: { breakdown: 'source' },
-            savedBreakdown: 'campaign',
-            expectedView: MarketingDashboardView.OVERVIEW,
-            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Source,
-        },
-        {
-            search: {},
-            savedBreakdown: 'campaign',
-            expectedView: MarketingDashboardView.ENGAGEMENT,
-            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Campaign,
-        },
-        {
-            search: { view: 'retention' },
-            savedBreakdown: 'retired_dimension',
-            expectedView: MarketingDashboardView.RETENTION,
-            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
-        },
-    ])(
-        'hydrates $search with persisted breakdown $savedBreakdown',
-        async ({ search, savedBreakdown, expectedView, expectedBreakdown }) => {
-            localStorage.setItem(
-                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardView`,
-                JSON.stringify(MarketingDashboardView.ENGAGEMENT)
-            )
-            localStorage.setItem(
-                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardBreakdown`,
-                JSON.stringify(savedBreakdown)
-            )
-            router.actions.push(urls.marketingAnalyticsApp(), search)
-
-            logic = marketingAnalyticsLogic()
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                dashboardView: expectedView,
-                dashboardBreakdown: expectedBreakdown,
-                dashboardProperties: [],
-            })
-        }
-    )
 
     it.each([
         ['?date_from=-7d&date_to=', { dateFrom: '-7d', dateTo: null }],

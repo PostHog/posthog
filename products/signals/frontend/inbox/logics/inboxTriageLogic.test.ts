@@ -9,13 +9,19 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
+import { openRemoveYourselfDialog } from '../components/shell/RemoveYourselfDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, SignalReport, SignalReportStatus } from '../types'
 import { inboxFiltersLogic } from './inboxFiltersLogic'
 import { inboxTriageLogic } from './inboxTriageLogic'
+import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 
 jest.mock('../components/shell/DismissReportDialog', () => ({ openDismissReportDialog: jest.fn() }))
 jest.mock('../components/shell/ResolveReportDialog', () => ({ openResolveReportDialog: jest.fn() }))
+// Confirms at once without a reason, so the navigation cases below exercise the removal itself.
+jest.mock('../components/shell/RemoveYourselfDialog', () => ({
+    openRemoveYourselfDialog: jest.fn(({ onConfirm }) => onConfirm(undefined)),
+}))
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 // Matches the list logic's server page size, so a spot past it needs a second page.
@@ -87,6 +93,33 @@ describe('inboxTriageLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
+    it('passes the selected repository when implementing from triage', async () => {
+        const report = { ...makeReport('selected-repo'), status: SignalReportStatus.PENDING_INPUT, repo_slug: null }
+        useMocks({
+            get: {
+                [REPORTS_URL]: { count: 1, next: null, previous: null, results: [report] },
+                '/api/projects/:team/integrations/': {
+                    results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
+                    next: null,
+                },
+            },
+        })
+        await mountAt({ report: report.id, at: 0 })
+        const access = reportGithubAccessLogic({ report, surface: 'triage_mode' })
+        const unmount = access.mount()
+        try {
+            await waitFor(() => expect(access.values.loading).toBe(false))
+            access.actions.requireRepositorySelection()
+            access.actions.setSelectedRepository('example/app')
+            expect(access.values.selectedRepository).toBe('example/app')
+            await expectLogic(logic, () => logic.actions.createPrForCurrent()).toDispatchActions([
+                logic.actionCreators.implementReport(report, undefined, 'triage_mode', false, 'example/app'),
+            ])
+        } finally {
+            unmount()
+        }
+    })
+
     it('warns that triage closes an open PR on a failed report', async () => {
         const report = {
             ...makeReport('failed-with-pr'),
@@ -136,6 +169,27 @@ describe('inboxTriageLogic', () => {
             expect(deleted).toEqual(unassigned)
         }
     )
+
+    it('sends the reason picked in the remove yourself dialog', async () => {
+        jest.mocked(openRemoveYourselfDialog).mockImplementationOnce(({ onConfirm }) => onConfirm('wrong_area'))
+        const reports = FIRST_PAGE.slice(0, 5).map((r) => ({ ...r, is_suggested_reviewer: true }))
+        const bodies: unknown[] = []
+        useMocks({
+            get: { [REPORTS_URL]: { count: reports.length, next: null, previous: null, results: reports } },
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/reviewers/me/': async ({ request }) => {
+                    bodies.push(await request.json())
+                    return [204, null]
+                },
+            },
+        })
+        await mountAt({ report: 'r-2', at: 2 })
+
+        logic.actions.unassignCurrent()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(bodies).toEqual([{ removal_reason: 'wrong_area' }])
+    })
 
     it('sends one unassign request for the last report while the first one is pending', async () => {
         const report = { ...makeReport('last'), is_suggested_reviewer: true }

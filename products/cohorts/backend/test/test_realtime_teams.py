@@ -1,6 +1,7 @@
 import os
 import importlib
 
+from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.test import SimpleTestCase, override_settings
@@ -9,10 +10,21 @@ from parameterized import parameterized
 
 import posthog.settings.cohorts as cohorts_settings
 
-from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team, is_realtime_cohort_team
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
+from products.cohorts.backend.realtime_teams import (
+    backfill_triggers_suppressed,
+    is_cohort_backfill_trigger_team,
+    is_processing_team,
+    is_serving_team,
+    realtime_allowlist_matches,
+)
 
 
-class TestIsRealtimeCohortTeam(SimpleTestCase):
+class TestRealtimeAllowlistMatches(SimpleTestCase):
     @parameterized.expand(
         [
             ("all_keyword", "all", 999, True),
@@ -41,10 +53,43 @@ class TestIsRealtimeCohortTeam(SimpleTestCase):
     )
     def test_membership_matches_rust_grammar(self, _name: str, allowlist: str, team_id: int, expected: bool) -> None:
         with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
-            self.assertEqual(is_realtime_cohort_team(team_id), expected)
+            self.assertEqual(realtime_allowlist_matches(team_id), expected)
 
 
-class TestIsCohortBackfillTriggerTeam(SimpleTestCase):
+class TestRealtimeLevel(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_row", "none", None, (False, False)),
+            ("revoked_row", "none", RealtimeCohortLevel.OFF, (False, False)),
+            # A load-test team runs the pipeline while its users see none of it.
+            ("processing_row", "none", RealtimeCohortLevel.PROCESSING, (True, False)),
+            ("serving_row", "none", RealtimeCohortLevel.SERVING, (True, True)),
+            # The env list gated the screens users see before the levels existed, so it keeps doing so.
+            ("env_listed_without_row", "team", None, (True, True)),
+            ("env_listed_over_processing_row", "team", RealtimeCohortLevel.PROCESSING, (True, True)),
+        ]
+    )
+    def test_level_is_the_union_of_env_list_and_row(
+        self, _name: str, allowlist: str, level: RealtimeCohortLevel | None, expected: tuple[bool, bool]
+    ) -> None:
+        if level is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=level, purpose=RealtimeCohortAccessPurpose.PILOT
+            )
+
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=str(self.team.pk) if allowlist == "team" else allowlist):
+            processing, serving = expected
+            self.assertEqual(
+                (
+                    is_processing_team(self.team.pk),
+                    is_processing_team(self.team.pk, fresh=True),
+                    is_serving_team(self.team.pk),
+                ),
+                (processing, processing, serving),
+            )
+
+
+class TestIsCohortBackfillTriggerTeam(BaseTest):
     @parameterized.expand(
         [
             # Only Python parses this setting, so unlike the realtime allowlist it fails closed on a
@@ -59,6 +104,39 @@ class TestIsCohortBackfillTriggerTeam(SimpleTestCase):
     def test_membership(self, _name: str, allowlist: str, team_id: int, expected: bool) -> None:
         with override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST=allowlist):
             self.assertEqual(is_cohort_backfill_trigger_team(team_id), expected)
+
+    @parameterized.expand(
+        [
+            ("granted_with_triggers", RealtimeCohortLevel.PROCESSING, True, True),
+            ("granted_without_triggers", RealtimeCohortLevel.PROCESSING, False, False),
+            ("revoked_with_triggers", RealtimeCohortLevel.OFF, True, False),
+        ]
+    )
+    @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="none")
+    def test_row_triggers_only_while_granted(
+        self, _name: str, level: RealtimeCohortLevel, save_triggers_backfill: bool, expected: bool
+    ) -> None:
+        RealtimeCohortTeamAccess.objects.create(
+            team=self.team,
+            level=level,
+            purpose=RealtimeCohortAccessPurpose.LOAD_TEST,
+            save_triggers_backfill=save_triggers_backfill,
+        )
+
+        self.assertEqual(is_cohort_backfill_trigger_team(self.team.pk), expected)
+
+    @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
+    def test_suppression_overrides_every_trigger_source(self) -> None:
+        RealtimeCohortTeamAccess.objects.create(
+            team=self.team,
+            level=RealtimeCohortLevel.PROCESSING,
+            purpose=RealtimeCohortAccessPurpose.LOAD_TEST,
+            save_triggers_backfill=True,
+        )
+
+        with backfill_triggers_suppressed():
+            self.assertFalse(is_cohort_backfill_trigger_team(self.team.pk))
+        self.assertTrue(is_cohort_backfill_trigger_team(self.team.pk))
 
 
 class TestRealtimeCohortAllowlistSetting(SimpleTestCase):

@@ -8,12 +8,12 @@ import { TerraformExportModal } from 'lib/components/TerraformExporter/Terraform
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
 import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
 

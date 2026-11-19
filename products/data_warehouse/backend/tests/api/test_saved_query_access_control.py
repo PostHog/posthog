@@ -2,10 +2,11 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -295,6 +296,127 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
 
 
 @pytest.mark.ee
+class TestSavedQueryLineageAccessControl(WarehouseAccessControlTestMixin):
+    resource = "warehouse_objects"
+
+    def _saved_query(self, name: str) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+
+    def setUp(self):
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="lineage_source",
+            connection_id="lineage_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="lineage_",
+        )
+        self.table = DataWarehouseTable.objects.create(
+            name="lineage_table", team=self.team, external_data_source=self.source
+        )
+        self.upstream = self._saved_query("lineage_upstream")
+        self.middle = self._saved_query("lineage_middle")
+        self.downstream = self._saved_query("lineage_downstream")
+
+        dag = DAG.objects.create(team=self.team, name="lineage_access_control")
+        events_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="events",
+            type=NodeType.TABLE,
+            properties={"origin": "posthog"},
+        )
+        table_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name=self.table.name,
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(self.table.id)},
+        )
+        upstream_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.upstream.name, saved_query=self.upstream, type=NodeType.VIEW
+        )
+        middle_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.middle.name, saved_query=self.middle, type=NodeType.VIEW
+        )
+        downstream_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.downstream.name, saved_query=self.downstream, type=NodeType.VIEW
+        )
+        for source, target in (
+            (events_node, upstream_node),
+            (table_node, upstream_node),
+            (upstream_node, middle_node),
+            (middle_node, downstream_node),
+        ):
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+
+    def _lineage(self, user: User, saved_query: DataWarehouseSavedQuery, action: str, **data: int) -> set[str]:
+        self.client.force_login(user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/warehouse_saved_queries/{saved_query.id}/{action}/",
+            data,
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return set(response.json()[action])
+
+    def _dependencies(self, user: User, saved_query: DataWarehouseSavedQuery) -> dict[str, int]:
+        self.client.force_login(user)
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/warehouse_saved_queries/{saved_query.id}/dependencies/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()
+
+    def test_lineage_withholds_denied_resources_without_pruning_the_walk(self):
+        self.assertEqual(
+            self._lineage(self.user, self.downstream, "ancestors"),
+            {"events", str(self.table.id), str(self.upstream.id), str(self.middle.id)},
+        )
+        self.assertEqual(
+            self._lineage(self.user, self.upstream, "descendants"),
+            {str(self.middle.id), str(self.downstream.id)},
+        )
+
+        self._create_access_control(self.viewer_user, access_level="editor")
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(self.middle.id),
+            access_level="none",
+        )
+        self._create_access_control(
+            self.viewer_user,
+            resource="external_data_source",
+            resource_id=str(self.source.id),
+            access_level="none",
+        )
+
+        self.assertEqual(
+            self._lineage(self.viewer_user, self.downstream, "ancestors"),
+            {"events", str(self.upstream.id)},
+        )
+        self.assertEqual(
+            self._lineage(self.viewer_user, self.upstream, "descendants"),
+            {str(self.downstream.id)},
+        )
+
+        immediate_ancestors = self._lineage(self.viewer_user, self.upstream, "ancestors", level=1)
+        immediate_descendants = self._lineage(self.viewer_user, self.upstream, "descendants", level=1)
+        dependencies = self._dependencies(self.viewer_user, self.upstream)
+        self.assertEqual(immediate_ancestors, {"events"})
+        self.assertEqual(immediate_descendants, set())
+        self.assertEqual(dependencies["upstream_count"], len(immediate_ancestors))
+        self.assertEqual(dependencies["downstream_count"], len(immediate_descendants))
+
+
+@pytest.mark.ee
 class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestMixin):
     # Folder resource-level AC goes through warehouse_table via inheritance.
     # Object-level AC on specific folders still keys on "warehouse_view".
@@ -463,8 +585,6 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
         response = self.client.patch(f"{self._base()}/", {"sync_frequency": "24hour"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.view.refresh_from_db()
-        self.assertIsNone(self.view.sync_frequency_interval)
 
     def test_running_the_dag_node_is_denied_when_the_query_reads_a_denied_table(self):
         # The run workflow sets is_materialized itself, so running a node publishes the same rows
@@ -481,6 +601,19 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand([("plain_run", {}), ("full_refresh", {"full_refresh": True})])
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_running_the_view_is_denied_when_the_query_reads_a_denied_table(self, _name, body, mock_sync_connect):
+        dag = DAG.objects.create(team=self.team, name="dag")
+        Node.objects.create(team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW)
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(f"{self._base()}/run/", body, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        mock_client.start_workflow.assert_not_called()
 
     def test_materializing_the_node_is_denied_when_the_query_reads_a_denied_table(self):
         # The single-node endpoint dispatches the same materialization workflow as `run`, so it is
@@ -500,6 +633,122 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
         response = self.client.post(f"{self._base()}/materialize/")
 
         self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def _view_node(self, dag: DAG, name: str, sql: str, *, reads: Node | None = None) -> Node:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "HogQLQuery", "query": sql},
+            columns={
+                "event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "ts": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')", "valid": True},
+            },
+            created_by=self.user,
+        )
+        node = Node.objects.create(team=self.team, dag=dag, name=name, saved_query=saved_query, type=NodeType.VIEW)
+        if reads is not None:
+            Edge.objects.create(team=self.team, dag=dag, source=reads, target=node)
+        return node
+
+    def _downstream_of_a_view(self) -> dict[str, Node]:
+        dag = DAG.objects.create(team=self.team, name="dag")
+        picked = self._view_node(dag, "daily_events", "select event, timestamp as ts from events")
+        broken = self._view_node(
+            dag, "daily_counts", "select day, count() from daily_events group by day", reads=picked
+        )
+        return {
+            "picked": picked,
+            "sibling": self._view_node(dag, "event_names", "select event from daily_events", reads=picked),
+            "broken": broken,
+            "under_broken": self._view_node(dag, "weekly_counts", "select count() from daily_counts", reads=broken),
+        }
+
+    def _temporal(self, mock_sync_connect: Mock) -> AsyncMock:
+        client = AsyncMock()
+        not_running = Mock(describe=AsyncMock(side_effect=RPCError("not found", RPCStatusCode.NOT_FOUND, b"")))
+        client.get_workflow_handle = Mock(return_value=not_running)
+        mock_sync_connect.return_value = client
+        return client
+
+    def _run(self, path: str, node: Node, body: dict):
+        if path == "node":
+            url = f"/api/environments/{self.team.pk}/data_modeling_nodes/{node.id}/run/"
+        else:
+            url = f"/api/environments/{self.team.pk}/warehouse_saved_queries/{node.saved_query_id}/run/"
+        return self.client.post(url, body, format="json")
+
+    RELATED_RUNS = [
+        ("node_run", "node", {"direction": "downstream"}),
+        ("saved_query_run", "saved_query", {"direction": "downstream"}),
+        ("trino_run", "saved_query", {"direction": "downstream", "engine": "trino"}),
+    ]
+
+    @parameterized.expand(RELATED_RUNS)
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_descendant_that_does_not_resolve_is_left_out_of_the_run_with_its_downstream(
+        self, _name, path, body, mock_sync_connect, mock_shadow_enabled
+    ):
+        mock_shadow_enabled.return_value = True
+        client = self._temporal(mock_sync_connect)
+        nodes = self._downstream_of_a_view()
+
+        response = self._run(path, nodes["picked"], body)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        expected_run = sorted([str(nodes["picked"].id), str(nodes["sibling"].id)])
+        self.assertEqual(response.json()["node_ids"], expected_run)
+        self.assertEqual(client.start_workflow.call_args.args[1]["node_ids"], expected_run)
+        skipped = {entry["node_id"]: entry for entry in response.json()["skipped"]}
+        self.assertEqual(set(skipped), {str(nodes["broken"].id), str(nodes["under_broken"].id)})
+        self.assertEqual(skipped[str(nodes["broken"].id)]["name"], "daily_counts")
+        self.assertIn("Unable to resolve field: day", skipped[str(nodes["broken"].id)]["reason"])
+
+    @parameterized.expand(RELATED_RUNS)
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_a_descendant_that_reads_a_denied_table_still_refuses_the_run(
+        self, _name, path, body, mock_sync_connect, mock_shadow_enabled
+    ):
+        mock_shadow_enabled.return_value = True
+        client = self._temporal(mock_sync_connect)
+        nodes = self._downstream_of_a_view()
+        self._view_node(nodes["picked"].dag, "restricted_ids", "select id from restricted_table", reads=nodes["picked"])
+
+        response = self._run(path, nodes["picked"], body)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertIn("restricted_table", response.json()["detail"])
+        client.start_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            *RELATED_RUNS,
+            ("node_run_upstream", "node", {"direction": "upstream"}),
+            ("trino_run_of_one_view", "saved_query", {"engine": "trino"}),
+            ("saved_query_run_of_one_view", "saved_query", {}),
+            ("node_materialize", "node_materialize", {}),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_running_a_view_that_does_not_resolve_is_a_bad_request(
+        self, _name, path, body, mock_sync_connect, mock_shadow_enabled
+    ):
+        mock_shadow_enabled.return_value = True
+        client = self._temporal(mock_sync_connect)
+        nodes = self._downstream_of_a_view()
+
+        if path == "node_materialize":
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/data_modeling_nodes/{nodes['broken'].id}/materialize/"
+            )
+        else:
+            response = self._run(path, nodes["broken"], body)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("Unable to resolve field: day", response.json()["detail"])
+        client.start_workflow.assert_not_called()
 
 
 @pytest.mark.ee

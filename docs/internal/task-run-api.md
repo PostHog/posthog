@@ -18,6 +18,18 @@ The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
 PostHog Code's per-user gateway caps are disabled by default and apply only to configured users when enabled.
 Repository-backed report discussions also require Desktop access.
+PostHog Desktop makes at most one speculative warm request per composer draft, scoped to the account and project.
+Selection changes before provisioning starts debounce into that request. Once provisioning starts, an incompatible selection change or abandoning the composer releases the unused run; the draft submits cold instead of warming again.
+Submission takes ownership before navigation and only enables warm activation when it holds a matching lease. A late warm response is released, and releasing an unused run cannot cancel a run whose activation has already started.
+When the warm response advertises `permission_mode_mutable`, permission-only changes retain the draft’s warm run. Submission targets that run by ID and the server must acknowledge the final mode before delivering the prompt; other selection changes still release the run. Older servers keep the strict matching behavior.
+A successful submission gives the next draft a fresh warm-up budget. Remounting or retrying a failed submission does not.
+
+The PostHog AI web composer starts warm-up when its input gets focus, including automatic focus when the composer opens, only when no repository is attached.
+Warm-up requires AI data processing approval.
+Warm-up waits for the saved task settings to load.
+Attaching a repository releases an unused warm run and stops composer warm-up, including after typing.
+An empty draft releases its unused warm run five seconds after the input loses focus.
+
 Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 
 The response has status `201` and contains the task and its `latest_run`.
@@ -26,8 +38,30 @@ Keep the task ID and inspect its runs before you retry.
 Do not repeat task creation to recover from a run failure.
 If a database read fails after dispatch, the response still includes the created run.
 
+The worker persists agent startup failures in `latest_run.state.startup_failure` from the failed readiness response for that run.
+The object contains `provider`, `phase`, nullable `reason`, and `retryability` (`requires_action`, `transient`, or `unknown`).
+Only validated provider reason codes can stop startup activity retries; log text is not used to classify them.
+Failures that require action include the configuration problem and a recovery step in the run's error message.
+`requires_action` means the current attempt needs a configuration or credential change before retrying, not that recovery is impossible.
+Unknown failures keep the existing retry policy. Credit exhaustion is a separate gateway-token refusal: a new attempt rechecks credit availability after a top-up; topping up does not automatically resume a failed run.
+Temporary Codex credential-service outages remain retryable. Missing or invalid subscription credentials preserve the provider's reconnect or token-relay instructions.
+The worker records `agent_startup_attempt` immediately before a real launch and `agent_startup_success` after readiness succeeds.
+Successful initialization clears the startup failure and clears the crash message while the run is non-terminal. A terminal run keeps its final error. A later failed attempt preserves the last completed startup as recovery evidence.
+These startup state fields cannot be written, appended to, or removed through the run PATCH API, including by sandbox clients.
+Recovery notifications bind the repository, provider, runtime, and startup time. Reusing an already healthy server preserves its original startup evidence.
+Older agents may omit these fields; consumers must preserve the existing behavior when they are absent or invalid.
+
 `branch` selects the base branch for the first run.
 Optional run hints can be `null`.
+
+User-created and PostHog AI tasks may target an unused warm run with `warm_run_id` when the warm response advertises `permission_mode_mutable`. All sandbox settings still need to match except permission mode.
+
+The web composer also sends `warm_submission_id`, a UUID kept unchanged across request retries. If another submission already claimed the shared warm run, the new submission falls back to a cold task. Repeating the original submission cannot take that fallback after ambiguous delivery.
+The server claims the run and requires an exact runtime acknowledgement of a changed mode before delivering the first prompt. Unsupported or unacknowledged mode changes release the warm run, remove its unused draft, and create a cold task; an ambiguous prompt delivery never falls back to another run.
+Other origins do not advertise permission mutability. A failed `user_message` command returns an `id` that the caller can reuse as its JSON-RPC request ID when retrying. Confirmed nondelivery releases a direct message's activation claim; ambiguous delivery preserves it for that same-ID retry.
+
+The PostHog AI task composer attempts one warm per draft after a 600 ms debounce. Permission changes keep a capable warm; other selection changes release it and submit cold. Emptying the draft for five seconds or completing a submission resets the budget. Resume warms retain strict permission-mode matching.
+
 Pi runs reject ACP runtime, model, reasoning-effort, and permission-mode hints.
 The combined request rejects `pending_user_artifact_ids` before it creates a task.
 It also rejects inaccessible sandbox environments and custom images before task creation.
@@ -56,14 +90,18 @@ Run responses omit internal cost accounting, including gateway request IDs.
 
 GitHub credentials that require user action fail the run without retrying. Fresh runs and resumed sandboxes preserve the actionable error, and Temporal does not report these expected failures to error tracking.
 
-Sandbox GitHub tokens are scoped to the repositories requested by the run. When GitHub rejects a repository scope, the run refreshes installation access and resolves renamed repositories by their GitHub ID. Public repositories outside the installation can be cloned anonymously; private or missing repositories require the user to check repository access. Public-only access results are cached for five minutes before checking again. GitHub outages and connection failures remain retryable, including failures during token refresh.
+Sandbox GitHub tokens are scoped to the repositories requested by the run.
+A self-driving implementation run also gets the project's extra implementation repositories that share the selected repository's owner.
+The server stores that list in `github_access_repositories` at creation and keeps it on resume.
+Run state updates cannot change it, and the run does not clone those repositories.
+When GitHub rejects a repository scope, the run refreshes installation access and resolves renamed repositories by their GitHub ID. Public repositories outside the installation can be cloned anonymously; private or missing repositories require the user to check repository access. Public-only access results are cached for five minutes before checking again. GitHub outages and connection failures remain retryable, including failures during token refresh.
 
 Without an authenticated GitHub token, the agent can still read public repositories and repository files already in its workspace. It asks the user to connect GitHub when the work requires unavailable private repository or publishing access.
 
 ## Model selection
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
-The bundled Codex 0.164.0 runtime supports this model with ChatGPT subscription billing.
+The bundled Codex 0.165.0 runtime supports this model with ChatGPT subscription billing.
 The task model catalog supplies the web and Desktop pickers with the model name, reasoning levels, and public price comparison.
 The gateway must list the model for the task's product before the picker offers it.
 Adding the model does not change the default model or the capability slider.
@@ -114,6 +152,29 @@ Workflow summaries are visible only to the task owner or its authorized sandbox 
 Shared workflow stream events always set `task_summary` to `null`.
 Other task streams include the effective summary.
 
+## Task status
+
+Task details, paginated task lists, and task summaries include `status` and `status_reason`.
+`status` is `queued`, `running`, `idle`, or `done`.
+It is `null` on a task created before the field existed, until the status backfill reaches it.
+`status_reason` says why an idle or done task stopped, for example `turn_closed`, `user_stopped`, or `unexpected_failure`.
+Task details and task lists also include `status_detail`, the message from a failed run.
+It is `null` for a caller who cannot read the latest run's analytics context.
+`?task_status=` filters the task list on the task's own status.
+`?status=` still filters on the status of the task's most recent run.
+
+A done task refuses new runs, cloud resumes, and follow-up messages with `409`.
+`POST /api/projects/{team_id}/tasks/{task_id}/close/` moves an idle task to done.
+A task can become done only while its profile is set to `enforce` in the `tasks-task-done` feature flag payload.
+Every profile is off until the payload names it.
+With `enforce`, a task on the `review_hog`, `signals.scout_suggestions` or `conversations.support_reply` profile becomes done when a run completes.
+
+A task with a cloud run in progress refuses another run or a cloud resume with `409`.
+A run that is being canceled does not count.
+A run that is waiting for its first message does not count until a message is on its way to it.
+Neither does a run with no writes for 24 hours, which is marked failed when the next run starts.
+A scheduled run that comes due while another run is in progress still starts.
+
 ## MCP tools
 
 - `tasks-create` creates an idle task. It does not accept run-start inputs.
@@ -148,15 +209,23 @@ Reports with `output_destinations.inbox: false` do not send notifications.
 Report notifications require `posthog-code-mobile-push`.
 Ordinary task notifications do not require this flag.
 
-`PATCH /api/users/@me/` sets four booleans under `notification_settings`:
+`PATCH /api/users/@me/` sets notification preference booleans under `notification_settings`:
 
-| Key                                  | Controls                 |
-| ------------------------------------ | ------------------------ |
-| `mobile_push_enabled`                | All mobile notifications |
-| `mobile_push_tasks_enabled`          | Chat and task updates    |
-| `mobile_push_reports_enabled`        | New reports              |
-| `mobile_push_report_updates_enabled` | Report updates           |
+| Key                                  | Controls                     |
+| ------------------------------------ | ---------------------------- |
+| `mobile_push_enabled`                | All mobile notifications     |
+| `mobile_push_tasks_enabled`          | Legacy Chat and Loops switch |
+| `mobile_push_chat_enabled`           | Chat notifications           |
+| `mobile_push_loops_enabled`          | Loop notifications           |
+| `mobile_push_reports_enabled`        | New reports                  |
+| `mobile_push_report_updates_enabled` | Report updates               |
 
-All four default to `true`.
+New accounts default to `true`. Chat uses `mobile_push_chat_enabled` with `mobile_push_chat_attention_enabled`, `mobile_push_chat_mentions_enabled`, `mobile_push_chat_replies_enabled`, `mobile_push_chat_completions_enabled`, and `mobile_push_chat_pr_outcomes_enabled`. Reports use `mobile_push_report_updates_enabled` with `mobile_push_report_attention_enabled`, `mobile_push_report_completions_enabled`, `mobile_push_report_pr_ready_enabled`, and `mobile_push_report_pr_outcomes_enabled`. Both a feature's parent switch and its activity switch must allow delivery. New reports use `mobile_push_reports_enabled` separately. `thread_message` carries a recipient-specific `isMention` boolean.
+
+Loops use `mobile_push_loops_enabled`, alongside each loop's delivery configuration. Existing `mobile_push_tasks_enabled` opt-outs initialize both Chat and Loops to off. A PATCH from an older client containing that legacy key still updates both feature switches, unless the request explicitly supplies an individual feature switch. Changing Chat notifications in the new app leaves loop alerts unchanged.
+
+`mobile_push_snooze_enabled` controls local snooze reminders. The mobile app checks it alongside the master switch before scheduling and cancels pending reminders when it observes an opt-out. Other devices observe changes on their next foreground refresh.
+
+Cancellation payloads identify the initiating user with `cancelledByUserId`; that user does not receive the cancellation alert. Completed non-interactive report work with an already attached, new PR awaiting review uses the PR-ready alert for eligible reviewers who allow it, sharing the normal PR deduplication key. Other recipients still receive the completion alert. Interactive runs keep completion alerts separate because PR artefacts identify the run, not the turn that produced them.
 The delivery worker checks that the account is active, along with current preferences and access, before it sends a queued notification.
 Task notifications require current viewer access to the task resource when queued and when delivered.

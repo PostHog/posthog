@@ -15,6 +15,11 @@ flag for every team, and builds the agent skills bundle.
 > workspace and app once this guide is working — see
 > [slack-local-setup-guide.md](./slack-local-setup-guide.md).
 
+## Test egress identity
+
+Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and opt-in observation, including sandbox replacement and revocation checks.
+
 ## GitHub App
 
 Each engineer needs their own GitHub App. The setup command will print these
@@ -73,15 +78,6 @@ fine — they get converted to newlines.
 Temporal and the temporal-django-worker start automatically via phrocs when you
 run `hogli start`.
 
-The separate `task-management` implementation is not registered with the worker.
-It stops polling closed or merged PRs and caps background runs at two idle checks; pending CI and merge-queue checks do not consume that budget.
-Pending CI and merge queues have a separate limit of 96 waiting checks (24 hours at the normal cadence).
-Follow-ups and sandbox-session boundaries reset both budgets, and the counters persist in server-owned `TaskRun.state` across orchestrator restarts.
-With the `tasks-task-management-durable-ci-checkpoints` Temporal patch, queue and budget changes are staged in a generation-protected checkpoint before application.
-Startup applies any unfinished checkpoint before restoring the queue and counters. Follow-ups wait for their reset and queued message to persist before delivery.
-Exhausted persistence retries stop the orchestrator instead of continuing with an unsaved budget; a new execution can recover a staged checkpoint. A failure before staging does not create a recoverable database checkpoint.
-With `tasks-task-management-checkpoint-recovery-status`, checkpoint read or write failures leave the task run non-terminal so recovery can reattach to its sandbox. `tasks-execute-sandbox-reopen-parent-delivery` resumes sandbox acknowledgements when the restarted orchestrator attaches.
-
 The `process-task` workflow defined in
 `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox,
 starts an agent inside it, and waits for the agent to finish. The workflow
@@ -112,6 +108,8 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
+Repository clone activities allow six attempts in total. Failed git commands, including RPC errors, authentication failures, and repository-not-found responses, retry after 1, 2, 16, 32, and 64 seconds. A resolved GitHub installation marked unavailable fails immediately; clone denial alone does not establish that state. Each attempt keeps the five-minute timeout and reuses the sandbox. When an installation-backed token is denied, its cached token is evicted. Retries resolve fresh credentials even when the initial attempt had no token; public repositories can still clone anonymously. Activity timeouts and infrastructure exceptions use Temporal's default exponential backoff within the same six-attempt limit. The `repository_clone_failed` worker log records the run, repository, sandbox, clone mode, exit code, and whether a GitHub token was supplied. Its stdout, stderr, and execution error fields redact the supplied token and sandbox command credentials before truncation to 500 characters each; the same diagnostics are attached to the Temporal error.
+
 The agent's `finish` tool marks a TaskRun terminal and triggers sandbox cleanup.
 ReviewHog and scout suggestion tasks do not expose it because their callers own session completion.
 ReviewHog receives and validates each turn's JSON before ending the session, and validation can use multiple turns in the same sandbox.
@@ -131,6 +129,8 @@ ends bypasses heartbeat throttling so a quick follow-up cannot look idle.
 Activity during snapshot capture or replacement startup abandons the handoff and
 keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
+For workflow histories with the `tasks-end-run-at-sandbox-limit` patch, a run that stays on its sandbox ends when the sandbox reaches its time limit.
+If the session was saved, the run ends as soon as the agent is idle and no message is queued, so the task can start a new run.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
 Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.
@@ -303,12 +303,14 @@ since frontend and backend group keys differ.
 The property identifies the active environment: explicitly include every environment that should have
 access. A parent project's flag does not enable its child environments, even though ReviewHog stores
 their settings and reviews under the shared parent project.
+Requests through an environment URL also require membership of the parent project.
+Project-restricted API keys and OAuth tokens must include both the environment and its parent.
 
 Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
-the `posthog-review` label trigger, resolution, Inbox reviews, the tiered review models, and the Stamphog
+the Stamphog handoff, resolution, Inbox reviews, the tiered review models, and the Stamphog
 Inbox switch.
 Each project needs a GitHub App integration covering the repository; review skills seed automatically.
-Automatic reviews and the label trigger also need the project to claim the repository in the Code review
+Automatic reviews and the Stamphog handoff also need the project to claim the repository in the Code review
 settings. No environment variable or shared secret picks the project.
 
 Use resolution only for explicitly enabled trusted projects reviewing repositories their teams own.
@@ -337,8 +339,10 @@ An explicit Full request also runs after an active Flash review when that head s
 Turning the setting off stops future and pending automatic starts; a running review finishes.
 Automatic Flash uses your existing severity threshold and never resolves comments or changes the PR branch.
 
-The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
-Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
+The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/code_review/settings/`.
+Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `code_review/project_settings`, `code_review/installation_claims`, and `code_review/repositories` endpoints.
+Any project member can turn a repository on through `code_review/repositories`: include it into the project's selection, raise its exception, or turn its draft reviews on.
+Turning a repository down or removing it stays with admins.
 
 The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.
 Project defaults appear beside personal preferences. Personal repository choices take priority over personal defaults and project rules.

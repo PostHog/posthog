@@ -1,3 +1,4 @@
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
@@ -63,6 +64,23 @@ class TestRunFooter(SimpleTestCase):
                 RunFooter(model="claude-opus-5", plan="Your ChatGPT plan", project="Fernwood staging"),
                 None,
                 "*Claude Opus 5* · Your ChatGPT plan · Project: *Fernwood staging*",
+            ),
+            (
+                "cost_follows_the_model",
+                RunFooter(
+                    TASK_URL,
+                    "claude-opus-5",
+                    project="Fernwood staging",
+                    thread_cost_usd=Decimal("0.123456"),
+                ),
+                None,
+                f"<{TASK_URL}|View session> · *Claude Opus 5* · Thread cost: $0.12 · Project: *Fernwood staging*",
+            ),
+            (
+                "a_cost_under_a_cent_does_not_read_as_free",
+                RunFooter(thread_cost_usd=Decimal("0.004")),
+                None,
+                "Thread cost: <$0.01",
             ),
             (
                 "configure_only",

@@ -63,7 +63,6 @@ export function TodayWarehouseHeader({ className }: { className?: string }): JSX
                     <DropdownMenuTrigger
                         render={
                             <Button
-                                elevated
                                 variant="outline"
                                 size="lg"
                                 className="min-w-0 max-w-full shrink"

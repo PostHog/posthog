@@ -20,12 +20,14 @@ row for the installation mirrors so the UI can say "all repositories" instead of
 
 from typing import Any
 
+from django.db import transaction
 from django.http import HttpResponse
 from django.utils import timezone
 
 import structlog
 
-from posthog.models.integration import Integration, invalidate_github_repository_caches_for_installation
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationPatch
+from posthog.models.integration import invalidate_github_repository_caches_for_installation
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 
@@ -54,21 +56,29 @@ def handle_installation_event(payload: dict) -> HttpResponse:
 
     installation_id = str(installation_id)
 
-    integrations = list(Integration.objects.filter(kind="github", integration_id=installation_id))
+    github = IntegrationManager.github.oauth
+    integrations = github.list_by_external_id(installation_id)
 
     project_audits = [GitHubAudit.project(row) for row in integrations]
     personal_rows = list(UserIntegration.objects.filter(kind="github", integration_id=installation_id))
     personal_audits = [GitHubAudit.personal(row) for row in personal_rows]
+    deleted_audits: list[GitHubAudit] = []
     try:
-        # nosemgrep: idor-lookup-without-team (a verified installation webhook removes this installation across projects)
-        team_deleted, _ = Integration.objects.filter(
-            kind="github", integration_id=installation_id, pk__in=[row.pk for row in integrations]
-        ).delete()
+        # A verified installation webhook removes this installation across projects. Delete the listed
+        # rows by id, so the audit names exactly the rows that this request deleted, and all or none.
+        with transaction.atomic():
+            for row, audit in zip(integrations, project_audits):
+                try:
+                    github.delete(row.team_id, row.id, ignore_usages=True)
+                except IntegrationNotFound:
+                    continue
+                deleted_audits.append(audit)
     except Exception as exc:
         for audit in project_audits:
             audit.record("webhook_cleanup_failed", stage="project_deletion", failure_type=type(exc).__name__)
         raise
-    for audit in project_audits:
+    team_deleted = len(deleted_audits)
+    for audit in deleted_audits:
         audit.record("deleted", after_commit=True, customer_visible=True, outcome="disconnected")
         audit.record("webhook_cleanup", after_commit=True, outcome="already_absent", completed_deletion=True)
     try:
@@ -141,29 +151,22 @@ def handle_installation_repositories_event(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     installation_id = str(installation_id)
-    # Load only the columns we touch. The unbounded repository_cache blob and the encrypted
-    # sensitive_config (decrypted eagerly on load) are skipped so a widely shared installation
-    # can't spike a web worker's memory here. Writes go out as one bulk_update per model instead
-    # of a save per row — which also skips the (no-op for github) push-config post_save signal,
-    # avoiding a per-row lazy load of the deferred `kind`.
-    team_changed = [
-        row
-        for row in Integration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")
-        if row.config.get("repository_selection") != repository_selection
-    ]
+    team_updated = IntegrationManager.github.oauth.update_by_external_id(
+        installation_id, IntegrationPatch(config_patch={"repository_selection": repository_selection})
+    )
+    # For the personal rows, load only the columns we touch. The encrypted sensitive_config
+    # (decrypted eagerly on load) is skipped so a widely shared installation can't spike a web
+    # worker's memory here. Like the SDK call above, the write is one bulk_update of the changed rows.
     user_changed = [
         row
         for row in UserIntegration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")
         if row.config.get("repository_selection") != repository_selection
     ]
-    changed: list[Integration | UserIntegration] = [*team_changed, *user_changed]
-    for row in changed:
+    for row in user_changed:
         row.config = {**row.config, "repository_selection": repository_selection}
-    if team_changed:
-        Integration.objects.bulk_update(team_changed, ["config"])
     if user_changed:
         UserIntegration.objects.bulk_update(user_changed, ["config"])
-    updated = len(changed)
+    updated = team_updated + len(user_changed)
 
     invalidate_github_repository_caches_for_installation(installation_id)
 

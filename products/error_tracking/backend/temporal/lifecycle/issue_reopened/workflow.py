@@ -17,8 +17,10 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
     ALERT_DISPATCH_RETRY_POLICY,
     ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
 )
+from products.error_tracking.backend.temporal.lifecycle.summary_activity import execute_summary_activity
 
 WORKFLOW_NAME = "error-tracking-issue-reopened"
+SUMMARY_ON_REOPEN_PATCH = "error-tracking-summary-on-reopen-activity"
 
 
 async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -> None:
@@ -44,6 +46,20 @@ async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -
         if workflow.patched(ALERT_DISPATCH_PATCH)
         else None
     )
+    # Patched for the same reason. The alert and the emit activities do not wait for the summary.
+    # The workflow awaits it before it completes, because a task left unawaited is dropped when the workflow returns.
+    summary = (
+        asyncio.create_task(
+            execute_summary_activity(
+                "generate_issue_reopened_summary_activity",
+                inputs,
+                fail_open_counter="error_tracking_issue_reopened_summary_fail_open",
+                description="Issue-reopened side effects whose summary activity failed",
+            )
+        )
+        if workflow.patched(SUMMARY_ON_REOPEN_PATCH)
+        else None
+    )
     try:
         await workflow.execute_activity(
             "emit_issue_reopened_internal_event_activity",
@@ -60,6 +76,8 @@ async def run_issue_reopened_side_effects(inputs: IssueReopenedWorkflowInputs) -
     finally:
         if dispatch is not None:
             await dispatch
+        if summary is not None:
+            await summary
 
 
 @workflow.defn(name=WORKFLOW_NAME)

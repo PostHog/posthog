@@ -5,7 +5,7 @@ import type { InboxSetupSource } from './inboxSetup'
 
 interface StarterScout {
     name: string
-    source: AgentRosterSource | 'session_replay' | 'data_warehouse' | 'general'
+    source: AgentRosterSource | 'session_replay' | 'general'
     title: string
     description: string
 }
@@ -55,18 +55,17 @@ const STARTER_SCOUTS: StarterScout[] = [
         description: 'Look for slow first responses, growing backlogs, and missed support targets.',
     },
     {
-        name: 'signals-scout-data-warehouse',
-        source: 'data_warehouse',
-        title: 'Monitor connected data sources',
-        description: 'Watch warehouse imports for failed syncs, stale tables, and unexpected drops in data volume.',
-    },
-    {
         name: 'signals-scout-health-checks',
         source: 'health_checks',
         title: 'Investigate setup health issues',
         description: 'Group related health checks and identify the setup problems worth fixing.',
     },
 ]
+
+export function inboxSetupScoutCopy(skillName: string): { title: string; description: string } | undefined {
+    const starter = STARTER_SCOUTS.find((item) => item.name === skillName)
+    return starter && { title: starter.title, description: starter.description }
+}
 
 export function inboxSetupDefaultScouts(
     configs: SignalScoutConfigApi[],
@@ -90,16 +89,14 @@ export function inboxSetupDefaultScouts(
                   ? hasEvents
                   : starter.source === 'session_replay'
                     ? statuses.replay_vision?.enabled === true
-                    : starter.source === 'data_warehouse'
-                      ? sources.some((source) => source.warehouseSource && source.available)
-                      : sources.some(
-                            (source) =>
-                                source.definition.source === starter.source &&
-                                (source.available ||
-                                    (starter.source !== 'replay_vision' &&
-                                        statuses[starter.source]?.enabled === true &&
-                                        statuses[starter.source]?.enablement != null))
-                        )
+                    : sources.some(
+                          (source) =>
+                              source.definition.source === starter.source &&
+                              (source.available ||
+                                  (starter.source !== 'replay_vision' &&
+                                      statuses[starter.source]?.enabled === true &&
+                                      statuses[starter.source]?.enablement != null))
+                      )
         if (!config || !hasData) {
             return []
         }
@@ -122,6 +119,17 @@ export function inboxSetupDefaultScouts(
             },
         ]
     })
+}
+
+const MAX_SETUP_SCOUTS = 5
+
+export interface InboxSetupScoutLimit {
+    limit: number
+    reason: string
+}
+
+export function inboxSetupScoutLimit(): InboxSetupScoutLimit {
+    return { limit: MAX_SETUP_SCOUTS, reason: 'Select up to five scouts' }
 }
 
 export function inboxSetupScoutChoices(

@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _DNS_RESOLUTION_FAILURE_MARKERS,
     _MONGO_AUTHENTICATION_FAILED_MESSAGE,
     _MONGO_CONNECT_FAILED_MESSAGE,
+    _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
     _MONGO_INVALID_CONNECTION_STRING_MESSAGE,
     _MONGO_NO_COLLECTIONS_MESSAGE,
@@ -213,6 +214,13 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                     "PyMongo requires at least 8 (MongoDB 4.2)."
                 ),
                 _MONGO_SERVER_TOO_OLD_MESSAGE,
+                False,
+            ),
+            (
+                # pymongo's fixed message when authMechanism=GSSAPI is set but the optional
+                # pykerberos/winkerberos package isn't installed.
+                ConfigurationError('The "kerberos" module must be installed to use GSSAPI authentication.'),
+                _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
                 False,
             ),
             (

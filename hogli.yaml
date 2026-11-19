@@ -176,6 +176,15 @@ devbox:
         click: hogli_commands.devbox.cli:devbox_remote_exec
         description: Run a command inside your devbox (non-interactive)
         untracked: true
+    devbox:claude:login:
+        click: hogli_commands.devbox.cli:devbox_claude_login
+        description: Log in to Claude Code on your devbox
+    devbox:claude:status:
+        click: hogli_commands.devbox.cli:devbox_claude_status
+        description: Show which Claude Code account your devbox uses
+    devbox:claude:logout:
+        click: hogli_commands.devbox.cli:devbox_claude_logout
+        description: Log out of Claude Code on your devbox
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
@@ -207,6 +216,19 @@ devbox:
     devbox:sync:
         click: hogli_commands.devbox.sync:cmd_sync
         description: Mirror your local PostHog checkout to a devbox
+    devbox:worktree:
+        click: hogli_commands.devbox.worktree:devbox_worktree
+        description: Give this worktree its own devbox and sync mirror
+    devbox:worktree:prune:
+        click: hogli_commands.devbox.worktree:devbox_worktree_prune
+        description: Stop or delete the devboxes of worktrees that t3code, herdr or git already removed
+    devbox:worktree:teardown:
+        click: hogli_commands.devbox.worktree:devbox_worktree_teardown
+        description: Stop the sync mirror and the devbox of this worktree before a tool removes it
+    devbox:worktree:auto:
+        click: hogli_commands.devbox.worktree:devbox_worktree_auto
+        description: Start devbox:worktree in the background for a new worktree, if auto-provisioning is on
+        hidden: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets
@@ -216,6 +238,39 @@ devbox:
     devbox:secret:rm:
         click: hogli_commands.devbox.cli:devbox_secret_rm
         description: Delete a Coder user secret
+    devbox:secrets:push:
+        click: hogli_commands.devbox.secrets_lend:devbox_secrets_push
+        description: Lend 1Password secrets to your devbox, in memory and for a limited time
+    devbox:secrets:status:
+        click: hogli_commands.devbox.secrets_lend:devbox_secrets_status
+        description: Show which secrets your devbox holds and for how long
+    devbox:secrets:clear:
+        click: hogli_commands.devbox.secrets_lend:devbox_secrets_clear
+        description: Remove lent secrets from your devbox now
+    devbox:gh:login:
+        click: hogli_commands.devbox.gh_login:devbox_gh_login
+        description: Log the GitHub CLI in on your devbox, for gh and git
+    devbox:gh:status:
+        click: hogli_commands.devbox.gh_login:devbox_gh_status
+        description: Show which GitHub account the GitHub CLI on your devbox uses
+    devbox:gh:logout:
+        click: hogli_commands.devbox.gh_login:devbox_gh_logout
+        description: Log the GitHub CLI out on your devbox
+    devbox:trunk:login:
+        click: hogli_commands.devbox.trunk_login:devbox_trunk_login
+        description: Log the Trunk CLI in on your devbox, for the merge queue
+    devbox:trunk:status:
+        click: hogli_commands.devbox.trunk_login:devbox_trunk_status
+        description: Show which Trunk account the Trunk CLI on your devbox uses
+    devbox:trunk:logout:
+        click: hogli_commands.devbox.trunk_login:devbox_trunk_logout
+        description: Log the Trunk CLI out on your devbox
+    devbox:dotfiles:
+        click: hogli_commands.devbox.dotfiles:devbox_dotfiles
+        description: Apply your dotfiles repo on your devbox again
+    devbox:check:
+        click: hogli_commands.devbox.box_checks:devbox_check
+        description: Show which logins and other per-box setup your devbox is missing
     devbox:config:show:
         click: hogli_commands.devbox.cli:devbox_config_show
         description: Show saved devbox setup configuration
@@ -387,9 +442,6 @@ start:
         services:
             - redis
         hidden: true
-    start:hogql-lang-service:
-        cmd: env GOTOOLCHAIN=auto HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1 MAX_CATALOGS=2 CATALOG_CACHE_MAX_BYTES=268435456 go -C services/hogql-language-service run ./cmd/server
-        description: Run the HogQL language service locally with a two-catalog cache
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
@@ -481,7 +533,7 @@ build:
         bin_script: build-schema-python.sh
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
     build:schema-latest-versions:
-        bin_script: build-schema-latest-versions.py
+        cmd: bin/hogli build:projections --only schema-latest-versions
         description: Extract latest schema versions and generate frontend JSON config
     build:projections:
         click: hogli_commands.projections:cmd_build_projections
@@ -535,6 +587,11 @@ build:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
             tool definitions (must run after build:openapi-mcp-tools)
+    build:openapi-webmcp-exec-tool:
+        cmd: pnpm --filter=@posthog/mcp run generate-webmcp-exec-tool && pnpm exec oxfmt
+            products/webmcp/frontend/execTool.generated.ts
+        description: Render the MCP exec tool that WebMCP registers in the browser
+            (must run after build:openapi-mcp-tools)
     build:desktop-api-client:
         bin_script: build-desktop-api-client.sh
         description: Regenerate the desktop app's typed API client from the OpenAPI
@@ -591,6 +648,7 @@ build:
                   trap - INT TERM
                   exit "$generation_status"
             - build:openapi-cli-agent-scopes
+            - build:openapi-webmcp-exec-tool
             - build:desktop-api-client
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
@@ -803,6 +861,10 @@ tests:
     verify:
         click: hogli_commands.verify_layers:verify
         description: Run the cheapest checks that cover your diff (lint, typecheck, nearest tests), then name the next potential layer
+    verify:gate:
+        click: hogli_commands.verify_stamp:verify_gate
+        description: Check that a commit matches the last `hogli verify --changed` run (used by the commit-msg hook)
+        untracked: true
     test:python:
         cmd: pytest
         description: Run Python test suite
@@ -885,12 +947,21 @@ quality:
     lint:complexity:
         click: hogli_commands.complexity_lint:cmd_lint_complexity
         description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
+    lint:test-owners:
+        click: hogli_commands.ownership_lint:cmd_lint_test_owners
+        description: Fail when the branch leaves a test file with no team owner in owners.yaml
     lint:size:
         click: hogli_commands.size_lint:cmd_lint_size
         description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
     lint:api-ratchet:
         click: hogli_commands.api_ratchet:cmd_lint_api_ratchet
         description: Block new frontend/src/lib/api.ts path methods that a generated client already covers
+    lint:frontend-layers:
+        cmd: node frontend/bin/check-layers.mjs "$@"
+        description: Block new static imports from a lower frontend layer into a higher one
+    lint:frontend-css-coupling:
+        cmd: node frontend/bin/check-css-coupling.mjs "$@"
+        description: Block new components that use a stylesheet's class without importing the stylesheet
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
@@ -994,12 +1065,9 @@ tools:
             development
         services:
             - temporal
-    tool:hog:
-        bin_script: hog
-        description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode
-    tool:hoge:
-        bin_script: hoge
-        description: Compile HogQL source to bytecode or JavaScript
+    tool:hoglang:
+        bin_script: hoglang
+        description: Run HogLang source or bytecode, or compile source to bytecode or JavaScript
     tool:ruff:
         bin_script: ruff.sh
         description: Python linter and formatter with virtualenv auto-activation
@@ -1040,6 +1108,10 @@ tools:
     tool:granian-shared-socket:
         bin_script: granian_shared_socket.py
         description: Granian launcher that keeps one listen socket shared by all workers
+        hidden: true
+    tool:granian-preload:
+        bin_script: granian_preload.py
+        description: Granian launcher that imports the app once so workers share its memory
         hidden: true
     sync:storage:
         bin_script: sync-storage
@@ -1128,7 +1200,7 @@ owners:
         description: Emit a CODEOWNERS projection of test-file ownership for tools that only read CODEOWNERS (-o writes a file)
     owners:unowned:
         click: owners_yaml.cli:cmd_unowned
-        description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
+        description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX; --against REF lists only what the branch leaves unowned)
     owners:lint:
         click: owners_yaml.cli:cmd_lint
         description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)
@@ -1139,6 +1211,12 @@ devex:
     devex:feedback:
         click: hogli_commands.feedback:devex_feedback
         description: Send feedback about the dev experience to the devex team (humans and agents)
+    git:signing-key:
+        click: hogli_commands.git_signing:signing_key
+        description: Set up commit signing with a Secure Enclave key (macOS 26 or later) and register it on GitHub
+    agent:usage:
+        click: hogli_commands.agent_usage:cmd_agent_usage
+        description: Show agent LLM token spend per pull request, from engineering analytics
 utilities:
     nuke:
         steps:
@@ -1158,12 +1236,15 @@ utilities:
     worktrees:clean:
         click: hogli_commands.worktrees:worktrees_clean
         description: Clear out unused Claude Code / Codex / PostHog Desktop / phw worktrees by age
+    watch:
+        click: hogli_commands.watch:watch
+        description: Background housekeeping (daily worktree cleanup, ClickHouse idle stop); --ensure clickhouse starts it on demand
     pr:upload-image:
         click: hogli_commands.upload_image:upload_image
-        description: Upload screenshot(s) to the public PostHog/pr-assets repo and print embeddable PR markdown
+        description: Attach screenshot(s) to the PR description, or upload to PostHog/pr-assets and print markdown
     pr:upload-video:
         click: hogli_commands.upload_video:upload_video
-        description: Upload demo video(s) to the public PostHog/pr-assets repo and print link markdown
+        description: Attach demo video(s) to the PR description, or upload to PostHog/pr-assets and print a link
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
@@ -1302,4 +1383,12 @@ environment:
     rasterize:recording:file:
         bin_script: rasterize-recording-file
         description: 'Render a recording JSONL file to video with the rasterizer'
+        hidden: true
+    lint:semgrep-ratchet:
+        bin_script: semgrep_ratchet.py
+        description: 'Compare semgrep findings per file with a checked-in baseline'
+        hidden: true
+    devbox:worktree:hook:
+        bin_script: devbox-worktree-hook
+        description: 'Start or stop the devbox of this worktree from an app create or remove hook'
         hidden: true

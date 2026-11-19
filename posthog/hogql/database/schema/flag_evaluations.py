@@ -1,9 +1,11 @@
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, cast
 
 from posthog.hogql import ast
-from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSONS
+from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSON_DISTINCT_IDS, PERSONS
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    EventsRetentionTable,
     ExpressionField,
     FieldOrTable,
     FieldTraverser,
@@ -11,16 +13,18 @@ from posthog.hogql.database.models import (
     LazyJoin,
     StringDatabaseField,
     StringJSONDatabaseField,
-    Table,
     UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.schema.person_distinct_id_overrides import PersonDistinctIdOverridesTable
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.database.schema.util.uuid import uuid_string_expr_to_uint128_expr
 from posthog.hogql.parser import parse_expr
 
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.date_util import start_of_day
+from posthog.schema_enums import PersonsOnEventsMode
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
@@ -31,37 +35,51 @@ if TYPE_CHECKING:
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
+# FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS back.
+# The TTL constant lives in posthog/models/flag_evaluations/sql.py.
+FLAG_EVALUATIONS_COMPLETE_DAYS = 91
+
+
+def utc_midnight(now: datetime) -> datetime:
+    return start_of_day(now.astimezone(UTC))
+
+
+def flag_evaluations_coverage_start(now: datetime) -> datetime:
+    """The start of the oldest UTC day whose flag calls are all in flag_evaluations at `now`."""
+    return utc_midnight(now) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS)
+
+
 # Keep it equal to FLAG_EVALUATIONS_TABLE in frontend/src/scenes/feature-flags/flagEvaluationsTable.ts.
 FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 
 
-# The expression the events table uses under the persons-on-events modes that apply overrides. This table
-# applies it for every team instead of following the mode, because the mode decides where person properties
-# come from and this table does not follow the mode for those either. A team on
-# `PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS` therefore reads a merge-aware person here, and from `events` the
-# write-time person until the squash rewrites it.
+# The expression the events table uses under the persons-on-events modes that apply overrides.
+# `follow_persons_on_events_mode` replaces it under the other modes, so that a query that HogQL moves from events to
+# this table reads the same person.
 # The table and its `poe` subtable each take their own copy. The tests in test_flag_evaluations.py select
 # `person_id` and `person.id` together, so the two drifting apart fails there.
-def _person_id() -> ExpressionField:
+def _person_id(name: str = "person_id", hidden: bool = False) -> ExpressionField:
     return ExpressionField(
-        name="person_id",
+        name=name,
         expr=parse_expr(
             # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
             "if(not(empty(override.distinct_id)), override.person_id, flag_evaluation_person_id)",
             start=None,
         ),
         isolate_scope=True,
+        hidden=hidden,
         description="The person the evaluation is attributed to, corrected for any later identify or merge, so "
         "`uniq(person_id)` counts a merged person once.",
     )
 
 
 class FlagEvaluationsPersonSubTable(VirtualTable):
-    """The person the flag-evaluation row resolves to, corrected by `person_distinct_id_overrides`.
+    """The person the flag-evaluation row resolves to.
 
-    `properties` and `created_at` read the columns stored at evaluation time, as events does under
-    persons-on-events. EventsPersonSubTable does not fit, because its `id` reads the stored person and
-    the printer treats it as part of `events`.
+    `person_distinct_id_overrides` corrects `id`, as it corrects `events.poe.id` under
+    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS. `follow_persons_on_events_mode` makes `id` read the stored column under
+    the other modes, as events does. `properties` and `created_at` read the columns stored at evaluation time.
+    EventsPersonSubTable does not fit, because the printer treats it as part of `events`.
     """
 
     fields: dict[str, FieldOrTable] = {
@@ -77,11 +95,40 @@ class FlagEvaluationsPersonSubTable(VirtualTable):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
 
 
-class FlagEvaluationsTable(Table):
+class FlagEvaluationsGroupKeySubTable(VirtualTable):
+    """`goe_N` on events, limited to the group key. The row stores no group properties or creation time at
+    evaluation time, so `goe_N.properties` and `goe_N.created_at` do not resolve here."""
+
+    def __init__(self, group_index: int):
+        super().__init__(
+            fields={
+                "key": ExpressionField(
+                    name="key", expr=ast.Field(chain=[f"_$group_{group_index}_raw"]), isolate_scope=True
+                )
+            }
+        )
+
+    def to_printed_clickhouse(self, context):
+        return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+    def to_printed_hogql(self):
+        return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+
+# The events element columns that this table defines as constants, grouped by the type of the constant.
+_ELEMENT_STRING_STAND_INS = ("elements_chain", "elements_chain_href")
+_ELEMENT_ARRAY_STAND_INS = ("elements_chain_texts", "elements_chain_ids", "elements_chain_elements")
+ELEMENT_STAND_INS = frozenset(_ELEMENT_STRING_STAND_INS + _ELEMENT_ARRAY_STAND_INS)
+
+
+# Flag calls are events too, and a query on events can read them from here, so events retention applies.
+class FlagEvaluationsTable(EventsRetentionTable):
     description: str = (
         "One row per feature flag evaluation, from the `$feature_flag_called` event. Rows are kept for 90 days. "
         "A project that is not sending flag-evaluation telemetry yet sees an empty table."
     )
+    events_retention_field: str = "timestamp"
+    person_id_pushdown_default: bool = True
     fields: dict[str, FieldOrTable] = {
         "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this row."),
         "event": StringDatabaseField(
@@ -123,11 +170,11 @@ class FlagEvaluationsTable(Table):
             name="person_id",
             nullable=False,
             description="The person written onto the row at ingestion time, before any later identify or "
-            "merge. Unlike `person_id` it is a stored column, so filtering on it can use the table's index; "
-            "it stays stale until the person-overrides squash rewrites it.",
+            "merge. It is a stored column, so filtering on it can use the table's index. It stays stale until the "
+            "person-overrides squash rewrites it.",
         ),
-        # Joined only when a query reads `person_id`, so every other query pays nothing for it. Hidden
-        # because it is an implementation detail of that correction: it carries person columns the row
+        # Joined only when a query reads the merge-corrected `person_id`, so every other query pays nothing for it.
+        # Hidden because it is an implementation detail of that correction: it carries person columns the row
         # does not store, and `person` is the documented way to reach the person.
         "override": LazyJoin(
             from_field=["distinct_id"],
@@ -136,6 +183,8 @@ class FlagEvaluationsTable(Table):
             hidden=True,
         ),
         "person_id": _person_id(),
+        # `follow_persons_on_events_mode` leaves this field as it is, so the events list joins persons on it.
+        "merged_person_id": _person_id(name="merged_person_id", hidden=True),
         "flag_key": StringDatabaseField(
             name="flag_key",
             nullable=False,
@@ -176,7 +225,7 @@ class FlagEvaluationsTable(Table):
             name="person_mode",
             nullable=False,
             description="How ingestion processed the person: 'full', 'propertyless' or 'force_upgrade'. A "
-            "'propertyless' evaluation had no person profile, and its `person.properties` is '{}'.",
+            "'propertyless' evaluation had no person profile, so it carries no person properties.",
         ),
         # Should not be used directly; reached via `person`.
         "poe": FlagEvaluationsPersonSubTable(),
@@ -198,6 +247,12 @@ class FlagEvaluationsTable(Table):
         "$group_2": StringDatabaseField(name="$group_2", nullable=False, description="Key of the type-2 group."),
         "$group_3": StringDatabaseField(name="$group_3", nullable=False, description="Key of the type-3 group."),
         "$group_4": StringDatabaseField(name="$group_4", nullable=False, description="Key of the type-4 group."),
+        # The stored keys, which goe_N.key reads, as events reads goe_N.key from its stored column. A team's group
+        # type mappings can replace $group_N with a key that is empty for calls from before the mapping existed.
+        **{
+            f"_$group_{index}_raw": StringDatabaseField(name=f"$group_{index}", nullable=False, hidden=True)
+            for index in range(GROUP_TYPES_LIMIT)
+        },
         # A group property filter, such as a team's test account filter, compiles to `group_N.properties`.
         # These joins let it resolve here as it does on events.
         **{
@@ -210,11 +265,26 @@ class FlagEvaluationsTable(Table):
             )
             for index in range(GROUP_TYPES_LIMIT)
         },
+        # The events names below let a query on events that reads flag calls resolve here when HogQL swaps the table.
+        "$window_id": ExpressionField(
+            name="$window_id",
+            expr=ast.Call(name="ifNull", args=[ast.Field(chain=["properties", "$window_id"]), ast.Constant(value="")]),
+            isolate_scope=True,
+            hidden=True,
+        ),
+        "event_person_id": UUIDDatabaseField(name="person_id", hidden=True),
+        "pdi": LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdsTable(),
+            resolver=PERSON_DISTINCT_IDS,
+            hidden=True,
+        ),
+        **{f"goe_{index}": FlagEvaluationsGroupKeySubTable(group_index=index) for index in range(GROUP_TYPES_LIMIT)},
         # The table stores no elements, and a flag call on events has none either. An element filter therefore
         # resolves here and matches nothing, as it does on events. The empty array keeps its String element type.
         **{
             name: ExpressionField(name=name, expr=ast.Constant(value=""), hidden=True)
-            for name in ("elements_chain", "elements_chain_href")
+            for name in _ELEMENT_STRING_STAND_INS
         },
         **{
             name: ExpressionField(
@@ -224,7 +294,7 @@ class FlagEvaluationsTable(Table):
                 ),
                 hidden=True,
             )
-            for name in ("elements_chain_texts", "elements_chain_ids", "elements_chain_elements")
+            for name in _ELEMENT_ARRAY_STAND_INS
         },
     }
 
@@ -244,17 +314,66 @@ class FlagEvaluationsTable(Table):
 EVENTS_LIST_JOINED_FIELDS = frozenset({"person", "session", *(f"group_{index}" for index in range(GROUP_TYPES_LIMIT))})
 
 
-def add_events_list_fields_to_flag_evaluations(database: "Database") -> None:
-    """Make `person` on `posthog.flag_evaluations` in `database` a persons join, as an events list reads it.
+def join_persons_to_flag_evaluations(database: "Database", person_id_field: str = "person_id") -> None:
+    """Make `person` on `posthog.flag_evaluations` in `database` a join to `persons` on `person_id_field`, as
+    `events.person` is under PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
+
+    `person_id_field` defaults to `person_id`, so the join matches the one on `events` under that mode. A caller that
+    needs the merge-corrected person under every mode passes `merged_person_id`.
 
     This changes the table instance that `database` holds. Every later query compiled against `database` reads each
-    person's current properties instead of the stored ones. Pass a database that only the events list runner uses,
-    such as its `shared_database`.
+    person's current properties instead of the stored ones.
     """
     flag_evaluations = database.get_table(["posthog", "flag_evaluations"])
-
-    # This joins persons on the merge-corrected person_id, the way events does under
-    # PERSON_ID_OVERRIDE_PROPERTIES_JOINED. The join is lazy. A query that reads no person field skips it.
+    # The join is lazy. A query that reads no person field skips it.
     flag_evaluations.fields["person"] = LazyJoin(
-        from_field=["person_id"], join_table=database.get_table("persons"), resolver=PERSONS
+        from_field=[person_id_field],
+        join_table=database.get_table("persons"),
+        resolver=PERSONS,
+        description="The person the evaluation is attributed to, corrected for any later identify or merge. "
+        "`person.properties` and `person.created_at` are the person's current values, not the values stored at "
+        "evaluation time.",
     )
+
+
+def follow_persons_on_events_mode(database: "Database", mode: PersonsOnEventsMode | None) -> None:
+    """Make the person fields of `posthog.flag_evaluations` in `database` read as the fields of `events` do under
+    `mode`, so that a query that HogQL moves from events to this table reads the same person.
+
+    This changes the table instance that `database` holds. The table's own fields already match
+    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.
+    """
+    if mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS or not database.has_table(
+        ["posthog", "flag_evaluations"]
+    ):
+        return
+    flag_evaluations = database.get_table(["posthog", "flag_evaluations"])
+    # events.poe.id reads the stored column in every mode except PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.
+    cast(VirtualTable, flag_evaluations.fields["poe"]).fields["id"] = UUIDDatabaseField(
+        name="person_id", nullable=False
+    )
+    if mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        join_persons_to_flag_evaluations(database)
+    elif mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+        flag_evaluations.fields["person_id"] = UUIDDatabaseField(
+            name="person_id",
+            nullable=False,
+            description="The person written onto the row at ingestion time, as `events.person_id` is for this "
+            "project. A later identify or merge shows here once the person-overrides squash rewrites the column.",
+        )
+        flag_evaluations.fields["person"] = FieldTraverser(
+            chain=["poe"],
+            description="The person the evaluation is attributed to. `person.id` reads the same stored column as "
+            "`person_id`. `person.properties` and `person.created_at` are the values stored at evaluation time, not "
+            "the person's current ones.",
+        )
+    elif mode == PersonsOnEventsMode.DISABLED:
+        flag_evaluations.fields["person_id"] = FieldTraverser(
+            chain=["pdi", "person_id"],
+            description="The person that `distinct_id` belongs to now, as `events.person_id` is for this project.",
+        )
+        flag_evaluations.fields["person"] = FieldTraverser(
+            chain=["pdi", "person"],
+            description="The person that `distinct_id` belongs to now. `person.properties` and `person.created_at` "
+            "are the person's current values, not the values stored at evaluation time.",
+        )

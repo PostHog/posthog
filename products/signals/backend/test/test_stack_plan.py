@@ -7,10 +7,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     PullRequestLink,
+    ReviewerCorrections,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
@@ -28,6 +30,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_plan import report_plan
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.stack_plan import (
     create_layer_reports,
     dependency_head_branch,
@@ -202,26 +205,64 @@ class TestStackPlan(BaseTest):
 
     @parameterized.expand(
         [
-            ("pipeline_list_is_inherited", False, 3),
-            ("user_edited_list_is_not_inherited", True, 0),
+            (False, "reviewer", False, None),
+            (True, "reviewer", False, None),
+            (False, "user", False, None),
+            (False, None, False, None),
+            (False, "reviewer", True, None),
+            (False, "reviewer", False, "pin"),
+            (True, "reviewer", False, "pin"),
+            (True, "reviewer", False, "legacy"),
         ]
     )
-    def test_layers_inherit_only_a_pipeline_reviewer_list(self, _name: str, edited_by_user: bool, expected: int):
-        SignalReportArtefact.append_status(
-            team_id=self.team.id,
-            report_id=str(self.parent.id),
-            content=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
-            attribution=ArtefactAttribution.from_user(self.user.id) if edited_by_user else ArtefactAttribution.system(),
-            reevaluate_autostart=False,
+    def test_layers_preserve_reviewer_start_authorization(
+        self, writer_enabled: bool, mode: str | None, user_authored: bool, restriction: str | None
+    ) -> None:
+        self.parent.user_authored = user_authored
+        self.parent.save(update_fields=["user_authored"])
+        authorization = {"mode": mode, "user_id": self.user.id if mode == "user" else None} if mode else None
+        reviewer = SuggestedReviewerEntry(user_uuid=str(self.user.uuid))
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=self.parent,
+            type="suggested_reviewers",
+            content=SuggestedReviewers(root=[reviewer]).model_dump_json(),
+            actor_kind="user" if mode == "user" or restriction == "legacy" else "system",
+            created_by=self.user if mode == "user" or restriction == "legacy" else None,
+            implementation_authorization=authorization,
         )
+        if restriction == "legacy":
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                user=self.user,
+                scope="SignalReport",
+                item_id=str(self.parent.id),
+                activity="suggested_reviewers_changed",
+                detail={"changes": [{"field": "suggested_reviewers", "before": [], "after": [str(self.user.uuid)]}]},
+            )
+        elif restriction:
+            SignalReportArtefact._create(
+                team_id=self.team.id,
+                report_id=str(self.parent.id),
+                content=ReviewerCorrections(pinned=(reviewer,)),
+                attribution=ArtefactAttribution.from_user(self.user.id),
+            )
 
-        child_ids = self._create_layers()
+        with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled):
+            child_ids = self._create_layers()
 
-        inherited = SignalReportArtefact.objects.filter(
-            report_id__in=child_ids, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
-        )
-        assert inherited.count() == expected
+        inherited = SignalReportArtefact.objects.filter(report_id__in=child_ids, type="suggested_reviewers")
+        assert inherited.count() == 3
+        assert all(row.implementation_authorization == authorization for row in inherited)
         assert not inherited.filter(created_by__isnull=False).exists()
+        assert set(SignalReport.objects.filter(id__in=child_ids).values_list("user_authored", flat=True)) == {
+            user_authored
+        }
+        for child_id in child_ids:
+            assignment = ReviewerRules.read_for_report(team_id=self.team.id, report_id=child_id)
+            assert assignment.reviewers == (reviewer,)
+            if restriction:
+                assert assignment.corrections == ReviewerCorrections(pinned=(reviewer,))
 
     @parameterized.expand(
         [

@@ -4,6 +4,8 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
+import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -20,11 +22,9 @@ import type { SeriesDatum } from 'products/product_analytics/frontend/insights/s
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getSeriesIdentification } from '../../shared/seriesIdentification'
-import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
 import {
     buildTrendsSeriesMeta,
@@ -67,6 +67,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         stickinessFilter,
         labelGroupType,
         hasPersonsModal,
+        actionNames,
         querySource,
         showValuesOnSeries,
         isSingleSeriesDefinition,
@@ -77,8 +78,8 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const seriesIdentification = useMemo(
@@ -91,6 +92,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -99,6 +101,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             }),
         [
             querySource,
+            actionNames,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -132,20 +135,13 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 yAxisScaleType,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 showCrosshair: true,
-                tooltip: { ...tooltipConfig, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: tooltipConfig,
             }),
             curve: chartStyleCurve(stickinessFilter?.chartStyle),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [
-            context?.dashboardResultMenu,
-            yAxisScaleType,
-            showValuesOnSeries,
-            legendConfig,
-            tooltipConfig,
-            stickinessFilter?.chartStyle,
-        ]
+        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -227,6 +223,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

@@ -10,6 +10,12 @@ import type { LogsSceneActiveTab } from './frontend/logsSceneLogic'
 
 export const manifest: ProductManifest = {
     name: 'Logs',
+    globalModals: {
+        LogsViewerModal: () =>
+            import('./frontend/components/LogsViewer/LogsViewerModal/LogsViewerModalHost').then(
+                (module) => module.LogsViewerModalHost
+            ),
+    },
     scenes: {
         Logs: {
             import: () => import('./frontend/LogsScene'),
@@ -81,6 +87,8 @@ export const manifest: ProductManifest = {
     },
     urls: {
         logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
+        // pinned: the `savedView` search param, which pins and recents of saved views link with.
+        logsSavedView: (shortId: string): string => combineUrl('/logs', { savedView: shortId }).url,
         logsAlertDetail: (id: string, tab?: string): string =>
             tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
         logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
@@ -100,6 +108,7 @@ export const manifest: ProductManifest = {
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
             href: urls.logs(),
+            searchKeywords: ['logging'],
             searchTabs: [
                 { name: 'Alerts', href: urls.logs('alerts') },
                 { name: 'SQL', href: urls.logs('sql') },

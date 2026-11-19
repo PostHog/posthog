@@ -6,9 +6,10 @@ import structlog
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError, PullRequestRef
-from posthog.models.integration import GitHubIntegration, Integration
-from posthog.models.user_integration import UserGitHubIntegration
+from posthog.models.integration import GitHubIntegration
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -61,7 +62,9 @@ def _github_for_task(task: Task, team_id: int, user_id: int) -> GitHubIntegratio
         return UserGitHubIntegration(user_integration, source="tasks", priority=Priority.NORMAL)
     if not task.github_integration_id:
         return None
-    integration = Integration.objects.filter(team_id=team_id, kind="github", id=task.github_integration_id).first()
+    integration = IntegrationManager.github.oauth.get_many(team_id, [task.github_integration_id]).get(
+        task.github_integration_id
+    )
     if integration is None:
         return None
     github = GitHubIntegration(integration, source="tasks", priority=Priority.NORMAL)
@@ -116,7 +119,7 @@ def pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) -> dic
             if github is None:
                 continue
             fetched = _fetch_titles(github, refs)
-        except (GitHubIntegrationError, GitHubRateLimitError, GitHubEgressBudgetExhausted):
+        except (GitHubIntegrationError, GitHubRateLimitError, GitHubEgressBudgetExhausted, ReauthorizationRequired):
             logger.warning("tasks_pull_request_titles_fetch_failed", team_id=team_id, exc_info=True)
             continue
         cache.set_many({_cache_key(team_id, url): title for url, title in fetched.items()}, _CACHE_TTL_SECONDS)

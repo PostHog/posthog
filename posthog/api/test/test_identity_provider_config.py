@@ -14,8 +14,10 @@ from posthog.models import (
     OrganizationDomain,
     OrganizationMembership,
 )
+from posthog.models.oauth import OAuthApplication
 from posthog.models.scim_provisioned_user import SCIMProvisionedUser
 from posthog.models.scim_request_log import SCIMRequestLog
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 
 class TestIdentityProviderConfigAPI(APIBaseTest):
@@ -428,14 +430,15 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self._make_admin()
         self._enable_features(AvailableFeature.XAA_AUTHENTICATION)
         config = IdentityProviderConfig.objects.create(organization=self.organization)
-        response = self.client.patch(
-            f"/api/organizations/@current/identity_provider_configs/{config.id}/",
-            {
-                "id_jag_issuer_url": "https://example.com/",
-                "id_jag_jwks_url": "https://example.com/keys.json",
-                "id_jag_allowed_clients": ["client-a"],
-            },
-        )
+        with mock_anti_ssrf_dns_lookup():
+            response = self.client.patch(
+                f"/api/organizations/@current/identity_provider_configs/{config.id}/",
+                {
+                    "id_jag_issuer_url": "https://example.com/",
+                    "id_jag_jwks_url": "https://example.com/keys.json",
+                    "id_jag_allowed_clients": ["client-a"],
+                },
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id_jag_issuer_url"], "https://example.com")
         self.assertTrue(response.json()["has_id_jag"])
@@ -443,10 +446,11 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
     def test_cannot_configure_id_jag_without_feature(self):
         self._make_admin()
         config = IdentityProviderConfig.objects.create(organization=self.organization)
-        response = self.client.patch(
-            f"/api/organizations/@current/identity_provider_configs/{config.id}/",
-            {"id_jag_issuer_url": "https://example.com"},
-        )
+        with mock_anti_ssrf_dns_lookup():
+            response = self.client.patch(
+                f"/api/organizations/@current/identity_provider_configs/{config.id}/",
+                {"id_jag_issuer_url": "https://example.com"},
+            )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "id_jag_issuer_url")
 
@@ -552,6 +556,80 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self.assertIsNone(provisioned_user.identity_provider_config_id)
         self.assertIsNone(provisioned_user.organization_domain_id)
         self.assertTrue(SCIMProvisionedUser.objects.filter(id=provisioned_user.id).exists())
+
+    def test_client_registered_config_can_be_deleted_but_not_edited(self):
+        self._make_admin()
+        application = OAuthApplication.objects.create(
+            name="Example agent",
+            client_id="ema-registered-client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://client.example.com/callback",
+            algorithm="RS256",
+        )
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="xaa",
+            domain_scope="all",
+            id_jag_issuer_url="https://identity.example.com/issuers/1",
+            id_jag_registered_by_application=application,
+        )
+        url = f"/api/organizations/@current/identity_provider_configs/{config.id}/"
+
+        edit = self.client.patch(url, {"id_jag_issuer_url": "https://attacker.example.com"})
+
+        self.assertEqual(edit.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(edit.json()["code"], "managed_configuration")
+        config.refresh_from_db()
+        self.assertEqual(config.id_jag_issuer_url, "https://identity.example.com/issuers/1")
+
+        delete = self.client.delete(url)
+
+        self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(IdentityProviderConfig.objects.filter(id=config.id).exists())
+
+    @patch("posthog.api.identity_provider_config.is_url_allowed", return_value=(True, ""))
+    def test_manual_config_cannot_trust_an_issuer_a_client_registered(self, _mock_url_allowed):
+        self._make_admin()
+        self._enable_features(AvailableFeature.XAA_AUTHENTICATION)
+        application = OAuthApplication.objects.create(
+            name="Example agent",
+            client_id="ema-registered-client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://client.example.com/callback",
+            algorithm="RS256",
+        )
+        IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="xaa",
+            id_jag_issuer_url="https://identity.example.com/issuers/1",
+            id_jag_registered_by_application=application,
+        )
+
+        response = self.client.post(
+            "/api/organizations/@current/identity_provider_configs/",
+            {
+                "config_scope": "xaa",
+                "domain_scope": "all",
+                "id_jag_issuer_url": "https://identity.example.com/issuers/1/",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["code"], "issuer_in_use")
+
+        saml_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="saml",
+            id_jag_issuer_url="https://identity.example.com/issuers/1",
+        )
+        rescoped = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{saml_config.id}/", {"config_scope": "xaa"}
+        )
+
+        self.assertEqual(rescoped.status_code, status.HTTP_400_BAD_REQUEST, rescoped.json())
+        self.assertEqual(rescoped.json()["code"], "issuer_in_use")
 
     def test_can_delete_a_config_once_no_domain_uses_it(self):
         self._make_admin()

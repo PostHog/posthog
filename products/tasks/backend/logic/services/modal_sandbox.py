@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import stat
 import time
 import uuid
 import shlex
@@ -31,8 +32,15 @@ from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
+    SandboxFilesystemNotADirectoryError as ModalSandboxFilesystemNotADirectoryError,
+    SandboxFilesystemNotFoundError as ModalSandboxFilesystemNotFoundError,
+    SandboxFilesystemPermissionError as ModalSandboxFilesystemPermissionError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
+)
+from modal.types import (
+    FileInfo as ModalFileInfo,
+    FileType as ModalFileType,
 )
 from modal_proto import api_pb2
 from python_socks import ProxyError as SocksProxyError
@@ -42,13 +50,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.constants import (
-    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
-    DEV_STACK_IMAGE_NAME,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
-    SnapshotKind,
-)
+from products.tasks.backend.constants import ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS, DEV_STACK_IMAGE_NAME
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxControlPlaneError,
@@ -67,6 +69,8 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
     CPU_BILLING_STATE_PATH,
+    CPU_STAT_PATH,
+    CPUACCT_USAGE_PATH,
     build_sampler_start_command,
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
@@ -91,7 +95,15 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.logic.services.sandbox import build_bundled_skills_clear_command, redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox import (
+    LIST_DIR_MISSING_EXIT_CODE,
+    SandboxDirEntry,
+    build_bundled_skills_clear_command,
+    list_dir_command,
+    parse_list_dir_output,
+    redact_sandbox_command,
+    sandbox_repo_path,
+)
 from products.tasks.backend.logic.services.task_filesystem import (
     TASK_FILESYSTEM_SCRIPT,
     TASK_FILESYSTEM_VERSION,
@@ -122,6 +134,26 @@ from .sandbox import (
 
 logger = logging.getLogger(__name__)
 
+_MODAL_FILE_KINDS: dict[ModalFileType, Literal["file", "dir", "symlink"]] = {
+    ModalFileType.FILE: "file",
+    ModalFileType.DIRECTORY: "dir",
+    ModalFileType.SYMLINK: "symlink",
+}
+
+
+def _modal_entry_kind(info: ModalFileInfo) -> Literal["file", "dir", "symlink", "other"]:
+    # Modal reports FIFOs and sockets as FileType.FILE, and reading a FIFO blocks until a writer
+    # appears. The POSIX mode tells them apart; the enum is only a fallback for a mode without type bits.
+    if stat.S_IFMT(info.mode) == 0:
+        return _MODAL_FILE_KINDS.get(info.type, "other")
+    if stat.S_ISREG(info.mode):
+        return "file"
+    if stat.S_ISDIR(info.mode):
+        return "dir"
+    if stat.S_ISLNK(info.mode):
+        return "symlink"
+    return "other"
+
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
@@ -147,7 +179,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # to push or pin a digest for. Keep these two pins in sync with
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
-SANDBOX_SLIM_NODE_MAJOR = 24
+SANDBOX_SLIM_NODE_MAJOR = 26
 SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.13.4"
 # Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
 # use the same directory whatever HOME the sandbox process gets.
@@ -334,12 +366,6 @@ def _sandbox_poll_result(sb: modal.Sandbox) -> str:
 
 def _get_modal_region() -> str:
     return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
-
-
-def _normalize_snapshot_kind(value: object) -> SnapshotKind:
-    if value == SNAPSHOT_KIND_DIRECTORY:
-        return SNAPSHOT_KIND_DIRECTORY
-    return SNAPSHOT_KIND_FILESYSTEM
 
 
 def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
@@ -611,7 +637,7 @@ def _attach_local_package_mounts(
 
 
 def _build_slim_template_image() -> modal.Image:
-    """Inline image for SLIM_BASE: git + ca-certificates + node + uv, nothing else.
+    """Inline image for SLIM_BASE: git + ca-certificates + node + uv + the CPU billing sampler, nothing else.
 
     Built and cached by Modal itself from debian_slim — no registry image, no CD publish
     pipeline, no digest pin to resolve. The first sandbox create after this definition
@@ -631,10 +657,19 @@ def _build_slim_template_image() -> modal.Image:
             f"curl -fsSL https://deb.nodesource.com/setup_{SANDBOX_SLIM_NODE_MAJOR}.x | bash -",
             "apt-get install -y --no-install-recommends nodejs",
             "rm -rf /var/lib/apt/lists/*",
+            "npm install -g corepack@0.36.0",
         )
         .dockerfile_commands(
             [f"COPY --from={SANDBOX_SLIM_UV_IMAGE} /uv /uvx /usr/local/bin/"],
         )
+        # start_cpu_billing_sampler runs this script for every provider. Without it in the image,
+        # no billing state file exists and read_billed_cpu_usage_usec fails for each slim sandbox.
+        .add_local_file(
+            str(Path(settings.BASE_DIR) / "products/tasks/backend/sandbox/images/cpu_billing_sampler.py"),
+            CPU_BILLING_SAMPLER_PATH,
+            copy=True,
+        )
+        .run_commands(f"chmod +x {CPU_BILLING_SAMPLER_PATH} && {CPU_BILLING_SAMPLER_PATH} --check")
     )
 
 
@@ -781,6 +816,18 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         shutil.copy2(base_dir / LOCAL_MODAL_MEMORY_WATCHDOG, context_dir / LOCAL_MODAL_MEMORY_WATCHDOG)
 
     if template == SandboxTemplate.DEFAULT_BASE:
+        for relative_path in (
+            "products/signals/scripts/score_assignees.py",
+            "products/tasks/backend/sandbox/images/build_assignee_evidence.py",
+        ):
+            destination = context_dir / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(base_dir / relative_path, destination)
+        shutil.copytree(
+            base_dir / "packages/owners-yaml/owners_yaml",
+            context_dir / "packages/owners-yaml/owners_yaml",
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
         filesystem_script = Path("products/tasks/backend/sandbox/images/task_filesystem.py")
         shutil.copy2(base_dir / filesystem_script, context_dir / filesystem_script)
         destination_hogli_shim_path = context_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT
@@ -852,6 +899,8 @@ class ModalSandbox(AgentServerLaunchMixin):
         self._destroyed = False
 
     def _validate_agent_server_launch(self) -> None:
+        if self.config.agent_egress_probe:
+            raise RuntimeError("Egress probe sandboxes cannot launch an agent server")
         if not self._is_running_cached():
             raise RuntimeError("Sandbox not in running state.")
 
@@ -1032,6 +1081,8 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
+        if config.agent_egress_probe or config.agent_egress_observation:
+            SandboxConfig.model_validate(config.model_dump())
         sb: modal.Sandbox | None = None
         try:
             modal.enable_output()
@@ -1078,43 +1129,42 @@ class ModalSandbox(AgentServerLaunchMixin):
             config.snapshot_restored = False
             config.image_fallback = None
             snapshot_external_id: str | None = None
-            snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
             # No default-fill: a directory snapshot must arrive with an explicit allowed mount
             # path, or the mount below is refused. Defaulting here would silently re-target a
             # snapshot that upstream validation invalidated (mount path stripped).
             snapshot_mount_path: str | None = config.snapshot_mount_path
             snapshot_image: modal.Image | None = None
 
-            if config.snapshot_external_id:
+            if config.resume_snapshot_external_id:
+                snapshot_external_id = config.resume_snapshot_external_id
+                try:
+                    snapshot_image = modal.Image.from_id(config.resume_snapshot_external_id)
+                except Exception as e:
+                    logger.warning(f"Failed to load resume snapshot image {config.resume_snapshot_external_id}: {e}")
+                    capture_exception(e)
+            elif config.snapshot_external_id:
                 snapshot_external_id = config.snapshot_external_id
                 try:
                     snapshot_image = modal.Image.from_id(config.snapshot_external_id)
                 except Exception as e:
-                    logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
+                    logger.warning(f"Failed to load snapshot image {config.snapshot_external_id}: {e}")
                     capture_exception(e)
             elif config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     snapshot_external_id = snapshot.external_id
-                    snapshot_kind = _normalize_snapshot_kind(snapshot.metadata.get("snapshot_kind"))
-                    metadata_mount_path = snapshot.metadata.get("snapshot_mount_path")
-                    if isinstance(metadata_mount_path, str) and metadata_mount_path:
-                        snapshot_mount_path = metadata_mount_path
                     try:
                         snapshot_image = modal.Image.from_id(snapshot.external_id)
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
-            # Keep the config's kind authoritative for downstream trust decisions — the
-            # dev-stack bootstrap gate distinguishes directory from filesystem restores.
-            config.snapshot_kind = snapshot_kind
 
             # Creation candidates, best first. Each later entry is a downgrade attempted only
             # when creating from the previous image fails (e.g. its overlay image build errors),
             # so a broken overlay costs the local packages, never the snapshot or custom image.
             candidates: list[ImageCandidate] = []
             requested_dev_stack = config.is_dev_stack_image
-            if snapshot_image is not None and snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
+            if snapshot_image is not None and config.resume_snapshot_external_id is None:
                 overlaid_snapshot = _attach_local_package_mounts(
                     snapshot_image, config.template, install_dependencies=False
                 )
@@ -1153,7 +1203,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 )
             candidates.append(ImageCandidate(base_image, "base image"))
             if config.require_snapshot:
-                if snapshot_image is None or snapshot_kind != SNAPSHOT_KIND_FILESYSTEM:
+                if snapshot_image is None or config.resume_snapshot_external_id is not None:
                     raise RuntimeError("The required filesystem snapshot could not be loaded")
                 candidates = [
                     ImageCandidate(
@@ -1167,7 +1217,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 secret = modal.Secret.from_dict(env_dict)
                 secrets.append(secret)
 
-            sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
+            sandbox_name = config.name if config.agent_egress_probe else f"{config.name}-{uuid.uuid4().hex[:6]}"
 
             region = _get_modal_region()
 
@@ -1184,6 +1234,11 @@ class ModalSandbox(AgentServerLaunchMixin):
             if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 
+            if config.agent_egress_probe or config.agent_egress_observation:
+                create_kwargs["experimental_options"] = {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024}
+            if config.agent_egress_probe:
+                create_kwargs["outbound_cidr_allowlist"] = []
+
             if config.block_network:
                 create_kwargs["block_network"] = True
 
@@ -1198,7 +1253,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 config.image_fallback = f"{custom_image_failure} -> base image"
 
             directory_mount_applied = False
-            if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
+            if config.resume_snapshot_external_id and snapshot_image is not None:
                 # The mount REPLACES the target directory in the running sandbox — over a live
                 # system path (the legacy "/tmp" default) that kills Modal's in-sandbox helpers,
                 # and a snapshot's content only fits the path it was captured from. Last-line
@@ -1242,7 +1297,6 @@ class ModalSandbox(AgentServerLaunchMixin):
                         "sandbox_id": sb.object_id,
                         "winner_label": winner.label,
                         "snapshot_external_id": snapshot_external_id,
-                        "snapshot_kind": snapshot_kind,
                         "snapshot_mount_path": snapshot_mount_path,
                     },
                 )
@@ -1696,6 +1750,51 @@ class ModalSandbox(AgentServerLaunchMixin):
                 cause=e,
             )
 
+    def _raise_unless_running(self) -> None:
+        if not self._is_running_cached():
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
+        self._raise_unless_running()
+        # Modal's filesystem listing returns every entry with no limit, and the agent controls how many there are.
+        result = self.execute(list_dir_command(path, limit))
+        if result.exit_code == LIST_DIR_MISSING_EXIT_CODE:
+            return None
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Failed to list directory",
+                {"sandbox_id": self.id, "path": path, "stderr": result.stderr[:500]},
+                cause=RuntimeError(result.stderr[:500]),
+            )
+        return parse_list_dir_output(result.stdout)
+
+    def read_file(self, path: str, max_bytes: int) -> bytes | None:
+        self._raise_unless_running()
+        try:
+            info = self._sandbox.filesystem.stat(path)
+        except (
+            ModalSandboxFilesystemNotFoundError,
+            ModalSandboxFilesystemNotADirectoryError,
+            ModalSandboxFilesystemPermissionError,
+        ):
+            return None
+        except Exception as e:
+            _raise_if_proxy_failure(e, self.id, "filesystem_stat")
+            raise
+        if _modal_entry_kind(info) != "file" or info.size > max_bytes:
+            return None
+        # Modal's supported filesystem API has no bounded read, and a file can grow after the stat,
+        # so the bytes come from a capped shell read. Callers validate and cap the content, so a
+        # tampered shell can only corrupt the user's own memory.
+        result = self.execute(f"set -o pipefail; head -c {max_bytes + 1} -- {shlex.quote(path)} | base64 -w0")
+        if result.exit_code != 0:
+            return None
+        return base64.b64decode(result.stdout.strip())
+
     def _remove_temp_file(self, temp_path: str, step_timeout: int) -> None:
         try:
             self.execute(f"rm -f {shlex.quote(temp_path)}", timeout_seconds=min(step_timeout, 10))
@@ -1731,8 +1830,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         if not self._is_running_cached():
             raise RuntimeError(f"Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path = sandbox_repo_path(repository)
 
         result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         is_clean = not result.stdout.strip()
@@ -1960,13 +2058,13 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     def read_cpu_usage_usec(self) -> int | None:
         try:
-            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+            cpu_stat = self._sandbox.filesystem.read_text(CPU_STAT_PATH)
         except Exception:
             cpu_stat = None
         if cpu_stat is not None and (usage := parse_cpu_stat_usage_usec(cpu_stat)) is not None:
             return usage
         try:
-            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            cpuacct_usage = self._sandbox.filesystem.read_text(CPUACCT_USAGE_PATH)
             if cpuacct_usage.strip():
                 return int(cpuacct_usage) // 1000
         except Exception:
@@ -2015,7 +2113,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         if returncode is None:
             return "running"
         try:
-            result = getattr(modal_synchronizer._translate_in(self._sandbox), "_result", None)
+            result = modal_synchronizer._translate_in(self._sandbox)._impl.result
             if result is not None:
                 return api_pb2.GenericResult.GenericStatus.Name(result.status).lower().removeprefix("generic_status_")
         except Exception as e:

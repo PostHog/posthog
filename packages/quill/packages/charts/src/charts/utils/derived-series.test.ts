@@ -80,13 +80,29 @@ describe('buildTrendLineSeries', () => {
         expect(tl.overlay).toBe(true)
     })
 
+    const EPOCH_XS = [0, 1000, 4000].map((ms) => Date.parse('2026-03-01T00:00:00Z') + ms)
     it.each([
-        ['linear', [10, 12, 14, 16, 18, 20, 22], 'linear', undefined, 10, 22],
-        ['exponential, all positive (y=2^x)', [1, 2, 4, 8, 16, 32, 64], 'exponential', undefined, 1, 64],
-        ['exponential, non-positive falls back to linear y=x-1', [-1, 0, 1, 2], 'exponential', undefined, -1, 2],
-        ['exponential, zero in tail with fitUpTo skipping it', [1, 2, 4, 8, 0], 'exponential', 4, 1, 16],
-    ] as const)('fits %s', (_label, data, kind, fitUpTo, expectedFirst, expectedLast) => {
-        const tl = buildTrendLineSeries({ sourceSeries: { ...SOURCE, data: [...data] }, kind, fitUpTo })
+        ['linear', [10, 12, 14, 16, 18, 20, 22], 'linear', undefined, undefined, 10, 22],
+        ['exponential, all positive (y=2^x)', [1, 2, 4, 8, 16, 32, 64], 'exponential', undefined, undefined, 1, 64],
+        [
+            'exponential, non-positive falls back to linear y=x-1',
+            [-1, 0, 1, 2],
+            'exponential',
+            undefined,
+            undefined,
+            -1,
+            2,
+        ],
+        ['exponential, zero in tail with fitUpTo skipping it', [1, 2, 4, 8, 0], 'exponential', 4, undefined, 1, 16],
+        ['linear at epoch times', [0, 1, 4], 'linear', undefined, EPOCH_XS, 0, 4],
+        ['exponential at epoch times', [1, 2, 16], 'exponential', undefined, EPOCH_XS, 1, 16],
+    ] as const)('fits %s', (_label, data, kind, fitUpTo, xs, expectedFirst, expectedLast) => {
+        const tl = buildTrendLineSeries({
+            sourceSeries: { ...SOURCE, data: [...data] },
+            kind,
+            fitUpTo,
+            xs: xs ? [...xs] : undefined,
+        })
         expect(tl.data).toHaveLength(data.length)
         expect(tl.data.every(Number.isFinite)).toBe(true)
         expect(tl.data[0]).toBeCloseTo(expectedFirst, 2)

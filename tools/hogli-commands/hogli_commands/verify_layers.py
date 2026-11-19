@@ -29,6 +29,14 @@ from hogli_commands.ci_preflight import (
     _run_diff_check,
 )
 from hogli_commands.test_runner import changed_test_files
+from hogli_commands.verify_stamp import (
+    FAILED_OUTCOME,
+    NO_LAYER,
+    VERIFIED_OUTCOME,
+    ContentSnapshot,
+    snapshot_working_tree,
+    write_stamp,
+)
 
 
 class ComplexityLayer(IntEnum):
@@ -110,7 +118,7 @@ FALLBACK_RULE = KindRule(kind=ChangeKind.PURE_LOGIC, globs=("*",), sufficient=Co
 
 COMPLEXITY_LAYERS: dict[ComplexityLayer, str] = {
     ComplexityLayer.OPENAPI: "Start the services with `hogli up -d`, run `hogli build:openapi`, and commit the generated types.",
-    ComplexityLayer.STORYBOOK: "Render the affected stories with `pnpm storybook` and compare them before and after.",
+    ComplexityLayer.STORYBOOK: "Render the affected stories with `STORYBOOK_STORIES=<dir> pnpm storybook` and compare them before and after.",
     ComplexityLayer.STACK: "Start the stack with `hogli up -d` and `hogli wait`, then exercise the change in the app.",
     ComplexityLayer.END_TO_END: "Run the changed Playwright specs with `hogli test <spec>` against a running stack.",
 }
@@ -203,6 +211,51 @@ def _static_checks(files: list[str]) -> list[DiffCheck]:
     return triggered
 
 
+REACHED_STATUSES = frozenset({"pass", "partial"})
+
+
+def _layer_name(layer: ComplexityLayer) -> str:
+    return layer.name.lower()
+
+
+def _static_layer_status(checks: dict[str, str]) -> str:
+    if "fail" in checks.values():
+        return "fail"
+    if {"skipped", "advisory"} & set(checks.values()):
+        return "partial"
+    return "pass"
+
+
+def _record_stamp(
+    snapshot: ContentSnapshot | None, plan: VerifyPlan, checks: dict[str, str], unit_tests: str, outstanding: list[str]
+) -> None:
+    static = _static_layer_status(checks)
+    layers = {_layer_name(ComplexityLayer.STATIC): static, _layer_name(ComplexityLayer.UNIT_TEST): unit_tests}
+    layers.update({_layer_name(layer): "advice" for layer in plan.manual_layers})
+    highest_layer = NO_LAYER
+    if static in REACHED_STATUSES:
+        highest_layer = _layer_name(ComplexityLayer.STATIC)
+        if unit_tests == "pass":
+            highest_layer = _layer_name(ComplexityLayer.UNIT_TEST)
+    sufficient = max(
+        plan.manual_layers, default=ComplexityLayer.UNIT_TEST if plan.runs_unit_tests else ComplexityLayer.STATIC
+    )
+    if "fail" in layers.values():
+        outcome = FAILED_OUTCOME
+    elif outstanding or plan.manual_layers:
+        outcome = "unverified"
+    else:
+        outcome = VERIFIED_OUTCOME
+    write_stamp(
+        snapshot=snapshot,
+        outcome=outcome,
+        highest_layer=highest_layer,
+        sufficient_layer=_layer_name(sufficient),
+        layers=layers,
+        checks=checks,
+    )
+
+
 def _print_plan(plan: VerifyPlan) -> None:
     for kind, paths in plan.files_by_kind.items():
         click.echo(f"   {kind}: {len(paths)} file(s)")
@@ -235,6 +288,7 @@ def _print_manual_layers(plan: VerifyPlan, outstanding: tuple[str, ...] = ()) ->
 def verify(changed: bool, plan_only: bool) -> None:
     if not changed:
         raise click.UsageError("Pass --changed to verify the files changed on this branch.")
+    snapshot = None if plan_only else snapshot_working_tree()
     files = changed_files()
     if not files:
         click.secho("No changed files on this branch.", fg="yellow")
@@ -249,8 +303,10 @@ def verify(changed: bool, plan_only: bool) -> None:
     click.secho("  Layer 1: lint, format, typecheck", bold=True)
     failures = 0
     outstanding: list[str] = []
+    check_statuses: dict[str, str] = {}
     for check in _static_checks(files):
         status, detail = _run_diff_check(check, do_fix=False, against=None, strict=False, changed=files)
+        check_statuses[check.key] = status
         failures += status == "fail"
         if status == "skipped":
             outstanding.append(f"[{check.key}] was skipped: {detail}. Set up what it needs.")
@@ -260,10 +316,13 @@ def verify(changed: bool, plan_only: bool) -> None:
         click.echo(f"       {detail}")
     click.echo()
     if failures:
+        _record_stamp(snapshot, plan, check_statuses, "not_run", outstanding)
         click.secho("  Fix the failures above, then run `hogli verify --changed` again.", fg="red")
         sys.exit(1)
 
+    unit_tests = "not_needed"
     if plan.runs_unit_tests and not changed_test_files(skip_playwright=True).all_files:
+        unit_tests = "no_tests"
         outstanding.append(
             "No tests were found for the changed files. Pick the nearest test and run `hogli test <file>`."
         )
@@ -271,8 +330,11 @@ def verify(changed: bool, plan_only: bool) -> None:
         click.secho("  Layer 2: hogli test --changed --skip-playwright", bold=True)
         test_command = [sys.executable, "-m", "hogli", "test", "--changed", "--skip-playwright"]
         if subprocess.run(test_command, cwd=REPO_ROOT).returncode != 0:
+            _record_stamp(snapshot, plan, check_statuses, "fail", outstanding)
             click.secho("\n  Tests failed. Fix them before you run slower checks.", fg="red")
             sys.exit(1)
+        unit_tests = "pass"
         click.echo()
 
+    _record_stamp(snapshot, plan, check_statuses, unit_tests, outstanding)
     _print_manual_layers(plan, tuple(outstanding))

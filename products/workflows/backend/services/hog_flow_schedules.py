@@ -47,7 +47,9 @@ def _get_schedule_row(team_id: int, hog_flow_id: UUID, schedule_id: str | UUID) 
 
 
 def list_schedules(*, team_id: int, hog_flow_id: UUID) -> list[WorkflowSchedule]:
-    schedules = HogFlowSchedule.objects.filter(hog_flow_id=hog_flow_id, team_id=team_id).order_by("-created_at")
+    # Same order as the schedules a workflow response embeds, so the editor and the broadcast
+    # screens agree on which schedule is the first one.
+    schedules = HogFlowSchedule.objects.filter(hog_flow_id=hog_flow_id, team_id=team_id).order_by("created_at", "id")
     return [_to_schedule(s) for s in schedules]
 
 
@@ -184,6 +186,7 @@ def process_due_schedules() -> ProcessedSchedules:
 
             # Dispatch outside the transaction so HTTP calls don't hold the row lock.
             if batch_job_params:
+                dispatch_error: Exception | None = None
                 with transaction.atomic():
                     # Re-read the status under the flow's lock, so a stop that committed after
                     # the check above wins, and a stop that lands later sees this job.
@@ -193,15 +196,29 @@ def process_due_schedules() -> ProcessedSchedules:
                         .exists()
                     )
                     if still_active:
-                        HogFlowBatchJob.objects.create(
-                            **batch_job_params,
-                            status=HogFlowBatchJob.State.QUEUED,
-                        )
+                        try:
+                            HogFlowBatchJob.objects.create(
+                                **batch_job_params,
+                                status=HogFlowBatchJob.State.QUEUED,
+                            )
+                        except Exception as e:
+                            # Keep the job and its recorded cap: a failed dispatch may still have queued the resolver.
+                            dispatch_error = e
+                if dispatch_error is not None:
+                    raise dispatch_error
                 if still_active:
                     processed.append(str(schedule_id))
             elif schedule_invocation_params:
                 response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
-                response.raise_for_status()
+                if response.status_code == 429:
+                    logger.info(
+                        "Skipped a scheduled run over the workflow quota",
+                        schedule_id=str(schedule_id),
+                        team_id=schedule_invocation_params["team_id"],
+                        hog_flow_id=schedule_invocation_params["hog_flow_id"],
+                    )
+                else:
+                    response.raise_for_status()
                 processed.append(str(schedule_id))
         except Exception:
             logger.exception("Error processing schedule", schedule_id=str(schedule_id))

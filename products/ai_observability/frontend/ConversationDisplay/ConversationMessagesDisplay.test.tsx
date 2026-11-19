@@ -6,12 +6,7 @@ import { Provider } from 'kea'
 import { initKeaTests } from '~/test/init'
 
 import { CompatMessage, MultiModalContentItem } from '../types'
-import {
-    ConversationDisplayOption,
-    ConversationMessagesDisplay,
-    ImageMessageDisplay,
-    LLMMessageDisplay,
-} from './ConversationMessagesDisplay'
+import { ConversationMessagesDisplay, ImageMessageDisplay, LLMMessageDisplay } from './ConversationMessagesDisplay'
 import { messageActionsMenuLogic } from './messageActionsMenuLogic'
 
 // react-json-view is loaded via React.lazy, so the first render suspends on a code-split chunk.
@@ -529,32 +524,7 @@ describe('ConversationMessagesDisplay', () => {
     ]
     const outputNormalized: CompatMessage[] = [{ role: 'assistant', content: 'assistant output content' }]
 
-    it.each<[string, string, string[], string[]]>([
-        [
-            'expand_all',
-            'expand_all',
-            [
-                'system input content',
-                'first user input content',
-                'assistant input content',
-                'second user input content',
-                'assistant output content',
-            ],
-            [],
-        ],
-        [
-            'expand_user_only',
-            'expand_user_only',
-            ['first user input content', 'second user input content'],
-            ['system input content', 'assistant input content', 'assistant output content'],
-        ],
-        [
-            'collapse_except_output_and_last_input',
-            'collapse_except_output_and_last_input',
-            ['second user input content', 'assistant output content'],
-            ['system input content', 'first user input content', 'assistant input content'],
-        ],
-    ])('display option %s shows/hides correct messages', (_label, displayOption, visible, hidden) => {
+    it('opens on the last input message and the output, with earlier inputs collapsed', () => {
         render(
             <Provider>
                 <ConversationMessagesDisplay
@@ -562,15 +532,14 @@ describe('ConversationMessagesDisplay', () => {
                     outputNormalized={outputNormalized}
                     errorData={null}
                     raisedError={false}
-                    displayOption={displayOption as ConversationDisplayOption}
                 />
             </Provider>
         )
 
-        for (const text of visible) {
+        for (const text of ['second user input content', 'assistant output content']) {
             expect(screen.getByText(text)).toBeInTheDocument()
         }
-        for (const text of hidden) {
+        for (const text of ['system input content', 'first user input content', 'assistant input content']) {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
         }
     })

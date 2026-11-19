@@ -11,6 +11,10 @@ const SIGNATURE_BYTES = 16
 // (see generateShort) purely as a backwards-compat fallback.
 export const TRACKING_CODE_HEADER_NAME = 'X-PostHog-Tracking-Code'
 
+// Signed creation time of a keyed message, whose id holds no time, as `<ms>.<signature>`. It rides apart from the
+// tracking code so that header keeps its length under SES's 996-character header limit, and older pods ignore it.
+export const MESSAGE_CREATED_HEADER_NAME = 'X-PostHog-Message-Created'
+
 // Tracks the rotation curve from unsigned to signed tracking codes.
 export const trackingCodeFormatCounter = new Counter({
     name: 'email_tracking_code_format_total',
@@ -101,6 +105,10 @@ const EMIT_VERSIONED_PAYLOAD = true
 // leading `[` keeps this payload apart from tracking-code payloads, which are bare base64url.
 const redirectSignaturePayload = (trackingCode: string, targetUrl: string): string =>
     JSON.stringify(['redirect', trackingCode, targetUrl])
+
+// Binds the time to one message, and the leading tag keeps it apart from every other signed payload.
+const messageCreatedSignaturePayload = (messageId: string, createdMs: number): string =>
+    JSON.stringify(['message-created', messageId, createdMs])
 
 // Generates, signs, verifies and renders email tracking codes. Signing keys and the public
 // tracking URL are read once in the constructor so callers can be injected with a configured
@@ -255,6 +263,22 @@ export class EmailTrackingCodeSigner {
         const trackingCode = this.generate(invocation, isTest)
         const signature = this.signPayload(redirectSignaturePayload(trackingCode, targetUrl), this.signingKeys[0])
         return `${this.trackingUrl}/public/m/redirect?ph_id=${trackingCode}&ph_sig=${signature}&target=${encodeURIComponent(targetUrl)}`
+    }
+
+    messageCreatedHeaderValue(messageId: string, createdMs: number): string {
+        return `${createdMs}.${this.signPayload(messageCreatedSignaturePayload(messageId, createdMs), this.signingKeys[0])}`
+    }
+
+    verifyMessageCreatedHeaderValue(messageId: string, value: string | undefined): number | undefined {
+        const [time, signature, ...rest] = (value ?? '').split('.')
+        if (!signature || rest.length > 0 || !/^\d{1,16}$/.test(time)) {
+            return undefined
+        }
+        const createdMs = Number(time)
+        return Number.isSafeInteger(createdMs) &&
+            this.verifySignature(messageCreatedSignaturePayload(messageId, createdMs), signature)
+            ? createdMs
+            : undefined
     }
 
     // Links minted before the target was signed carry no `ph_sig`, so they fail this check.

@@ -28,6 +28,7 @@ export interface DataNodeRegisteredProps {
 
 export interface CollectionNodeLoadMeta {
     isCached?: boolean
+    lastRefresh?: string | null
 }
 
 export interface DataNodeCollectionProps {
@@ -37,6 +38,7 @@ export interface DataNodeCollectionProps {
 export interface DataNodeStatus {
     isLoading: boolean
     hasError: boolean
+    lastRefresh?: string | null
 }
 
 export type DataNodeStatusMap = Record<string, DataNodeStatus | undefined>
@@ -183,7 +185,10 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
                     return { ...state, [payload.id]: { isLoading: true, hasError: false } }
                 },
                 collectionNodeLoadDataSuccess: (state, payload) => {
-                    return { ...state, [payload.id]: { isLoading: false, hasError: false } }
+                    return {
+                        ...state,
+                        [payload.id]: { isLoading: false, hasError: false, lastRefresh: payload.meta?.lastRefresh },
+                    }
                 },
                 collectionNodeLoadDataFailure: (state, payload) => {
                     return { ...state, [payload.id]: { isLoading: false, hasError: true } }

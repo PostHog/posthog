@@ -273,7 +273,8 @@ If a session cannot be resolved, try another example. If none resolve, report th
         )
         detail_tools_section = (
             "- **`sample_generation_details(generation_ids)`**: 500-character head-and-tail input previews, "
-            "output previews, model, token counts including cache usage, and trace ID. Call this before citing.\n"
+            "full stored input length (`input_length`, in characters), output previews, model, token counts "
+            "including cache usage, and trace ID. Call this before citing.\n"
             "- **`get_generation_detail(generation_id)`**: complete data for one generation and its evaluation "
             "results.\n"
             "- **`get_generation_text_repr(generation_id)`**: canonical rendering for a generation."
@@ -287,7 +288,13 @@ If a session cannot be resolved, try another example. If none resolve, report th
 
 If a generation cannot be resolved, try another example. If none resolve, report the data-quality limitation.
 
-Sample previews omit content. You must call `get_generation_detail` before claiming that captured input is truncated or instrumentation is broken. Low `input_tokens` alone is not evidence of missing input: inspect `cache_read_input_tokens` and `cache_creation_input_tokens` as well as the complete input."""
+Sample previews deliberately omit content. `input_length` counts the stored input's characters before shortening the preview. A message or marker absent from a preview is not evidence of missing captured input. You must call `get_generation_detail` before claiming that captured input is truncated or instrumentation is broken, and only report a limitation if the full detail confirms it.
+
+Prompt caching is normal. Low `input_tokens` alongside high `cache_read_input_tokens` or `cache_creation_input_tokens` does not indicate missing input or an auditability risk. Do not add caveats or recommendations based on this alone.
+
+A trace can contain many generations by design. Shared `trace_id` values do not imply duplicate or misattributed generations. Use `generation_id` to distinguish individual calls.
+
+Recheck any such caveat from a prior report against current full generation details. If those details show no limitation, omit the caveat instead of repeating it as a standing risk."""
         detail_step = "Call `sample_generation_details(...)` on 3-5 useful examples."
     else:
         raise ValueError(f"Unsupported evaluation target: {evaluation_target}")
