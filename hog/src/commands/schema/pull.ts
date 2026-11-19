@@ -1,5 +1,5 @@
 import { defineCommand } from '@/core/command'
-import { TYPESCRIPT_SDKS, updateConfig, type SchemaLanguage, type TypeScriptSdk } from '@/core/config'
+import { SCHEMA_SDKS, updateConfig, type SchemaLanguage, type SchemaSdk, type TypeScriptSdk } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { absolutePath, storedPath } from '@/core/paths'
@@ -9,17 +9,19 @@ import {
     chosenFile,
     configRoot,
     DEFAULT_TYPESCRIPT_SDK,
+    effectiveSdk,
     fetchDefinitions,
     isLanguage,
     LANGUAGE_INFO,
     LANGUAGES,
     moduleInfo,
+    sdkLanguage,
     type Language,
 } from './shared'
 
 interface PulledLanguage {
     language: Language
-    sdk: TypeScriptSdk | undefined
+    sdk: SchemaSdk | undefined
     file: string
     status: 'written' | 'would_write' | 'unchanged'
     eventCount: number
@@ -38,9 +40,9 @@ export default defineCommand({
         },
         sdk: {
             type: 'string',
-            choices: TYPESCRIPT_SDKS,
+            choices: SCHEMA_SDKS,
             description:
-                'TypeScript only: the SDK the module wraps. none generates only the event types, for posthog-react-native, posthog-node or any other SDK. posthog.json remembers it',
+                'The SDK the module wraps. TypeScript: none generates only the event types, for posthog-react-native, posthog-node or any other SDK. Go: posthog-go-v2 imports posthog-go 2.x. posthog.json remembers it',
         },
         file: {
             type: 'string',
@@ -59,6 +61,7 @@ export default defineCommand({
         'hog schema pull',
         'hog schema pull -l python --file app/posthog_typed.py',
         'hog schema pull -l typescript --sdk none',
+        'hog schema pull -l golang --sdk posthog-go-v2',
     ],
 
     async run({ options, ctx }) {
@@ -95,11 +98,13 @@ export default defineCommand({
             )
         }
 
-        if (options.sdk !== undefined && !languages.includes('typescript')) {
+        if (options.sdk !== undefined && !languages.includes(sdkLanguage(options.sdk))) {
+            const language = sdkLanguage(options.sdk)
+            const { name } = LANGUAGE_INFO[language]
             throw new HogError(
                 'usage_error',
-                '--sdk only applies to TypeScript, but hog is not generating TypeScript.',
-                'Pass --language typescript too.',
+                `--sdk ${options.sdk} only applies to ${name}, but hog is not generating ${name}.`,
+                `Pass --language ${language} too.`,
                 EXIT_USAGE
             )
         }
@@ -108,7 +113,8 @@ export default defineCommand({
         const entries: Partial<Record<Language, SchemaLanguage>> = {}
         for (const language of languages) {
             const saved = configured[language]
-            const sdk = language === 'typescript' ? await typescriptSdk(ctx, options.sdk, saved) : undefined
+            const flag = options.sdk !== undefined && sdkLanguage(options.sdk) === language ? options.sdk : undefined
+            const sdk = await moduleSdk(ctx, language, flag, saved)
             let file: string
             if (options.file !== undefined) {
                 file = await chosenFile(ctx, options.file, language, sdk)
@@ -129,7 +135,7 @@ export default defineCommand({
             // The module carries the time PostHog generated it, so only the hash says whether the events changed.
             const unchanged =
                 saved?.output_path === outputPath &&
-                savedSdk(language, saved) === sdk &&
+                effectiveSdk(language, saved.sdk) === effectiveSdk(language, sdk) &&
                 saved.schema_hash === definitions.schema_hash &&
                 (await ctx.runtime.exists(file))
             if (!unchanged && !options.dryRun) {
@@ -204,23 +210,27 @@ export default defineCommand({
     }),
 })
 
-// A posthog.json entry without `sdk` has a module that wraps posthog-js.
-function savedSdk(language: Language, saved: SchemaLanguage | undefined): TypeScriptSdk | undefined {
-    return language === 'typescript' ? (saved?.sdk ?? DEFAULT_TYPESCRIPT_SDK) : undefined
-}
-
-async function typescriptSdk(
+// The SDK to generate for: the flag, then the saved entry. TypeScript always records one, and asks when it
+// has neither. Go records one only when it was chosen, so an entry without `sdk` stays as it is.
+async function moduleSdk(
     ctx: Context,
-    flag: TypeScriptSdk | undefined,
+    language: Language,
+    flag: SchemaSdk | undefined,
     saved: SchemaLanguage | undefined
-): Promise<TypeScriptSdk> {
+): Promise<SchemaSdk | undefined> {
     if (flag) {
         return flag
     }
-    if (saved || !ctx.prompts) {
-        return savedSdk('typescript', saved) ?? DEFAULT_TYPESCRIPT_SDK
+    if (language === 'golang') {
+        return saved?.sdk === undefined ? undefined : effectiveSdk(language, saved.sdk)
     }
-    return ctx.prompts.select('Which PostHog SDK does this app use?', [
+    if (language !== 'typescript') {
+        return undefined
+    }
+    if (saved || !ctx.prompts) {
+        return effectiveSdk(language, saved?.sdk) ?? DEFAULT_TYPESCRIPT_SDK
+    }
+    return ctx.prompts.select<TypeScriptSdk>('Which PostHog SDK does this app use?', [
         { value: 'posthog-js', label: 'posthog-js: hog wraps it so capture() checks your events' },
         { value: 'none', label: 'Another SDK, such as posthog-react-native: hog writes only the event types' },
     ])
