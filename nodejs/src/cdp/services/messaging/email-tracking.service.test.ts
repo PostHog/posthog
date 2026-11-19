@@ -570,6 +570,13 @@ describe('EmailTrackingService', () => {
                     expect(() => sesTrack(`<body>${nested}${link}</body>`)).toThrow(EmailFormattingTooCostlyError)
                 })
 
+                it('is sent when many links with many attributes are closed deep in the email', () => {
+                    const attributes = Array.from({ length: 10 }, (_, i) => `a${i}="${i}"`).join(' ')
+                    const closed = `<a href="https://example.com/" ${attributes}>a</a>`.repeat(5_000)
+                    const deep = '<div>'.repeat(250)
+                    expect(sesTrack(`<body>${deep}${closed}${link}</body>`)).toContain('phl:5000')
+                })
+
                 it('is sent when a few tags are left open', () => {
                     expect(sesTrack(`<body>${openTags(3)}${blocks}${link}</body>`)).toContain('phl:0')
                 })
@@ -598,6 +605,13 @@ describe('EmailTrackingService', () => {
                 const out = sesTrack(html)
                 expect(out.indexOf('<img src="')).toBe(html.lastIndexOf('</body>'))
                 expect(out.replace(/<img src="[^"]*" style="display: none;" \/>/, '')).toBe(html)
+            })
+
+            it.each([
+                ['an SVG foreignObject', '<body><svg><foreignObject><p>Hi</p></BODY ></foreignObject></svg></body>'],
+                ['a MathML text element', '<body><math><mtext>Hi</BODY ></mtext></math></body>'],
+            ])('places the pixel before a body end tag inside %s, which shows HTML', (_name, html) => {
+                expect(sesTrack(html).indexOf('<img src="')).toBe(html.indexOf('</BODY >'))
             })
 
             it('places the pixel before a body end tag written with a slash', () => {

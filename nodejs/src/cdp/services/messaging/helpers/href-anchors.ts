@@ -78,7 +78,7 @@ export const MIN_NESTING_LIMIT = 256
 export const ELEMENTS_PER_TAG = 2
 export const MIN_ELEMENT_BUDGET = 50_000
 // The parser compares each formatting element a start tag opens with every one still open, attribute by attribute, so
-// formatting elements nested deep with many attributes cost their depth times their attributes. The copies it rebuilds
+// many open formatting elements with many attributes cost their count times their attributes. The copies it rebuilds
 // from an earlier tag are not compared.
 export const FORMATTING_BUDGET = 10_000_000
 const FORMATTING_TAGS = new Set([
@@ -134,10 +134,24 @@ export class EmailFormattingTooCostlyError extends EmailHtmlTooComplexError {
 }
 
 type ParentNode = DefaultTreeAdapterMap['parentNode']
+type FormattingList = Parser<DefaultTreeAdapterMap>['activeFormattingElements']
+
+// The formatting elements still open since the last table cell, caption or similar boundary, which the parser compares
+// a new one with. A boundary entry holds no element.
+const openFormattingCount = (list: FormattingList | undefined): number => {
+    let count = 0
+    while (list && count < list.entries.length && 'element' in list.entries[count]) {
+        count++
+    }
+    return count
+}
 
 // Stops a parse when an element nests deeper than the limit, or when the parse builds more elements or formatting work
 // than the email's budget. A template's content counts from the template.
-const boundedAdapter = (bounds: ParseBounds): TreeAdapter<DefaultTreeAdapterMap> => {
+const boundedAdapter = (
+    bounds: ParseBounds,
+    formattingList: () => FormattingList | undefined
+): TreeAdapter<DefaultTreeAdapterMap> => {
     const depths = new WeakMap<Node, number>()
     const templates = new WeakMap<Node, Node>()
     const attributeNames = new WeakMap<Element, Set<string>>()
@@ -155,7 +169,7 @@ const boundedAdapter = (bounds: ParseBounds): TreeAdapter<DefaultTreeAdapterMap>
             throw new EmailNestingTooDeepError(bounds.depth)
         }
         if (opened.delete(node)) {
-            bounds.formattingLeft -= depth * (node.attrs.length + 1)
+            bounds.formattingLeft -= (openFormattingCount(formattingList()) + 1) * (node.attrs.length + 1)
             if (bounds.formattingLeft < 0) {
                 throw new EmailFormattingTooCostlyError()
             }
@@ -362,7 +376,13 @@ const scanComment = (
 ): void => {
     let fragment: DefaultTreeAdapterMap['documentFragment']
     try {
-        fragment = parseFragment(comment.content, { ...PARSE_OPTIONS, treeAdapter: boundedAdapter(bounds) })
+        let parser: Parser<DefaultTreeAdapterMap> | undefined = undefined
+        parser = Parser.getFragmentParser(null, {
+            ...PARSE_OPTIONS,
+            treeAdapter: boundedAdapter(bounds, () => parser?.activeFormattingElements),
+        })
+        parser.tokenizer.write(comment.content, true)
+        fragment = parser.getFragment()
     } catch (error) {
         // No client shows a link in a plain comment, so one past the bounds is left as written rather than refusing
         // an email that renders fine. The elements it built still count, so a run of such comments cannot repeat
@@ -384,7 +404,7 @@ type Scan = {
 // Records the first body end tag. The tree keeps only the last one, and none that an open table makes the parser
 // ignore, but the pixel has always gone before the first, where a browser still renders it. One is skipped where an
 // image there would not render as one: in a template, in a select, or inside SVG or MathML, where an image closes the
-// graphic.
+// graphic. An SVG `<foreignObject>` or a MathML text element shows HTML, so an image there renders.
 class BodyEndParser extends Parser<DefaultTreeAdapterMap> {
     bodyEnd = -1
 
@@ -396,16 +416,22 @@ class BodyEndParser extends Parser<DefaultTreeAdapterMap> {
     }
 
     private takesImageHere(): boolean {
-        const current = this.openElements.current
-        // The document itself has no namespace.
-        const inHtml = !('namespaceURI' in current) || current.namespaceURI === spec.NS.HTML
-        return inHtml && this.openElements.tmplCount === 0 && !this.openElements.hasInSelectScope(spec.TAG_ID.SELECT)
+        // The tokenizer tracks whether the current element is SVG or MathML that shows no HTML.
+        return (
+            !this.tokenizer.inForeignNode &&
+            this.openElements.tmplCount === 0 &&
+            !this.openElements.hasInSelectScope(spec.TAG_ID.SELECT)
+        )
     }
 }
 
 const scanHtml = (html: string): Scan => {
     const bounds = parseBoundsFor(html)
-    const parser = new BodyEndParser({ ...PARSE_OPTIONS, treeAdapter: boundedAdapter(bounds) })
+    let parser: BodyEndParser | undefined = undefined
+    parser = new BodyEndParser({
+        ...PARSE_OPTIONS,
+        treeAdapter: boundedAdapter(bounds, () => parser?.activeFormattingElements),
+    })
     parser.tokenizer.write(html, true)
     const anchors = new Map<number, ScannedTag>()
     const comments: CommentNode[] = []
