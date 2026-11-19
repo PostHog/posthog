@@ -167,6 +167,7 @@ const KPIS: KPIData = {
     toolCalls: metric(31420, 27800, [4100, 4300, 4500, 4720, 4600, 4900, 5100], 'up'),
     errorRatePct: metric(3.6, 4.1, [4.2, 3.9, 3.5, 3.3, 3.7, 3.4, 3.2], 'down'),
     p95LatencyMs: metric(2240, 2380, [1900, 2050, 2100, 2080, 2200, 2150, 2240], 'down'),
+    users: metric(1840, 1655, [262, 271, 280, 294, 288, 301, 312], 'up'),
 }
 
 const meta: Meta = {
@@ -196,10 +197,11 @@ export const KeyMetrics: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -214,10 +216,11 @@ export const KeyMetricsInProgressBucket: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -233,10 +236,11 @@ export const KeyMetricsLoading: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(0, 0, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading
                 usersLoading
+                kpisLoaded={false}
+                usersLoaded={false}
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -255,11 +259,13 @@ export const KeyMetricsEmptyRange: Story = {
                     toolCalls: metric(0, 0, [], 'up'),
                     errorRatePct: metric(0, 0, [], 'down'),
                     p95LatencyMs: metric(0, 0, [], 'down'),
+                    users: metric(0, 0, [], 'up'),
                 }}
-                users={metric(0, 0, [], 'up')}
                 intentClusterCount={metric(0, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -274,10 +280,11 @@ export const KeyMetricsLoadError: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 kpisFailed
                 onRetryKpis={() => {}}
                 showIntentClusters

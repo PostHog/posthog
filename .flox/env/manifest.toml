@@ -117,6 +117,8 @@ bash = '''
   export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # Keep the pnpm shims from on-activate.sh ahead of the corepack launchers in $FLOX_ENV/bin.
+  if [[ -d "$FLOX_ENV_CACHE/node-shims" ]]; then export PATH="$FLOX_ENV_CACHE/node-shims:$PATH"; fi
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
   export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
@@ -146,6 +148,8 @@ zsh = '''
   export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # Keep the pnpm shims from on-activate.sh ahead of the corepack launchers in $FLOX_ENV/bin.
+  if [[ -d "$FLOX_ENV_CACHE/node-shims" ]]; then export PATH="$FLOX_ENV_CACHE/node-shims:$PATH"; fi
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
   export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
@@ -173,6 +177,8 @@ fish = '''
   set -gx GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   fish_add_path -g "$FLOX_ENV/bin"
+  # Keep the pnpm shims from on-activate.sh ahead of the corepack launchers in $FLOX_ENV/bin.
+  test -d "$FLOX_ENV_CACHE/node-shims"; and fish_add_path -gm "$FLOX_ENV_CACHE/node-shims"
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
   set -gx UV_PROJECT_ENVIRONMENT "$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
@@ -193,6 +199,8 @@ tcsh = '''
   setenv GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   setenv PATH "$FLOX_ENV/bin:$PATH"
+  # Keep the pnpm shims from on-activate.sh ahead of the corepack launchers in $FLOX_ENV/bin.
+  if ( -d "$FLOX_ENV_CACHE/node-shims" ) setenv PATH "$FLOX_ENV_CACHE/node-shims:$PATH"
   # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
   setenv UV_PROJECT_ENVIRONMENT "$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)

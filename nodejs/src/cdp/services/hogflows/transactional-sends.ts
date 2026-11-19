@@ -7,16 +7,8 @@ import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
-import {
-    Claim,
-    Committed,
-    Produced,
-    Recalled,
-    Run,
-    RunIntake,
-    carriesSecret,
-    keyedRunId,
-} from '../../intake/run-intake'
+import { PublishSettlement } from '../../intake/intake-producer'
+import { Claim, Committed, Produced, Recalled, Run, RunIntake, keyedRunId } from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import {
     CyclotronJobInvocation,
@@ -113,11 +105,11 @@ const claimedBySameRequest = (fingerprint: TransactionalEmailFingerprint, claime
     claimed !== undefined && fingerprint.alsoMatches.includes(claimed)
 
 // Keyed, because the variables can hold a short login code that anyone who reads a store could guess offline from an
-// unkeyed hash. A record signed under any configured key still matches after a rotation. The first value is the one
-// stored, and stays unkeyed until every pod matches keyed values, so no pod refuses a retry another pod recorded.
+// unkeyed hash. A record signed under any configured key still matches after a rotation. So does the unkeyed hash of a
+// record stored before keying, until the last such record expires.
 const fingerprintsOf = (encryptedFields: EncryptedFields, request: unknown[]): string[] => {
     const unkeyed = IdempotencyKeys.fingerprint(request)
-    return [unkeyed, ...encryptedFields.signatures(FINGERPRINT_PURPOSE, unkeyed)]
+    return [...encryptedFields.signatures(FINGERPRINT_PURPOSE, unkeyed), unkeyed]
 }
 
 const transactionalEmailFingerprint = (
@@ -184,11 +176,18 @@ const producedResult = (
     produced: Produced,
     invocationId: string,
     scheduledAt: Date | null,
-    replyFields: Record<string, number>
+    replyFields: Record<string, number>,
+    senderKind: SenderKind | undefined
 ): TransactionalSendResult => {
     switch (produced) {
         case 'accepted':
-            return { outcome: 'queued', invocationId, scheduledAt: scheduledAt?.toISOString() ?? null, replyFields }
+            return {
+                outcome: 'queued',
+                invocationId,
+                scheduledAt: scheduledAt?.toISOString() ?? null,
+                replyFields,
+                senderKind,
+            }
         case 'unavailable':
             return { outcome: 'intake_unavailable' }
         case 'too_large':
@@ -329,7 +328,8 @@ export class TransactionalSends {
         request: TransactionalEmailRequest,
         stages: TransactionalEmailStageTimer,
         files: SendFiles,
-        sender: CodeSendSender = { kind: 'own' }
+        sender: CodeSendSender = { kind: 'own' },
+        settlement?: PublishSettlement
     ): Promise<TransactionalSendResult> {
         const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
         const { idempotencyKeys } = this.deps
@@ -352,9 +352,8 @@ export class TransactionalSends {
         const run: Run = claim
             ? { kind: 'transactional-email', invocation, claim: { fingerprint: claim.fingerprint } }
             : { kind: 'transactional-email', invocation }
-        // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer. A
-        // sensitive send stays synchronous, so its login code or reset link never reaches Kafka.
-        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async' && !carriesSecret(invocation)
+        // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer.
+        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async'
         // Async mode takes no Valkey lease: the consumer's Postgres claim deduplicates the run.
         const leasesKey = idempotencyKey && !isAsync
         const leaseToken = randomUUID()
@@ -469,11 +468,11 @@ export class TransactionalSends {
             }
             if (isAsync) {
                 stages.start('intake_produce')
-                const produced = await this.deps.runIntake.produce(run)
-                return producedResult(produced, invocation.id, scheduledAt, attachmentTotals)
+                const produced = await this.deps.runIntake.produce(run, settlement)
+                return producedResult(produced, invocation.id, scheduledAt, attachmentTotals, senderKind)
             }
             stages.start('queue_insert')
-            committed = (await this.deps.runIntake.launch([run], { wait: 'committed' }))[0]
+            committed = (await this.deps.runIntake.launch([run], { wait: 'committed', settlement }))[0]
         } catch (error) {
             await releaseKey()
             if (isLockTimeout(error)) {

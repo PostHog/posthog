@@ -1278,6 +1278,40 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert {row["id"] for row in rows} == {str(report.id) for report in mine}
         assert {row["assignee"]["responsible_user"]["id"] for row in rows} == {self.user.id}
 
+    def test_needs_you_keeps_the_reports_waiting_on_the_user_or_claimed_by_them(self):
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+
+        def suggest(report: SignalReport, user: User) -> SignalReport:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type="suggested_reviewers",
+                content=json.dumps([{"user_uuid": str(user.uuid), "github_login": None}]),
+            )
+            sync_suggested_reviewer_index(team_id=self.team.id, report_id=str(report.id))
+            return report
+
+        pending = SignalReport.Status.PENDING_INPUT
+        waiting = suggest(self._create_report(report_status=pending, title="Waiting on me"), self.user)
+        claimed = [self._create_report(title=title) for title in ("Claimed by me", "Claimed by my agent")]
+        others = [
+            suggest(self._create_report(report_status=pending, title="Waiting on teammate"), teammate),
+            suggest(self._create_report(title="Suggested to me"), self.user),
+            self._create_report(title="Claimed by teammate"),
+        ]
+        for report, headers in [(claimed[0], {}), (claimed[1], self._agent_headers("codex"))]:
+            assert self.client.post(self._claim_url(report), data={}, format="json", headers=headers).status_code == 200
+        self.client.force_login(teammate)
+        assert self.client.post(self._claim_url(others[2]), data={}, format="json").status_code == 200
+        self.client.force_login(self.user)
+
+        needs_you = self.client.get(self._list_url(needs_you="true"))
+        rest = self.client.get(self._list_url(needs_you="false"))
+
+        assert needs_you.status_code == rest.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in needs_you.json()["results"]} == {str(r.id) for r in [waiting, *claimed]}
+        assert {row["id"] for row in rest.json()["results"]} == {str(r.id) for r in others}
+
     def test_responsible_users_resolves_task_claims_in_fixed_queries(self):
         Task = apps.get_model("tasks", "Task")
         reports = [self._create_report(title=f"Task report {i}") for i in range(3)]

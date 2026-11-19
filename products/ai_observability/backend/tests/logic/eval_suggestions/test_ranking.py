@@ -15,7 +15,7 @@ from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions import adapters, prices, ranking
 from products.ai_observability.backend.logic.eval_suggestions.call_review import ReviewCard, ReviewExample
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, SnippetMatches
-from products.ai_observability.backend.logic.eval_suggestions.judge_calibration import Calibration
+from products.ai_observability.backend.logic.eval_suggestions.judge_calibration import Calibration, CodeCheck
 from products.ai_observability.backend.logic.eval_suggestions.measure import (
     Measurement,
     Outcome,
@@ -84,10 +84,10 @@ def _measurement(main_rate: tuple[int, int], held_rate: tuple[int, int]) -> tupl
 class TestCodeCheckValidation:
     @parameterized.expand(
         [
-            ("rare_failure_kept", (3, 250), (0, 100), True),
+            ("rare_failure_kept", (5, 250), (0, 100), True),
             ("check_that_does_not_fit_the_app", (80, 250), (30, 100), False),
             ("no_failures", (0, 250), (0, 100), False),
-            ("single_failure_is_not_enough", (1, 250), (0, 100), False),
+            ("four_failures_are_not_enough", (4, 250), (0, 100), False),
             ("held_out_day_contradicts_a_common_failure", (40, 250), (0, 100), False),
             ("a_tiny_held_out_day_cannot_reject_alone", (12, 240), (1, 3), True),
             ("a_held_out_day_that_surely_fails_too_often", (12, 240), (20, 30), False),
@@ -111,7 +111,7 @@ class TestCodeCheckValidation:
     ]
 )
 def test_a_code_check_stays_near_the_weekly_run_cap(_name: str, traces: int, rollout: float, weekly_runs: int) -> None:
-    measurement, sample = _measurement((3, 250), (0, 100))
+    measurement, sample = _measurement((5, 250), (0, 100))
 
     proposal = ranking.code_check_proposal(
         measurement, sample, replace(PROFILE, traces=traces), similar_evaluation_id=None
@@ -251,7 +251,7 @@ def test_a_filtered_check_runs_where_any_generation_matches(
 # Above the 1,000-run weekly budget the rollout shrinks, so generations and traces both land near 1,000.
 @parameterized.expand([("generation", 1000), ("trace", 1000), ("session", 100)])
 def test_a_screened_judge_counts_runs_in_its_own_unit(target: str, weekly_units: int) -> None:
-    result = ranking.ScreeningResult(template_key="prompt_injection", screened=10, flagged=[("t1", "flagged")] * 3)
+    result = ranking.ScreeningResult(template_key="user_correction", screened=10, flagged=[("t1", "flagged")] * 3)
     sample = TraceSample(main=[_sampled("t1", "chat")], held_out=[])
 
     proposal = ranking.screened_proposal(
@@ -369,7 +369,8 @@ def _call_type(source: str, name: str, calls: int = 100, messages: list[dict[str
 def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
     return ReviewCard(
         title="Replies promise refund dates",
-        checks="Checks whether a reply promises a refund date",
+        summary="Flags replies that promise a refund date",
+        rule="A reply fails when it names a date or day by which the refund arrives.",
         why="The prompt says never to promise a date",
         call_types=call_types,
         labels={},
@@ -567,23 +568,85 @@ def test_a_snippet_is_chosen_only_when_its_matches_are_its_call_type(
 
 @parameterized.expand(
     [
-        ("same_check_reworded", "support-reply", "Whether the reply promises a refund date.", False, True),
-        ("another_check", "support-reply", "Checks whether a reply answers in the user's language", False, False),
-        ("another_call_type", "refund-reply", "Checks whether a reply promises a refund date", False, False),
+        ("same_check_reworded", "support-reply", "flags REPLIES that promise a refund date!", False, True),
+        ("another_check", "support-reply", "Flags replies not in the user's language", False, False),
+        ("another_call_type", "refund-reply", "Flags replies that promise a refund date", False, False),
         ("named_as_the_earlier_card", "support-reply", "Whether customers hear when the money comes back", True, True),
     ]
 )
 def test_a_reviewed_card_keeps_its_dedupe_key_when_a_later_review_rewords_it(
-    _name: str, prompt_name: str, checks: str, named_earlier: bool, same_key: bool
+    _name: str, prompt_name: str, summary: str, named_earlier: bool, same_key: bool
 ) -> None:
     first = _review_card([_call_type("prompt_name", "support-reply")])
     later = replace(
         first,
         title="Refund dates get promised",
-        checks=checks,
+        summary=summary,
         call_types=[_call_type("prompt_name", prompt_name)],
         judge_prompt="Is the customer told when the refund arrives?",
         earlier_key=ranking.review_dedupe_key(first) if named_earlier else "",
     )
 
     assert (ranking.review_dedupe_key(first) == ranking.review_dedupe_key(later)) is same_key
+
+
+def test_a_reviewed_code_check_keeps_the_judge_card_identity_and_runs_free() -> None:
+    card = _review_card([_call_type("prompt_name", "support-reply")])
+    calibration = Calibration(
+        review_fails=4,
+        caught=4,
+        review_passes=16,
+        judged_passes=16,
+        false_alarms=0,
+        unjudged=0,
+        na_on_fails=0,
+        na_on_passes=0,
+    )
+    code = CodeCheck(source="return true", calibration=calibration, failed=5, of=25, errors=0)
+
+    proposal = ranking.review_code_proposal(card, PROFILE, snippets={}, code=code)
+    judge = ranking.review_proposal(card, PROFILE, snippets={}, judge_model="gpt-5-mini", calibration=calibration)
+
+    assert proposal is not None and judge is not None
+    assert (proposal.kind, proposal.template_key, proposal.dedupe_key, proposal.filters) == (
+        "new_hog",
+        judge.template_key,
+        judge.dedupe_key,
+        judge.filters,
+    )
+    assert {k: proposal.draft[k] for k in ("evaluation_type", "evaluation_config", "target", "output_type")} == {
+        "evaluation_type": "hog",
+        "evaluation_config": {"source": "return true"},
+        "target": "generation",
+        "output_type": "boolean",
+    }
+    assert (proposal.measured_failure_rate, proposal.sample_size, proposal.rollout_percentage) == (0.2, 25, 100.0)
+    assert (proposal.estimated_weekly_cost_usd, proposal.judge_model) == (None, "")
+    assert (proposal.outcome, proposal.observation, proposal.observation_scope) == (
+        "Flags replies that promise a refund date.",
+        "5 of 25 sampled generations flagged",
+        "Sampled from the last day",
+    )
+
+
+@parameterized.expand(
+    [
+        ("most_calls_break_the_rule", 21, 30, True, {"support-reply"}),
+        ("a_minority_breaks_it", 20, 30, False, {"support-reply"}),
+        ("too_few_calls_to_tell", 4, 4, False, {"support-reply"}),
+        # The prompt name comes from the events, and the team no longer manages a prompt by that name.
+        ("prompt_no_longer_managed", 21, 30, True, set()),
+    ]
+)
+def test_a_card_whose_rule_most_calls_break_asks_for_a_prompt_fix(
+    _name: str, failed: int, of: int, prompt_bug: bool, managed: set[str]
+) -> None:
+    card = replace(_review_card([_call_type("prompt_name", "support-reply")]), failed=failed, of=of)
+
+    assert ranking.is_prompt_bug(card) is prompt_bug
+    proposal = ranking.prompt_fix_proposal(card, managed)
+    assert (proposal.kind, proposal.dedupe_key, proposal.draft.get("prompt_name")) == (
+        "fix_prompt",
+        ranking.review_dedupe_key(card),
+        "support-reply" if managed else None,
+    )

@@ -1043,8 +1043,13 @@ export interface VisionQuotaApi {
     readonly scanners_period_credits: number
     /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
     readonly backfills_committed_credits: number
-    /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
-    readonly free_monthly_credits: number
+    /**
+     * Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. Null when every credit is free.
+     * @nullable
+     */
+    readonly free_monthly_credits: number | null
+    /** True while billing has not yet synced this organization's limit and free credits. Nothing can run until it does, which usually takes seconds; poll this endpoint until it turns false. */
+    readonly awaiting_billing_sync: boolean
 }
 
 export interface VisionSpendDayApi {
@@ -2223,6 +2228,11 @@ export interface SignalScoutConfigOptionsApi {
      */
     model?: string | null
     /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
+    /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
      */
@@ -2560,6 +2570,11 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly model: string | null
+    /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    readonly custom_image_id: string | null
     /**
      * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
      * @maxItems 100

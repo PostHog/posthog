@@ -4,16 +4,19 @@ import type { ScatterSeries } from '@posthog/quill-charts'
 
 import { urls } from 'scenes/urls'
 
+import type { ItemMetrics } from './clusterMetricsLoader'
 import { formatEvalTitle } from './traceSummaryLoader'
 import type { ClusteringLevel, TraceSummary } from './types'
 
 /** Per-point data carried through quill's scatter `meta`, handed back on hover and click. */
 export interface ClusterScatterMeta {
+    itemId?: string
     traceId?: string
     generationId?: string
     timestamp?: string
     clusterId?: number
     isCentroid?: boolean
+    metrics?: ItemMetrics
 }
 
 export type ClusterScatterSeries = ScatterSeries<ClusterScatterMeta>
@@ -34,7 +37,7 @@ export function navigateToClusterItem(
         }
         router.actions.push(
             urls.aiObservabilityTrace(resolvedTraceId, {
-                tab: 'summary',
+                tab: 'thread',
                 ...(meta.generationId ? { event: meta.generationId } : {}),
                 ...(meta.timestamp ? { timestamp: meta.timestamp } : {}),
             })
@@ -45,7 +48,7 @@ export function navigateToClusterItem(
     if (meta.traceId) {
         router.actions.push(
             urls.aiObservabilityTrace(meta.traceId, {
-                tab: 'summary',
+                tab: 'thread',
                 ...(clusteringLevel === 'generation' && meta.generationId ? { event: meta.generationId } : {}),
                 ...(meta.timestamp ? { timestamp: meta.timestamp } : {}),
             })

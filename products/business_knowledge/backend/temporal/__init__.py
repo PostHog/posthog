@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from .coordinator import (
     BusinessKnowledgeIngestSourceWorkflow,
     BusinessKnowledgeRefreshCoordinatorWorkflow,
@@ -29,7 +31,7 @@ WORKFLOWS = [
     BusinessKnowledgeLearningWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     sweep_tombstoned_documents_activity,
     classify_pending_documents_activity,
     reconcile_embeddings_activity,
