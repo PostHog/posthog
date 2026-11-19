@@ -339,10 +339,10 @@ export const platformAlertsCreateBodySixGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsCreateBodySixGroupingOneOnOverflowDefault = `degrade_visible`
 export const platformAlertsCreateBodySixEvaluationPeriodsDefault = 1
-export const platformAlertsCreateBodySixEvaluationPeriodsMax = 60
+export const platformAlertsCreateBodySixEvaluationPeriodsMax = 1441
 
 export const platformAlertsCreateBodySixDatapointsToAlarmDefault = 1
-export const platformAlertsCreateBodySixDatapointsToAlarmMax = 60
+export const platformAlertsCreateBodySixDatapointsToAlarmMax = 1441
 
 export const platformAlertsCreateBodySixCooldownMinutesDefault = 0
 export const platformAlertsCreateBodySixCooldownMinutesMin = 0
@@ -1210,7 +1210,7 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsCreateBodySixEvaluationPeriodsMax)
                 .default(platformAlertsCreateBodySixEvaluationPeriodsDefault)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -1353,9 +1353,9 @@ export const platformAlertsUpdateBodySevenGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodySevenGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsUpdateBodySevenGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsUpdateBodySevenEvaluationPeriodsMax = 60
+export const platformAlertsUpdateBodySevenEvaluationPeriodsMax = 1441
 
-export const platformAlertsUpdateBodySevenDatapointsToAlarmMax = 60
+export const platformAlertsUpdateBodySevenDatapointsToAlarmMax = 1441
 
 export const platformAlertsUpdateBodySevenCooldownMinutesMin = 0
 export const platformAlertsUpdateBodySevenCooldownMinutesMax = 2147483647
@@ -2354,7 +2354,7 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .min(1)
                 .max(platformAlertsUpdateBodySevenEvaluationPeriodsMax)
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
@@ -2495,9 +2495,9 @@ export const platformAlertsPartialUpdateBodySevenGroupingOneMaxInstancesDefault 
 export const platformAlertsPartialUpdateBodySevenGroupingOneMaxInstancesMax = 100
 
 export const platformAlertsPartialUpdateBodySevenGroupingOneOnOverflowDefault = `degrade_visible`
-export const platformAlertsPartialUpdateBodySevenEvaluationPeriodsMax = 60
+export const platformAlertsPartialUpdateBodySevenEvaluationPeriodsMax = 1441
 
-export const platformAlertsPartialUpdateBodySevenDatapointsToAlarmMax = 60
+export const platformAlertsPartialUpdateBodySevenDatapointsToAlarmMax = 1441
 
 export const platformAlertsPartialUpdateBodySevenCooldownMinutesMin = 0
 export const platformAlertsPartialUpdateBodySevenCooldownMinutesMax = 2147483647
@@ -3568,7 +3568,7 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .max(platformAlertsPartialUpdateBodySevenEvaluationPeriodsMax)
                 .optional()
                 .describe(
-                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.'
+                    'Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.'
                 ),
             datapoints_to_alarm: zod
                 .number()
