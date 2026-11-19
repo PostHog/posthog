@@ -2,7 +2,7 @@ import json
 import time
 from datetime import timedelta
 from typing import Any
-from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
@@ -1223,7 +1223,7 @@ class TestReserveUnits(BaseTest):
         primary = urlsplit(settings.REDIS_URL)
         reader_db = 14 if int(parse_url(settings.REDIS_URL).get("db", 0)) == 15 else 15
         query = urlencode([(name, value) for name, value in parse_qsl(primary.query) if name != "db"])
-        reader = urlunsplit(primary._replace(path=f"/{reader_db}", query=query))
+        reader = f"{primary.scheme}://{primary.netloc}/{reader_db}" + (f"?{query}" if query else "")
         return {
             "default": {
                 "BACKEND": "django_redis.cache.RedisCache",
