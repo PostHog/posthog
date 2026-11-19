@@ -25,6 +25,11 @@ describe('renderEmailPreview', () => {
             'Hi {{\n person.properties.nickname \n}}',
         ],
         [
+            'keeps a missing property visible inside a block',
+            "{% if person.properties.email contains 'example' %}Hi {{ person.properties.nickname }}{% endif %}",
+            'Hi {{ person.properties.nickname }}',
+        ],
+        [
             'leaves a tag the template already marked raw alone',
             'Hi {% raw %}{{ person.properties.nickname }}{% endraw %}',
             'Hi {{ person.properties.nickname }}',

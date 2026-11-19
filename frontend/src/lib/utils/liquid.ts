@@ -239,6 +239,30 @@ export class LiquidRenderer {
         }
     }
 
+    // Every output tag in source order, including those inside `if`, `case`, `for` and other blocks. Blocks keep
+    // their children in arrays of templates, or in branches that each hold one.
+    private static outputsOf(templates: unknown[]): Output[] {
+        const found: Output[] = []
+        const visit = (nodes: unknown[]): void => {
+            for (const node of nodes) {
+                if (node instanceof Output) {
+                    found.push(node)
+                } else if (
+                    node instanceof Tag ||
+                    (node && Array.isArray((node as { templates?: unknown }).templates))
+                ) {
+                    for (const [key, value] of Object.entries(node as object)) {
+                        if (key !== 'liquid' && Array.isArray(value)) {
+                            visit(value)
+                        }
+                    }
+                }
+            }
+        }
+        visit(templates)
+        return found.sort((a, b) => (a.token as any).begin - (b.token as any).begin)
+    }
+
     /**
      * Render, but leave an output tag whose expression resolves to nothing as its own source text
      * instead of the empty string a plain render produces, so a reader sees which variables are
@@ -257,10 +281,7 @@ export class LiquidRenderer {
         const decoded = this.decode(template)
         let marked = ''
         let cursor = 0
-        for (const node of this.liquid.parse(decoded)) {
-            if (!(node instanceof Output)) {
-                continue
-            }
+        for (const node of this.outputsOf(this.liquid.parse(decoded))) {
             const { begin, end, content } = node.token as unknown as { begin: number; end: number; content: string }
             const expression = content.trim()
             if (!expression || expression.includes('|') || this.resolvesDecoded(expression, context)) {
