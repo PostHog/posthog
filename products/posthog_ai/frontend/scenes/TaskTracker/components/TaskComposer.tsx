@@ -178,7 +178,7 @@ export function TaskComposer({
             onModeChange={pickPermissionMode}
         />
     )
-    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
+    const codexBillingEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const modelPickerProps: ComposerModelEffortPickersProps = {
         models: offeredModels,
         selectedModel: displayModel,

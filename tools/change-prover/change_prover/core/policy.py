@@ -13,6 +13,7 @@ RENOVATE_BOT_USER_ID = 29139614
 ALLOWED_AUTHOR_IDS = frozenset({RENOVATE_BOT_USER_ID})
 MINIMUM_RELEASE_AGE = timedelta(days=7)
 MINIMUM_RELEASE_AGE_MINUTES = MINIMUM_RELEASE_AGE // timedelta(minutes=1)
+RELEASE_AGE_LOOKUPS = 50
 LOCKFILE = "pnpm-lock.yaml"
 MANIFEST = "package.json"
 WORKSPACE_FILE = "pnpm-workspace.yaml"
@@ -40,6 +41,14 @@ PNPM_VERSION = re.compile(r"^pnpm@((\d+)\.\d+\.\d+)$")
 
 class Refused(Exception):
     """The update is outside what this proof covers. The message says why."""
+
+
+@dataclass(frozen=True)
+class ChangedFile:
+    """One entry of `git diff --name-status`: the status letter and the path."""
+
+    status: str
+    path: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -78,11 +87,12 @@ def load_manifest(text: bytes) -> dict[str, Any]:
     return manifest
 
 
-def eligible_paths(changes: Iterable[tuple[str, str]]) -> list[str]:
+def eligible_paths(changes: Iterable[ChangedFile]) -> list[str]:
     """The changed paths, when every one is a modified package.json, pnpm-lock.yaml or pnpm-workspace.yaml."""
     paths = []
-    for status, path in changes:
-        if status != "M":
+    for change in changes:
+        path = change.path
+        if change.status != "M":
             raise Refused(f"{path} is not a modification")
         if not SAFE_PATH.match(path) or ".." in path.split("/"):
             raise Refused(f"{path} has a name this proof does not accept")
@@ -311,6 +321,62 @@ def release_age_reason(name: str, version: str, metadata: Mapping[str, Any], now
     if age < MINIMUM_RELEASE_AGE:
         return f"{name}@{version} was published {age.days} day(s) ago"
     return None
+
+
+def check_regular_file(path: str, mode: str, kind: str) -> None:
+    """Refuse a tree entry that is not a regular file. A symlink would judge its target."""
+    if kind != "blob" or mode == "120000":
+        raise Refused(f"{path} is not a regular file")
+
+
+def require_file(path: str, blob: bytes | None) -> bytes:
+    if blob is None:
+        raise Refused(f"{path} is missing")
+    return blob
+
+
+def check_commit_time(committed: datetime, now: datetime) -> None:
+    if committed > now:
+        raise Refused("the head commit is dated in the future")
+
+
+def check_beside_lockfile(path: str, directory: str) -> None:
+    """Refuse a changed workspace file that is not in the lockfile directory it belongs to."""
+    if path != join(directory, WORKSPACE_FILE):
+        raise Refused(f"{path} is not beside a lockfile")
+
+
+def check_settings_file(path: str, head_blob: str | None, default_blob: str | None) -> None:
+    if head_blob != default_blob:
+        raise Refused(f"{path} differs from the default branch")
+
+
+def check_pnpm_settings(path: str, head: Mapping[str, Any], default: Mapping[str, Any]) -> None:
+    if head.get("pnpm") != default.get("pnpm"):
+        raise Refused(f"{path} pnpm settings differ from the default branch")
+
+
+def check_blocked(specs: Iterable[str], patterns: Mapping[str, Iterable[str]]) -> None:
+    for spec in sorted(specs):
+        if reason := blocked_reason(spec, patterns):
+            raise Refused(reason)
+
+
+def check_releases(lockfile: str, releases: list[tuple[str, str]]) -> None:
+    if not releases:
+        raise Refused(f"{lockfile} changes no direct dependency version")
+    if len(releases) > RELEASE_AGE_LOOKUPS:
+        raise Refused(f"{len(releases)} packages change, more than the {RELEASE_AGE_LOOKUPS} this proof checks")
+
+
+def check_release_age(name: str, version: str, metadata: Mapping[str, Any], now: datetime) -> None:
+    if reason := release_age_reason(name, version, metadata, now):
+        raise Refused(reason)
+
+
+def check_replayed(lockfile: str, replayed: Mapping[str, Any], head: Mapping[str, Any]) -> None:
+    if replayed != head:
+        raise Refused(f"pnpm writes a different {lockfile} for this update")
 
 
 def settings_paths(directory: str, workspace: Mapping[str, Any]) -> list[str]:

@@ -164,7 +164,7 @@ class _Tool(ConsoleTool):
     key = "some-report"
     title = "Some report"
     owner = Owner(name="Dev experience", crest="dev-experience")
-    group = "Data"
+    group = "Infrastructure"
 
 
 class _ToolActionForm(forms.Form):
