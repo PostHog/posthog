@@ -12,6 +12,15 @@ import {
     HogFunctionType,
     IntegrationType,
 } from '../types'
+import {
+    INTEGRATION_AUTH,
+    ResolvedCredential,
+    appliesIntegrationCredential,
+    credentialAuthCounter,
+    credentialAuthEnforcedTeams,
+    credentialHandle,
+    publicIntegrationConfig,
+} from '../utils/credential-auth'
 import { throwIfDeadlinePassed } from '../utils/deadline'
 import { EncryptedFields } from '../utils/encryption-utils'
 import {
@@ -60,11 +69,16 @@ const signedAccessTokenPlaceholder = (base: string, signature: string): string =
 export type BuildInputsOptions = { recipientIdentifier?: (email: string) => string | Promise<string> }
 
 export class HogInputsService {
+    private readonly credentialAuthEnforced: (teamId: number) => boolean
+
     constructor(
         private integrationManager: IntegrationManagerService,
         private recipientTokensService: RecipientTokensService | undefined,
-        private encryptedFields: EncryptedFields
-    ) {}
+        private encryptedFields: EncryptedFields,
+        credentialAuthEnforceTeams = ''
+    ) {
+        this.credentialAuthEnforced = credentialAuthEnforcedTeams(credentialAuthEnforceTeams)
+    }
 
     public async buildInputs(
         hogFunction: HogFunctionType,
@@ -262,12 +276,14 @@ export class HogInputsService {
     }
 
     // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
+    // A queued job resolves its reference here again, so it gets the same shape as the first build.
     private resolveIntegration(
         integration: IntegrationType | null | undefined,
-        teamId: HogFunctionType['team_id'],
-        decryptFailed = false
+        hogFunction: HogFunctionType,
+        inputKey: string,
+        { multi, countLegacy, decryptFailed = false }: { multi: boolean; countLegacy: boolean; decryptFailed?: boolean }
     ): Record<string, any> | null {
-        if (!integration || integration.team_id !== teamId) {
+        if (!integration || integration.team_id !== hogFunction.team_id) {
             return null
         }
         // A `posthog` connection holds its creator's grant into another project, and only the creator
@@ -282,7 +298,29 @@ export class HogInputsService {
         // An undecryptable field still holds ciphertext, so never hand out the secrets. The id stays so a
         // per-channel push send can fail just this channel.
         if (decryptFailed) {
-            return markServerResolvedIntegration({ $integration_id: integration.id, ...integration.config })
+            const config = appliesIntegrationCredential(integration.kind)
+                ? publicIntegrationConfig(integration.config, integration.sensitive_config)
+                : integration.config
+            return markServerResolvedIntegration({ $integration_id: integration.id, ...config })
+        }
+        // The kind decides, because a schema edit can drop `auth` or add a second input on the same connection.
+        // A transformation can't fetch, so it never needs the token, only a way to copy it into an event.
+        if (appliesIntegrationCredential(integration.kind)) {
+            const declaresAuth = allInputSchemas(hogFunction).some((schema) => schema.key === inputKey && schema.auth)
+            if (
+                declaresAuth ||
+                hogFunction.type === 'transformation' ||
+                this.credentialAuthEnforced(hogFunction.team_id)
+            ) {
+                return markServerResolvedIntegration({
+                    $integration_id: integration.id,
+                    ...publicIntegrationConfig(integration.config, integration.sensitive_config),
+                    ...(multi ? {} : credentialHandle(inputKey)),
+                })
+            }
+            if (countLegacy) {
+                credentialAuthCounter.inc({ outcome: 'legacy_integration', mode: 'observe' })
+            }
         }
         return markServerResolvedIntegration({
             $integration_id: integration.id,
@@ -337,12 +375,15 @@ export class HogInputsService {
 
         // An empty value would reach the third party as a request with no credentials, so a reference that
         // does not resolve fails the invocation.
-        const resolveRef = (key: string, value: unknown): unknown => {
+        const resolveRef = (key: string, value: unknown, multi: boolean): unknown => {
             if (!isIntegrationRef(value)) {
                 return value
             }
             const resolved = isTrustedRef(key, value)
-                ? this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction.team_id)
+                ? this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction, key, {
+                      multi,
+                      countLegacy: false,
+                  })
                 : null
             if (resolved && (decryptFailures[value[INTEGRATION_REF_KEY]]?.length ?? 0) > 0) {
                 throw new HogConfigurationError(decryptIntegrationMessage(key))
@@ -358,8 +399,8 @@ export class HogInputsService {
         const resolvedInputs = { ...inputs }
         for (const [key, value] of refEntries) {
             resolvedInputs[key] = Array.isArray(value)
-                ? value.map((item) => resolveRef(key, item))
-                : resolveRef(key, value)
+                ? value.map((item) => resolveRef(key, item, true))
+                : resolveRef(key, value, false)
         }
         return resolvedInputs
     }
@@ -407,8 +448,12 @@ export class HogInputsService {
         const decryptFailures = await this.integrationManager.getDecryptFailures(allIds)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
-        const resolveIntegration = (id: number): Record<string, any> | null =>
-            this.resolveIntegration(integrations[id], hogFunction.team_id, (decryptFailures[id]?.length ?? 0) > 0)
+        const resolveIntegration = (id: number, inputKey: string, multi: boolean): Record<string, any> | null =>
+            this.resolveIntegration(integrations[id], hogFunction, inputKey, {
+                multi,
+                countLegacy: Boolean(newGlobals),
+                decryptFailed: (decryptFailures[id]?.length ?? 0) > 0,
+            })
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
             // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
@@ -424,7 +469,7 @@ export class HogInputsService {
             if (isUsed && (decryptFailures[id]?.length ?? 0) > 0) {
                 throw new HogConfigurationError(decryptIntegrationMessage(key))
             }
-            returnInputs[key] = { value: resolveIntegration(id) }
+            returnInputs[key] = { value: resolveIntegration(id, key, false) }
         })
 
         Object.entries(multiInputsToLoad).forEach(([key, ids]) => {
@@ -441,7 +486,7 @@ export class HogInputsService {
             ) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
             }
-            returnInputs[key] = { value: ids.map(resolveIntegration).filter((v) => v !== null) }
+            returnInputs[key] = { value: ids.map((id) => resolveIntegration(id, key, true)).filter((v) => v !== null) }
         })
 
         if (newGlobals) {
@@ -451,6 +496,61 @@ export class HogInputsService {
 
         return returnInputs
     }
+
+    public async resolveCredential(
+        hogFunction: HogFunctionType,
+        inputKey: string
+    ): Promise<{ credential: ResolvedCredential } | { error: string }> {
+        // Code can build a handle by hand, so a non-connection input that holds an integration's id must not resolve.
+        if (!allInputSchemas(hogFunction).some((schema) => schema.key === inputKey && schema.type === 'integration')) {
+            return { error: `Input ${inputKey} is not a connection, so PostHog can't apply its credential.` }
+        }
+        const mergedInputs: Record<string, CyclotronInputType | null | undefined> = { ...hogFunction.inputs }
+        for (const mapping of hogFunction.mappings ?? []) {
+            Object.assign(mergedInputs, mapping.inputs)
+        }
+        const id = ownInput(mergedInputs, inputKey)?.value
+        const integration = typeof id === 'number' ? (await this.integrationManager.getMany([id]))[id] : undefined
+        if (
+            !integration ||
+            integration.team_id !== hogFunction.team_id ||
+            integration.kind === 'posthog' ||
+            isWarehouseSourceIntegration(integration)
+        ) {
+            return { error: `The integration for input ${inputKey} can't be used. Select a connected integration.` }
+        }
+        if (((await this.integrationManager.getDecryptFailures([integration.id]))[integration.id]?.length ?? 0) > 0) {
+            return { error: decryptIntegrationMessage(inputKey) }
+        }
+        const rule = appliesIntegrationCredential(integration.kind) ? INTEGRATION_AUTH[integration.kind] : undefined
+        if (!rule) {
+            return { error: `PostHog can't apply the credentials of a ${integration.kind} connection to a request.` }
+        }
+        const fields = { ...integration.config, ...integration.sensitive_config }
+        const { declaration } = rule
+        const secret = fields[declaration.password_field ?? declaration.field ?? 'access_token']
+        const username = declaration.username_field ? fields[declaration.username_field] : undefined
+        if (typeof secret !== 'string') {
+            return { error: `The integration for input ${inputKey} has no credential. Connect it again.` }
+        }
+        return {
+            credential: {
+                inputKey,
+                declaration,
+                origins: rule.origins(integration.config ?? {}),
+                secret,
+                ...(typeof username === 'string' ? { username } : {}),
+            },
+        }
+    }
+}
+
+// Reads only own entries, because `inputs['__proto__']` on an object without that key returns `Object.prototype`.
+function ownInput(
+    inputs: Record<string, CyclotronInputType | null | undefined> | null | undefined,
+    key: string
+): CyclotronInputType | undefined {
+    return inputs && Object.hasOwn(inputs, key) ? (inputs[key] ?? undefined) : undefined
 }
 
 const allInputSchemas = (hogFunction: HogFunctionType): NonNullable<HogFunctionType['inputs_schema']> => [
