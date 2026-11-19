@@ -343,8 +343,9 @@ export class RequestStateResolver {
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
         // Only from the client's own request, never from a flag or the resolved mode: a client keeps its cached
-        // read-only `exec`, which would run writes on any later request that resolved differently.
-        const splitWrites = !readOnly && props.splitWrites === true
+        // read-only `exec`, which would run writes on any later request that resolved differently. Wrappers that send
+        // a consumer (the AI plugin, PostHog Code, Tasks sandboxes) gate writes on the `exec` name, which `exec-write` skips.
+        const splitWrites = !readOnly && props.splitWrites === true && clientProfile.consumer === undefined
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []

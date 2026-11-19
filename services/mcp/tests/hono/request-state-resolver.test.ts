@@ -1001,6 +1001,12 @@ describe('RequestStateResolver MCP client contexts', () => {
         ['nothing asks for it', '', {}, false],
         ['tools mode, where a cached exec must still refuse writes', '?split_writes=true&mode=tools', {}, true],
         ['a read-only connection, which has no writes', '?split_writes=true&readonly=true', {}, false],
+        [
+            'a wrapper whose write gate only knows exec',
+            '?split_writes=true',
+            { 'x-posthog-mcp-consumer': 'posthog-code' },
+            false,
+        ],
     ])('splits writes from exec when %s: %s', async (_label, query, headers, expected) => {
         const props = parseRequestProperties(
             new Request(`https://example.com/mcp${query}`, {
