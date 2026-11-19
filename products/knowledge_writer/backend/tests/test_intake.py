@@ -626,6 +626,8 @@ def test_a_request_starts_one_read_only_writer_task_and_a_repeat_even_after_a_fa
     assert BASE_SHA in object_storage.read(check_attachment["storage_path"])
     diff_attachment = attachment_by_name[SOURCE_DIFF_ATTACHMENT_NAME]
     assert object_storage.read(diff_attachment["storage_path"]) == SOURCE_DIFF_BACKING_RETENTION
+    assert object_storage.read(attachment_by_name["rules-1-AGENTS.md"]["storage_path"]) == BASE_FILES["AGENTS.md"]
+    assert "`AGENTS.md` as `rules-1-AGENTS.md`" in task.description
     dispatch_options = start_workflow.call_args.kwargs["options"]
     assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
 
