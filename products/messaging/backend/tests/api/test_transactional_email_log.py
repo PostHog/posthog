@@ -11,12 +11,13 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client.execute import default_settings, sync_execute
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.models import Element, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
@@ -584,9 +585,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             team=self.team, event="purchase", distinct_id=distinct_ids["laptop"], timestamp=NOW - timedelta(minutes=60)
         )
         flush_persons_and_events()
-        small_clickhouse_queries = {**default_settings(), "max_query_size": SMALL_MAX_QUERY_SIZE}
-
-        with patch("posthog.clickhouse.client.execute.default_settings", return_value=small_clickhouse_queries):
+        with patch.dict(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+        ):
             response = self.client.get(
                 self._url("results/"),
                 {
@@ -689,9 +690,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 team=self.team, event="purchase", distinct_id=distinct_id, timestamp=sent_at + timedelta(hours=1)
             )
         flush_persons_and_events()
-        small_clickhouse_queries = {**default_settings(), "max_query_size": SMALL_MAX_QUERY_SIZE}
-
-        with patch("posthog.clickhouse.client.execute.default_settings", return_value=small_clickhouse_queries):
+        with patch.dict(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+        ):
             impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert impact["without_click"] == {"sends": LONG_ID_SENDS, "converted": LONG_ID_SENDS}

@@ -21,6 +21,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 
 from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
@@ -673,6 +674,7 @@ class _FollowedSend:
 
 
 def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _Period) -> list[_FollowedSend]:
+    # The message id breaks a tie in queue time, so every load follows the same sends at the cap.
     rows = _execute(
         team.id,
         f"""
@@ -688,7 +690,6 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
         )
         WHERE message_function_id = %(workflow_id)s AND delivery_status != ''
           AND (was_clicked OR delivery_status IN ('delivered', 'complained'))
-        -- The message id breaks a tie in queue time, so every load follows the same sends at the cap.
         ORDER BY queued_at DESC, toString(message_id) DESC
         LIMIT %(limit)s BY was_clicked
         """,
@@ -717,14 +718,19 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
 
 def _converted_sends(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     converted: set[str] = set()
-    for batch in _batches_by_query_size(sends, _query_bytes_of):
+    for batch in _batches_by_query_size(team.id, sends, _query_bytes_of):
         converted |= _converted_in_batch(team, user, event, batch)
     return converted
 
 
-def _batches_by_query_size[T](items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
-    # Read per call so a batch follows the max_query_size its query runs with; a quarter leaves room for the rest.
-    budget = clickhouse_execute.default_settings()["max_query_size"] // 4
+def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
+    # Resolve max_query_size the way sync_execute does for this team, so a per-team override shrinks the batches too.
+    # A quarter of it leaves room for the rest of the query.
+    query_settings = {
+        **clickhouse_execute.default_settings(),
+        **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
+    }
+    budget = query_settings["max_query_size"] // 4
     batch: list[T] = []
     batch_bytes = 0
     for item in items:
@@ -800,7 +806,7 @@ def _conversions_of(sends: list[_FollowedSend], converted: set[str]) -> Transact
 
 def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[str]) -> dict[str, str]:
     persons: dict[str, str] = {}
-    for batch in _batches_by_query_size(distinct_ids, _escaped_literal_bytes):
+    for batch in _batches_by_query_size(team.id, distinct_ids, _escaped_literal_bytes):
         persons |= _persons_in_batch(team, user, batch)
     return persons
 
