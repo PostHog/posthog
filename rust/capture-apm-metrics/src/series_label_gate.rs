@@ -38,10 +38,10 @@ const REDIS_BUCKET_SECS: i64 = 3600;
 /// below the pull's `since` because of clock skew. The next pull starts this
 /// much earlier; members already in the cache are a no-op.
 const PULL_OVERLAP_SECS: i64 = 60;
-/// Members per `ZRANGEBYSCORE ... LIMIT` call. Small enough that one call is
-/// a short, non-blocking read on Redis and a small reply here; large enough
-/// that a full seed of millions of series takes hundreds of calls, not tens
-/// of thousands.
+/// Members per `ZRANGEBYSCORE ... WITHSCORES LIMIT` call. Small enough that
+/// one call is a short, non-blocking read on Redis and a small reply here;
+/// large enough that a full seed of millions of series takes hundreds of
+/// calls, not tens of thousands.
 const PULL_PAGE_SIZE: usize = 50_000;
 /// Series waiting for the writer. One remote-write request can carry tens of
 /// thousands of new series, and every one that finds the queue full is never
@@ -478,6 +478,8 @@ impl SeriesLabelGate {
 
     /// Read every page of every bucket in the range into `stats`. Stops at
     /// `deadline`; what was merged before that stays in the cache.
+    /// Buckets go newest first, so a spent budget drops the oldest series,
+    /// which are the closest to relabelling anyway.
     async fn walk_pages(
         &self,
         client: &dyn Client,
@@ -487,21 +489,23 @@ impl SeriesLabelGate {
         stats: &mut PullStats,
     ) -> Result<(), PullError> {
         let now = (self.clock)();
-        let min = since.to_string();
 
-        for key in bucket_keys(since.max(now - self.window_secs), now) {
-            let mut offset = 0usize;
+        for key in bucket_keys(since.max(now - self.window_secs), now)
+            .into_iter()
+            .rev()
+        {
+            let mut cursor = ScoreCursor::new(since);
             loop {
                 if tokio::time::Instant::now() >= deadline {
                     return Err(PullError::Timeout {
                         merged: stats.merged,
                     });
                 }
-                let page = client.zrangebyscore_limit(
+                let page = client.zrangebyscore_withscores_limit(
                     key.clone(),
-                    min.clone(),
+                    cursor.min.to_string(),
                     "+inf".to_string(),
-                    offset as isize,
+                    cursor.skip as isize,
                     page_size as isize,
                 );
                 let page = match tokio::time::timeout_at(deadline, page).await {
@@ -513,20 +517,26 @@ impl SeriesLabelGate {
                     }
                 };
                 let page_len = page.len();
+                cursor.advance(&page);
                 stats.pages += 1;
                 stats.members_read += page_len as u64;
-                stats.bytes += page.iter().map(|m| m.len() as u64).sum::<u64>();
-                self.merge_members(page, since, now, stats);
+                stats.bytes += page.iter().map(|(m, _)| m.len() as u64).sum::<u64>();
+                self.merge_members(page.into_iter().map(|(m, _)| m), since, now, stats);
                 if page_len < page_size {
                     break;
                 }
-                offset += page_len;
             }
         }
         Ok(())
     }
 
-    fn merge_members(&self, members: Vec<String>, since: i64, now: i64, stats: &mut PullStats) {
+    fn merge_members(
+        &self,
+        members: impl Iterator<Item = String>,
+        since: i64,
+        now: i64,
+        stats: &mut PullStats,
+    ) {
         for member in members {
             let Ok(key) = member.parse::<u64>() else {
                 continue;
@@ -576,11 +586,12 @@ impl SeriesLabelGate {
                 let result = gate
                     .pull_from_redis(client.as_ref(), PullKind::Periodic, since, timeout)
                     .await;
-                // Advance even when the pull failed or ran out of budget. Pages
-                // are read oldest first, so a `since` left behind makes every
-                // later pull re-read the same old members and run out of budget
-                // before reaching new ones, and pods stop learning each other's
-                // series. Members skipped this way only cost extra labels.
+                // Advance even when the pull failed or ran out of budget. Within
+                // a bucket pages are read oldest first, so a `since` left behind
+                // makes every later pull re-read the same old members and run
+                // out of budget before reaching new ones, and pods stop learning
+                // each other's series. Members skipped this way only cost extra
+                // labels.
                 since = started - PULL_OVERLAP_SECS;
                 match result {
                     Ok(merged) => {
@@ -792,6 +803,43 @@ fn strip_labels(row: &mut KafkaMetricRow) {
     row.has_labels = false;
     row.attributes.clear();
     row.resource_attributes.clear();
+}
+
+/// Where the next page of one bucket starts. `ZRANGEBYSCORE ... LIMIT offset`
+/// walks `offset` members on every call, so paging a bucket by a growing
+/// offset costs Redis time quadratic in the bucket's size. The cursor instead
+/// starts at the last score read and skips only the members already read at
+/// that score. Scores are unix seconds, so many members share one, and the
+/// skip covers every page that ended on it.
+///
+/// A member another pod moves to a later score while the walk runs can shift
+/// the members at the boundary by one. The walk then reads one twice, which is
+/// a no-op, or misses one, which only costs an extra label.
+struct ScoreCursor {
+    min: f64,
+    skip: usize,
+}
+
+impl ScoreCursor {
+    fn new(since: i64) -> Self {
+        Self {
+            min: since as f64,
+            skip: 0,
+        }
+    }
+
+    fn advance(&mut self, page: &[(String, f64)]) {
+        let Some(&(_, last)) = page.last() else {
+            return;
+        };
+        let at_last = page.iter().rev().take_while(|(_, s)| *s == last).count();
+        if last == self.min {
+            self.skip += at_last;
+        } else {
+            self.min = last;
+            self.skip = at_last;
+        }
+    }
 }
 
 fn bucket_key(unix_secs: i64) -> String {
@@ -1094,15 +1142,30 @@ mod tests {
         assert_stripped(&rows[1]);
     }
 
+    fn scored(score: i64, members: &[&str]) -> Vec<(String, f64)> {
+        members
+            .iter()
+            .map(|m| (m.to_string(), score as f64))
+            .collect()
+    }
+
     #[tokio::test]
-    async fn pull_reads_a_bucket_in_pages_and_merges_each_page() {
+    async fn pull_pages_by_score_cursor_across_members_sharing_a_score() {
         let (gate, _, _) = gate(true, false);
-        let mut client = MockRedisClient::new();
-        for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
-            client = client.zrangebyscore_ret(&key, vec![]);
-        }
-        let members: Vec<String> = (1..=5).map(|k| k.to_string()).collect();
-        let client = client.zrangebyscore_ret(&bucket_key(START), members);
+        let older = bucket_key(START - 1);
+        let newest = bucket_key(START);
+        assert_ne!(older, newest);
+        let client = MockRedisClient::new()
+            .zrangebyscore_withscores_ret(&older, scored(START - 30, &["100"]))
+            .zrangebyscore_withscores_ret(
+                &newest,
+                [
+                    scored(START, &["1", "2", "3"]),
+                    scored(START + 1, &["4", "5", "6", "7"]),
+                    scored(START + 2, &["8", "9"]),
+                ]
+                .concat(),
+            );
 
         let merged = gate
             .pull_pages(
@@ -1114,17 +1177,29 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(merged, 5);
-        assert_eq!(gate.cache_len(), 5);
+        assert_eq!(merged, 10);
 
-        // 5 members at 2 per page: pages of 2, 2, 1. The short last page ends
-        // the walk without an extra empty read.
-        let pages = client
+        let calls: Vec<(String, String, String)> = client
             .get_calls()
             .into_iter()
-            .filter(|c| c.op == "zrangebyscore_limit" && c.key == bucket_key(START))
-            .count();
-        assert_eq!(pages, 3);
+            .map(|c| match c.value {
+                MockRedisValue::MinMax(min, offset) => (c.key, min, offset),
+                other => panic!("unexpected call value {other:?}"),
+            })
+            .collect();
+        let call =
+            |key: &str, min: i64, skip: usize| (key.to_string(), min.to_string(), skip.to_string());
+        assert_eq!(
+            calls,
+            vec![
+                call(&newest, START - 60, 0),
+                call(&newest, START, 2),
+                call(&newest, START + 1, 1),
+                call(&newest, START + 1, 3),
+                call(&newest, START + 2, 1),
+                call(&older, START - 60, 0),
+            ]
+        );
     }
 
     #[tokio::test]
@@ -1132,9 +1207,10 @@ mod tests {
         let (gate, _, _) = gate(true, false);
         let mut client = MockRedisClient::new();
         for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
-            client = client.zrangebyscore_ret(&key, vec![]);
+            client = client.zrangebyscore_withscores_ret(&key, vec![]);
         }
-        let client = client.zrangebyscore_ret(&bucket_key(START), vec!["1".into(), "2".into()]);
+        let client =
+            client.zrangebyscore_withscores_ret(&bucket_key(START), scored(START, &["1", "2"]));
 
         // A spent budget stops the walk before the next page is requested and
         // reports what was merged so far.
@@ -1167,9 +1243,10 @@ mod tests {
         let (gate, _, _) = gate_with_limits(true, false, limits);
         let mut client = MockRedisClient::new();
         for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
-            client = client.zrangebyscore_ret(&key, vec![]);
+            client = client.zrangebyscore_withscores_ret(&key, vec![]);
         }
-        let client = client.zrangebyscore_ret(&bucket_key(START), vec!["1".into(), "2".into()]);
+        let client =
+            client.zrangebyscore_withscores_ret(&bucket_key(START), scored(START, &["1", "2"]));
 
         let merged = gate
             .pull_from_redis(
@@ -1236,11 +1313,14 @@ mod tests {
 
         let mut client = MockRedisClient::new();
         for key in bucket_keys(START + 1200 - WINDOW.as_secs() as i64, START + 1200) {
-            client = client.zrangebyscore_ret(&key, vec![]);
+            client = client.zrangebyscore_withscores_ret(&key, vec![]);
         }
-        let client = client.zrangebyscore_ret(
+        let client = client.zrangebyscore_withscores_ret(
             &bucket_key(START + 1200),
-            vec![local_key.to_string(), remote_key.to_string(), "junk".into()],
+            scored(
+                START + 1200,
+                &[&local_key.to_string(), &remote_key.to_string(), "junk"],
+            ),
         );
 
         let merged = gate
@@ -1280,10 +1360,12 @@ mod tests {
         now.store(START + window + 30, Ordering::SeqCst);
         let mut client = MockRedisClient::new();
         for bucket in bucket_keys(since, START + window + 30) {
-            client = client.zrangebyscore_ret(&bucket, vec![]);
+            client = client.zrangebyscore_withscores_ret(&bucket, vec![]);
         }
-        let client =
-            client.zrangebyscore_ret(&bucket_key(START + window + 30), vec![key.to_string()]);
+        let client = client.zrangebyscore_withscores_ret(
+            &bucket_key(START + window + 30),
+            scored(START + window + 30, &[&key.to_string()]),
+        );
         let merged = gate
             .pull_from_redis(&client, PullKind::Periodic, since, Duration::from_secs(1))
             .await
@@ -1313,9 +1395,12 @@ mod tests {
 
         let mut client = MockRedisClient::new();
         for bucket in bucket_keys(START, START + 600) {
-            client = client.zrangebyscore_ret(&bucket, vec![]);
+            client = client.zrangebyscore_withscores_ret(&bucket, vec![]);
         }
-        let client = client.zrangebyscore_ret(&bucket_key(START + 600), vec![key.to_string()]);
+        let client = client.zrangebyscore_withscores_ret(
+            &bucket_key(START + 600),
+            scored(START + 600, &[&key.to_string()]),
+        );
         gate.pull_from_redis(&client, PullKind::Periodic, START, Duration::from_secs(1))
             .await
             .unwrap();
@@ -1527,9 +1612,9 @@ mod tests {
     fn seed_client() -> MockRedisClient {
         let mut client = MockRedisClient::new();
         for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
-            client = client.zrangebyscore_ret(&key, vec![]);
+            client = client.zrangebyscore_withscores_ret(&key, vec![]);
         }
-        client.zrangebyscore_ret(&bucket_key(START), vec!["1".into(), "2".into(), "3".into()])
+        client.zrangebyscore_withscores_ret(&bucket_key(START), scored(START, &["1", "2", "3"]))
     }
 
     #[test]
@@ -1603,8 +1688,8 @@ mod tests {
 
     #[test]
     fn seed_reports_series_merged_before_a_redis_failure() {
-        let first = bucket_keys(START - WINDOW.as_secs() as i64, START).remove(0);
-        let client = MockRedisClient::new().zrangebyscore_ret(&first, vec!["1".into(), "2".into()]);
+        let client = MockRedisClient::new()
+            .zrangebyscore_withscores_ret(&bucket_key(START), scored(START, &["1", "2"]));
 
         let snapshotter = seed_with_metrics(&client, Duration::from_secs(5));
 

@@ -212,6 +212,18 @@ pub trait Client: Send + Sync {
         count: isize,
     ) -> Result<Vec<String>, CustomRedisError>;
 
+    /// `ZRANGEBYSCORE ... WITHSCORES LIMIT offset count`. The scores let a
+    /// caller start the next page at the last score read instead of at a
+    /// growing offset, which Redis walks on every call.
+    async fn zrangebyscore_withscores_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<(String, f64)>, CustomRedisError>;
+
     /// Add a single (member, score) pair to a sorted set.
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError>;
 
