@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickWorkflow,
@@ -165,6 +165,9 @@ from products.signals.backend.temporal.summary import (
     reset_report_to_potential_activity,
     revert_report_to_candidate_activity,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     MonitoringAssessmentWorkflow,

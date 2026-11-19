@@ -1,4 +1,5 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
+
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import bump_stuck_counter_activity
 
 from products.replay_vision.backend.temporal.activities import (
@@ -75,6 +76,9 @@ from products.replay_vision.backend.temporal.vision_alerts import (
     evaluate_vision_alert_batch_activity,
 )
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     ApplyScannerWorkflow,

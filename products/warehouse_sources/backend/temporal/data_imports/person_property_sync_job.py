@@ -17,7 +17,7 @@ import json
 import time
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -28,7 +28,6 @@ from temporalio.exceptions import ActivityError
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
-from posthog.temporal.common.registration import ActivityDefinition
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertyFailedRunInputs,
@@ -46,6 +45,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     record_started_runs,
     run_person_property_sync,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 logger = structlog.get_logger(__name__)
 

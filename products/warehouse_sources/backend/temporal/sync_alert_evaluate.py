@@ -6,12 +6,15 @@ because the dispatcher passes the kind in its inputs.
 """
 
 import datetime as dt
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.registration import ActivityDefinition
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections

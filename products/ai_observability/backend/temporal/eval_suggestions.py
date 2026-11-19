@@ -9,7 +9,7 @@ import uuid
 import asyncio
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -17,7 +17,9 @@ from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.registration import ActivityDefinition
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat import Heartbeater

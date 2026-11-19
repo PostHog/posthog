@@ -6,7 +6,7 @@ logic, which reaches back down to the cell dispatch, which starts a workflow of 
 an eager package `__init__` turned that chain into an import cycle.
 """
 
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.notebooks.backend.temporal.frame_materialize import (
     NotebookFrameMaterializeWorkflow,
@@ -34,6 +34,9 @@ from products.notebooks.backend.temporal.widget_generation import (
     mark_widget_generation_capacity_failed_activity,
     mark_widget_generation_failed_activity,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     NotebookRunWorkflow,

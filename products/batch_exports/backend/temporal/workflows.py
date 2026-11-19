@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportWorkflow,
@@ -60,6 +60,9 @@ from products.batch_exports.backend.temporal.monitoring import (
 )
 from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     BackfillBatchExportWorkflow,

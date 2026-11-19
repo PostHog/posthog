@@ -9,6 +9,7 @@ from the last cursor the loop logged.
 import asyncio
 from dataclasses import replace
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -17,7 +18,6 @@ from temporalio.exceptions import is_cancelled_exception
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.registration import ActivityDefinition
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.temporal.activities import (
@@ -25,6 +25,9 @@ from products.posthog_ai.backend.temporal.activities import (
     MirrorConversationInputs,
     mirror_conversation_to_task_activity,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 BACKFILL_WORKFLOW_NAME = "backfill-conversation-tasks"
 

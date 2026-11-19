@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.context_layer.backend.temporal.dreaming import (
     ContextLayerBootstrapDreamWorkflow,
@@ -6,6 +6,9 @@ from products.context_layer.backend.temporal.dreaming import (
     dispatch_dream_run,
     fetch_dream_candidates,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [ContextLayerDreamCoordinatorWorkflow, ContextLayerBootstrapDreamWorkflow]
 ACTIVITIES: list[ActivityDefinition] = [fetch_dream_candidates, dispatch_dream_run]

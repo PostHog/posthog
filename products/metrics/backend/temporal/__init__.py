@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.metrics.backend.temporal.activities import (
     analyze_team_activity,
@@ -18,6 +18,9 @@ from products.metrics.backend.temporal.workflows import (
     MetricsDashboardGenerateWorkflow,
     MetricsDashboardSuggestWorkflow,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     MetricsDashboardDiscoveryWorkflow,

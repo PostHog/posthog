@@ -7,13 +7,16 @@ plain function a test can call without Temporal.
 import datetime as dt
 import contextlib
 import dataclasses
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.registration import ActivityDefinition
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings

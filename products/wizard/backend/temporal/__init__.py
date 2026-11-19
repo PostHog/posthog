@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.wizard.backend.temporal.activities.execution import execute_wizard
 from products.wizard.backend.temporal.activities.handoff import create_run_artifacts
@@ -6,6 +6,9 @@ from products.wizard.backend.temporal.activities.lifecycle import finalize_run
 from products.wizard.backend.temporal.activities.local_package import prepare_local_wizard
 from products.wizard.backend.temporal.activities.workspace import clone_repository, destroy_worker, provision_worker
 from products.wizard.backend.temporal.workflows.execute_run import ExecuteWizardRunWorkflow
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [ExecuteWizardRunWorkflow]
 

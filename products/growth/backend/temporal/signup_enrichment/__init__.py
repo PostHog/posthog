@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.growth.backend.temporal.signup_enrichment.harmonic_status_poll import (
     HarmonicEnrichmentStatusPollWorkflow,
@@ -21,6 +21,9 @@ from products.growth.backend.temporal.signup_enrichment.workflow import (
     SignupEnrichmentWorkflow,
     enrich_signup_organization_activity,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     SignupEnrichmentWorkflow,

@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.engineering_analytics.backend.logic.signals.coordinator import (
     CISignalsCoordinatorWorkflow,
@@ -6,6 +6,9 @@ from products.engineering_analytics.backend.logic.signals.coordinator import (
     discover_ci_signal_targets_activity,
     discover_ci_signal_teams_activity,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [CISignalsCoordinatorWorkflow]
 ACTIVITIES: list[ActivityDefinition] = [

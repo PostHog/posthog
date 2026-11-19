@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.subscriptions.backend.temporal.activities import (
     advance_next_delivery_date,
@@ -19,6 +19,9 @@ from products.subscriptions.backend.temporal.workflows import (
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     ScheduleAllSubscriptionsWorkflow,

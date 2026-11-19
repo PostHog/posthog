@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from .coordinator import (
     BusinessKnowledgeIngestSourceWorkflow,
@@ -21,6 +21,9 @@ from .learning.activities.analyze import analyze_learning_evidence_activity
 from .learning.activities.collect import collect_learning_evidence_activity
 from .learning.coordinator import BusinessKnowledgeLearningCoordinatorWorkflow
 from .learning.workflow import BusinessKnowledgeLearningWorkflow
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     BusinessKnowledgeRefreshCoordinatorWorkflow,

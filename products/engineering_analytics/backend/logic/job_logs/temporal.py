@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchDepotJobLogWorkflow,
@@ -11,6 +11,9 @@ from products.engineering_analytics.backend.logic.job_logs.coordinator import (
     discover_failed_depot_attempts_activity,
     discover_failed_jobs_activity,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [GithubJobLogsCoordinatorWorkflow, FetchGithubJobLogWorkflow, FetchDepotJobLogWorkflow]
 ACTIVITIES: list[ActivityDefinition] = [

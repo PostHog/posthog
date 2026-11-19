@@ -7,6 +7,7 @@ function a test can call without Temporal.
 import asyncio
 import datetime as dt
 import dataclasses
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -23,8 +24,10 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.registration import ActivityDefinition
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections

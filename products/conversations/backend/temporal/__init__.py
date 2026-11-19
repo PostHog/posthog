@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
     support_persist_knowledge_gap_activity,
@@ -59,6 +59,9 @@ from products.conversations.backend.temporal.zendesk_import.workflows import (
     ZendeskImportBatchWorkflow,
     ZendeskImportCoordinatorWorkflow,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     SupportReplyWorkflow,

@@ -13,6 +13,7 @@ import asyncio
 import datetime as dt
 from collections.abc import Callable
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -20,7 +21,9 @@ from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlrea
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.registration import ActivityDefinition
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings

@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.customer_analytics.backend.temporal.account_track_rules import (
     AccountTrackRuleCoordinatorWorkflow,
@@ -47,6 +47,9 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
     ownership_claims_collect_teams_activity,
     ownership_claims_sweep_activity,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     MembershipBackfillWorkflow,

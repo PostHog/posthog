@@ -14,7 +14,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
@@ -30,7 +30,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.registration import ActivityDefinition
 from posthog.temporal.common.utils import close_db_connections
 
 from products.aeo.backend.brand import brand_regex
@@ -46,6 +45,9 @@ from products.aeo.backend.sentiment import (
     sentence_sentiment,
 )
 from products.aeo.backend.stored_results import bump_data_version_on_commit
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 logger = structlog.get_logger(__name__)
 

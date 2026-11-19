@@ -5,7 +5,7 @@ registers them on `settings.AUTORESEARCH_TASK_QUEUE`, which the
 temporal-worker-self-driving fleet polls.
 """
 
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from .workflows import (
     AutoresearchCoordinatorWorkflow,
@@ -22,6 +22,9 @@ from .workflows import (
     activity_run_shadow_scoring,
     activity_run_validation,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [
     AutoresearchCoordinatorWorkflow,

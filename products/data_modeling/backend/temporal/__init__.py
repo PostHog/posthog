@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.data_modeling.backend.temporal.activities import (
     check_managed_warehouse_shadow_eligibility_activity,
@@ -26,6 +26,9 @@ from products.data_modeling.backend.temporal.workflows import (
     ExecuteDAGWorkflow,
     MaterializeViewWorkflow,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [MaterializeViewWorkflow, ExecuteDAGWorkflow]
 

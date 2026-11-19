@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     cdc_extract_activity,
@@ -40,6 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     sync_new_schemas_activity,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 # NOTE: post-sync table-metadata workflows (semantic enrichment, column statistics) intentionally live on
 # their own worker — see table_metadata_settings.py / DATA_WAREHOUSE_METADATA_TASK_QUEUE — not here.

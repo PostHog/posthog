@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.pulse.backend.temporal.activities import (
     gather_brief_inputs_activity,
@@ -6,6 +6,9 @@ from products.pulse.backend.temporal.activities import (
     synthesize_brief_activity,
 )
 from products.pulse.backend.temporal.workflow import GenerateProductBriefWorkflow
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS = [GenerateProductBriefWorkflow]
 ACTIVITIES: list[ActivityDefinition] = [

@@ -1,4 +1,4 @@
-from posthog.temporal.common.registration import ActivityDefinition
+from typing import TYPE_CHECKING
 
 from products.experiments.backend.temporal.canary_activities import (
     report_experiment_canary_results,
@@ -39,6 +39,9 @@ from products.experiments.backend.temporal.timeseries.workflows import (
     ExperimentSavedMetricsWorkflow,
     ExperimentTimeseriesRecalculationWorkflow,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 EXPERIMENT_CANARY_WORKFLOWS = [
     ExperimentPrecomputeCanaryWorkflow,

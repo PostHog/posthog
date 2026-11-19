@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 import asyncio
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -13,7 +13,6 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
-from posthog.temporal.common.registration import ActivityDefinition
 
 from products.customer_analytics.backend.facade.temporal_contracts import (
     DEFAULT_ACCOUNT_PROPERTY_SOURCE_CONCURRENCY,
@@ -24,6 +23,9 @@ from products.customer_analytics.backend.facade.temporal_contracts import (
     FinalizeAccountPropertySyncRunsInput,
     StageAccountPropertySyncInput,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from datetime import timedelta

@@ -1,7 +1,8 @@
 """Temporal wiring for data_quality. Registered on the data-modeling task queue."""
 
+from typing import TYPE_CHECKING
+
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.registration import ActivityDefinition
 
 from .activities.cleanup import cleanup_check_runs_activity
 from .activities.finalize_check_suite import (
@@ -17,6 +18,9 @@ from .activities.run_check_batch import run_check_batch_activity
 from .workflows.cleanup import CleanupCheckRunsWorkflow
 from .workflows.reconcile_schedules import ReconcileMetricSchedulesWorkflow
 from .workflows.run_check_suite import RunCheckSuiteWorkflow
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 WORKFLOWS: list[type[PostHogWorkflow]] = [
     RunCheckSuiteWorkflow,

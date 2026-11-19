@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, SearchAttributeKey, WorkflowIDReusePolicy
@@ -18,7 +19,6 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import NonReportableApplicationError, unwrap_temporal_cause
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.common.registration import ActivityDefinition
 
 from products.alerts_platform.backend.temporal.metrics import (
     increment_deliveries_previewed,
@@ -29,6 +29,9 @@ from products.alerts_platform.backend.temporal.metrics import (
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 LOGGER = get_write_only_logger(__name__)
 
