@@ -64,6 +64,7 @@ export function BatchExportConfiguration(): JSX.Element {
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
     const hogqlBatchExports = !!featureFlags[FEATURE_FLAGS.HOGQL_BATCH_EXPORTS]
+    const newEventsSchemaSwitch = !!featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_NEW_EVENTS_SCHEMA]
     const isHogQLModel = selectedModel === BatchExportModelEnumApi.Hogql
 
     const showTimezoneAndOffsetSelector = configuration.interval === 'day' || configuration.interval === 'week'
@@ -395,6 +396,24 @@ export function BatchExportConfiguration(): JSX.Element {
                                         />
                                     </LemonField>
                                 </div>
+                                {newEventsSchemaSwitch && (
+                                    <LemonField
+                                        name="use_new_events_schema"
+                                        label="Events table"
+                                        help="Some properties are exported with a different type or format from the new events table. Try it on a separate test export before you turn it on for a production export."
+                                    >
+                                        {({ value, onChange }) => (
+                                            <LemonSwitch
+                                                label="Export from the new events table"
+                                                onChange={onChange}
+                                                checked={!!value}
+                                                fullWidth
+                                                bordered
+                                                data-attr="batch-export-use-new-events-schema"
+                                            />
+                                        )}
+                                    </LemonField>
+                                )}
                             </>
                         ) : null}
                     </div>
