@@ -55,7 +55,8 @@ const piMcpProxyInputSchema = z.object({
 });
 
 const posthogExecServerPattern = /^(?:plugin_)?posthog(?:_[^_]+)*$/;
-const posthogDispatcherTool = "exec(?:-read|-write)?";
+// Pi's `buildToolName` turns the hyphen in `exec-read`/`exec-write` into an underscore.
+const posthogDispatcherTool = "exec(?:[-_](?:read|write))?";
 const posthogDispatcherToolPattern = new RegExp(`^${posthogDispatcherTool}$`);
 const piPostHogDispatcherNamePattern = new RegExp(
   `^(.+)_(${posthogDispatcherTool})$`,
@@ -76,7 +77,7 @@ function readPiMcpToolParts(
   const [, server, tool] =
     withoutPrefix.match(piPostHogDispatcherNamePattern) ?? [];
   if (server && tool) {
-    return { server, tool };
+    return { server, tool: tool.replace("_", "-") };
   }
   return undefined;
 }

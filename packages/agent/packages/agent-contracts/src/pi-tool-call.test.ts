@@ -52,7 +52,8 @@ describe("parsePiMcpCallDetails", () => {
   it.each([
     "mcp_posthog_exec",
     "mcp__posthog__exec",
-    "mcp_posthog_exec-read",
+    "mcp_posthog_exec_read",
+    "mcp_posthog_exec_write",
     "mcp__posthog__exec-write",
   ])("normalizes a direct PostHog exec call: %s", (name) => {
     expect(
