@@ -89,9 +89,8 @@ impl TestContext {
         let insert_sql = format!(
             r#"
             INSERT INTO {}
-                (created_at, properties, properties_last_updated_at, properties_last_operation,
-                 team_id, is_identified, uuid, version)
-            VALUES (now(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, $1, false, gen_random_uuid(), 0)
+                (created_at, properties, team_id, is_identified, uuid, version)
+            VALUES (now(), '{{}}'::jsonb, $1, false, gen_random_uuid(), 0)
             RETURNING id
             "#,
             self.tables.person
@@ -118,6 +117,40 @@ impl TestContext {
             .expect("Failed to insert distinct id");
 
         person_id
+    }
+
+    pub async fn seed_retired_person_meta(&self, person_id: i64) {
+        let sql = format!(
+            r#"
+            UPDATE {}
+            SET properties_last_updated_at = '{{"email": "2026-01-01T00:00:00Z"}}'::jsonb,
+                properties_last_operation = '{{"email": "set"}}'::jsonb
+            WHERE team_id = $1 AND id = $2
+            "#,
+            self.tables.person
+        );
+        sqlx::query(&sql)
+            .bind(self.team_id as i32)
+            .bind(person_id)
+            .execute(&self.pool)
+            .await
+            .expect("Failed to seed person meta");
+    }
+
+    pub async fn retired_person_meta(&self, person_id: i64) -> (Option<String>, Option<String>) {
+        let sql = format!(
+            r#"
+            SELECT properties_last_updated_at::text, properties_last_operation::text
+            FROM {} WHERE team_id = $1 AND id = $2
+            "#,
+            self.tables.person
+        );
+        sqlx::query_as(&sql)
+            .bind(self.team_id as i32)
+            .bind(person_id)
+            .fetch_one(&self.pool)
+            .await
+            .expect("Failed to read person meta")
     }
 
     /// An engine over this context's pool, tuned for tests: a short poll
@@ -162,9 +195,8 @@ impl TestContext {
         sqlx::query(
             r#"
             INSERT INTO posthog_person
-                (id, created_at, properties, properties_last_updated_at,
-                 properties_last_operation, team_id, is_identified, uuid, version)
-            VALUES ($1, now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $2, false,
+                (id, created_at, properties, team_id, is_identified, uuid, version)
+            VALUES ($1, now(), '{}'::jsonb, $2, false,
                     gen_random_uuid(), 0)
             "#,
         )

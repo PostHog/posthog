@@ -74,9 +74,8 @@ impl TestContext {
         sqlx::query_scalar(
             r#"
             INSERT INTO posthog_person
-                (created_at, properties, properties_last_updated_at, properties_last_operation,
-                 team_id, is_identified, uuid, version, is_deleted)
-            VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, $3, true)
+                (created_at, properties, team_id, is_identified, uuid, version, is_deleted)
+            VALUES (now(), '{}'::jsonb, $1, false, $2, $3, true)
             RETURNING id
             "#,
         )
@@ -417,9 +416,8 @@ async fn create_blocked_on_uncommitted_winner_resolves_to_it_after_commit() {
     let winner_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO posthog_person
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{}'::jsonb, $1, false, $2, 0)
         RETURNING id
         "#,
     )
@@ -479,9 +477,8 @@ async fn multi_row_create_waits_for_a_holder_locking_in_id_order() {
         let id = sqlx::query_scalar(
             r#"
             INSERT INTO posthog_person
-                (created_at, properties, properties_last_updated_at, properties_last_operation,
-                 team_id, is_identified, uuid, version)
-            VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, $2, 0)
+                (created_at, properties, team_id, is_identified, uuid, version)
+            VALUES (now(), '{}'::jsonb, $1, false, $2, 0)
             RETURNING id
             "#,
         )
@@ -566,9 +563,8 @@ async fn create_blocked_on_uncommitted_mapping_rolls_back_as_lost_race() {
     let other_id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO posthog_person
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version)
-        VALUES (now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $1, false, gen_random_uuid(), 0)
+            (created_at, properties, team_id, is_identified, uuid, version)
+        VALUES (now(), '{}'::jsonb, $1, false, gen_random_uuid(), 0)
         RETURNING id
         "#,
     )
