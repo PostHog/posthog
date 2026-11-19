@@ -3754,7 +3754,6 @@ class TaskRunLogsOutput(models.TextChoices):
 
 
 TASK_RUN_LOG_PAGE_FIELDS = ("limit", "after", "event_types", "exclude_types")
-TASK_RUN_LOG_JSON_PAGE_LIMIT = 1000
 
 
 class TaskRunLogFilterQuerySerializer(serializers.Serializer):
@@ -3791,9 +3790,8 @@ class TaskRunLogsQuerySerializer(TaskRunLogFilterQuerySerializer):
         required=False,
         help_text=(
             "'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, "
-            "offset and count, for clients that read only JSON. Without limit, a JSON page holds at most 1000 "
-            "entries. An entry that is not valid JSON comes back as an object with its text in unparseable_line. "
-            "Cannot be combined with tail_bytes or before."
+            "offset and count, for clients that read only JSON. An entry that is not valid JSON comes back as an "
+            "object with its text in unparseable_line. Cannot be combined with tail_bytes or before."
         ),
     )
 
@@ -3851,8 +3849,6 @@ class TaskRunLogsQuerySerializer(TaskRunLogFilterQuerySerializer):
                     raise serializers.ValidationError(f"Use {field} or tail_bytes, not both.")
             if attrs.get("output") == TaskRunLogsOutput.JSON:
                 raise serializers.ValidationError("Use output=json or tail_bytes, not both.")
-        if attrs.get("output") == TaskRunLogsOutput.JSON:
-            attrs.setdefault("limit", TASK_RUN_LOG_JSON_PAGE_LIMIT)
         return attrs
 
 

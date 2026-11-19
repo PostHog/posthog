@@ -6232,7 +6232,7 @@ export type TasksRunsLogEntriesRetrieveParams = {
      */
     limit?: number
     /**
-     * 'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, offset and count, for clients that read only JSON. Without limit, a JSON page holds at most 1000 entries. An entry that is not valid JSON comes back as an object with its text in unparseable_line. Cannot be combined with tail_bytes or before.
+     * 'jsonl' returns the entries as JSONL text. 'json' returns a page read as a JSON object with entries, offset and count, for clients that read only JSON. An entry that is not valid JSON comes back as an object with its text in unparseable_line. Cannot be combined with tail_bytes or before.
      *
      * * `jsonl` - jsonl
      * * `json` - json

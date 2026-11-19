@@ -256,18 +256,6 @@ class TestTaskRunLogsQuerySerializer(SimpleTestCase):
     def test_query_combinations(self, _name: str, data: dict, expected_valid: bool) -> None:
         assert TaskRunLogsQuerySerializer(data=data).is_valid() is expected_valid
 
-    @parameterized.expand(
-        [
-            ("json_without_limit", {"output": "json"}, 1000),
-            ("json_with_limit", {"output": "json", "limit": "10"}, 10),
-            ("jsonl_without_limit", {"start": "0"}, None),
-        ]
-    )
-    def test_page_limit(self, _name: str, data: dict, expected_limit: int | None) -> None:
-        serializer = TaskRunLogsQuerySerializer(data=data)
-        assert serializer.is_valid()
-        assert serializer.validated_data.get("limit") == expected_limit
-
 
 class TestTaskRunCreateRequestSerializer(SimpleTestCase):
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
