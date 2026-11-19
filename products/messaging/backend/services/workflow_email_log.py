@@ -319,7 +319,8 @@ def get_workflow_email(
         send.workflow_id, send.workflow_id
     )
     send = replace(send, workflow_id=workflow_id)
-    if access is not None and not access.allows(send.workflow_id):
+    # Fails closed: a send whose workflow is gone, or never resolved, has no workflow to check access against.
+    if access is not None and send.workflow_id not in access.viewable_ids:
         return None
     follow_ups_end = min(send.sent_at + FOLLOW_UP_WINDOW, now + _CLOCK_SKEW)
     key = _SendKey(invocation_id=send.invocation_id, action_id=action_id)

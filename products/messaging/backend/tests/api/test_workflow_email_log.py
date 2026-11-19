@@ -184,6 +184,16 @@ class TestWorkflowEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [(s["invocation_id"], s["workflow_id"]) for s in listed["results"]] == [(run_id, self.workflow_id)]
         assert detail["workflow_id"] == self.workflow_id
 
+    def test_a_send_whose_workflow_cannot_be_found_is_not_found(self):
+        run_id = self._run_id(NOW - timedelta(hours=2))
+        self._sent(run_id, "welcome", NOW - timedelta(hours=1), workflow_id=str(UUIDT()))
+        flush_persons_and_events()
+
+        detail = self.client.get(self._url(f"{run_id}/"), {"action_id": "welcome"})
+        activity = self.client.get(self._url(f"{run_id}/activity/"), {"action_id": "welcome"})
+
+        assert (detail.status_code, activity.status_code) == (status.HTTP_404_NOT_FOUND, status.HTTP_404_NOT_FOUND)
+
     def test_a_send_event_without_the_run_s_log_line_is_not_a_send(self):
         run_id = self._run_id(NOW - timedelta(hours=2))
         self._email_event("sent", run_id, "welcome", NOW - timedelta(hours=1))
