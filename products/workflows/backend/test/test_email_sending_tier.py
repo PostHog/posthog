@@ -429,6 +429,8 @@ class TestRecomputeEmailSendingTiers(BaseTest):
             "new_tier": 1,
             "reason": "clean_and_used",
             "changed_by": "staff" if by_staff else "system",
+            "pinned": False,
+            "pin_changed": False,
         }
         assert flush.called == (not by_staff)
         config = TeamWorkflowsConfig.objects.get(team=self.team)
@@ -516,8 +518,14 @@ class TestBackfillEmailSendingTiers(BaseTest):
             team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": pinned}
         )
         decision = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=4, reason="clean_and_used")
-        assert BackfillCommand()._apply([decision]) == (0 if pinned else 1)
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            assert BackfillCommand()._apply([decision]) == (0 if pinned else 1)
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
+        assert [
+            call.kwargs["properties"]["changed_by"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == EMAIL_SENDING_TIER_CHANGED_EVENT
+        ] == ([] if pinned else ["backfill"])
 
         entries = ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         assert [(entry.detail or {})["trigger"]["job_type"] for entry in entries] == (

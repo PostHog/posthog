@@ -19,13 +19,15 @@ def recompute_workflows_email_sending_tiers() -> None:
     """Move each team at most one trust tier, based on how much workflow email it sent and how
     clean the sending was. Runs in every rollout mode: tiers are stored before anything reads them,
     so enforcement can be switched on against a settled distribution."""
-    # One job id groups every audit row this run writes.
-    decisions = recompute_email_sending_tiers(
-        trigger=Trigger(job_type=EMAIL_SENDING_TIER_SWEEP_JOB_TYPE, job_id=str(uuid4()), payload={})
-    )
-    notify_email_sending_tier_changes(decisions)
-    # The worker can exit before the global client's background thread sends the tier change events.
-    posthoganalytics.flush()
+    try:
+        # One job id groups every audit row this run writes.
+        decisions = recompute_email_sending_tiers(
+            trigger=Trigger(job_type=EMAIL_SENDING_TIER_SWEEP_JOB_TYPE, job_id=str(uuid4()), payload={})
+        )
+        notify_email_sending_tier_changes(decisions)
+    finally:
+        # The worker can exit before the global client's background thread sends the tier change events.
+        posthoganalytics.flush()
     logger.info(
         "workflows_email_sending_tier_sweep_finished",
         evaluated_teams=len(decisions),

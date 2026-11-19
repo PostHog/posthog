@@ -35,13 +35,22 @@ class TestEmailSendingConsolePanel(BaseTest):
 
     @parameterized.expand(
         [
-            ("tier_change", {"tier": "2", "reason": "Raise"}, [("email_sending_tier", 1, 2)]),
-            ("pin_only", {"tier": "1", "pinned": "on", "reason": "Hold"}, [("email_sending_tier_pinned", False, True)]),
-            ("no_change", {"tier": "1", "reason": "Check"}, None),
+            ("tier_change", {"tier": "2", "reason": "Raise"}, [("email_sending_tier", 1, 2)], False),
+            (
+                "pin_only",
+                {"tier": "1", "pinned": "on", "reason": "Hold"},
+                [("email_sending_tier_pinned", False, True)],
+                True,
+            ),
+            ("no_change", {"tier": "1", "reason": "Check"}, None, False),
         ]
     )
     def test_set_tier_audits_what_changed(
-        self, _name: str, form: dict[str, str], expected_changes: list[tuple[str, object, object]] | None
+        self,
+        _name: str,
+        form: dict[str, str],
+        expected_changes: list[tuple[str, object, object]] | None,
+        pinned_after: bool,
     ) -> None:
         TeamWorkflowsConfig.objects.update_or_create(
             team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": False}
@@ -63,7 +72,9 @@ class TestEmailSendingConsolePanel(BaseTest):
             assert entries == []
             assert tier_events == []
             return
-        assert [(event["changed_by"], event["reason"]) for event in tier_events] == [("staff", "staff_set")]
+        assert [
+            (event["changed_by"], event["reason"], event["pinned"], event["pin_changed"]) for event in tier_events
+        ] == [("staff", "staff_set", pinned_after, pinned_after)]
         assert len(entries) == 1
         assert entries[0].user == self.user
         detail = entries[0].detail or {}

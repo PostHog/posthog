@@ -81,8 +81,10 @@ class Command(BaseCommand):
         )
         decisions = self._decide(histories=histories, team_ids=team_ids)
 
-        written = self._apply(decisions) if apply_changes else 0
-        posthoganalytics.flush()
+        try:
+            written = self._apply(decisions) if apply_changes else 0
+        finally:
+            posthoganalytics.flush()
 
         self._report(decisions=decisions, histories=histories, days=days, applied=apply_changes, written=written)
 
@@ -180,6 +182,7 @@ class Command(BaseCommand):
                 previous_tier=decision.previous_tier,
                 new_tier=decision.new_tier,
                 reason=decision.reason,
+                pin_change=(False, False),
                 trigger=trigger,
             )
         return written

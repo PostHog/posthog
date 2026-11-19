@@ -25,7 +25,7 @@ def log_email_sending_tier_change(
     previous_tier: int,
     new_tier: int,
     reason: str,
-    pin_change: tuple[bool, bool] | None = None,
+    pin_change: tuple[bool, bool],
     trigger: Trigger | None = None,
     user_id: int | None = None,
     was_impersonated: bool = False,
@@ -36,7 +36,7 @@ def log_email_sending_tier_change(
         changes.append(
             Change(type="Team", action="changed", field="email_sending_tier", before=previous_tier, after=new_tier)
         )
-    if pin_change is not None and pin_change[0] != pin_change[1]:
+    if pin_change[0] != pin_change[1]:
         changes.append(
             Change(
                 type="Team",
@@ -71,7 +71,16 @@ def log_email_sending_tier_change(
             "previous_tier": previous_tier,
             "new_tier": new_tier,
             "reason": reason,
-            "changed_by": "staff" if user_id is not None else "system",
-            **({"pin_changed_to": pin_change[1]} if pin_change is not None and pin_change[0] != pin_change[1] else {}),
+            "changed_by": _changed_by(user_id, trigger),
+            "pinned": pin_change[1],
+            "pin_changed": pin_change[0] != pin_change[1],
         },
     )
+
+
+def _changed_by(user_id: int | None, trigger: Trigger | None) -> str:
+    if user_id is not None:
+        return "staff"
+    if trigger is not None and trigger.job_type == EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE:
+        return "backfill"
+    return "system"
