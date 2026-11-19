@@ -394,6 +394,18 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # and retries forever. Matched on BigQuery's stable "failed to parse view" wording rather
             # than the volatile view/column names.
             "failed to parse view": "BigQuery couldn't read a view it was importing because its definition no longer matches the underlying data — a column it references was renamed or removed (for federated query views, in the upstream database). Please update the view definition (or restore the column), then reconnect the source.",
+            # Raised as a 400 BadRequest from job polling (the same `_wait_for_job` in `bigquery.py`
+            # that "failed to parse view" above covers) when a BigQuery external table backed by
+            # CSV files in Cloud Storage hits a line with more fields than the table's schema
+            # declares, e.g. "Error while reading table: <project>.<dataset>.<table>, error message:
+            # Too many values in line. Found 23 column(s) when expecting 21.; line_number: 2
+            # byte_offset_to_start_of_line: 291 File: gs://<bucket>/<object>". This is a malformed
+            # row in the customer's underlying CSV export, not anything our query shapes — retrying
+            # the same file fails identically every time, so it just spams error tracking. The
+            # customer must fix or remove the offending file (or widen the external table's schema)
+            # before the table can be read again. Matched on BigQuery's stable "Too many values in
+            # line" wording, not the volatile column counts, line/byte offsets, or GCS object path.
+            "Too many values in line": "BigQuery couldn't read an external table because one of its underlying CSV files in Cloud Storage has a line with more columns than the table's schema expects (\"Too many values in line\"). Please fix or remove the malformed file in the external table's source data (or widen the table's schema to match), then re-enable the source.",
             # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
             # `bigquery.py`) when the service account is missing the `bigquery.readsessions.create`
             # permission the Read API requires. The google.api_core PermissionDenied stringifies as

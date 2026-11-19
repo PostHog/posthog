@@ -63,6 +63,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/business_knowledge/frontend/scenes/usage/BusinessKnowledgeUsageScene'),
     BusinessKnowledgeSettings: () =>
         import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
+    BusinessKnowledgeLibraries: () =>
+        import('../../products/business_knowledge/frontend/scenes/libraries/BusinessKnowledgeLibrariesScene'),
+    BusinessKnowledgeLibrary: () =>
+        import('../../products/business_knowledge/frontend/scenes/library/KnowledgeLibraryScene'),
     BusinessKnowledgeSource: () =>
         import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
     CanvasNew: () => import('../../products/canvas/frontend/newCanvas/CanvasNewScene'),

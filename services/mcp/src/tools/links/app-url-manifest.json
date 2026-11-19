@@ -344,6 +344,16 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeLibraries": {
+        "template": "/business-knowledge/libraries",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeLibrary": {
+        "template": "/business-knowledge/libraries/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "businessKnowledgePlayground": {
         "template": "/business-knowledge/playground",
         "params": [],
