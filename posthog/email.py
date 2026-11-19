@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.core import exceptions, mail
-from django.core.cache import cache
+from django.core.cache import caches
 from django.core.mail.backends.smtp import EmailBackend
 from django.db import InterfaceError, OperationalError, transaction
 from django.template.loader import get_template
@@ -455,7 +455,7 @@ def _routes_through_workflows(dest: dict[str, str], template_name: str) -> bool:
 
 def _is_pinned_to_workflows(idempotency_key: str) -> bool:
     try:
-        return bool(cache.get(f"email_workflows_pin:{idempotency_key}"))
+        return bool(caches["email_workflows_pins"].get(f"email_workflows_pin:{idempotency_key}"))
     except Exception as err:
         logger.warning("email_workflows_pin_read_failed", error=str(err))
         return False
@@ -463,10 +463,11 @@ def _is_pinned_to_workflows(idempotency_key: str) -> bool:
 
 def _pin_to_workflows(idempotency_key: str, pinned: bool = True) -> None:
     try:
+        pins = caches["email_workflows_pins"]
         if pinned:
-            cache.set(f"email_workflows_pin:{idempotency_key}", True, timeout=WORKFLOWS_PIN_TTL_SECONDS)
+            pins.set(f"email_workflows_pin:{idempotency_key}", True, timeout=WORKFLOWS_PIN_TTL_SECONDS)
         else:
-            cache.delete(f"email_workflows_pin:{idempotency_key}")
+            pins.delete(f"email_workflows_pin:{idempotency_key}")
     except Exception as err:
         logger.warning("email_workflows_pin_write_failed", error=str(err))
 

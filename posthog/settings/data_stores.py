@@ -858,6 +858,18 @@ CACHES["metrics_prometheus_usage"] = {
     },
 }
 
+# A transactional email's Workflows pin is read on its retry, right after an attempt wrote it, and under the recipient's
+# row lock. Read from the writer, and bound each call so a stalled Redis cannot hold the lock.
+CACHES["email_workflows_pins"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SOCKET_CONNECT_TIMEOUT": 0.5,
+        "SOCKET_TIMEOUT": 0.5,
+    },
+}
+
 # Warehouse destination connect tokens are polled right after they are written, and completion claims a
 # token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
 CACHES["warehouse_destination_connect"] = {

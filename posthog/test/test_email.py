@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core import mail
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.core.exceptions import ImproperlyConfigured
 from django.db import OperationalError
 from django.test import override_settings
@@ -100,6 +100,7 @@ class TestEmail(BaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
+        caches["email_workflows_pins"].clear()
         self.organization = Organization.objects.create()
         self.team = Team.objects.create(organization=self.organization, name="The Bakery")
         self.user = User.objects.create(email="test@posthog.com")
