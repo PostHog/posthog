@@ -1,5 +1,4 @@
-from collections.abc import Callable
-from typing import Any
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.metrics.backend.temporal.activities import (
     analyze_team_activity,
@@ -26,7 +25,7 @@ WORKFLOWS = [
     MetricsDashboardGenerateWorkflow,
     *METRICS_RECORDING_RULES_WORKFLOWS,
 ]
-ACTIVITIES: list[Callable[..., Any]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     find_teams_to_analyze_activity,
     analyze_team_activity,
     start_generation_activity,

@@ -1,9 +1,7 @@
 """Temporal wiring for data_quality. Registered on the data-modeling task queue."""
 
-from collections.abc import Callable
-from typing import Any
-
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.registration import ActivityDefinition
 
 from .activities.cleanup import cleanup_check_runs_activity
 from .activities.finalize_check_suite import (
@@ -26,7 +24,7 @@ WORKFLOWS: list[type[PostHogWorkflow]] = [
     ReconcileMetricSchedulesWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., Any]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     materialization_gate_activity,
     prepare_check_suite_activity,
     run_check_batch_activity,

@@ -7,8 +7,6 @@ function a test can call without Temporal.
 import asyncio
 import datetime as dt
 import dataclasses
-from collections.abc import Callable
-from typing import Any
 
 from django.conf import settings
 
@@ -25,6 +23,7 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.registration import ActivityDefinition
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 with workflow.unsafe.imports_passed_through():
@@ -136,7 +135,7 @@ async def create_metrics_recording_rules_schedule(client: Client) -> None:
 
 
 METRICS_RECORDING_RULES_WORKFLOWS = [MetricsRecordingRulesWorkflow]
-METRICS_RECORDING_RULES_ACTIVITIES: list[Callable[..., Any]] = [
+METRICS_RECORDING_RULES_ACTIVITIES: list[ActivityDefinition] = [
     find_teams_with_recording_rules_activity,
     evaluate_team_recording_rules_activity,
 ]

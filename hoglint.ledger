@@ -1186,7 +1186,6 @@ facade-signature	products.data_quality.backend.facade.api	visible_checks	param:c
 facade-signature	products.data_quality.backend.facade.api	visible_checks	return	products.data_quality.backend.models.check.DataQualityCheck	1
 facade-signature	products.data_quality.backend.facade.api	without_denied_runs	param:runs	django.db.models.query.QuerySet	1
 facade-signature	products.data_quality.backend.facade.api	without_denied_runs	return	django.db.models.query.QuerySet	1
-facade-signature	products.data_quality.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
 facade-signature	products.data_warehouse.backend.facade.api	CreateTableResult.__init__	field:table	products.warehouse_sources.backend.models.table.DataWarehouseTable	1
 facade-signature	products.data_warehouse.backend.facade.api	apply_on_refresh	param:source	products.warehouse_sources.backend.models.external_data_source.ExternalDataSource	1
 facade-signature	products.data_warehouse.backend.facade.api	apply_on_schema_clear	param:source	products.warehouse_sources.backend.models.external_data_source.ExternalDataSource	1
@@ -1517,7 +1516,6 @@ facade-signature	products.metrics.backend.facade.api	list_metric_attribute_keys	
 facade-signature	products.metrics.backend.facade.api	list_metric_attribute_values	return	typing.Any	1
 facade-signature	products.metrics.backend.facade.api	list_metric_names	return	typing.Any	1
 facade-signature	products.metrics.backend.facade.api	list_metric_picker_names	return	typing.Any	1
-facade-signature	products.metrics.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
 facade-signature	products.notebooks.backend.facade.api	create_account_notebook	param:content	typing.Any	1
 facade-signature	products.notebooks.backend.facade.api	create_group_notebook	param:content	typing.Any	1
 facade-signature	products.notebooks.backend.facade.api	create_notebook	param:content	typing.Any	1
@@ -1580,7 +1578,6 @@ facade-signature	products.product_analytics.backend.facade.models	resolve_insigh
 facade-signature	products.product_analytics.backend.facade.models	resolve_insight_by_id_or_short_id	return	products.product_analytics.backend.models.insight.Insight	1
 facade-signature	products.release.backend.facade.contracts	UnknownLinkedObjectsError.__init__	param:ids	typing.Any	1
 facade-signature	products.replay_vision.backend.facade.api	parse_workflow_scan_setup	param:setup	typing.Any	1
-facade-signature	products.security.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
 facade-signature	products.signals.backend.facade.api	ScoutCreated.__init__	field:config	typing.Any	1
 facade-signature	products.signals.backend.facade.api	ScoutCreated.__init__	field:skill	typing.Any	1
 facade-signature	products.signals.backend.facade.api	create_scout_for_source	param:files	typing.Any	1
@@ -1895,9 +1892,7 @@ facade-signature	products.warehouse_sources.backend.facade.source_management	sta
 facade-signature	products.warehouse_sources.backend.facade.source_management	tables_wait_for_repair	param:source	products.warehouse_sources.backend.models.external_data_source.ExternalDataSource	1
 facade-signature	products.warehouse_sources.backend.facade.source_management	tls_options	param:config	builtins.object	1
 facade-signature	products.warehouse_sources.backend.facade.source_management	validate_and_coerce_row_filters	param:row_filters	typing.Any	1
-facade-signature	products.warehouse_sources.backend.facade.temporal	PERSON_PROPERTY_SYNC_ACTIVITIES	constant	typing.Any	1
 facade-signature	products.warehouse_sources.backend.facade.types	external_data_source_type_choices	return	typing.Any	1
-facade-signature	products.warehouse_suggestions.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
 facade-signature	products.web_analytics.backend.facade.capture_settings	effective_capture_settings	param:config	posthog.models.team.team_heatmap_config.TeamHeatmapConfig	1
 facade-signature	products.web_analytics.backend.facade.capture_settings	save_capture_settings	return	posthog.models.team.team_heatmap_config.TeamHeatmapConfig	1
 facade-signature	products.web_analytics.backend.facade.capture_settings	top_heatmap_pages	return	typing.Any	1

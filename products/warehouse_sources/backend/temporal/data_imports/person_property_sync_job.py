@@ -16,7 +16,6 @@ in the metrics below, also when the activity was timed out, cancelled or killed.
 import json
 import time
 import dataclasses
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -29,6 +28,7 @@ from temporalio.exceptions import ActivityError
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
+from posthog.temporal.common.registration import ActivityDefinition
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertyFailedRunInputs,
@@ -218,7 +218,7 @@ class SyncWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
 
 PERSON_PROPERTY_SYNC_WORKFLOWS = [SyncWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_SYNC_ACTIVITIES: list[Callable[..., Any]] = [
+PERSON_PROPERTY_SYNC_ACTIVITIES: list[ActivityDefinition] = [
     sync_warehouse_person_properties_activity,
     record_failed_person_property_sync_runs_activity,
 ]
