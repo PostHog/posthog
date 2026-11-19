@@ -205,6 +205,10 @@
     &.icon-only {
         width: var(--button-height-xxs);
     }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-xxs);
+    }
 }
 
 .button-primitive--height-xs {
@@ -212,6 +216,10 @@
 
     &.icon-only {
         width: var(--button-height-xs);
+    }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-xs);
     }
 }
 

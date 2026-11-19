@@ -178,7 +178,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'rounded button-primitive--full-width justify-start shrink-0 text-left',
+            true: 'rounded button-primitive--full-width button-primitive--height-auto h-auto justify-start shrink-0 text-left',
             false: '',
         },
         truncate: {
