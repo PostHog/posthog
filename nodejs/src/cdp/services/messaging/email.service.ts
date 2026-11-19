@@ -50,6 +50,7 @@ import {
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
+import { EmailHtmlTooComplexError } from './helpers/href-anchors'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import {
@@ -211,6 +212,7 @@ export class SESThrottleError extends Error {
 const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
 const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
 const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
+const EMAIL_HTML_TOO_COMPLEX = 'html_too_complex'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
 const MAX_OWNERSHIP_CHECK_RETRIES = 5
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
@@ -959,6 +961,8 @@ export class EmailService {
                 const attachmentFailure = describeAttachmentFailure(error, attachmentLoadRetries(invocation) + 1)
                 if (attachmentFailure) {
                     failureReason = attachmentFailure.reason
+                } else if (error instanceof EmailHtmlTooComplexError) {
+                    failureReason = EMAIL_HTML_TOO_COMPLEX
                 }
                 const message = attachmentFailure?.message ?? error.message
                 addLog('error', message)

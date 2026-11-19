@@ -2024,6 +2024,13 @@ describe('EmailService', () => {
             sesAccepts()
             invocation.hogFunction.metadata = { email_sending_paused_at: '2026-01-01T00:00:00Z' }
         }
+        const htmlTooComplex = (): void => {
+            sesAccepts()
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                html: `<body>${'<div>'.repeat(4_000)}</body>`,
+            })
+        }
         const recipientMissing = (): void => {
             sesAccepts()
             invocation.queueParameters = createEmailParams({
@@ -2782,6 +2789,14 @@ describe('EmailService', () => {
                 'provider_error',
             ],
             [
+                'a transactional email whose HTML is too complex to read its links',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                htmlTooComplex,
+                'failed',
+                'html_too_complex',
+            ],
+            [
                 'a transactional email skipped for a suspended team',
                 TRANSACTIONAL_EMAIL_EVENT,
                 false,
@@ -2852,7 +2867,11 @@ describe('EmailService', () => {
             await emailStatusService.flush()
 
             const rows = kafka.produced(EMAIL_STATUS_OUTPUT)
-            const sendingDomain = status === 'sent' || reason === 'provider_error' ? 'posthog-test.com' : ''
+            // A send that passed every skip gate knows its sending domain, whether it went out or failed.
+            const sendingDomain =
+                status === 'sent' || reason === 'provider_error' || reason === 'html_too_complex'
+                    ? 'posthog-test.com'
+                    : ''
             expect(rows).toEqual(
                 status
                     ? [
