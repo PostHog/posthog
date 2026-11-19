@@ -149,9 +149,6 @@ export async function drive(
             if (stop.aborted) {
                 return
             }
-            if (counts) {
-                step.offeredUnits += 1
-            }
             if (counts && kind.intake === 'event') {
                 answeredAts.get(step)?.push(answeredAt)
             }
@@ -221,7 +218,9 @@ export async function drive(
         const lastsMs = toMs - fromMs
         const step: DrivenStep = { index, scale, startedAt, endedAt: startedAt + lastsMs, dueUnits: 0, offeredUnits: 0 }
         steps.push(step)
-        answeredAts.set(step, [])
+        if (context.gate !== undefined) {
+            answeredAts.set(step, [])
+        }
         const slots = schedules[index]
         const late = fixedSteps ? (now: number) => now >= step.endedAt : (now: number) => now > driveEnd
         let sent = await offerSlots(slots, startedAt, halted, step, late)
@@ -232,20 +231,20 @@ export async function drive(
             step.endedAt = Math.min(step.endedAt, Date.now())
         }
         const previous = judged[index - 1]
-        let cycles = 1
         if (fixedSteps && previous && !previous.settled && !halted.aborted && index < planned.length - 1) {
             step.waitedFor = index - 1
             const verdict = new AbortController()
             void previous.done.finally(() => verdict.abort())
             const until = AbortSignal.any([halted, verdict.signal])
-            for (; !until.aborted; cycles++) {
-                const cycleAt = startedAt + cycles * lastsMs
+            for (let cycle = 1; !until.aborted; cycle++) {
+                const cycleAt = startedAt + cycle * lastsMs
                 sent += await offerSlots(slots, cycleAt, until, step, (now) => now >= cycleAt + lastsMs)
                 await pause(cycleAt + lastsMs - Date.now(), until)
             }
             step.endedAt = Date.now()
             stretchedMs += step.endedAt - (startedAt + lastsMs)
         }
+        const cycles = Math.max(1, Math.ceil((step.endedAt - startedAt) / lastsMs))
         step.dueUnits = Math.max(
             sent,
             Array.from({ length: cycles }, (_, cycle) => startedAt + cycle * lastsMs).reduce(
@@ -268,15 +267,11 @@ export async function drive(
     const end = steps.at(-1)?.endedAt ?? -Infinity
     try {
         await untilAborted(Promise.all(offers), stop)
-        await untilAborted(Promise.all(Object.values(judged).map(({ done }) => done)), stop)
     } finally {
         await Promise.allSettled(followUps)
     }
     if (failed.signal.aborted) {
         throw failed.signal.reason
-    }
-    for (const step of steps) {
-        step.offeredUnits = 0
     }
     let offeredUnits = 0
     for (const { step, answeredAt } of counted) {
