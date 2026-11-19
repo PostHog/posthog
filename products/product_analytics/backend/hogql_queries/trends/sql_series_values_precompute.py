@@ -590,7 +590,6 @@ def _insert_query(shape: _SqlShape, value_column: str) -> ast.SelectQuery:
                 ),
             ),
             ast.Alias(alias="series_key", expr=ast.Constant(value=value_column)),
-            ast.Alias(alias="breakdown_value", expr=ast.Array(exprs=[])),
             ast.Alias(
                 alias="value",
                 expr=ast.Call(
