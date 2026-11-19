@@ -284,44 +284,6 @@ class SourceInputsStore:
         return _stored_stripped_at(source) is not None
 
     @staticmethod
-    def write_stripped(source: ExternalDataSource, *, stripped_at: str) -> None:
-        """Remove the connection fields and the OAuth pointers from the stored `job_inputs`, and set the marker.
-
-        Only the strip command calls it, after it has verified the row or the column and written a backup.
-        It does not change `updated_at`, because the inputs that a reader sees do not change.
-        """
-        _stage(source, stripped_job_inputs(source.source_type, _decode(source.job_inputs), stripped_at))
-        source.save(update_fields=["job_inputs"])
-
-    @staticmethod
-    def write_cleaned(
-        source: ExternalDataSource, inputs: Mapping[str, Any], *, cleared_at: str, clear_column: bool
-    ) -> None:
-        """The caller holds the source lock and has saved a backup. Skip credential mirroring to avoid new rows."""
-        _stage(source, {**inputs, DEAD_CREDENTIALS_CLEARED_KEY: cleared_at})
-        update_fields = ["job_inputs"]
-        if clear_column:
-            source.credentials_integration_id = None
-            update_fields.append("credentials_integration_id")
-        source.save(update_fields=update_fields)
-
-    @staticmethod
-    def write_restored(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
-        """Store full inputs again on a stripped source, with its reference column, and remove the marker.
-
-        Only the restore command calls it. It skips `assign`, which would strip the inputs again.
-        """
-        _stage(
-            source,
-            {
-                key: value
-                for key, value in inputs.items()
-                if key not in STRIPPED_STORE_KEYS and key != DEAD_CREDENTIALS_CLEARED_KEY
-            },
-        )
-        source.save(update_fields=list(INPUTS_UPDATE_FIELDS))
-
-    @staticmethod
     async def aload(source: ExternalDataSource) -> dict[str, Any]:
         return await database_sync_to_async_pool(SourceInputsStore.load)(source)
 
@@ -410,7 +372,7 @@ def _has_runtime_prefix(key: str) -> bool:
 def _check_runtime_keys(source_type: str, keys: Iterable[str]) -> None:
     keys = list(keys)
     if DEAD_CREDENTIALS_CLEARED_KEY in keys:
-        raise ValueError("The cleanup marker is managed by the credentials commands")
+        raise ValueError("The cleanup marker is not a runtime key")
     if not keys:
         return
     try:

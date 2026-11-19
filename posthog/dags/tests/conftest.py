@@ -7,7 +7,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 
 import pytest
-from posthog.test.base import reset_clickhouse_database, reset_clickhouse_database_if_dirty
+from posthog.test.base import reset_clickhouse_database_if_dirty, truncate_or_reset_clickhouse_database
 from unittest.mock import patch
 
 from django.conf import settings
@@ -53,19 +53,12 @@ def refresh_person_from_persons_db(person) -> None:
     """
     with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
         cursor.execute(
-            "SELECT properties, version, is_identified, properties_last_updated_at, properties_last_operation "
-            f"FROM {settings.PERSON_TABLE_NAME} WHERE team_id = %s AND uuid = %s",
+            f"SELECT properties, version, is_identified FROM {settings.PERSON_TABLE_NAME} WHERE team_id = %s AND uuid = %s",
             (person.team_id, person.uuid),
         )
         row = cursor.fetchone()
     assert row is not None, f"person {person.uuid} not found in persons DB"
-    (
-        person.properties,
-        person.version,
-        person.is_identified,
-        person.properties_last_updated_at,
-        person.properties_last_operation,
-    ) = row
+    person.properties, person.version, person.is_identified = row
 
 
 def save_person_to_persons_db(person) -> None:
@@ -106,7 +99,7 @@ def isolated_clickhouse_cluster(client_settings: Mapping[str, str] | None = None
     # dirty counter, so a late row would leak into the next test. There is no
     # teardown reset: the next test that uses this fixture resets on setup, and
     # reset_clickhouse_after_module covers the tests that run after the module.
-    reset_clickhouse_database()
+    truncate_or_reset_clickhouse_database()
     with patch.object(
         ClickhouseCluster,
         "_ClickhouseCluster__get_cluster_hosts",

@@ -55,6 +55,10 @@ Commands that reach a box run the same reachability check first, so fix a failur
 ### 2. Set up this machine once
 
 `hogli devbox:setup` is interactive, so ask the user to run it in their own terminal.
+Without a terminal, login and every runtime command work when `CODER_SESSION_TOKEN` and `CODER_URL` are exported, because the Coder CLI uses that token before any stored login.
+Setup still prompts for each configuration step that has no saved value, so pass `--skip-configure-<step>` for those.
+Read the token from a file into the variable. Never put it on a command line or in the conversation.
+SSH from a shell that has the variable works. When setup says no working login is stored on disk, programs that start without the variable, such as an editor or a mutagen daemon, cannot reach the box.
 It installs the Coder CLI at the server's version into `~/.hogli/bin`, logs in, installs the pinned mutagen binary for `devbox:sync`, and writes the `coder.*` SSH host entries that `devbox:ssh` and `devbox:exec` use.
 `~/.hogli/bin` is not on `PATH`, so call that CLI as `~/.hogli/bin/coder` when a step needs `coder` directly.
 Each optional step has a `--configure-<step>` and `--skip-configure-<step>` flag: `ssh`, `git-identity`, `git-signing`, `region`, `dotfiles`, `claude`.
@@ -81,6 +85,7 @@ The default box is `devbox-<coder-user>`, and a labeled box is `devbox-<coder-us
 Boxes in `eu-central-1` add an `-eu` suffix, for example `devbox-<coder-user>-eu`.
 `hogli devbox:list` shows the exact names.
 Target a labeled box with `-n <label>` on commands that act on a box.
+Inside a worktree that `devbox:worktree` set up, those commands target the worktree's box without `-n`, print the box they picked on stderr, and stop when that box was deleted; rerun `devbox:worktree` to create it again. An explicit `-n <label>` or `@user` still wins, `-n @<coder-user>` targets your default box, and `devbox:clone` without a source still copies the default box.
 
 ### 4. Connect
 
@@ -103,8 +108,11 @@ Stops, starts, and `devbox:update` keep `/home`.
 ## Run commands on the box
 
 `hogli devbox:exec -- <command>` runs one command over SSH and returns its exit code.
-Wrap the command in `bash -lc '...'`.
+Without `--flox`, wrap the command in `bash -lc '...'`.
 A non-login shell doesn't reliably load the shell profile, so tools on a login-shell `PATH` such as `~/.local/bin` report "command not found".
+Project tools such as `pnpm`, `pytest` and the Python venv are on `PATH` only inside PostHog's flox environment.
+For those, add `--flox`, which runs the command in `~/posthog` inside `flox activate`: `hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check`.
+Use `bash -c '...'` after `--flox` when the command needs shell syntax such as `&&`.
 Put `--` between hogli's flags and the command's own.
 `devbox:exec` and `devbox:ssh` fail to connect until `devbox:setup` has written the SSH config.
 
@@ -147,11 +155,14 @@ https://app--<workspace>--<coder-user>.<coder-host>
 ```
 
 `<coder-host>` is the host of `Coder URL` in `hogli devbox:doctor`, and `hogli devbox:list` shows the workspace name.
+`hogli devbox:status` prints this URL on the `App:` line, with the app's health check status, for a box the user owns.
 For example, `devbox-jane-d` owned by `jane-d` on `coder.dev.posthog.dev` is `https://app--devbox-jane-d--jane-d.coder.dev.posthog.dev`.
 The user must be on the tailnet, and the browser goes through Coder sign-in first.
+Each box has its own URL, so prefer it over forwarding when the user runs several boxes.
 
 Verify the link before handing it over.
-Coder runs the template's health check against the app, so read that status instead of sending a request with the user's session token:
+Coder runs the template's health check against the app, so read that status instead of sending a request with the user's session token.
+`hogli devbox:status` shows it, or read it directly:
 
 ```bash
 ~/.hogli/bin/coder list --output json | jq -r '.[] | select(.name=="<workspace>") | .latest_build.resources[]?.agents[]?.apps[]? | select(.slug=="app") | .health'
@@ -161,8 +172,11 @@ Coder runs the template's health check against the app, so read that status inst
 `initializing` means the check hasn't passed yet, and `unhealthy` means it keeps failing.
 
 `hogli devbox:forward` is the alternative when the user wants `localhost`.
-It tunnels box port 8010 to `localhost:8010` and holds the terminal until stopped.
-Pass `--port 8011` when a local stack already uses 8010.
+It tunnels box port 8010 to a local port and holds the terminal until stopped.
+The default box gets `localhost:8010` while that port is free.
+Every other box, and the default box when 8010 is taken, gets a port in 18000-18999 derived from the box name, so the same box gets the same port on each run.
+When that port is taken, the next free one is used.
+Pass `--port <port>` to choose the port yourself; the command then fails if that port is in use.
 
 ## One devbox per worktree
 
@@ -176,7 +190,7 @@ hogli devbox:worktree --clone-from default -y   # create the box as a clone of a
 hogli devbox:worktree --on-clean stop           # save what worktrees:clean does with the box
 ```
 
-- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-` or `worktree/` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
+- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-`, `worktree/` or `<coder-user>/` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
 - hogli records the worktree path and box name in `~/.config/posthog/hogli_devbox_worktrees.json`. A re-run reuses that box, even after a branch rename, and keeps an existing mirror.
 - A worktree recreated at the same path, as t3code does when it resumes a thread it cleaned up, takes over the box of the worktree it replaced while that box still exists, and gets a new mirror.
 - It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose. It always refuses a box recorded for another worktree.
@@ -196,17 +210,18 @@ hogli devbox:worktree --on-clean stop           # save what worktrees:clean does
 - Pass `--provider hogland` with `--auto` to save Hogland as the default, which automatic boxes then use. `hogli devbox:config:rm worktree-provider` goes back to Coder.
 - `worktrees:clean --stop-boxes` hibernates the box, and `--delete-boxes` deletes it.
 - A worktree that still has a box on the other provider is refused until that box is removed.
-- `--clone-from` and `--start-app` are Coder-only.
+- `--clone-from <label>` clones the running Hogland devbox `wt-<label>`, or `default` for the devbox named `default`. It runs `hogland devbox clone`, so it needs a `hogland` CLI that has that command; an older one fails with the upgrade command. The clone copies the whole box, including secrets, so it asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
+- `--start-app` saves the setting on a new box as the file `~/.config/hogli/start-app`. Every later `devbox:worktree` run on that box then waits for the mirror to catch up and runs `hogli up -d`. A clone keeps the source's setting. On an existing box the flag is ignored, so delete or create that file on the box to change it.
 
 ### Provision a box for every new worktree
 
 `hogli devbox:worktree --auto claude,phw` saves the worktree sources that get a box automatically.
-The sources are `claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `superset`, `emdash`, `orca`, `conductor`, `worktrunk`, and `other` for a plain `git worktree add`.
+The sources are `claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `superset`, `emdash`, `orca`, `conductor`, `worktrunk`, `paseo`, and `other` for a plain `git worktree add`.
 It only saves the setting, so run it from any checkout.
 Two triggers start `hogli devbox:worktree -y` in the background, and the first one for a worktree wins:
 
 - The husky `post-checkout` hook, for `claude`, `codex`, `posthog-code` and `phw`, which it recognizes by their worktree folders, and for `other`.
-- The app's own create hook, which runs `bin/devbox-worktree-hook created <source>`. The repo checks these hooks in for Superset (`.superset/config.json`), Emdash (`.emdash.json`), Orca (`orca.yaml`) and worktrunk (`.config/wt.toml`). Orca and worktrunk ask each user to approve the commands once. Conductor would let a checked-in script replace each user's own scripts, so `--auto conductor` writes its hooks to the main checkout's uncommitted `.conductor/settings.local.toml` instead, and leaves an existing file for you to edit. t3code does not run `t3.json` by itself: each user imports it once from **Import from t3.json** in the project's scripts menu or in Settings → Projects → Actions. t3code runs only the first script set to run on worktree creation, so a project that already has its own setup script skips this one. herdr has no repo hook file, so run `herdr plugin link <main checkout>/tools/herdr-devbox-plugin` once.
+- The app's own create hook, which runs `bin/devbox-worktree-hook created <source>`. The repo checks these hooks in for Superset (`.superset/config.json`), Emdash (`.emdash.json`), Orca (`orca.yaml`) and worktrunk (`.config/wt.toml`). Orca and worktrunk ask each user to approve the commands once. Conductor would let a checked-in script replace each user's own scripts, so `--auto conductor` writes its hooks to the main checkout's uncommitted `.conductor/settings.local.toml` instead, and leaves an existing file for you to edit. t3code does not run `t3.json` by itself: each user imports it once from **Import from t3.json** in the project's scripts menu or in Settings → Projects → Actions. t3code runs only the first script set to run on worktree creation, so a project that already has its own setup script skips this one. herdr has no repo hook file, so run `herdr plugin link <main checkout>/tools/herdr-devbox-plugin` once. Paseo has no checked-in hook either: put an untracked `paseo.json` in the main checkout whose `worktree.setup` runs `bin/devbox-worktree-hook created paseo` and whose `worktree.teardown` runs `bin/devbox-worktree-hook removing`. Paseo copies it into each new worktree.
 
 The script runs the main checkout's hogli, so pull the main checkout after a change to these commands.
 
@@ -226,10 +241,13 @@ The script runs the main checkout's hogli, so pull the main checkout after a cha
 ## Other tasks
 
 - **Tokens on the box:** store them as Coder user secrets, which reach every box the user owns. `hogli devbox:secret:set GH_TOKEN` reads the value from a hidden prompt or from `--file`. Never put a token on a command line or in the conversation. A secret reaches only boxes started after it is set, so run `hogli devbox:restart` on a running box. The template documents `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `POSTHOG_GIT_SIGNING_KEY`, which `hogli devbox:setup --configure-git-signing` sets. `devbox:secret:list` shows names, env vars, and descriptions, never values.
+- **Keys for a while (evals):** `hogli devbox:secrets:push` lends the `op://` references in `~/.config/posthog/devbox-secrets.env` to the box, in memory and for 12 hours by default. On the box, wrap the command that needs them: `devbox-secrets run -- <command>`. `devbox:secrets:status` and `devbox:secrets:clear` show and remove them.
 - **A second box with the same state:** `hogli devbox:clone --as <label>` copies a running box's full disk, including any secrets on it, into `devbox-<coder-user>-<label>` in the source box's region. Stop the stack on the source first for a consistent copy. It asks for confirmation, so pass `-y` only after the user agrees. Only the owner can clone a box.
 - **Template updates:** `hogli devbox:update` applies the latest template when the box is outdated. `devbox:start` also updates an outdated box when it starts it. Boxes that `devbox:start` and `devbox:clone` create have Coder's automatic updates on, so they also move to the latest template when they start from the web UI or autostart, and on `hogli devbox:restart`. Coder never updates a box while it keeps running, but a restart of an outdated box is a full template update and can trigger the one-time dependency re-install that `devbox:update` warns about.
 - **Disk full:** `hogli devbox:cleanup:disk -n <label>` cleans a labeled box. With no workspace it cleans this machine instead, and the default box has no label, so clean the default box with `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli devbox:cleanup:disk'`. `--docker` also prunes stopped containers, and `--cargo` also removes Rust build output, which forces a full rebuild.
-- **Pairing:** `hogli devbox:share --user <coder-user> --role use` grants access, and `devbox:users` lists usernames. `devbox:unshare` removes access only after `hogli devbox:restart`.
+- **Claude Code on the box:** the user logs in on the box with `hogli devbox:claude:login`, which opens an interactive `claude auth login`, so ask the user to run it in their own terminal. `devbox:claude:status` shows the account and auth method without a credential, and `devbox:claude:logout` deletes the login from the box. The `CLAUDE_CODE_OAUTH_TOKEN` secret from `devbox:setup` is an opt-in for unattended use: it can only make model requests, so Remote Control and usage checks don't work, and it overrides the box login on every box the user owns. Never turn on Remote Control or skipped permission prompts on a box for the user.
+- **GitHub on the box:** git uses Coder's GitHub app, which reaches only repos where the app is installed, and `gh` isn't logged in. `hogli devbox:gh:login` logs `gh` in on the box and points git at that login. gh prints a one-time code the user enters at https://github.com/login/device, so ask the user to run it in their own terminal. `devbox:gh:status` shows the account with the token masked, and `devbox:gh:logout` deletes the login from the box.
+- **Pairing:** `hogli devbox:share --user <coder-user> --role use` grants access, and `devbox:users` lists usernames. The other user gets a shell as the owner, including the owner's Claude Code and GitHub CLI logins, so `devbox:share` offers to log out of each first and refuses when it can't check a login, unless `--keep-claude-login` or `--keep-gh-login` is passed. `devbox:unshare` removes access only after `hogli devbox:restart`.
 - **Build and agent logs:** `hogli devbox:logs -f`.
 - **Personal setup:** the box works as shipped. Changes made on the box survive stops and updates. `hogli devbox:setup --configure-dotfiles` saves a dotfiles repo that the box applies on start, running its executable `install.sh`. A saved repo URL applies to boxes hogli creates. To change it on an existing box, edit the workspace's parameters in the Coder dashboard.
 

@@ -544,7 +544,9 @@ class TestSignalsDismissReport(TestCase):
             total_weight=1.0,
         )
 
-    def _dismiss_payload(self, report_id: str, *, team_id: int | None = None) -> dict:
+    def _dismiss_payload(
+        self, report_id: str, *, team_id: int | None = None, action_id: str = "signals_dismiss_report"
+    ) -> dict:
         return {
             "type": "block_actions",
             "team": {"id": "T12345"},
@@ -552,7 +554,7 @@ class TestSignalsDismissReport(TestCase):
             "response_url": "https://hooks.slack.test/response",
             "actions": [
                 {
-                    "action_id": "signals_dismiss_report",
+                    "action_id": action_id,
                     "value": json.dumps(
                         {
                             "integration_id": self.integration.id,
@@ -596,6 +598,183 @@ class TestSignalsDismissReport(TestCase):
         assert dismissal.created_by_id == self.user.id
         # The original message is replaced with a dismissed acknowledgement.
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
+
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_resolve_marks_report_resolved_and_replaces_the_message(
+        self, mock_config, mock_requests_post, mock_is_org_member
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+
+        response = self._post_interactivity(self._dismiss_payload(str(report.id), action_id="signals_resolve_report"))
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.RESOLVED
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert dismissal.created_by_id == self.user.id
+        sent = mock_requests_post.call_args.kwargs["json"]
+        assert sent["replace_original"] is True
+        assert "Resolved by <@U777>" in sent["text"]
+
+    @parameterized.expand(
+        [
+            ("reviewer", ["U777"], "You're no longer a suggested reviewer on this report.", []),
+            ("not_reviewer", [], "You aren't a suggested reviewer on this report.", []),
+        ]
+    )
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_remove_me_takes_only_the_clicker_off_the_reviewers(
+        self, _name, on_report, expected_text, expected_left, mock_config, mock_requests_post, mock_is_org_member
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+        if on_report:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+            )
+
+        response = self._post_interactivity(
+            self._dismiss_payload(str(report.id), action_id="signals_remove_report_reviewer")
+        )
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        latest = (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        if on_report:
+            assert latest is not None
+            assert [e.get("user_uuid") for e in json.loads(latest.content)] == expected_left
+        sent = mock_requests_post.call_args.kwargs["json"]
+        assert sent == {"response_type": "ephemeral", "replace_original": False, "text": expected_text}
+
+    @parameterized.expand(
+        [("signals_resolve_report",), ("signals_dismiss_report",), ("signals_remove_report_reviewer",)]
+    )
+    @patch("products.slack_app.backend.api.UserAccessControl")
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_report_actions_refuse_a_member_without_inbox_editor_access(
+        self, action_id, mock_config, mock_requests_post, mock_is_org_member, mock_access_control
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        mock_access_control.return_value.check_access_level_for_resource.return_value = False
+        report = self._make_ready_report()
+
+        response = self._post_interactivity(self._dismiss_payload(str(report.id), action_id=action_id))
+
+        assert response.status_code == 200
+        mock_access_control.return_value.check_access_level_for_resource.assert_called_once_with("task", "editor")
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+        sent = mock_requests_post.call_args.kwargs["json"]
+        assert sent["response_type"] == "ephemeral"
+        assert "editor access" in sent["text"]
+
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_repeat_resolve_click_does_not_credit_the_second_clicker(
+        self, mock_config, mock_requests_post, mock_is_org_member
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+        payload = self._dismiss_payload(str(report.id), action_id="signals_resolve_report")
+
+        self._post_interactivity(payload)
+        self._post_interactivity({**payload, "user": {"id": "U888"}})
+
+        first, second = (call.kwargs["json"] for call in mock_requests_post.call_args_list)
+        assert first["replace_original"] is True
+        assert "Resolved by <@U777>" in first["text"]
+        assert second == {
+            "response_type": "ephemeral",
+            "replace_original": False,
+            "text": "This report is already resolved.",
+        }
+
+    @parameterized.expand(
+        [("signals_resolve_report",), ("signals_dismiss_report",), ("signals_remove_report_reviewer",)]
+    )
+    @patch("products.slack_app.backend.api.security_access_refused", return_value=True)
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_report_actions_refuse_a_blocked_account(
+        self, action_id, mock_config, mock_requests_post, mock_is_org_member, mock_refused
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+
+        self._post_interactivity(self._dismiss_payload(str(report.id), action_id=action_id))
+
+        subject = mock_refused.call_args.args[0]
+        assert (subject.email, subject.user_uuid, subject.ip) == (self.user.email, str(self.user.uuid), None)
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
+
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_refused_resolve_keeps_the_shared_buttons(self, mock_config, mock_requests_post, mock_is_org_member):
+        from products.signals.backend.models import SignalReport
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+        SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.MONITORING)
+
+        self._post_interactivity(self._dismiss_payload(str(report.id), action_id="signals_resolve_report"))
+
+        sent = mock_requests_post.call_args.kwargs["json"]
+        assert sent["response_type"] == "ephemeral"
+        assert sent["replace_original"] is False
+
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_resolve_refuses_non_org_member(self, mock_config, mock_requests_post, mock_is_org_member):
+        from products.signals.backend.models import SignalReport
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = None
+        report = self._make_ready_report()
+
+        response = self._post_interactivity(self._dismiss_payload(str(report.id), action_id="signals_resolve_report"))
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
 
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")

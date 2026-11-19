@@ -230,7 +230,11 @@ const meta: Meta = {
                 '/api/projects/:team_id/insights/': { results: INSIGHTS, next: null, count: INSIGHTS.length },
                 '/api/environments/:team_id/file_system/': fileSystemHandler,
                 '/api/projects/:team_id/file_system/': fileSystemHandler,
-                '/api/projects/:team_id/tags/': ['finance', 'growth', 'onboarding', 'weekly'],
+                '/api/projects/:team_id/tags/': {
+                    results: ['finance', 'growth', 'onboarding', 'weekly'],
+                    next: null,
+                    count: 4,
+                },
             },
             post: {
                 '/api/projects/:team_id/file_system/home_folder/': { id: 'home-folder', path: 'Home' },
@@ -382,6 +386,14 @@ async function clickWhenRendered(attr: string): Promise<void> {
 export const ListShareDialog: Story = {
     parameters: { pageUrl: urls.analyticsList() },
     play: async () => {
+        // The notebook is the one row outside a collection, so its menu offers to add it to one.
+        await userEvent.click(
+            await within(document.body).findByRole(
+                'button',
+                { name: 'Actions for Q4 experiment plan' },
+                { timeout: 15000 }
+            )
+        )
         await clickWhenRendered('analytics-list-row-share')
         await within(document.body).findAllByText('Finance', {}, { timeout: 15000 })
     },

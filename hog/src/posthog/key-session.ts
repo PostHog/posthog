@@ -49,7 +49,8 @@ export class KeySession {
         return this.key.token
     }
 
-    // A step-up in the same project keeps the login id. Another id means another project, so hog stops.
+    // A step-up keeps the login id. Another id means a new login replaced this one while the command
+    // ran, so hog stops instead of switching to it.
     async reload(): Promise<void> {
         const latest = await this.storage?.reread()
         if (!latest) {
@@ -58,8 +59,8 @@ export class KeySession {
         if (latest.loginKey !== this.key.loginKey) {
             throw new HogError(
                 'login_changed',
-                "You're now logged in to another project, so hog stopped instead of sending the rest of the command there.",
-                'Run the command again to use that project.'
+                'You logged in again while this command ran, so hog stopped instead of sending the rest of the command with the new login.',
+                'Run the command again to use the new login.'
             )
         }
         this.key = latest

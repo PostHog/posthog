@@ -27,7 +27,7 @@ from django.db.models import Exists, OuterRef
 import structlog
 
 from posthog.models.user import User
-from posthog.push_notifications import mobile_push_preference_enabled
+from posthog.push_notifications import mobile_push_payload_enabled
 from posthog.tasks.push_notifications import send_user_push
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -197,7 +197,7 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
                 kind="thread_message",
                 cooldown_subject=f"{message.id}:{user.id}",
                 body=f'{author_name} {action} in "{task_title}"',
-                data=data,
+                data={**data, "isMention": user.id in mentioned},
             )
         except Exception as exc:
             PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind="thread_message", reason=_failure_reason(exc)).inc()
@@ -310,9 +310,15 @@ def _enqueue_inner(
         if pull_request_url
         else str(task_run.id)
     )
+    if kind == "cancelled":
+        # Cancellation records its actor atomically, leaving the caller's run instance stale.
+        task_run.refresh_from_db(fields=["state"])
     accepted = False
     for user in User.objects.filter(id__in=recipient_ids):
         data: dict[str, str | int] = {"taskId": str(task.id), "taskRunId": str(task_run.id)}
+        cancelled_by = (task_run.state or {}).get("cancel_requested_by_user_id")
+        if kind == "cancelled" and isinstance(cancelled_by, int):
+            data["cancelledByUserId"] = cancelled_by
         if pull_request_url is not None:
             data["pullRequestUrl"] = pull_request_url
         enqueued = _enqueue_user(
@@ -346,7 +352,8 @@ def _enqueue_user(
     if not task_mobile_push_eligible(task, user.id):
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="source_disabled").inc()
         return False
-    if not mobile_push_preference_enabled(user, "tasks"):
+    data = {**data, "type": "task", "notificationKind": kind, "projectId": task.team_id}
+    if not mobile_push_payload_enabled(user, data):
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="preferences_disabled").inc()
         return False
     if (
@@ -360,9 +367,6 @@ def _enqueue_user(
         return False
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
     suppressed = suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id, team_id=task.team_id)
-    data["type"] = "task"
-    data["notificationKind"] = kind
-    data["projectId"] = task.team_id
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.

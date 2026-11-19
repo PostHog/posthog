@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 from typing import Any, cast
+from uuid import UUID
 
 from django.http import HttpResponse
 
@@ -24,6 +25,7 @@ from products.metrics.backend.facade.api import (
     approve_dashboard_template,
     create_suggested_dashboard,
     dashboard_template_picture,
+    dismiss_suggested_dashboard,
     get_dashboard_template,
     list_dashboard_templates,
     list_suggested_dashboards,
@@ -105,11 +107,22 @@ class MetricsSuggestedDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
     posthog_feature_flag = METRICS_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
     lookup_value_regex = UUID_REGEX
+    # The regex also matches text that is not a UUID, such as 36 hyphens. The type answers 404 for it.
+    path_parameters = {"pk": UUID}
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action == "dashboard":
             return ["metrics:read", "dashboard:write", "insight:write"]
+        if self.action == "dismiss":
+            return ["metrics:write"]
         return ["metrics:read"]
+
+    def _require_editor_access(self, message: str) -> None:
+        access = self.user_access_control
+        if not access.check_access_level_for_resource(
+            "dashboard", "editor"
+        ) or not access.check_access_level_for_resource("insight", "editor"):
+            raise PermissionDenied(message)
 
     def _require_flag(self, request: Request) -> None:
         if not posthog_feature_flag_enabled(
@@ -136,15 +149,11 @@ class MetricsSuggestedDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         },
     )
     @action(detail=True, methods=["POST"])
-    def dashboard(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+    def dashboard(self, request: Request, pk: UUID | None = None, *args: Any, **kwargs: Any) -> Response:
         """Create the suggested dashboard in this project, with only the charts whose metrics the project sends.
         A second call returns the dashboard that the first one created."""
         self._require_flag(request)
-        access = self.user_access_control
-        if not access.check_access_level_for_resource(
-            "dashboard", "editor"
-        ) or not access.check_access_level_for_resource("insight", "editor"):
-            raise PermissionDenied("You need editor access to dashboards and insights to create a dashboard.")
+        self._require_editor_access("You need editor access to dashboards and insights to create a dashboard.")
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
         try:
             dashboard_id = create_suggested_dashboard(
@@ -157,6 +166,27 @@ class MetricsSuggestedDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         return Response(
             MetricsCreatedDashboardSerializer({"dashboard_id": dashboard_id}).data, status=status.HTTP_201_CREATED
         )
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="The suggestion is dismissed."),
+            404: OpenApiResponse(description="The project has no such suggestion."),
+        },
+    )
+    @action(detail=True, methods=["POST"])
+    def dismiss(self, request: Request, pk: UUID | None = None, *args: Any, **kwargs: Any) -> Response:
+        """Remove the suggestion from this project's suggested dashboards, for every user of the project.
+        The suggestion does not come back. A dashboard that was created from it stays.
+        A second call does nothing."""
+        self._require_flag(request)
+        # The dismissal hides the suggestion from the whole project, so it needs the access that acts on one.
+        self._require_editor_access("You need editor access to dashboards and insights to dismiss a suggestion.")
+        try:
+            dismiss_suggested_dashboard(team=self.team, user=cast(User, request.user), suggestion_id=str(pk))
+        except SuggestedDashboardNotFound as error:
+            raise NotFound(str(error))
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MetricsDashboardTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

@@ -56,6 +56,7 @@ export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     description: '',
     stage: EarlyAccessFeatureStage.Draft,
     documentation_url: '',
+    image_url: '',
     feature_flag_id: undefined,
     payload: {},
     // assignee is intentionally left unset: the backend defaults it to the creator
@@ -88,6 +89,7 @@ export interface earlyAccessFeatureLogicValues {
         ValidationErrorType
     >
     featureEnrollmentKey: string
+    imageUploading: boolean
     implementOptInInstructionsModal: boolean
     isEarlyAccessFeatureSubmitting: boolean
     isEarlyAccessFeatureValid: boolean
@@ -98,6 +100,7 @@ export interface earlyAccessFeatureLogicValues {
     personsCount: [number, number] | null
     personsCountLoading: boolean
     projectTreeRef: ProjectTreeRef
+    saveDisabledReason: string | undefined
     showEarlyAccessFeatureErrors: boolean
     sidePanelContext: SidePanelSceneContext | null
 }
@@ -184,6 +187,9 @@ export interface earlyAccessFeatureLogicActions {
     setEarlyAccessFeatureValues: (values: DeepPartial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>) => {
         values: DeepPartial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>
     }
+    setImageUploading: (uploading: boolean) => {
+        uploading: boolean
+    }
     setOriginalStage: (stage: EarlyAccessFeatureStage) => {
         stage: EarlyAccessFeatureStage
     }
@@ -221,6 +227,7 @@ export interface earlyAccessFeatureLogicActions {
 export interface earlyAccessFeatureLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        saveDisabledReason: (imageUploading: boolean) => string | undefined
         breadcrumbs: (
             earlyAccessFeature: EarlyAccessFeatureType | NewEarlyAccessFeatureType,
             isEditingFeature: boolean
@@ -264,6 +271,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
+        setImageUploading: (uploading: boolean) => ({ uploading }),
         showGAPromotionConfirmation: (onConfirm: (rolloutToAll: boolean) => void) => ({ onConfirm }),
     }),
     loaders(({ props, values, actions }) => ({
@@ -432,6 +440,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 setEarlyAccessFeatureMissing: () => true,
             },
         ],
+        imageUploading: [
+            false,
+            {
+                setImageUploading: (_, { uploading }) => uploading,
+            },
+        ],
         isEditingFeature: [
             false,
             {
@@ -463,6 +477,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
     }),
     selectors(({ actions }) => ({
+        // Saving mid-upload would persist the previous image, and the editor unmount drops the new one
+        saveDisabledReason: [
+            (s) => [s.imageUploading],
+            (imageUploading: boolean): string | undefined =>
+                imageUploading ? 'Wait for the image to finish uploading' : undefined,
+        ],
         breadcrumbs: [
             (s) => [s.earlyAccessFeature, s.isEditingFeature],
             (earlyAccessFeature: EarlyAccessFeatureType, isEditingFeature: boolean): Breadcrumb[] => [

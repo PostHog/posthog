@@ -13,6 +13,8 @@ from products.stamphog.backend.tasks.tasks import (
     process_inbox_pr_review,
     process_installation_event,
     process_pull_request_event,
+    queue_routing_after_external_review,
+    queue_silent_review,
     request_rereview_after_external_review,
     route_pull_request_reviewers,
 )
@@ -24,6 +26,8 @@ __all__ = [
     "process_installation_event",
     "process_pull_request_event",
     "queue_inbox_pr_review",
+    "queue_routing_after_external_review",
+    "queue_silent_review",
     "request_rereview_after_external_review",
     "route_pull_request_reviewers",
     "send_daily_digests",

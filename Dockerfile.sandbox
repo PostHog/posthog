@@ -8,7 +8,7 @@ FROM python:3.14.7-slim-trixie@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234
 
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-ENV NODE_VERSION=26.13.0 \
+ENV NODE_VERSION=26.13.1 \
     NODE_ENV=development \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
@@ -72,7 +72,7 @@ RUN npm install -g corepack@0.36.0 && corepack enable
 
 # --- Rarely changes: prebuilt binaries ---
 COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
-COPY --from=ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-aca5bdabb92f /usr/bin/clickhouse /usr/local/bin/clickhouse
+COPY --from=ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-cf6928b17299 /usr/bin/clickhouse /usr/local/bin/clickhouse
 RUN ln -s clickhouse /usr/local/bin/clickhouse-client
 
 RUN ARCH=$(dpkg --print-architecture) && \

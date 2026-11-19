@@ -13,11 +13,14 @@ import type {
     AssignWarehouseSuggestionApi,
     DismissWarehouseSuggestionApi,
     PaginatedWarehouseSuggestionListApi,
+    SurfaceMoreWarehouseSuggestionsApi,
     WarehouseSuggestionApi,
     WarehouseSuggestionStatusApi,
+    WarehouseSuggestionSurfaceMoreResultApi,
     WarehouseSuggestionsAcceptCreateParams,
     WarehouseSuggestionsDismissCreateParams,
     WarehouseSuggestionsListParams,
+    WarehouseSuggestionsStatusRetrieveParams,
 } from './api.schemas'
 
 export const getWarehouseSuggestionsListUrl = (projectId: string, params?: WarehouseSuggestionsListParams) => {
@@ -165,16 +168,49 @@ export const warehouseSuggestionsResumeCreate = async (
     })
 }
 
-export const getWarehouseSuggestionsStatusRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/warehouse_suggestions/status/`
+export const getWarehouseSuggestionsStatusRetrieveUrl = (
+    projectId: string,
+    params?: WarehouseSuggestionsStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_suggestions/status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_suggestions/status/`
 }
 
 export const warehouseSuggestionsStatusRetrieve = async (
     projectId: string,
+    params?: WarehouseSuggestionsStatusRetrieveParams,
     options?: RequestInit
 ): Promise<WarehouseSuggestionStatusApi> => {
-    return apiMutator<WarehouseSuggestionStatusApi>(getWarehouseSuggestionsStatusRetrieveUrl(projectId), {
+    return apiMutator<WarehouseSuggestionStatusApi>(getWarehouseSuggestionsStatusRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWarehouseSuggestionsSurfaceMoreCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_suggestions/surface_more/`
+}
+
+export const warehouseSuggestionsSurfaceMoreCreate = async (
+    projectId: string,
+    surfaceMoreWarehouseSuggestionsApi?: SurfaceMoreWarehouseSuggestionsApi,
+    options?: RequestInit
+): Promise<WarehouseSuggestionSurfaceMoreResultApi> => {
+    return apiMutator<WarehouseSuggestionSurfaceMoreResultApi>(getWarehouseSuggestionsSurfaceMoreCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(surfaceMoreWarehouseSuggestionsApi),
     })
 }

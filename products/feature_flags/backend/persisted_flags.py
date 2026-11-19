@@ -15,7 +15,11 @@ def is_unconditionally_fully_rolled_out(flag: FlagDefinition) -> bool:
         return False
     if filters.get("holdout"):
         return False
-    if filters.get("super_groups"):
+    # Early access enrollment, in its legacy (`super_groups`) and current (`feature_enrollment`)
+    # encodings, lets a person opt out of a fully rolled-out flag. The frontend merges persisted
+    # flags under the client's flags, and posthog-js omits disabled flags, so persisting such a
+    # flag would turn it back on for a person who opted out.
+    if filters.get("super_groups") or filters.get("feature_enrollment"):
         return False
     if filters.get("aggregation_group_type_index") is not None:
         return False

@@ -366,6 +366,19 @@ def get_ducklake_register_data_imports_stale_metric(*, team_id: int, schema_id: 
     return _counter_twin(metric, attributes)
 
 
+def get_ducklake_register_data_imports_skipped_metric(*, team_id: int, reason: str) -> MetricCounter:
+    attributes = {"team_id": str(team_id), "reason": reason}
+    metric = (
+        _activity_meter()
+        .with_additional_attributes(attributes)
+        .create_counter(
+            "ducklake_register_data_imports_skipped",
+            "Number of DuckLake data import registrations the gate skipped until a later sync.",
+        )
+    )
+    return _counter_twin(metric, attributes)
+
+
 def get_ducklake_register_data_imports_files_metric(*, team_id: int, schema_id: str) -> MetricHistogramFloat:
     attributes = _registration_attributes(team_id, schema_id)
     metric = (

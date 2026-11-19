@@ -1,8 +1,9 @@
 import { useMountedLogic, useValues } from 'kea'
 import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import type { PaginatedSignalReportListListApiPersonalRankingStatus } from '../../../generated/api.schemas'
 import { isMergeKeySortField, isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
@@ -11,10 +12,11 @@ import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisi
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
-import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
+import { ReportListRequestContext, reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_CLAIMED_BY_YOU,
+    INBOX_SCOPE_NEEDS_YOU,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
     InboxScope,
@@ -58,7 +60,10 @@ interface SectionListState {
     reportsResponseLoading: boolean
     hasMore: boolean
     loadedRankingPill: boolean
-    loadedPersonalFallback: boolean
+    loadedPersonalOrder: boolean
+    loadedPersonalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
+    loadedContext: ReportListRequestContext | null
+    loadedRanker: string | null
 }
 
 /**
@@ -78,7 +83,10 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         reportsResponseLoading,
         hasMore,
         loadedRankingPill,
-        loadedPersonalFallback,
+        loadedPersonalOrder,
+        loadedPersonalRankingStatus,
+        loadedContext,
+        loadedRanker,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
         count,
@@ -91,7 +99,10 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         reportsResponseLoading,
         hasMore,
         loadedRankingPill,
-        loadedPersonalFallback,
+        loadedPersonalOrder,
+        loadedPersonalRankingStatus,
+        loadedContext,
+        loadedRanker,
     }
 }
 
@@ -118,8 +129,15 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * One event per visit, carrying the whole loaded list.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, activeSourceProductFilter, priorityFilter, visibleStateFilter, scope } =
-        useValues(inboxFiltersLogic)
+    const {
+        hasActiveFilters,
+        activeSourceProductFilter,
+        priorityFilter,
+        visibleStateFilter,
+        activeScope: scope,
+        isScopedToMe,
+        activeSortField,
+    } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
@@ -143,11 +161,14 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             return
         }
         firedRef.current = true
+        const totalCount = COUNTED_SECTION_KEYS.reduce((sum, key) => sum + (sections[key].count ?? 0), 0)
+        // Every first page carries the same status, sort and ranker, so the first loaded state stands for the list.
+        const served = COUNTED_SECTION_KEYS.map((key) => sections[key]).find((section) => section.isLoaded)
         captureInboxViewed({
             // pinned: analytics property. `tab` names the inbox page tab; dashboards group on it.
             tab: 'reports',
             reports: COUNTED_SECTION_KEYS.flatMap((key) => sections[key].reports),
-            totalCount: COUNTED_SECTION_KEYS.reduce((sum, key) => sum + (sections[key].count ?? 0), 0),
+            totalCount,
             pullsTabCount: sections.monitoring.count,
             reportsTabCount: sections['needs-decision'].count,
             hasActiveFilters,
@@ -155,6 +176,11 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             priorityFilter,
             stateFilter: visibleStateFilter,
             scope,
+            personalRankingStatus: served?.loadedPersonalRankingStatus ?? null,
+            // The counts cover every counted state, so they are the For you count when nothing else narrows them.
+            forYouReportCount: isScopedToMe && !hasActiveFilters ? totalCount : null,
+            sortField: served?.loadedContext?.sortField ?? activeSortField,
+            rankerId: served?.loadedRanker ?? null,
         })
     }, [
         listVisible,
@@ -165,6 +191,8 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         priorityFilter,
         visibleStateFilter,
         scope,
+        isScopedToMe,
+        activeSortField,
     ])
 }
 
@@ -181,6 +209,7 @@ const ReportRow = memo(function ReportRow({
     personalSort,
     timestampField,
     hideOwnClaim,
+    showTags,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
@@ -189,6 +218,7 @@ const ReportRow = memo(function ReportRow({
     personalSort: boolean
     timestampField: 'created_at' | 'updated_at'
     hideOwnClaim: boolean
+    showTags: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -200,6 +230,7 @@ const ReportRow = memo(function ReportRow({
                 personalSort={personalSort}
                 timestampField={timestampField}
                 hideOwnClaim={hideOwnClaim}
+                showTags={showTags}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -214,6 +245,9 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     }
     if (scope === INBOX_SCOPE_FOR_YOU) {
         return 'No reports suggested for you yet. Switch the scope to see the entire project.'
+    }
+    if (scope === INBOX_SCOPE_NEEDS_YOU) {
+        return 'No reports are waiting on your input or claimed by you.'
     }
     if (scope === INBOX_SCOPE_CLAIMED_BY_YOU) {
         return "You haven't claimed any reports. Open a report and select I'm on it to claim it."
@@ -235,8 +269,14 @@ export function ReportsTab(): JSX.Element {
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
-    const { hasActiveFilters, visibleStateFilter, scope, activeSortField, activeSortDirection } =
-        useValues(inboxFiltersLogic)
+    const {
+        hasActiveFilters,
+        visibleStateFilter,
+        activeScope: scope,
+        activeSortField,
+        activeSortDirection,
+        tagFilterAvailable,
+    } = useValues(inboxFiltersLogic)
     const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
     const timestampField = activeSortField === 'created_at' ? 'created_at' : 'updated_at'
     const sections = useSectionStates()
@@ -271,9 +311,9 @@ export function ReportsTab(): JSX.Element {
     // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
     const rankingPill =
         isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
-    const personalSort = activeSortField === 'personal'
-    // Every state reads the same stored ranking, so one fallback response means the whole list fell back.
-    const personalFallback = personalSort && selectedSections.some((key) => sections[key].loadedPersonalFallback)
+    // The Recommended sort shows the personal order to the users of one flag arm.
+    const personalOrder =
+        isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedPersonalOrder)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
         ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
@@ -401,12 +441,6 @@ export function ReportsTab(): JSX.Element {
                 </div>
             )}
 
-            {personalFallback && !inboxIsEmpty && (
-                <LemonBanner type="info">
-                    Your personalized list isn't ready yet, so this is the Recommended order.
-                </LemonBanner>
-            )}
-
             {inboxIsEmpty && !anyLoadFailed ? (
                 showActivation ? null : (
                     <InboxWaitingForWork />
@@ -446,9 +480,10 @@ export function ReportsTab(): JSX.Element {
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
                                 rankingPill={rankingPill}
-                                personalSort={personalSort}
+                                personalSort={personalOrder}
                                 timestampField={timestampField}
                                 hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
+                                showTags={tagFilterAvailable}
                             />
                         </Fragment>
                     ))}

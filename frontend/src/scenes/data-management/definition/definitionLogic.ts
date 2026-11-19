@@ -46,6 +46,7 @@ export interface definitionLogicValues {
     isEvent: boolean
     isProperty: boolean
     metrics: EventDefinitionMetrics | null
+    metricsFailed: boolean
     metricsLoading: boolean
     previews: ObjectMediaPreview[]
     previewsLoading: boolean
@@ -324,6 +325,14 @@ export const definitionLogic = kea<definitionLogicType>([
             false,
             {
                 setDefinitionMissing: () => true,
+            },
+        ],
+        metricsFailed: [
+            false,
+            {
+                loadMetrics: () => false,
+                loadMetricsSuccess: () => false,
+                loadMetricsFailure: () => true,
             },
         ],
     })),

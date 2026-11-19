@@ -199,7 +199,7 @@ Rewrite a key in place rather than minting dated variants.
 
 - key `pattern:tasks:baseline` — _"Project baseline 14d: ~1% run failure on the main repo over ~5.6k runs / 98 users; cancellation ~6% on user-created. Bands to beat: >5% failure over >200 runs, or any repo at 100%."_
 - key `pattern:tasks:last-demand-pass` — _"Demand pass ran 2026-07-18 over 30d of human-origin tasks; themes recorded below. Next due after 2026-07-25."_
-- key `dedupe:tasks:<repo-or-class>` — _"2026-07-20: filed report on `owner/repo` clone failures (28 runs, 100%, 2 tasks). Skip while the same class holds; escalate if it spreads to other repos."_
+- key `dedupe:tasks:<repo-or-class>` — _"2026-07-20: filed report on `owner/repo` clone failures (28 runs, 100%, 2 tasks). Skip while the same class holds; escalate if it spreads to other repos."_ Set `expires_at` about two weeks past the last failing read: that is the window the pre-check counts, so a class quiet that long has left your reads.
 - key `noise:tasks:<class>` — _"Sandbox request timeouts concentrate on one long-running task each week; retry storm, not systemic. Skip below 5 distinct tasks."_
 - key `addressed:tasks:<repo-or-class>` — _"Agent output-contract failures fixed 2026-07-22; back under 1%."_
 - key `report:tasks:<repo-or-class>` — _"Report `019f0a96-…` covers the structured-output failure class. Edit it with fresh numbers while the class is live; a fresh report if it was resolved and relapsed."_
@@ -225,7 +225,7 @@ Author / edit / remember / skip, against the four-states classifier:
 - **Actionability and repo.**
   A failure localized to a component the project owns, with a concrete fix, is `immediately_actionable` with `repository="owner/repo"`.
   A cause you could only name as a hypothesis keeps the same call, as long as the failing component sits in a repo the project owns: checking the hypothesis is the work.
-  A break in the task platform itself, or a cluster whose next step is a call only a person can make, is `requires_human_input` with `repository=NO_REPO` — `NO_REPO` is what stops a pointless repo-selection sandbox from spawning.
+  A break in the task platform itself, or a cluster whose next step is a call only a person can make, is `requires_human_input` with `repository=NO_REPO`.
 - **Routing.**
   Resolve a reviewer from the `reviewer:tasks:<repo>` cache, then inbox precedent (`inbox-report-artefacts-list` on a comparable report), then `tasks-retrieve` on a representative task in the cluster for its `created_by.uuid`, then `scout-members-list`.
   Pass reviewer objects (`{github_login}` or `{user_uuid}`), never bare strings.

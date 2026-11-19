@@ -2,7 +2,7 @@ import './DestinationsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored 24-hour delivery series for the stat card.
 const LINE = 'M 0 28 L 14 24 L 28 26 L 42 18 L 56 20 L 70 12 L 84 10 L 100 6'
@@ -19,7 +19,7 @@ function areaPath(line: string): string {
  * skill. Off/on pairs share a `__swap` grid cell and crossfade, so nothing moves.
  */
 export function DestinationsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('DestinationsPreview', isStatic && 'DestinationsPreview--static')}>

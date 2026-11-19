@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -34,6 +35,9 @@ NON_RANKABLE_PRODUCT_TYPES = frozenset({"inapp"})
 # the US storefront, which is the one nearly every account tracks.
 DEFAULT_ASO_COUNTRIES = ("US",)
 
+# /featured/full has no incremental filter, so each full refresh reads this many days back per product.
+FEATURED_LOOKBACK_DAYS = 365
+
 
 class AppfiguresRetryableError(Exception):
     pass
@@ -56,6 +60,8 @@ class AppfiguresResumeConfig:
     window_start: str | None = None
     # "aso" endpoints: the "<product_id>:<country>" fan-out target to pick back up at.
     aso_target: str | None = None
+    # "featured": the product id to pick the fan-out back up at.
+    product_id: str | None = None
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -228,6 +234,37 @@ def _flatten_report(data: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def _flatten_pivoted_report(data: Any, pivots: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Turn a nested multi-pivot report body into one row per innermost object.
+
+    With group_by=network,dates,products the body nests {network: {date: {product_id: {..metrics..}}}},
+    one level per pivot in `group_by` order. Each level's key becomes the named column, overriding the
+    copy some reports also put in the metrics, so the primary key always matches the request grouping.
+    Sorted by date so the watermark advances.
+    """
+    rows: list[dict[str, Any]] = []
+
+    def walk(node: Any, keys: dict[str, str], depth: int) -> None:
+        if not isinstance(node, dict):
+            return
+        if depth == len(pivots):
+            rows.append({**node, **keys})
+            return
+        for key, child in node.items():
+            walk(child, {**keys, pivots[depth]: str(key)}, depth + 1)
+
+    walk(data, {}, 0)
+    rows.sort(key=lambda row: str(row.get("date") or ""))
+    return rows
+
+
+def _parse_product_ids(raw: str | None) -> tuple[str, ...]:
+    """Read the product ids from the source form. Appfigures product ids are numeric, so any other
+    token is dropped rather than sent as a filter Appfigures rejects."""
+    tokens = re.split(r"[\s,;]+", raw or "")
+    return tuple(dict.fromkeys(token for token in tokens if token.isdigit()))
+
+
 def _iter_report(
     session: requests.Session,
     config: AppfiguresEndpointConfig,
@@ -235,6 +272,7 @@ def _iter_report(
     manager: ResumableSourceManager[AppfiguresResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    product_ids: tuple[str, ...] = (),
 ) -> Iterator[list[dict[str, Any]]]:
     """Reports/* endpoints walked in fixed date windows (daily granularity caps at 30 days/request)."""
     today = datetime.now(UTC).date()
@@ -251,7 +289,10 @@ def _iter_report(
             "start_date": window_start.isoformat(),
             "end_date": window_end.isoformat(),
         }
-        rows = _flatten_report(_fetch(session, url, params, logger))
+        if config.product_filter and product_ids:
+            params["products"] = ",".join(product_ids)
+        data = _fetch(session, url, params, logger)
+        rows = _flatten_pivoted_report(data, config.pivots) if config.pivots else _flatten_report(data)
         if rows:
             yield rows
 
@@ -529,6 +570,48 @@ def _iter_aso_stats(
             manager.save_state(AppfiguresResumeConfig(aso_target=targets[index + 1].key))
 
 
+def _flatten_featured(product_id: str, data: Any) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    return [
+        {**entry, "product_id": product_id, "featured_category_id": str(category_id)}
+        for category_id, entry in data.items()
+        if isinstance(entry, dict)
+    ]
+
+
+def _iter_featured(
+    session: requests.Session,
+    config: AppfiguresEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppfiguresResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """/featured/full, one request per product over the lookback window."""
+    product_ids = _rankable_product_ids(session, logger)
+    if not product_ids:
+        logger.info("Appfigures: account has no products to report features for, skipping featured")
+        return
+
+    resume = manager.load_state() if manager.can_resume() else None
+    start_index = product_ids.index(resume.product_id) if resume and resume.product_id in product_ids else 0
+
+    today = datetime.now(UTC).date()
+    window = f"{(today - timedelta(days=FEATURED_LOOKBACK_DAYS)).isoformat()}/{today.isoformat()}"
+
+    for index in range(start_index, len(product_ids)):
+        product_id = product_ids[index]
+        url = f"{APPFIGURES_BASE_URL}{config.path}/{product_id}/{window}"
+        rows = _flatten_featured(product_id, _fetch(session, url, {}, logger))
+
+        if index + 1 < len(product_ids):
+            manager.save_state(AppfiguresResumeConfig(product_id=product_ids[index + 1]))
+        if rows:
+            yield rows
+        else:
+            # Most products are never featured, so a long run of empty responses is the norm.
+            manager.safe_point()
+
+
 def get_rows(
     token: str,
     endpoint: str,
@@ -537,6 +620,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     aso_countries: str | None = None,
+    estimate_products: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = APPFIGURES_ENDPOINTS[endpoint]
     session = make_tracked_session(headers=_headers(token), redact_values=(token,))
@@ -556,6 +640,8 @@ def get_rows(
         yield from _iter_aso(session, config, logger, resumable_source_manager, aso_countries)
     elif config.kind == "aso_stats":
         yield from _iter_aso_stats(session, config, logger, resumable_source_manager, aso_countries)
+    elif config.kind == "featured":
+        yield from _iter_featured(session, config, logger, resumable_source_manager)
     elif config.kind == "ranks":
         yield from _iter_ranks(
             session,
@@ -573,6 +659,7 @@ def get_rows(
             resumable_source_manager,
             should_use_incremental_field,
             db_incremental_field_last_value,
+            product_ids=_parse_product_ids(estimate_products),
         )
 
 
@@ -584,6 +671,7 @@ def appfigures_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     aso_countries: Optional[str] = None,
+    estimate_products: Optional[str] = None,
 ) -> SourceResponse:
     config = APPFIGURES_ENDPOINTS[endpoint]
 
@@ -597,6 +685,7 @@ def appfigures_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             aso_countries=aso_countries,
+            estimate_products=estimate_products,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
@@ -607,6 +696,6 @@ def appfigures_source(
         # Reviews are paged ascending by `date`; reports and ranks are emitted oldest-window-first,
         # ranks buffering each window so its product chunks merge back into date order. All arrive
         # ascending so the incremental watermark checkpoints correctly. The ASO tables are snapshots
-        # of a single day, so ordering is moot for them.
+        # of a single day and featured is full refresh only, so ordering is moot for them.
         sort_mode="asc",
     )

@@ -20,6 +20,7 @@ from posthog.models import Team
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     CheckFailure,
+    ControlChangeKind,
     Grouping,
     GroupingMode,
     GroupOutcome,
@@ -40,6 +41,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     increment_groups_over_cap,
     increment_history_rows_dropped,
     increment_instances_reaped,
+    record_check_completion_lag,
     safe_record,
 )
 from products.alerts_platform.backend.facade.scheduling import (
@@ -51,7 +53,12 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.alerts_platform.backend.logic import delivery_holds
-from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
+from products.alerts_platform.backend.logic.alert_routes import routed_label_names
+from products.alerts_platform.backend.logic.platform_alert_events import (
+    CONFIGURATION_ROW_ALERT_ID,
+    PlatformAlertEventRow,
+    insert_events,
+)
 from products.alerts_platform.backend.models import (
     PlatformAlert,
     PlatformAlertConfiguration,
@@ -284,10 +291,13 @@ def due_checks(
         return ()
 
     instances = _instances_by_configuration(team_id, configurations)
-    return tuple(_check(c, instances.get(str(c.id), [])) for c in configurations)
+    label_names = routed_label_names(team_id)
+    return tuple(_check(c, instances.get(str(c.id), []), label_names) for c in configurations)
 
 
-def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> PlatformAlertCheckInput:
+def _check(
+    c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert], label_names: frozenset[str]
+) -> PlatformAlertCheckInput:
     return PlatformAlertCheckInput(
         id=c.id,
         team_id=c.team_id,
@@ -306,8 +316,11 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         instances=tuple(_composed(c, alert) for alert in alerts),
         grouping=Grouping.from_stored(c.grouping),
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
+        owner_changed_at=c.owner_changed_at,
         recurrence_unit=c.recurrence_unit,
         anchor_time=c.anchor_time,
+        created_by_id=c.created_by_id,
+        routed_label_names=label_names,
     )
 
 
@@ -357,11 +370,6 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
         "datapoints_to_alarm": configuration.datapoints_to_alarm,
         "cooldown_minutes": configuration.cooldown_minutes,
     }
-
-
-# The `alert_id` of a history row that belongs to the check rather than to a group. The column is in
-# the table's sort key, which rejects Nullable, so the nil UUID stands in for "no instance".
-CONFIGURATION_ROW_ALERT_ID: Final = UUID(int=0)
 
 
 def _event_row(
@@ -439,8 +447,68 @@ def event_row(
     )
 
 
-def record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
-    recorded = insert_events(team_id, rows)
+def shown_state(configuration: PlatformAlertConfiguration, *, now: datetime) -> PlatformAlertState:
+    """The whole alert's state as a source shows it: snoozed while its mute holds, else firing while
+    any group fires, else the ungrouped instance's, with a failing check status in its place."""
+    if configuration.snooze_until is not None and configuration.snooze_until > now:
+        return PlatformAlertState.SNOOZED
+    instances = PlatformAlert.objects.for_team(configuration.team_id).filter(configuration=configuration)
+    state: str | None
+    if instances.filter(state=PlatformAlertState.FIRING).exists():
+        state = PlatformAlertState.FIRING.value
+    else:
+        state = instances.filter(grouping_key="").values_list("state", flat=True).first()
+    return PlatformAlertState(
+        InstanceCheckState.composed(
+            grouping_key="",
+            state=state or PlatformAlertState.NOT_FIRING,
+            check_status=configuration.check_status,
+            configuration_snooze_until=None,
+        ).state
+    )
+
+
+def control_change_row(
+    configuration: PlatformAlertConfiguration,
+    kind: ControlChangeKind,
+    *,
+    previous_state: PlatformAlertState,
+    now: datetime,
+) -> PlatformAlertEventRow:
+    """The history row of a control-plane change, with the alert's state after it as it stands now."""
+    return event_row(
+        configuration,
+        alert=None,
+        # Its own prefix, so it never shares a key, and with it an insert's deduplication token,
+        # with the rows `control_plane.end_firings` writes for the same change.
+        evaluation_key=f"control-change:{kind.value}:{now.isoformat()}",
+        kind=kind.value,
+        previous_state=previous_state.value,
+        state=shown_state(configuration, now=now).value,
+        episode_started_at=None,
+        consecutive_failures=configuration.consecutive_failures,
+        now=now,
+    )
+
+
+# A request waits for this insert after its change commits, so a stalled ClickHouse costs it this
+# long at most, and the row is dropped as any failed insert is.
+_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS: Final = 5
+
+
+def record_history_after_commit(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
+    """Records rows once the change they describe commits, so a rolled-back change leaves none."""
+    if rows:
+        transaction.on_commit(
+            lambda: record_history(team_id, rows, send_receive_timeout=_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS),
+            robust=True,
+        )
+
+
+def record_history(
+    team_id: int, rows: Sequence[PlatformAlertEventRow], *, send_receive_timeout: int | None = None
+) -> int:
+    recorded = insert_events(team_id, rows, send_receive_timeout=send_receive_timeout)
     if recorded < len(rows):
         # One batch holds one source's checks.
         safe_record(increment_history_rows_dropped, rows[0].source_kind, len(rows) - recorded)
@@ -552,6 +620,12 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         if not configurations:
             return 0
+        # Captured before the write advances the schedule; the lag itself is measured at commit.
+        due_times = [
+            (configuration.source_kind, configuration.next_check_at)
+            for configuration in configurations
+            if configuration.next_check_at is not None
+        ]
         for configuration in configurations:
             by_id[str(configuration.id)] = _without_stale_groups(configuration, by_id[str(configuration.id)])
         # In outcome order, because the source put the groups it most wants kept first.
@@ -581,6 +655,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             hold = delivery_holds.hold_for(configuration, outcome, now)
             if hold is not None:
                 holds.append(hold)
+            rows_before = len(rows)
+            ungrouped = alerts.get(_InstanceKey(configuration_id=str(configuration.id), grouping_key=""))
+            ungrouped_state_before = _composed(configuration, ungrouped).state
             turned_away = 0
             for reported in outcome.groups:
                 alert = alerts.get(
@@ -620,18 +697,35 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
 
             if outcome.failure is not None:
                 # The empty-key row, so a failure row states the state an ungrouped check found.
-                ungrouped = alerts.get(_InstanceKey(configuration_id=str(configuration.id), grouping_key=""))
                 rows.append(
                     _event_row(
                         configuration,
                         outcome,
                         outcome.failure,
                         alert=None,
-                        previous_state=_composed(configuration, ungrouped).state,
+                        previous_state=ungrouped_state_before,
                         now=now,
                     )
                 )
             configuration.check_status = _check_status(configuration, outcome)
+            if len(rows) == rows_before:
+                # A grouped check that judged no group writes no other row. Without this one, every
+                # reader of the history sees an alert whose checks stopped, and a failure never ends.
+                rows.append(
+                    event_row(
+                        configuration,
+                        alert=None,
+                        evaluation_key=outcome.evaluation_key,
+                        kind=AlertEventKind.CHECK.value,
+                        previous_state=ungrouped_state_before,
+                        state=_composed(configuration, ungrouped).state,
+                        episode_started_at=None,
+                        consecutive_failures=outcome.consecutive_failures,
+                        query_duration_ms=outcome.query_duration_ms,
+                        error_message=outcome.error_message,
+                        now=now,
+                    )
+                )
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.failure is None and not outcome.skipped:
                 configuration.overflowed_groups = outcome.overflowed + turned_away
@@ -671,8 +765,20 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         PlatformAlertDeliveryHold.objects.for_team(team_id).bulk_create(holds, ignore_conflicts=True)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
+        # The lag goes first, because callbacks run in order and a slow history insert is not
+        # part of the check's completion.
+        transaction.on_commit(lambda: _record_completion_lags(due_times))
         transaction.on_commit(lambda: record_history(team_id, rows))
     return len(configurations)
+
+
+def _record_completion_lags(due_times: Sequence[tuple[str, datetime]]) -> None:
+    # Wall time at commit rather than the tick's cutoff, so a slow write or an enclosing
+    # transaction that holds the commit counts towards the lag.
+    committed_at = django_timezone.now()
+    for source_kind, due_at in due_times:
+        lag_ms = max(0, int((committed_at - due_at).total_seconds() * 1000))
+        safe_record(record_check_completion_lag, source_kind, lag_ms)
 
 
 _CADENCE_FIELDS: Final = ("check_interval_minutes", "recurrence_unit", "anchor_time")
@@ -681,6 +787,30 @@ _ADMISSION_LOCK_SQL: Final = {
     True: "SELECT pg_advisory_xact_lock(hashtext(%s))",
     False: "SELECT pg_advisory_xact_lock_shared(hashtext(%s))",
 }
+
+
+def stored_settings_of(upsert: PlatformAlertUpsert) -> dict[str, Any]:
+    """The settings columns a copy of `upsert` stores. Raises `ValueError` on a cadence the platform
+    refuses, because an unparseable unit or anchor raised where the schedule advances would fail a
+    whole batch of unrelated checks."""
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    return {
+        "name": upsert.name,
+        "enabled": upsert.enabled,
+        "source_config": upsert.source_config,
+        "check_interval_minutes": upsert.check_interval_minutes,
+        "recurrence_unit": upsert.recurrence_unit,
+        "anchor_time": validate_and_normalize_schedule_start_time(upsert.anchor_time),
+        "evaluation_periods": upsert.evaluation_periods,
+        "datapoints_to_alarm": upsert.datapoints_to_alarm,
+        "cooldown_minutes": upsert.cooldown_minutes,
+        "schedule_restriction": upsert.schedule_restriction,
+        # A source's snooze mutes the whole alert. State is left alone because a muted alert
+        # keeps tracking reality.
+        "snooze_until": upsert.snooze_until,
+        "created_by_id": upsert.created_by_id,
+    }
 
 
 def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
@@ -696,15 +826,10 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     check, for example at the end of quiet hours, and copying that would skip checks the platform
     still runs.
 
-    The recurrence is checked here rather than where the schedule advances, because an
-    unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
-
     `revive` says the source alert was just created or turned back on, which resets the copy
     even when it stayed enabled, for example a BROKEN copy that discovery skips.
     """
-    if upsert.recurrence_unit is not None:
-        to_recurrence_interval(upsert.recurrence_unit)
-    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+    stored = stored_settings_of(upsert)
 
     with transaction.atomic():
         existing = (
@@ -718,23 +843,13 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             return False
         defaults = {
             "team_id": upsert.team_id,
-            "name": upsert.name,
-            "enabled": upsert.enabled,
             "source_kind": upsert.source_kind.value,
-            "source_config": upsert.source_config,
-            "check_interval_minutes": upsert.check_interval_minutes,
-            "recurrence_unit": upsert.recurrence_unit,
-            "anchor_time": anchor_time,
-            "evaluation_periods": upsert.evaluation_periods,
-            "datapoints_to_alarm": upsert.datapoints_to_alarm,
-            "cooldown_minutes": upsert.cooldown_minutes,
-            "schedule_restriction": upsert.schedule_restriction,
+            **stored,
             # Reached by a backfill run, which re-admits a copy an operator switched off.
             "switched_off_at": None,
-            # A source's snooze mutes the whole alert. State is left alone because a muted alert
-            # keeps tracking reality.
-            "snooze_until": upsert.snooze_until,
         }
+        if upsert.first_enabled_at is not None:
+            defaults["first_enabled_at"] = upsert.first_enabled_at
         if (
             existing is None
             or not existing["enabled"]
@@ -758,6 +873,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             defaults=defaults,
             create_defaults={**defaults, "grouping": upsert.grouping.to_stored()},
         )
+        # `update()`, because `auto_now_add` replaces any value a create passes.
+        if upsert.created_at is not None and configuration.created_at != upsert.created_at:
+            PlatformAlertConfiguration.objects.unscoped().filter(pk=configuration.pk).update(
+                created_at=upsert.created_at
+            )
         if revived:
             PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
                 state=PlatformAlert.State.NOT_FIRING.value, firing_started_at=None
@@ -819,6 +939,9 @@ def write_edit(
     if reenabled:
         configuration.next_check_at = now + _REVIVE_FENCE
         update_fields.append("next_check_at")
+        if configuration.first_enabled_at is None:
+            configuration.first_enabled_at = now
+            update_fields.append("first_enabled_at")
     _assign_edit(configuration, edit)
     configuration.save(update_fields=update_fields)
 
@@ -829,17 +952,22 @@ def create_native_configuration(
     source_kind: SourceKind,
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
-    destinations_owner: PlatformAlertOwner,
+    recurrence_unit: str | None,
+    created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
+    if recurrence_unit is not None:
+        to_recurrence_interval(recurrence_unit)
     configuration = PlatformAlertConfiguration(
         team_id=team_id,
         source_kind=source_kind.value,
         check_interval_minutes=check_interval_minutes,
+        recurrence_unit=recurrence_unit,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
-        destinations_owner=destinations_owner,
+        created_by_id=created_by_id,
+        first_enabled_at=now if edit.enabled else None,
     )
     _assign_edit(configuration, edit)
     # The model's own save logs the creation.
@@ -958,19 +1086,10 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     Raises `ValueError` on a cadence `upsert_configuration` would refuse, because a stored one that
     cannot advance fails every outcome of the batch it is recorded in.
     """
-    if upsert.recurrence_unit is not None:
-        to_recurrence_interval(upsert.recurrence_unit)
-    anchor_time = validate_and_normalize_schedule_start_time(upsert.anchor_time)
+    stored = stored_settings_of(upsert)
+    del stored["enabled"], stored["snooze_until"]
     PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).update(
-        name=upsert.name,
-        source_config=upsert.source_config,
-        check_interval_minutes=upsert.check_interval_minutes,
-        recurrence_unit=upsert.recurrence_unit,
-        anchor_time=anchor_time,
-        evaluation_periods=upsert.evaluation_periods,
-        datapoints_to_alarm=upsert.datapoints_to_alarm,
-        cooldown_minutes=upsert.cooldown_minutes,
-        schedule_restriction=upsert.schedule_restriction,
+        **stored,
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )
@@ -1005,6 +1124,36 @@ def write_owned_cadence(
     # history and notification would be dropped as duplicates.
     configuration.next_check_at = max(upsert.next_check_at or now, now + _HANDOVER_FENCE)
     configuration.save(update_fields=[*_CADENCE_FIELDS, "next_check_at", "updated_at"])
+
+
+def write_native_cadence(
+    configuration: PlatformAlertConfiguration,
+    *,
+    check_interval_minutes: int,
+    recurrence_unit: str | None,
+    now: datetime,
+) -> None:
+    """Writes a cadence an edit chose onto an alert with no source row, locked by the caller.
+
+    A changed cadence makes the alert due a minute out, and its next check moves it onto the new
+    cadence's grid. Waiting out the old cadence would leave an alert moved from hourly to every minute
+    unchecked for up to an hour. A snooze still defers the check to its end.
+    """
+    if recurrence_unit is not None:
+        to_recurrence_interval(recurrence_unit)
+    if (
+        configuration.check_interval_minutes == check_interval_minutes
+        and configuration.recurrence_unit == recurrence_unit
+    ):
+        return
+    configuration.check_interval_minutes = check_interval_minutes
+    configuration.recurrence_unit = recurrence_unit
+    # A minute out for the reason `write_owned_cadence` gives.
+    due = now + _HANDOVER_FENCE
+    if configuration.snooze_until is not None and configuration.snooze_until > due:
+        due = configuration.snooze_until
+    configuration.next_check_at = due
+    configuration.save(update_fields=["check_interval_minutes", "recurrence_unit", "next_check_at", "updated_at"])
 
 
 _HANDOVER_FENCE: Final = timedelta(minutes=1)
@@ -1173,6 +1322,7 @@ def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
             raise ValueError("the platform does not own this alert, so its source resets it")
         if configuration.check_status != PlatformAlertConfiguration.CheckStatus.BROKEN:
             return None
+        previous_state = shown_state(configuration, now=at)
         cleared = configuration.consecutive_failures
         configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
         configuration.consecutive_failures = 0
@@ -1182,6 +1332,10 @@ def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
         # the next breach would find the old episode open and announce nothing.
         PlatformAlert.objects.for_team(team_id).filter(configuration=configuration).update(
             state=PlatformAlertState.NOT_FIRING.value, firing_started_at=None
+        )
+        record_history_after_commit(
+            team_id,
+            [control_change_row(configuration, ControlChangeKind.RESET, previous_state=previous_state, now=at)],
         )
     return cleared
 

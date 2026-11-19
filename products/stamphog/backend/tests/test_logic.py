@@ -4,7 +4,7 @@ import threading
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -18,13 +18,17 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
+from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.decision_fingerprint import decision_fingerprint
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
+from products.stamphog.backend.logic.engine_pregate import EnginePregateError, run_engine_attestation_proof
 from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
     CommitComparison,
+    GitObjectId,
     RepoPathEntry,
     StamphogGitHubClient,
     StamphogGitHubError,
@@ -218,6 +222,8 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
         assert context_for()["review_trigger"] == ""
         assert context_for()["self_driving_review"] is False
+        assert context_for()["admitted_bot"] == ""
+        assert context_for(admitted_bot="renovate[bot]")["admitted_bot"] == "renovate[bot]"
 
 
 def _graphql_commit(oid: str, login: str | None) -> dict:
@@ -373,6 +379,18 @@ class ReviewTriggerTests(SimpleTestCase):
             ("no_output", None, ReviewMode.ALL, "all"),
             ("empty_output", {}, ReviewMode.LABEL, "label"),
             ("inbox_only", {"inbox_review": {"trigger": "inbox"}}, ReviewMode.ALL, "self_driving"),
+            (
+                "bot_admission_beats_label_mode",
+                {"bot_admission": {"login": "renovate[bot]"}},
+                ReviewMode.LABEL,
+                "bot_admission",
+            ),
+            (
+                "inbox_beats_bot_admission",
+                {"inbox_review": {"trigger": "inbox"}, "bot_admission": {"login": "renovate[bot]"}},
+                ReviewMode.ALL,
+                "self_driving",
+            ),
         ]
     )
     def test_an_unstamped_run_derives_live(
@@ -791,10 +809,11 @@ class CosmeticWriteFailOpenTests(SimpleTestCase):
 
 
 class CommitGraphqlTests(SimpleTestCase):
-    def _blame(self, response: fakes.FakeResponse) -> list[dict]:
-        def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
+    def _call(self, response: fakes.FakeResponse, call: Callable[[StamphogGitHubClient], Any]) -> Any:
+        def fake_request(method: str, url: str, **kwargs: Any) -> fakes.FakeResponse:
             if url.endswith("/access_tokens"):
                 return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+            self.graphql_variables = kwargs["json"]["variables"]
             return response
 
         with (
@@ -803,7 +822,76 @@ class CommitGraphqlTests(SimpleTestCase):
             patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
             patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
         ):
-            return StamphogGitHubClient("123").get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5)
+            return call(StamphogGitHubClient("123"))
+
+    def _blame(self, response: fakes.FakeResponse) -> list[dict]:
+        return self._call(response, lambda c: c.get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5))
+
+    @parameterized.expand(
+        [
+            (
+                "file",
+                {"text": "paths:\n  - tools/proof/\n", "isBinary": False, "isTruncated": False},
+                "paths:\n  - tools/proof/\n",
+            ),
+            (
+                "symlink_reads_its_link_text",
+                {"text": "../docs/x.yml", "isBinary": False, "isTruncated": False},
+                "../docs/x.yml",
+            ),
+            ("missing", None, None),
+            ("directory", {}, None),
+            ("binary", {"text": None, "isBinary": True, "isTruncated": False}, None),
+            ("truncated", {"text": "paths:", "isBinary": False, "isTruncated": True}, None),
+        ]
+    )
+    def test_default_branch_blob_text_reads_the_blob_at_the_path(
+        self, _name: str, blob: dict | None, expected: str | None
+    ) -> None:
+        # The contents API follows an in-repo symlink, so an issuer manifest read through it would
+        # take the target's text, which neither self-governance nor the pins cover.
+        response = fakes.FakeResponse(200, json_data={"data": {"repository": {"object": blob}}})
+
+        text = self._call(response, lambda c: c.get_default_branch_blob_text("acme/widgets", "tools/proof/issuer.yml"))
+
+        assert text == expected
+        assert self.graphql_variables == {
+            "owner": "acme",
+            "name": "widgets",
+            "expression": "HEAD:tools/proof/issuer.yml",
+        }
+
+    def test_default_branch_objects_read_a_missing_path_as_absent(self) -> None:
+        # One failed read would mark every proof stale, so a missing path must not fail the request.
+        response = fakes.FakeResponse(
+            200,
+            json_data={
+                "data": {
+                    "repository": {
+                        "p0": {"__typename": "Blob", "oid": "a" * 40},
+                        "p1": None,
+                        "p2": {"__typename": "Tree", "oid": "b" * 40},
+                    }
+                }
+            },
+        )
+
+        objects = self._call(
+            response, lambda c: c.get_default_branch_objects("acme/widgets", ["prover.py", ".npmrc", "tools/proof/"])
+        )
+
+        assert objects == {
+            "prover.py": GitObjectId(kind="Blob", oid="a" * 40),
+            ".npmrc": None,
+            "tools/proof/": GitObjectId(kind="Tree", oid="b" * 40),
+        }
+        assert self.graphql_variables == {
+            "owner": "acme",
+            "name": "widgets",
+            "p0": "HEAD:prover.py",
+            "p1": "HEAD:.npmrc",
+            "p2": "HEAD:tools/proof",
+        }
 
     @parameterized.expand(
         [
@@ -816,6 +904,85 @@ class CommitGraphqlTests(SimpleTestCase):
     ) -> None:
         with pytest.raises(expected):
             self._blame(fakes.FakeResponse(200, json_data={"errors": [error]}))
+
+
+class _PinClient:
+    def __init__(self, check_runs: list[dict], default_branch: dict[str, GitObjectId]) -> None:
+        self.check_runs = check_runs
+        self.default_branch = default_branch
+        self.blob_reads = 0
+
+    def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
+        return self.check_runs
+
+    def get_default_branch_objects(self, repo: str, paths: list[str]) -> dict[str, GitObjectId | None]:
+        self.blob_reads += 1
+        return {path: self.default_branch.get(path) for path in paths}
+
+
+def _pinning_check_run(blobs: object, name: str = "Proof", run_id: int = 1) -> dict:
+    return {
+        "id": run_id,
+        "name": name,
+        "status": "completed",
+        "app": {"id": 123},
+        "output": {"summary": f"<!-- stamphog:v1 {json.dumps({'files': [], 'blobs': blobs})} -->"},
+    }
+
+
+class AttestationPinTests(SimpleTestCase):
+    _DEFAULT_BRANCH: dict[str, GitObjectId] = {
+        "prover.py": GitObjectId(kind="Blob", oid="a" * 40),
+        ".npmrc": GitObjectId(kind="Blob", oid="b" * 40),
+        "tools/proof/": GitObjectId(kind="Tree", oid="d" * 40),
+        "tools/proof": GitObjectId(kind="Tree", oid="d" * 40),
+    }
+
+    @parameterized.expand(
+        [
+            ("every_pin_holds", {"prover.py": "a" * 40, ".npmrc": "b" * 40}, True),
+            ("a_directory_pin_holds", {"tools/proof/": "d" * 40, "prover.py": "a" * 40}, True),
+            ("a_directory_changed", {"tools/proof/": "e" * 40}, False),
+            ("a_directory_pinned_as_a_file", {"tools/proof": "d" * 40}, False),
+            ("a_file_pinned_as_a_directory", {"prover.py/": "a" * 40}, False),
+            ("an_absent_file_stays_absent", {"prover.py": "a" * 40, "frontend/.npmrc": None}, True),
+            ("a_pinned_file_changed", {"prover.py": "c" * 40}, False),
+            ("a_file_absent_at_the_proof_now_exists", {".npmrc": None}, False),
+            ("a_pinned_file_was_deleted", {"gone.py": "a" * 40}, False),
+            ("no_pins", {}, False),
+            ("malformed_pins", ["prover.py"], False),
+            ("more_paths_than_the_limit", {f"f{index}": None for index in range(65)}, False),
+        ]
+    )
+    def test_a_pinning_check_run_is_current_only_while_every_blob_matches(
+        self, _name: str, blobs: object, expected: bool
+    ) -> None:
+        client = _PinClient([_pinning_check_run(blobs)], self._DEFAULT_BRANCH)
+
+        [check_run] = get_check_runs_with_pins(cast(StamphogGitHubClient, client), "acme/widgets", "sha")
+
+        assert check_run["pinned_blobs_current"] is expected
+
+    def test_only_a_bounded_number_of_pinning_check_runs_is_read(self) -> None:
+        # A job of any PR can post as GitHub Actions, and a re-run leaves older runs of a check
+        # behind. Neither may use up the budget that a publisher's newest run needs.
+        pinning = [_pinning_check_run({"prover.py": "a" * 40}, f"Proof {n}", run_id=10 + n) for n in range(7)]
+        unread = [
+            {"output": {"summary": '<!-- stamphog:v1 ["a.py"] -->'}},
+            {**pinning[0], "app": {"id": 15368}},
+            {"output": {"summary": pinning[0]["output"]["summary"] * 2}},
+            {**pinning[6], "id": 1},
+            {**pinning[6], "id": 99, "status": "in_progress"},
+        ]
+        client = _PinClient([*unread, *pinning], self._DEFAULT_BRANCH)
+
+        *unmarked, a, b, c, d, e, f, g = get_check_runs_with_pins(
+            cast(StamphogGitHubClient, client), "acme/widgets", "sha"
+        )
+
+        assert all("pinned_blobs_current" not in check_run for check_run in unmarked)
+        assert [check_run["pinned_blobs_current"] for check_run in (a, b, c, d, e, f, g)] == [False] * 2 + [True] * 5
+        assert client.blob_reads == 5
 
 
 class BuildAppJwtIssuerTests(SimpleTestCase):
@@ -1234,3 +1401,77 @@ class BaseMergeProofTests(SimpleTestCase):
             assert self._proven(self.base, head, master) is False
         else:
             assert self._proven(approved, head, self.base) is False
+
+
+def _fingerprint_context() -> dict:
+    return {
+        "pr": {
+            "number": 7,
+            "title": "feat: add a helper",
+            "updated_at": "2026-11-09T10:00:00Z",
+            "mergeable_state": "blocked",
+            "labels": [{"name": "backend"}],
+            "base": {"ref": "master", "sha": "base1", "repo": {"full_name": "acme/widgets", "pushed_at": "t1"}},
+            "head": {"ref": "feat/x", "sha": "head1", "repo": {"full_name": "acme/widgets", "pushed_at": "t1"}},
+        },
+        "discussion": [{"user": {"login": "maintainer"}, "body": "Looks fine.", "reactions": {"+1": 0}}],
+        "check_runs": [{"name": "Migration risk", "status": "completed", "conclusion": "success"}],
+        "pr_reactions": [],
+    }
+
+
+class TestDecisionFingerprint(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("trigger_label_added", lambda c: c["pr"]["labels"].append({"name": "stamphog"}), True),
+            ("routing_fork_label_added", lambda c: c["pr"]["labels"].append({"name": "needs-devex"}), True),
+            ("updated_at_moved", lambda c: c["pr"].update(updated_at="2026-11-09T11:00:00Z"), True),
+            ("repo_pushed_to", lambda c: c["pr"]["base"]["repo"].update(pushed_at="t2"), True),
+            ("checks_went_red", lambda c: c["pr"].update(mergeable_state="unstable"), True),
+            ("comment_got_a_reaction", lambda c: c["discussion"][0]["reactions"].update({"+1": 1}), True),
+            ("human_reacted", lambda c: c["pr_reactions"].append({"user": "someone", "content": "rocket"}), True),
+            ("other_check_ran", lambda c: c["check_runs"].append({"name": "Lint", "status": "completed"}), True),
+            ("merge_conflict", lambda c: c["pr"].update(mergeable_state="dirty"), False),
+            ("other_label_added", lambda c: c["pr"]["labels"].append({"name": "hotfix"}), False),
+            ("comment_edited", lambda c: c["discussion"][0].update(body="Please hold."), False),
+            ("migration_check_rerun", lambda c: c["check_runs"][0].update(conclusion="failure"), False),
+            (
+                "reviewer_bot_reacted",
+                lambda c: c["pr_reactions"].append({"user": "greptile-apps[bot]", "content": "eyes"}),
+                False,
+            ),
+            ("engine_deployed", lambda c: c.update(engine_digest="engine2"), False),
+        ]
+    )
+    def test_only_decision_inputs_move_the_fingerprint(
+        self, _name: str, change: Callable[[dict], None], expect_same: bool
+    ) -> None:
+        def fingerprint(context: dict) -> str:
+            return decision_fingerprint(
+                context,
+                head_sha="head1",
+                ignored_labels={"stamphog", "needs-devex"},
+                engine_digest=context.get("engine_digest", "engine1"),
+            )
+
+        context = _fingerprint_context()
+        before = fingerprint(context)
+        change(context)
+        assert (before == fingerprint(context)) is expect_same
+
+
+class EngineAttestationProofParsingTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_app_id", {"check": "Dependency proof"}),
+            ("null_app_id", {"check": "Dependency proof", "app_id": None}),
+            ("text_app_id", {"check": "Dependency proof", "app_id": "not-a-number"}),
+            ("missing_check", {"app_id": 4242}),
+            ("not_an_object", "Dependency proof"),
+        ]
+    )
+    def test_a_malformed_check_is_an_engine_failure(self, _name: str, entry: object) -> None:
+        stdout = json.dumps({"checks": [entry], "proven": True})
+        with patch("products.stamphog.backend.logic.engine_pregate._run_engine_gates_only", return_value=stdout):
+            with self.assertRaises(EnginePregateError):
+                run_engine_attestation_proof({}, {})

@@ -17,7 +17,6 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.oauth.client_assertion import PRIVATE_KEY_REQUIRED_MESSAGE
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.authentication import (
@@ -25,6 +24,7 @@ from ee.api.agentic_provisioning.authentication import (
     BearerTokenError,
     ClientProof,
     ProvisioningAuthentication,
+    require_usable_bearer_partner,
     resolve_bearer_access_token,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
@@ -61,14 +61,7 @@ class LimitsView(ProvisioningAPIView):
                 access_token = resolve_bearer_access_token(request)
             except BearerTokenError as exc:
                 raise ProvisioningError("unauthorized", str(exc), status=401)
-            app = access_token.application
-            if app is None or not app.is_provisioning_partner:
-                raise ProvisioningError("unauthorized", "Authentication failed", status=401)
-            if not app.provisioning.active:
-                raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
-            if app.cannot_meet_provisioning_signature:
-                raise ProvisioningError("unauthorized", PRIVATE_KEY_REQUIRED_MESSAGE, status=401)
-            return app
+            return require_usable_bearer_partner(access_token.application)
 
         authentication = ProvisioningAuthentication()
         try:

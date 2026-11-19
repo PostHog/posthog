@@ -1,19 +1,33 @@
+import dataclasses
 from abc import abstractmethod
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Generic, NoReturn, Optional
+from typing import Any, ClassVar, Generic, NoReturn, Optional, cast
 
 import pyarrow as pa
 from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.facade.contracts import AddedTableLocationError
 from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FILE_MODIFIED_AT_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.added_tables import (
+    added_relative_path,
+    delta_table,
+    display_root,
+    files_table,
+    glob_table,
+    is_full_url,
+    parse_added_location,
+    relative_key,
+    store_identity,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     DiscoveryOptions,
     FileFormat,
+    FileFormatChoice,
     StoreConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
@@ -24,8 +38,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     plan_delta_read,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
+    DELTA_LOG_DIRECTORY,
     TableDefinition,
+    explain_no_tables,
     group_tables,
+    list_glob_objects,
+    list_table_objects,
     resolve_file_format,
     resolve_table_files,
 )
@@ -35,7 +53,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     DELTA_UNSUPPORTED_ERROR,
     FILE_PARSE_ERROR,
     INVALID_CONFIG_ERROR,
-    NO_IMPORTABLE_FILES_ERROR,
     NO_SUCH_BUCKET_ERROR,
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -67,6 +84,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     CHUNK_SIZE_BYTES,
     MAX_DISCOVERY_OBJECTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
+    SourceRegistry,
+    known_source_key,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     incremental_field,
@@ -74,13 +95,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
-
-
-def _raise_translated(error: Exception, location: str) -> NoReturn:
-    translated = translate_storage_error(error, location)
-    if translated is error:
-        raise error
-    raise translated from error
 
 
 def _http_status(error: BaseException) -> int | None:
@@ -93,6 +107,19 @@ def _http_status(error: BaseException) -> int | None:
                 return status
         current = current.__cause__
     return None
+
+
+def _raise_translated(error: Exception, location: str) -> NoReturn:
+    to_translate = error
+    if type(error) is OSError and _http_status(error) in (401, 403):
+        # As in `validate_credentials` and `describe_pinned_schema`: s3fs gives a bare 401 or 403 (an
+        # error code it doesn't recognize, such as a provider's non-standard "Unauthorized") as a
+        # plain OSError instead of PermissionError.
+        to_translate = PermissionError()
+    translated = translate_storage_error(to_translate, location)
+    if translated is error:
+        raise error
+    raise translated from error
 
 
 def validate_store_location(config: StoreConfig) -> None:
@@ -114,6 +141,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     incremental sync of a Delta table also replaces the rows of each data file that a commit removed,
     so deletes, updates, merges and compactions reach the table.
     """
+
+    supports_incremental_history = False
 
     @abstractmethod
     def object_store_config(self, config: ConfigType) -> StoreConfig: ...
@@ -188,12 +217,26 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         self, store: ObjectStore, config: ConfigType, logger: FilteringBoundLogger | None = None
     ) -> list[TableDefinition]:
         store_config = self.object_store_config(config)
+        return self._group(self._list_objects(store, store_config, logger), store_config, config, logger)
+
+    def _list_objects(
+        self, store: ObjectStore, store_config: StoreConfig, logger: FilteringBoundLogger | None = None
+    ) -> list[StoredObject]:
         try:
             objects = store.list_objects(store_config.listing_prefix, MAX_DISCOVERY_OBJECTS)
         except Exception as e:
             _raise_translated(e, store_config.display_location)
         if len(objects) >= MAX_DISCOVERY_OBJECTS and logger is not None:
             logger.warning("Reached the object storage listing limit; later objects are ignored")
+        return objects
+
+    def _group(
+        self,
+        objects: list[StoredObject],
+        store_config: StoreConfig,
+        config: ConfigType,
+        logger: FilteringBoundLogger | None = None,
+    ) -> list[TableDefinition]:
         root_name = store_config.prefix.rsplit("/", 1)[-1] if store_config.prefix else store_config.root_name
         return group_tables(
             objects,
@@ -218,7 +261,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     ) -> tuple[bool, str | None]:
         try:
             store_config = self.object_store_config(config)
-            tables = self._discover(self.open_store(store_config), config)
+            objects = self._list_objects(self.open_store(store_config), store_config)
+            tables = self._group(objects, store_config, config)
         except ObjectStorageError as e:
             return False, self._validation_message(str(e))
         except OSError as e:
@@ -232,10 +276,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
                 raise
             return False, message
         if not tables:
-            return False, (
-                f"{NO_IMPORTABLE_FILES_ERROR} in '{store_config.display_location}'. PostHog can read the bucket but "
-                "found nothing to import there. Check the URL and the file format."
-            )
+            return False, explain_no_tables(objects, self.discovery_options(config), store_config.pattern)
         return True, None
 
     def get_schemas(
@@ -280,6 +321,103 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
                 raise translate_storage_error(PermissionError(), location) from e
             _raise_translated(e, location)
         return _source_schema(table)
+
+    def storage_identity(self, config: ConfigType) -> tuple[str | None, ...]:
+        """The bucket the source reads, as `store_identity` names it.
+
+        A source whose config parsing makes a network call overrides this to read only the URL.
+        """
+        return store_identity(self.object_store_config(config))
+
+    def table_root(self, config: ConfigType) -> str | None:
+        """The folder that `define_added_table` resolves relative paths against, as `<bucket>/<folder>/`.
+
+        None when the files URL names one file or a pattern, so no table can be added. A source whose config
+        parsing makes a network call overrides this to read only the URL.
+        """
+        return display_root(self.object_store_config(config))
+
+    def config_with_files_url(self, config: ConfigType, url: str) -> ConfigType:
+        """The config with another files URL, so the URL is parsed the same way as the source's own."""
+        return cast(ConfigType, dataclasses.replace(cast(Any, config), url_pattern=url))
+
+    def define_added_table(
+        self,
+        config: ConfigType,
+        name: str,
+        location: str,
+        file_format: FileFormatChoice,
+        allow_double_quotes: bool,
+    ) -> TableDefinition:
+        """Define the table a user adds by its path, and check that the key can read it.
+
+        The location is a path relative to the source's files URL, or a full URL into the same
+        bucket. Only that location is read, so a source rooted at a large bucket isn't walked.
+        """
+        try:
+            store_config = self.object_store_config(config)
+            if is_full_url(location):
+                url_config = self.object_store_config(self.config_with_files_url(config, location.strip()))
+                relative = relative_key(store_config, url_config)
+            else:
+                relative = added_relative_path(store_config, location)
+            added = parse_added_location(relative, file_format)
+            store = self.open_store(store_config)
+            location = store.path(added.path)
+            try:
+                is_delta = file_format == "delta" or (
+                    file_format == "infer" and added.pattern is None and self._holds_delta_log(store, added.path)
+                )
+                if not is_delta:
+                    objects = (
+                        list_table_objects(store, added.path)
+                        if added.pattern is None
+                        else list_glob_objects(store, added.pattern)
+                    )
+            except ObjectStorageError:
+                raise
+            except Exception as e:
+                _raise_translated(e, location)
+            if is_delta:
+                table = delta_table(name, added, file_format)
+                self._check_added_delta_table(store, table)
+                return table
+            options = DiscoveryOptions(file_format=file_format, allow_double_quotes=allow_double_quotes)
+            if added.pattern is not None:
+                return glob_table(objects, name, added, options)
+            return files_table(objects, name, added, options)
+        except ObjectStorageError as e:
+            message = self._validation_message(str(e))
+            if message == str(e):
+                raise
+            raise ObjectStorageError(message) from e
+
+    def _holds_delta_log(self, store: ObjectStore, path: str) -> bool:
+        """Whether the folder is a Delta table. Only its log is listed, so a large table is not walked.
+
+        A key may be allowed to list the folder but not the log folder, so a denied probe means "not Delta",
+        and the folder listing that follows reports any real error. Other failures, such as a timeout, propagate.
+        """
+        log = f"{path}/{DELTA_LOG_DIRECTORY}" if path else DELTA_LOG_DIRECTORY
+        try:
+            return bool(store.list_objects(log, 1))
+        except Exception as e:
+            if isinstance(e, PermissionError) or _http_status(e) in (401, 403):
+                return False
+            raise
+
+    def _check_added_delta_table(self, store: ObjectStore, table: TableDefinition) -> None:
+        try:
+            check_delta_table(store.delta_uri(table.path), store.delta_storage_options, table.name)
+        except ObjectStorageError as e:
+            if str(e).startswith(NO_TABLE_FILES_ERROR):
+                raise ObjectStorageError(
+                    f"No Delta table is at '{store.path(table.path)}'. Enter the folder that holds the table's "
+                    f"{DELTA_LOG_DIRECTORY} folder, or choose another file format."
+                ) from e
+            raise
+        except OSError as e:
+            _raise_translated(e, store.path(table.path))
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         store = self.open_store(self.object_store_config(config))
@@ -378,6 +516,75 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             f"{NO_TABLE_FILES_ERROR} '{schema_name}'. The files it was discovered from may have been renamed, "
             "moved, or removed from the bucket."
         )
+
+
+def _object_storage_source(source_type: str) -> "ObjectStorageSource[Any] | None":
+    try:
+        source = SourceRegistry.get_source(known_source_key(source_type))
+    except ValueError:
+        return None
+    return source if isinstance(source, ObjectStorageSource) else None
+
+
+def supports_adding_tables(source_type: str) -> bool:
+    """Whether a table can be added to a source of this type by its path."""
+    return _object_storage_source(source_type) is not None
+
+
+def added_table_root(source_type: str, job_inputs: dict[str, Any]) -> str | None:
+    """Where relative paths of an added table start, or None for a source that can't add tables.
+
+    It reads only the files URL, so it makes no network call.
+    """
+    source = _object_storage_source(source_type)
+    if source is None:
+        return None
+    try:
+        return source.table_root(source.parse_config(job_inputs))
+    except Exception:
+        return None
+
+
+def source_storage_identity(source_type: str, job_inputs: dict[str, Any]) -> tuple[str | None, ...] | None:
+    """The bucket an object storage source reads, or None when the source is no such source or its inputs can't be read."""
+    source = _object_storage_source(source_type)
+    if source is None:
+        return None
+    try:
+        return source.storage_identity(source.parse_config(job_inputs))
+    except Exception:
+        return None
+
+
+def self_managed_storage_identity(location: SelfManagedLocation) -> tuple[str | None, ...]:
+    """The bucket a self-managed table reads, in the form `store_identity` gives a source."""
+    if location.service == "azure":
+        return ("azure", location.account, location.bucket)
+    return (location.service, location.bucket, location.account, location.jurisdiction)
+
+
+def define_added_table_metadata(
+    source_type: str,
+    job_inputs: dict[str, Any],
+    name: str,
+    location: str,
+    file_format: FileFormatChoice,
+    allow_double_quotes: bool,
+) -> dict[str, Any]:
+    """The `schema_metadata` of a table added by its path, after a check that the key can read it.
+
+    A path the user must change raises `AddedTableLocationError`. Other errors, such as an
+    unexpected storage failure, propagate.
+    """
+    source = _object_storage_source(source_type)
+    if source is None:
+        raise ValueError(f"'{source_type}' is not an object storage source")
+    config = source.parse_config(job_inputs)
+    try:
+        table = source.define_added_table(config, name, location, file_format, allow_double_quotes)
+    except ObjectStorageError as e:
+        raise AddedTableLocationError(str(e)) from e
+    return table.schema_metadata()
 
 
 def _source_schema(table: TableDefinition) -> SourceSchema:

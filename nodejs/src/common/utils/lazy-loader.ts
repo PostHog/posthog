@@ -93,6 +93,11 @@ export type LazyLoaderOptions<T> = {
     bufferMs?: number
     /** Maximum number of entries in the cache - LRU eviction when exceeded */
     maxSize?: number
+    /**
+     * Epoch milliseconds after which a loaded value must not be served, for example a token expiry.
+     * The value is then reloaded at this time or after the refresh age, whichever comes first.
+     */
+    expiresAt?: (value: T) => number | undefined
 }
 
 export type LoadOptions = {
@@ -210,11 +215,16 @@ export class LazyLoader<T> {
             const value = map[key] ?? null
             const jitter = Math.floor(Math.random() * this.refreshJitterMs)
             const refreshAge = value === null ? this.refreshNullAgeMs : this.refreshAgeMs
-            const cacheUntil = now + refreshAge + jitter
+            const expiresAt = value === null ? undefined : this.options.expiresAt?.(value)
+            // The jitter must not push the deadline past the expiry.
+            const cacheUntil = Math.min(now + refreshAge + jitter, expiresAt ?? Infinity)
             // A null takes refreshNullAgeMs for both deadlines, putting them on the same instant,
             // so nulls hard-refresh and never background-refresh.
             const backgroundRefreshAfter = this.refreshBackgroundAgeMs
-                ? now + (value === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
+                ? Math.min(
+                      now + (value === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter,
+                      cacheUntil
+                  )
                 : undefined
 
             if (this.cache[key] === undefined) {

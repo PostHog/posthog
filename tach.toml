@@ -91,6 +91,7 @@ depends_on = [
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
+    "products.growth",
     "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
@@ -124,8 +125,10 @@ depends_on = [
     "ee",
     "products.access_control",
     "products.aeo",
+    "products.ai_gateway",
     "products.analytics_platform",
     "products.approvals",
+    "products.authorization",
     "products.batch_exports",
     "products.billing_alerts",
     "products.business_knowledge",
@@ -206,7 +209,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.aeo"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.authorization", "products.dashboards"]
 layer = "modules"
 
 [[interfaces]]
@@ -295,6 +298,12 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.batch_exports",
+    # Facade-only: the admin replay of failed runs reads workflows through
+    # products.workflows.backend.facade.workflows.
+    "products.workflows",
+    # Facade-only: shadow abuse scoring of saved hog functions asks the model through
+    # products.ml_inference.backend.facade.api.
+    "products.ml_inference",
 ]
 layer = "modules"
 
@@ -362,6 +371,12 @@ depends_on = [
     "products.data_warehouse",
     "products.revenue_analytics",
     "products.warehouse_sources", "products.access_control",
+    # The materialization workflows and activities in backend/temporal/ call these facades.
+    "products.customer_analytics",
+    "products.data_quality",
+    "products.endpoints",
+    "products.managed_warehouse",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -552,6 +567,7 @@ depends_on = [
     "products.approvals",
     "products.ai_observability",
     "products.analytics_platform",
+    "products.cdp",
     "products.data_tools",
     "products.event_definitions",
     "products.feature_flags",
@@ -597,6 +613,7 @@ path = "products.growth"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.feature_flags",
     "products.signals", "products.tasks",
     "products.warehouse_sources", "products.wizard",
 ]
@@ -631,6 +648,7 @@ depends_on = [
     "products.engineering_analytics",
     # Trace feedback reads trace-linked survey responses through the surveys facade.
     "products.surveys",
+    "products.today",
 ]
 layer = "modules"
 
@@ -694,24 +712,11 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+# Retired product. The app keeps its models and migration history (other apps' squash
+# migrations depend on it) until a later migration drops its tables.
 path = "products.mcp_registry"
-depends_on = [
-    "posthog",
-    # Facade-only (enforced by mcp_registry's [[interfaces]] block): the measured-server
-    # aggregation reads new-SDK $mcp_tool_call grouping rules through mcp_analytics' facade.
-    "products.mcp_analytics",
-]
+depends_on = ["posthog"]
 layer = "modules"
-
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
-    "backend\\.routes.*",
-]
-from = [
-    "products.mcp_registry",
-]
 
 [[modules]]
 path = "products.mcp_store"
@@ -734,8 +739,8 @@ depends_on = [
     # Facade-only: the recipient preferences page reads EmailTrackingConsentMode through
     # products.workflows.backend.facade.enums.
     "products.workflows",
-    # Presentation-only: the template design action wraps HTML through
-    # products.cdp.backend.presentation.hog_functions.
+    # Design helpers only: the template design action and imported templates wrap HTML through
+    # products.cdp.backend.presentation.hog_functions and products.cdp.backend.validation.
     "products.cdp",
 ]
 layer = "modules"
@@ -1002,7 +1007,7 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-# Skills imports ai_observability's shared markdown_outline + API metrics helpers —
+# Skills imports ai_observability's shared markdown_outline —
 # temporary coupling from the standalone-product extraction, slated for cleanup.
 path = "products.skills"
 depends_on = [
@@ -1028,6 +1033,8 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.release",
+    "products.security",
     "products.signals",
     "products.surveys",
     "products.tasks", "products.access_control",
@@ -1056,6 +1063,7 @@ depends_on = [
     "products.feature_flags",
     "products.product_analytics",
     "products.product_tours", "products.access_control",
+    "products.exports",
 ]
 layer = "modules"
 
@@ -1142,6 +1150,8 @@ depends_on = [
     "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
+    # The canvas experiment needs the new navigation (via the today facade).
+    "products.today",
 ]
 layer = "modules"
 
@@ -1149,6 +1159,7 @@ layer = "modules"
 path = "products.tracing"
 depends_on = [
     "posthog", "products.access_control",
+    "products.alerts_platform",
     "products.logs",
 ]
 layer = "modules"
@@ -1240,7 +1251,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(actions|autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|review_hog|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(actions|annotations|autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|review_hog|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # signals is not isolated, so it gets its own blocks instead of a place in the shared one above.
@@ -1317,16 +1328,37 @@ from = [
     "products.signals",
 ]
 
-# TODO: Experiments-specific temporary interface
-# Remove this block once all ViewSets are migrated to products/experiments/backend/presentation/views.py
-
+# dashboards is not isolated yet, so it gets its own blocks instead of a place in the shared one.
+# External callers go through backend.facade; testing.py is the fixture door for suites outside it.
+# presentation.serializers carries the DRF tile serializer that product_analytics nests in its insight
+# serializers, because a facade may not hold DRF.
 [[interfaces]]
 expose = [
-    "backend\\.presentation\\.experiments.*",
-    "backend\\.presentation\\.saved_metrics.*",
+    "backend\\.facade.*",
+    "backend\\.presentation\\.serializers(\\..*)?",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
-    "products.experiments",
+    "products.dashboards",
+]
+
+# Legacy leaks — core (posthog, ee), sibling products and their tests still import these dashboards
+# internals. Each entry goes when its last caller moves to products.dashboards.backend.facade.
+# Delete the block when it is empty.
+[[interfaces]]
+expose = [
+    "backend\\.access(\\..*)?",
+    "backend\\.constants(\\..*)?",
+    "backend\\.customization(\\..*)?",
+    "backend\\.models(\\..*)?",
+    "backend\\.widget_catalog(\\..*)?",
+    "backend\\.widget_create(\\..*)?",
+    "backend\\.widget_registry(\\..*)?",
+    "backend\\.widget_specs\\.registry(\\..*)?",
+]
+from = [
+    "products.dashboards",
 ]
 
 # Billing alerts registers product-owned workflows and a schedule with the shared billing worker,
@@ -1342,30 +1374,6 @@ expose = [
 ]
 from = [
     "products.billing_alerts",
-]
-
-# Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
-# doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
-# schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
-
-[[interfaces]]
-expose = [
-    "backend\\.temporal\\.ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
-    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
-    "backend\\.temporal\\.EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
-    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
-    "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.recalculation_metrics.*",
-    "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
-    "backend\\.temporal\\.schedule\\.create_experiment_precompute_enrollment_census_schedule",
-    "backend\\.temporal\\.schedule\\.create_experiment_scheduled_recalculation_schedules",
-]
-from = [
-    "products.experiments",
 ]
 
 # streamlit_apps exposes the HogQL bridge view, routed directly from posthog/urls.py.
@@ -1386,12 +1394,8 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.experiment_saved_metric_service.*",
-    "backend\\.experiment_service.*",
-    "backend\\.hogql_queries.*",
-    "backend\\.llm_metric_templates.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
-    "stats\\..*",
 ]
 from = [
     "products.experiments",
@@ -1415,9 +1419,10 @@ from = [
 # is a thin PEP 562 re-export, so a change to the underlying source flows through to core. That
 # coupling can't be sealed by watching backend.facade alone, so these modules are declared
 # permanent and turbo.json keeps them in the contract-check inputs — any change to them still
-# re-runs the Django suite (IsolationChainCheck enforces that). The vendor set is exactly the
-# sources core reaches through the facade, guarded by test_ci_core_coupled_sources.py. All other
-# core coupling goes through backend.facade.
+# re-runs the Django suite (IsolationChainCheck enforces that).
+# posthog/test/repo_invariants/test_warehouse_sources_contract_inputs.py checks that every file
+# under backend/temporal/ that outside code reaches through the facade is a contract-check input;
+# it does not limit this expose list. All other core coupling goes through backend.facade.
 [[interfaces]]
 expose = [
     "backend\\.models.*",
@@ -1678,7 +1683,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.annotations"
-depends_on = ["posthog", "products.product_analytics", "products.dashboards", "products.error_tracking"]
+depends_on = ["posthog", "products.product_analytics", "products.dashboards", "products.error_tracking", "products.access_control"]
 layer = "modules"
 
 [[modules]]
@@ -1716,6 +1721,8 @@ from = [
 path = "products.data_catalog"
 depends_on = [
     "posthog",
+    # Facade-only: the usage tab checks object access on the dashboards its charts sit on.
+    "products.dashboards",
     "products.data_quality",
     "products.data_tools",
     "products.product_analytics",
@@ -1735,7 +1742,7 @@ from = [
 
 [[modules]]
 path = "products.apm"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.tracing"]
 layer = "modules"
 
 [[modules]]
@@ -2045,4 +2052,18 @@ expose = [
 ]
 from = [
     "products.ui_customization",
+]
+
+[[modules]]
+path = "products.release"
+depends_on = ["posthog", "products.feature_flags", "products.product_analytics", "products.surveys", "products.workflows"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.release",
 ]

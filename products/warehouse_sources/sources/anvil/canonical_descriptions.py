@@ -23,6 +23,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "Timestamp when the organization was last updated.",
         },
     },
+    "organization_users": {
+        "description": "A user's membership in an Anvil organization, with the role the user holds there.",
+        "docs_url": "https://www.useanvil.com/docs/api/graphql/reference/#definition-OrganizationUser",
+        "columns": {
+            "organizationEid": "Identifier of the organization the membership belongs to.",
+            "userEid": "Identifier of the member user.",
+            "role": "Role of the user within the organization: viewer, editor, billingAdmin, admin, tokenized, or api.",
+            "externalId": "Identifier of the user in your own system, if you stored one in Anvil.",
+            "user": "The member user: identifier, email, name, first and last name, account type (user or api), whether the email is verified, and when the user was created and updated.",
+            "createdAt": "Timestamp when the user joined the organization.",
+            "updatedAt": "Timestamp when the membership was last updated.",
+        },
+    },
     "casts": {
         "description": "A cast is a PDF template: a base PDF plus the field configuration used to fill it.",
         "docs_url": "https://www.useanvil.com/docs/api/graphql/reference/#definition-Cast",

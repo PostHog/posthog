@@ -11,6 +11,7 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { removeSuppressedRecipients } from './helpers/suppressed-recipients'
+import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
 
@@ -63,44 +64,79 @@ export class RecipientPreferencesService {
         action: HogFlowAction
     ): Promise<FrequencyCapCheck> {
         const messageAction = this.asMessageAction(action)
+        const frequencyCap = this.frequencyCap
         if (
-            !this.frequencyCap ||
+            !frequencyCap ||
             !messageAction ||
             messageAction.config.message_category_type === 'transactional' ||
-            (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true)
+            (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true) ||
+            (messageAction.type === 'function_email' &&
+                (await this.emailWorkerWillSkip(invocation, frequencyCap.teamWorkflowsConfig)))
         ) {
             return { capped: false }
         }
+        return this.checkMarketingFrequencyCap({
+            teamId: invocation.teamId,
+            resolvePersonId: () => this.cappedPersonId(invocation, messageAction, frequencyCap.persons),
+            dispatchKey: workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`,
+        })
+    }
+
+    public async checkMarketingFrequencyCap({
+        teamId,
+        resolvePersonId,
+        dispatchKey,
+    }: {
+        teamId: number
+        resolvePersonId: () => Promise<string | undefined>
+        dispatchKey: string
+    }): Promise<FrequencyCapCheck> {
+        if (!this.frequencyCap) {
+            return { capped: false }
+        }
+        const { teamWorkflowsConfig, valkey } = this.frequencyCap
         try {
-            const { max_messages, window_days, hold_hours } =
-                await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(invocation.teamId)
+            const { max_messages, window_days, hold_hours } = await teamWorkflowsConfig.getFrequencyCap(teamId)
             if (!max_messages || !window_days) {
                 return { capped: false }
             }
-            const personId = await this.cappedPersonId(invocation, messageAction, this.frequencyCap.persons)
+            const personId = await resolvePersonId()
             if (!personId) {
                 return { capped: false }
             }
-            const nextSlotAt = await this.frequencyCap.valkey.useClient(
+            const nextSlotAt = await valkey.useClient(
                 { name: 'workflows-frequency-cap', failOpen: true },
                 (client) =>
                     client.eval(
                         FREQUENCY_CAP_SCRIPT,
                         1,
-                        `@posthog/workflows-frequency-cap/${invocation.teamId}/${personId}`,
+                        `@posthog/workflows-frequency-cap/${teamId}/${personId}`,
                         Date.now(),
                         window_days * 24 * 60 * 60 * 1000,
                         max_messages,
-                        workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`
+                        dispatchKey
                     ) as Promise<number>
             )
             return nextSlotAt ? { capped: true, nextSlotAt, holdHours: hold_hours } : { capped: false }
         } catch (error) {
             // Fail open: a config or Valkey pool error must never block a send. failOpen above only
             // covers errors inside the Valkey callback.
-            logger.error(`Failed to check the frequency cap for team ${invocation.teamId}:`, error)
+            logger.error(`Failed to check the frequency cap for team ${teamId}:`, error)
             return { capped: false }
         }
+    }
+
+    private async emailWorkerWillSkip(
+        invocation: CyclotronJobInvocationHogFunction,
+        teamWorkflowsConfig: TeamWorkflowsConfigService
+    ): Promise<boolean> {
+        const recipient = invocation.state.globals.inputs?.email?.to?.email
+        return (
+            typeof recipient !== 'string' ||
+            !recipient.trim() ||
+            parseWorkflowEmailPause(invocation.hogFunction.metadata) !== null ||
+            (await teamWorkflowsConfig.getEmailSendingSuspension(invocation.teamId)) !== null
+        )
     }
 
     private async cappedPersonId(

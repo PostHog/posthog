@@ -7,6 +7,19 @@ import { hasDangerousScheme, isExternalLink } from 'lib/utils/url'
 export const PLACEHOLDER_HREF = '#'
 
 /**
+ * kea-router reads a numeric-looking query value as a number, which drops what a number cannot hold:
+ * `001234` becomes 1234 and `0x1f` becomes 31. These are the values whose text would change, passed back
+ * as strings, which the router keeps. A value that survives, such as `2`, still reaches pages as a number.
+ */
+function queryValuesTheRouterWouldChange(href: string): Record<string, string> | null {
+    const query = href.split('#')[0].split('?')[1] ?? ''
+    const changed = [...new URLSearchParams(query)].filter(
+        ([, value]) => value.trim() !== '' && !Number.isNaN(Number(value)) && String(Number(value)) !== value
+    )
+    return changed.length ? Object.fromEntries(changed) : null
+}
+
+/**
  * Navigate to an href the way `Link` does, for call sites that have an href but no anchor to
  * click — a command palette item, a menu row, a keyboard selection.
  *
@@ -30,7 +43,12 @@ export function navigateToHref(href?: string): void {
         return
     }
     try {
-        router.actions.push(href)
+        const keptAsText = queryValuesTheRouterWouldChange(href)
+        if (keptAsText) {
+            router.actions.push(href, keptAsText)
+        } else {
+            router.actions.push(href)
+        }
     } catch (error) {
         // Any other error comes from a logic reacting to the navigation, which already happened.
         // Reloading the page over it would hide the real failure.

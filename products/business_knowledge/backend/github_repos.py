@@ -36,6 +36,7 @@ from posthog.models.integration_repository_cache import (
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.synthetic_user import SyntheticUser
 
 from .learning_settings import get_environment_business_knowledge_config
 from .models import TeamBusinessKnowledgeConfig
@@ -193,7 +194,7 @@ def select_github_repos(team: Team, repos: list[str]) -> dict[str, Any]:
 
 def search_repositories(
     team: Team,
-    user: User,
+    user: User | SyntheticUser,
     query: str,
     repo: str | None,
     library_id: UUID | None = None,
@@ -227,7 +228,7 @@ def search_repositories(
 
 
 def read_repository_file(
-    team: Team, user: User, repo: str, path: str, library_id: UUID | None = None
+    team: Team, user: User | SyntheticUser, repo: str, path: str, library_id: UUID | None = None
 ) -> RepositoryFile:
     integration, allowed = _require_allowlist(team)
     full_name = repo.lower()
@@ -618,7 +619,7 @@ def _serialized_chars(result: RepositorySearchOutcome | RepositoryFile) -> int:
 
 def _capture_tool(
     team: Team,
-    user: User,
+    user: User | SyntheticUser,
     tool: str,
     result_count: int,
     states: list[RepositoryCacheState],

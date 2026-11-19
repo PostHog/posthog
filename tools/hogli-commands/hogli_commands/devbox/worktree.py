@@ -7,7 +7,6 @@ import re
 import sys
 import hashlib
 import subprocess
-import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,14 +26,14 @@ from . import (
     hogland,
     mutagen,
 )
-from .cli import _preferred_region, devbox_clone, devbox_start, resolve_workspace_name
+from .cli import _preferred_region, devbox_clone, devbox_start, resolve_default_workspace_name, resolve_workspace_name
 from .coder import (
     REGION_NAME_SUFFIXES,
     _fail,
+    app_url,
     ensure_runtime_ready,
     extract_workspace_label,
     fetch_user_workspaces,
-    get_coder_url,
     get_username,
     get_workspace,
     get_workspace_name,
@@ -84,8 +83,11 @@ def label_budget(username: str, region: str) -> int:
     return CODER_NAME_MAX_LENGTH - used
 
 
-def derive_label(branch: str, max_length: int) -> str:
+def derive_label(branch: str, max_length: int, owner: str | None = None) -> str:
     """Turn a branch name into a devbox label that fits Coder's 32-character workspace name limit.
+
+    An ``owner/`` branch prefix is dropped, because the workspace name already
+    carries the owner's username.
 
     A label that had to be shortened or repaired gets a hash of the full branch
     name, so two long branches with a shared prefix still map to different boxes.
@@ -96,7 +98,8 @@ def derive_label(branch: str, max_length: int) -> str:
             "Pass `--label <label>` with a short label instead."
         )
     slug = branch.lower()
-    for prefix in _BRANCH_PREFIXES_TO_DROP:
+    prefixes = _BRANCH_PREFIXES_TO_DROP + ((f"{owner.lower()}/",) if owner else ())
+    for prefix in prefixes:
         if slug.startswith(prefix) and len(slug) > len(prefix):
             slug = slug[len(prefix) :]
     slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")
@@ -209,11 +212,6 @@ def _git_dir(root: Path) -> Path:
     return Path(result.stdout.strip())
 
 
-def _app_url(workspace_name: str) -> str:
-    host = urllib.parse.urlparse(get_coder_url()).hostname or ""
-    return f"https://app--{workspace_name}--{get_username()}.{host}"
-
-
 @dataclass(frozen=True)
 class _WorktreeTarget:
     workspace_name: str
@@ -226,6 +224,7 @@ class _WorktreeTarget:
 class _BoxNaming:
     provider: str
     label_budget: int
+    owner: str | None
     max_length: int
     name_for: Callable[[str], str]
     destroy_command: Callable[[str], str]
@@ -233,12 +232,15 @@ class _BoxNaming:
 
 def _coder_naming(cloning: bool, clone_source: str | None) -> _BoxNaming:
     if cloning:
-        region = region_from_workspace_name(resolve_workspace_name(clone_source)[0])
+        source = resolve_workspace_name(clone_source) if clone_source else resolve_default_workspace_name()
+        region = region_from_workspace_name(source[0])
     else:
         region = _preferred_region()
+    username = get_username()
     return _BoxNaming(
         provider="Coder",
-        label_budget=label_budget(get_username(), region),
+        label_budget=label_budget(username, region),
+        owner=username,
         max_length=CODER_NAME_MAX_LENGTH,
         name_for=lambda resolved_label: get_workspace_name(resolved_label, region=region),
         destroy_command=lambda name: f"hogli devbox:destroy {extract_workspace_label(name) or ''}",
@@ -249,6 +251,7 @@ def _hogland_naming() -> _BoxNaming:
     return _BoxNaming(
         provider="Hogland",
         label_budget=hogland.NAME_MAX_LENGTH - len(hogland.NAME_PREFIX),
+        owner=None,
         max_length=hogland.NAME_MAX_LENGTH,
         name_for=hogland.name_for_label,
         destroy_command=lambda name: f"hogland devbox delete {name}",
@@ -315,7 +318,7 @@ def _resolve_target(
         return _WorktreeTarget(workspace_name=registered.workspace, label=registered_label, reset_mirror=recreated)
 
     box_naming = naming()
-    resolved_label = label or derive_label(_current_branch(root), box_naming.label_budget)
+    resolved_label = label or derive_label(_current_branch(root), box_naming.label_budget, box_naming.owner)
     name = box_naming.name_for(resolved_label)
     if len(name) > box_naming.max_length:
         _fail(
@@ -449,9 +452,7 @@ def devbox_worktree(
         )
 
     if (provider or saved_worktree_provider()) == "hogland":
-        if clone_from is not None or start_app is not None:
-            raise click.UsageError("--clone-from and --start-app work only with --provider coder.")
-        _hogland_worktree(root, label, on_clean, dry_run, verbose)
+        _hogland_worktree(root, label, clone_from, start_app, on_clean, dry_run, yes, verbose)
         return
 
     ensure_runtime_ready()
@@ -513,7 +514,7 @@ def devbox_worktree(
         return
     ensure_sync_session(target.workspace_name, workspaces, root, verbose=verbose)
     click.echo()
-    click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")
+    click.echo(f"App URL, once the stack runs on the box: {app_url(target.workspace_name)}")
 
 
 def _print_plan(root: Path, box_step: str, sync_step: str, on_clean: str | None, dry_run: bool) -> bool:
@@ -563,15 +564,35 @@ def _drop_abandoned_mirror(target: _WorktreeTarget) -> None:
         mutagen.sync_terminate(mutagen.workspace_label_selector(target.abandoned_mirror))
 
 
-def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_run: bool, verbose: bool) -> None:
+def _hogland_worktree(
+    root: Path,
+    label: str | None,
+    clone_from: str | None,
+    start_app: bool | None,
+    on_clean: str | None,
+    dry_run: bool,
+    yes: bool,
+    verbose: bool,
+) -> None:
     hogland.ensure_cli()
     devboxes = hogland.fetch_devboxes()
     target = _resolve_target(root, label, devboxes, "hogland", hogland.label_of, _hogland_naming)
     name = target.workspace_name
     existing = get_workspace(name, devboxes)
     has_sync = _has_reusable_mirror(target)
+    clone_source = hogland.source_name(clone_from) if clone_from is not None and existing is None else None
+    if clone_source is not None:
+        source = get_workspace(clone_source, devboxes)
+        if source is None or source["status"] != "running":
+            state = "does not exist" if source is None else f"is {source['status']}"
+            _fail(
+                f"Hogland devbox '{clone_source}' {state}. Clone from a running devbox, "
+                f"or start it with `hogland devbox up {clone_source}`."
+            )
 
-    if existing is None:
+    if clone_source is not None:
+        box_step = f"Clone Hogland devbox '{clone_source}' into '{name}'"
+    elif existing is None:
         box_step = f"Create Hogland devbox '{name}'"
     elif existing["status"] == "running":
         box_step = f"Use running Hogland devbox '{name}'"
@@ -584,10 +605,18 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
     )
     if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
+    if clone_source is not None and not yes:
+        click.confirm(
+            f"Clone '{clone_source}' into '{name}'? The clone copies the whole box, including any secrets on it.",
+            abort=True,
+        )
     _reset_recreated_mirror(target)
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "hogland")
     _drop_abandoned_mirror(target)
 
+    if clone_source is not None:
+        click.echo(f"Cloning Hogland devbox '{clone_source}' into '{name}'...")
+        hogland.clone(clone_source, name)
     click.echo(f"Bringing up Hogland devbox '{name}'...")
     endpoint = hogland.up(name, _checked_out_branch(root))
     hogland.write_ssh_entry(name, endpoint)
@@ -607,9 +636,17 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
     if _prune_box_of_worktree_removed_during_setup(root, git_dir):
         return
     ensure_hogland_sync_session(name, root, verbose=verbose)
+    app_started = False
+    if hogland.save_start_app(name, start_app if existing is None else None):
+        click.echo("Waiting for the sync to catch up before starting the app...")
+        mutagen.sync_flush(mutagen.workspace_label_selector(name))
+        app_started = hogland.start_app(name)
     click.echo()
     click.echo(f"  SSH    hogland devbox ssh {name}")
-    click.echo("  Start  cd ~/posthog && hogli start -d")
+    if app_started:
+        click.echo("  App    started in the background with `hogli up -d`")
+    else:
+        click.echo("  Start  cd ~/posthog && hogli start -d")
     click.echo(f"  Stop   hogland devbox hibernate {name}")
 
 

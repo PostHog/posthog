@@ -20,9 +20,7 @@ PR_URL = "https://github.com/PostHog/posthog/pull/123"
 def org_and_team():
     org = Organization.objects.create(name="pr-label-org")
     team = Team.objects.create(organization=org, name="pr-label-team")
-    yield org, team
-    team.delete()
-    org.delete()
+    return org, team
 
 
 def _make_report(team: Team) -> SignalReport:

@@ -262,6 +262,11 @@ def get_experiment_session_bucket(
 
     if experiment.start_date is None:
         raise SessionBucketUnavailable("This experiment hasn't launched, so it has no exposed sessions yet.")
+    if experiment.is_rule_linked:
+        # The scan reads the legacy exposure events, which such an experiment does not count.
+        raise SessionBucketUnavailable(
+            "This experiment runs on a feature flag rule, and its sessions can't be matched to exposures yet."
+        )
 
     variant_keys = {variant_definition["key"] for variant_definition in experiment.feature_flag.variants or []}
     if not variant_keys:

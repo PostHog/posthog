@@ -195,6 +195,36 @@ export const ReportsNarrow: Story = {
     },
 }
 
+const TAGGED_REPORT_TAGS = ['billing', 'silent-failure', 'payments', 'retry-logic', 'customer-impact']
+const taggedReports = allReports.map((report, index) =>
+    index === 0 ? { ...report, tags: TAGGED_REPORT_TAGS } : report
+)
+
+export const ReportsTagFilter: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_TAG_FILTER]: true },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/tag_options/': () => [
+                    200,
+                    { tags: [...TAGGED_REPORT_TAGS, 'docs-gap', 'onboarding'] },
+                ],
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    { results: taggedReports, count: taggedReports.length, next: null, previous: null },
+                ],
+            },
+        }),
+    ],
+    play: async ({ canvas }) => {
+        await userEvent.click(await canvas.findByLabelText('Tags: any'))
+        await waitFor(() => expect(within(document.body).getByText('docs-gap')).toBeVisible())
+    },
+}
+
 export const WithValueSummary: Story = {
     parameters: {
         featureFlags: {
@@ -386,7 +416,7 @@ export const SettingsWithSpendBilling: Story = {
     ],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('$12.34')).toBeVisible()
+        await expect(await canvas.findByText('1,234 credits')).toBeVisible()
         await expect(await canvas.findByText('Spending limit reached')).toBeVisible()
         await expect(canvas.getByText(/Work already underway will finish/)).toBeVisible()
     },
@@ -503,48 +533,4 @@ export const SelfDrivingPaused: Story = {
             },
         }),
     ],
-}
-
-// A filter link marks the scope as chosen in local storage, and the stories in this file share it.
-// Without this cleanup, the next story keeps the For you scope instead of its own default.
-const clearPersistedInboxFilters: Decorator = (Story) => {
-    useEffect(
-        () => () =>
-            Object.keys(localStorage)
-                .filter((key) => key.startsWith('scenes.inbox.logics.inboxFiltersLogic'))
-                .forEach((key) => localStorage.removeItem(key)),
-        []
-    )
-    return <Story />
-}
-
-// The user picked Personalized, but the server has no personal ranking for them, so it answers with
-// the Recommended order.
-export const PersonalizedSortFallback: Story = {
-    parameters: {
-        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true },
-    },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [
-                    200,
-                    {
-                        results: allReports,
-                        count: allReports.length,
-                        next: null,
-                        previous: null,
-                        ranker: 'priority',
-                        ranking_id: null,
-                        ranking_pill: false,
-                    },
-                ],
-            },
-        }),
-        routeTo(urls.inbox('reports'), { sort: 'personal:asc' }),
-        clearPersistedInboxFilters,
-    ],
-    play: async ({ canvas }) => {
-        await canvas.findByText("Your personalized list isn't ready yet, so this is the Recommended order.")
-    },
 }

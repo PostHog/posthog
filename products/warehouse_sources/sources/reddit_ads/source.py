@@ -134,7 +134,7 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
         oauth = OauthIntegration(integration)
         if oauth.access_token_expired():
             try:
-                oauth.refresh_access_token()
+                integration = oauth.refresh_access_token()
             except RequestException as e:
                 # A refresh that fails before Reddit returns an HTTP response (timeout, dropped
                 # connection) never reaches the code that records ERROR_TOKEN_REFRESH_FAILED, so it

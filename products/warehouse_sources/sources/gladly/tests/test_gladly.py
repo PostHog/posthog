@@ -325,6 +325,49 @@ class TestGetEventRows:
             assert result.params("endAt")[-1] == "2024-03-15T10:00:00.000Z"
         assert logger.warning.called is expect_warning
 
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @pytest.mark.parametrize(
+        "error_body, recovers",
+        [
+            (
+                {
+                    "errors": [
+                        {
+                            "attr": "entities",
+                            "code": "invalid",
+                            "detail": "not a valid value",
+                            "meta": {"entities": "PAYMENT_REQUEST"},
+                        }
+                    ]
+                },
+                True,
+            ),
+            ({"errors": [{"attr": "startAt", "code": "invalid"}]}, False),
+        ],
+        ids=["rejected_entity_type_is_dropped", "other_bad_request_still_fails"],
+    )
+    def test_bad_request_on_an_entity_type(self, error_body, recovers) -> None:
+        result = _driver().run(
+            "events",
+            [
+                ScriptedResponse(status=400, json=error_body),
+                _jsonl_response([{"id": "e1", "type": "TASK/CREATED", "timestamp": "2024-03-15T09:40:00.000Z"}]),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-03-15T10:00:00.000Z",
+        )
+
+        if not recovers:
+            assert isinstance(result.raised, requests.HTTPError)
+            return
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["e1"]
+        assert result.params("startAt") == ["2024-03-15T09:00:00.000Z"] * 2
+        assert "PAYMENT_REQUEST" in result.queries[0]["entities"]
+        assert set(result.queries[1]["entities"]) == set(GLADLY_ENDPOINTS["events"].event_entities) - {
+            "PAYMENT_REQUEST"
+        }
+
 
 class TestGetVoiceTranscriptRows:
     def test_fetches_transcripts_for_voice_items_only_and_skips_missing_ones(self) -> None:

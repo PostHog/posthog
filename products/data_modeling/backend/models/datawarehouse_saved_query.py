@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
 import structlog
+from opentelemetry import trace
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
@@ -37,8 +38,6 @@ from posthog.hogql.database.s3_table import (
     S3Table,
 )
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import extract_select_queries
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.limit import app_org_concurrency_slot
 from posthog.clickhouse.query_tagging import Feature, Product, tag_contains_user_hogql, tags_context
@@ -47,8 +46,8 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError, ViewEngine
 from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
-from products.data_modeling.backend.models.view_engine import ViewEngine
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -59,30 +58,9 @@ from products.warehouse_sources.backend.facade.hogql import (
 from products.warehouse_sources.backend.facade.sources import NamingConvention
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
-
-_IN_SUBQUERY_OPS = (
-    ast.CompareOperationOp.In,
-    ast.CompareOperationOp.NotIn,
-    ast.CompareOperationOp.GlobalIn,
-    ast.CompareOperationOp.GlobalNotIn,
-)
-
-
-def _limit_to_zero_rows(select_query: ast.SelectQuery | ast.SelectSetQuery) -> None:
-    for branch in extract_select_queries(select_query):
-        branch.limit = ast.Constant(value=0)
-        branch.offset = None
-
-
-class _InSubqueryZeroRows(TraversingVisitor):
-    # ClickHouse builds the set of an IN subquery before it plans the outer read, so the outer LIMIT 0
-    # does not stop that read. A scalar subquery keeps its rows, because an empty one is a ClickHouse error.
-    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-        super().visit_compare_operation(node)
-        if node.op in _IN_SUBQUERY_OPS and isinstance(node.right, ast.SelectQuery | ast.SelectSetQuery):
-            _limit_to_zero_rows(node.right)
 
 
 def validate_saved_query_name(value: str) -> None:
@@ -115,11 +93,6 @@ def validate_saved_query_name(value: str) -> None:
 class NoSchedulableDagError(Exception):
     """Raised when no DAG can schedule a saved query: none is on v2, and there is no node to
     bootstrap one from."""
-
-
-class SchedulingUnavailableError(Exception):
-    """Raised when Temporal is unreachable, so the schedule state of a saved query is unknown.
-    The caller decides what to keep, because the saved query itself is not at fault."""
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -306,12 +279,20 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         # The list defers `query` and annotates its engine keys, so reading `query` there would load it once per row.
         return ViewEngine.from_annotated(self) or ViewEngine.from_query(self.query)
 
+    @tracer.start_as_current_span("saved_query.schedule_materialization")
     def schedule_materialization(
-        self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None
+        self,
+        *,
+        frequency_target: timedelta | None = None,
+        reconcile: bool = True,
+        trigger_immediate_run: bool = False,
+        triggered_by_id: int | None = None,
     ):
         """
-        Put this saved query on the schedule that will materialize it, at the frequency in
-        sync_frequency_interval.
+        Put this saved query on the schedule that will materialize it.
+
+        frequency_target is written to the query's DAG node(s), which are the only store of
+        cadence. None carries no frequency opinion and leaves existing targets alone.
 
         trigger_immediate_run is for callers enabling materialization: it starts the first
         materialization right away instead of waiting for the node's cadence tier to fire.
@@ -327,11 +308,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         disables materialization, because the alternative is a query that reports itself
         materialized while nothing is scheduled to materialize it.
         """
-        from products.data_modeling.backend.logic.freshness import (
+        from products.data_modeling.backend.facade.contracts import (
+            MissingDagNodeError,
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
         )
-        from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
@@ -376,26 +357,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     raise MissingDagNodeError(
                         f"Saved query {self.id} is on a v2 team but has no DAG node to schedule through"
                     )
-                # The interval is one-shot transport for frequency intent — consume it into the
-                # node target(s) and reconcile. Validation raises before the nulling below, so a
-                # rejected frequency stays visible for retry. A call with no interval carries no
-                # frequency opinion and must not touch existing targets.
-                if self.sync_frequency_interval is not None:
+                if frequency_target is not None:
                     # A bootstrap reconciles the whole DAG once below, once the target has landed,
                     # so asking for a second pass here would only repeat it.
                     apply_saved_query_frequency_target(
-                        self, self.sync_frequency_interval, reconcile=reconcile and dag_to_bootstrap is None
+                        self, frequency_target, reconcile=reconcile and dag_to_bootstrap is None
                     )
                 if dag_to_bootstrap is not None:
                     # Last, so a frequency the validation above rejects leaves no seeded targets and
                     # no schedules behind: on_commit fires immediately for the callers that are not
                     # inside an atomic block, and two of the three are not.
                     bootstrap_dag_to_tiers(dag_to_bootstrap, requested_by=self)
-                # The interval must end up NULL: the node target is the only durable store of
-                # frequency intent.
-                if self.sync_frequency_interval is not None:
-                    self.sync_frequency_interval = None
-                    self.save(update_fields=["sync_frequency_interval"])
                 if trigger_immediate_run:
                     # Deferred to commit so the run sees the enable's writes (endpoints enable
                     # runs inside an atomic block); immediate under autocommit.
@@ -532,15 +504,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             raise Exception("Saved query is missing a query definition")
         return bind_window_start_sql(query["query"])
 
+    @tracer.start_as_current_span("saved_query.infer_columns")
     def get_columns(
-        self, user: Optional["User"] = None, *, bypass_warehouse_access_control: bool = False
+        self,
+        user: Optional["User"] = None,
+        *,
+        bypass_warehouse_access_control: bool = False,
+        database: Database | None = None,
     ) -> dict[str, dict[str, Any]]:
-        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
-
-        # ClickHouse can still evaluate scalar subqueries before it plans the outer LIMIT 0.
-        select_query = parse_select(self.sql)
-        _limit_to_zero_rows(select_query)
-        _InSubqueryZeroRows().visit(select_query)
+        from products.data_modeling.backend.logic.describe_columns import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            describe_query_columns,
+        )
 
         # Resolve as the acting user so warehouse access control is enforced against them - a userless
         # build fails closed and denies every warehouse table, breaking column inference for all users.
@@ -548,29 +522,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             tag_contains_user_hogql()
             # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
             with app_org_concurrency_slot(self.team):
-                response = execute_hogql_query(
-                    select_query,
+                described_columns = describe_query_columns(
+                    parse_select(self.sql),
                     team=self.team,
                     user=user,
-                    query_type="HogQLQuery",
-                    refresh_stale_view_columns=False,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    database=database,
                 )
-        result = response.types
 
-        if result is None:
-            raise Exception("No columns types provided by clickhouse in get_columns")
-
-        columns = {
-            str(item[0]): {
-                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                "clickhouse": item[1],
+        return {
+            column.name: {
+                "hogql": hogql_type_name_for_clickhouse_type(column.ch_type),
+                "clickhouse": column.ch_type,
                 "valid": True,
             }
-            for item in result
+            for column in described_columns
         }
-
-        return columns
 
     def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
         columns = self.columns or {}
@@ -588,6 +555,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     def s3_tables(self):
         return self.get_s3_tables()
 
+    @tracer.start_as_current_span("saved_query.resolve_source_tables")
     def get_s3_tables(self, database=None):
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.database.database import Database
@@ -622,14 +590,26 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return NamingConvention.normalize_identifier(self.name)
 
     @property
+    def storage_name(self) -> str:
+        """The last segment of this model's storage path.
+
+        A materialized model keeps the segment its backing table was first written under, so that a
+        rename does not point the next run at an empty location and rebuild the table.
+        """
+        table = self.table if self.table_id is not None else None
+        if table is not None and not table.deleted and self.folder_path in table.url_pattern:
+            return table.url_pattern.rstrip("/").rsplit("/", 1)[-1]
+        return self.normalized_name
+
+    @property
     def url_pattern(self):
         if settings.USE_LOCAL_SETUP:
             parsed = urlparse(settings.BUCKET_URL)
             bucket_name = parsed.netloc
 
-            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.storage_name}"
 
-        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.storage_name}"
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
@@ -704,7 +684,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 @database_sync_to_async
 def aget_saved_query_by_id(saved_query_id: str, team_id: int) -> DataWarehouseSavedQuery | None:
     return (
-        DataWarehouseSavedQuery.objects.prefetch_related("team")
+        DataWarehouseSavedQuery.objects.select_related("team", "table")
         .exclude(deleted=True)
         .get(id=saved_query_id, team_id=team_id)
     )

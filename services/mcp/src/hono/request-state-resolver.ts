@@ -1,9 +1,11 @@
+import { classifyAuthMethod } from '@/lib/auth-method'
 import type { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { METRIC_LIST_TOOL } from '@/lib/metric-catalog'
 import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -12,6 +14,7 @@ import {
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
+import { PROJECT_SECRET_KEY_FEATURE_FLAG } from '@/lib/project-secret-key'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
@@ -23,11 +26,24 @@ import {
     getScopeGatedTools,
     type ScopeGatedTool,
 } from '@/tools/toolDefinitions'
-import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/tools/types'
+import type {
+    BusinessKnowledgeContent,
+    Context,
+    Env,
+    MetricCatalogContent,
+    PinnedActiveContext,
+    Tool,
+    ZodObjectAny,
+} from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
+import {
+    MCP_CURSOR_EXEC_MODE_FLAG,
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
+    MCP_INBOX_FIRST_FLAG,
+    MCP_TIME_SERIES_CHARTS_FLAG,
+} from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -44,6 +60,7 @@ import {
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
+import { resolveProjectSecretKeyProjectId } from './project-secret-key-project'
 import { RequestContext } from './request-context'
 import type { ToolCatalog } from './tool-catalog'
 
@@ -70,10 +87,14 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
+    /** The client-carried handle before the SDK can mint one for this call. */
+    carriedContextSessionKey?: string | undefined
+    isTaskBound?: boolean | undefined
     /** The organization's AI data processing consent; undefined when the org could not be read. */
     aiConsentGiven?: boolean | undefined
     /** Read only when a business knowledge search tool is advertised; undefined when unread. */
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
+    metricCatalog?: MetricCatalogContent | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -110,15 +131,19 @@ export interface ResolvedState {
 
 // ─── Pure helpers ───
 
-export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MCPClientProfile }): {
+export function resolveMode(args: {
+    mode: McpMode | undefined
+    clientProfile: MCPClientProfile
+    cursorExecMode?: boolean | undefined
+}): {
     mode: McpMode
     useSingleExec: boolean
 } {
-    const { mode, clientProfile } = args
+    const { mode, clientProfile, cursorExecMode } = args
     // CLI (single-exec) is the default; only allow-listed clients (Cursor) keep
     // the full per-tool roster, and an explicit ?mode= / x-posthog-mcp-mode
     // header always wins over auto-detection.
-    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
+    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() && !cursorExecMode ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
@@ -182,6 +207,15 @@ export class RequestStateResolver {
         const requestContext = buildMCPRequestContext(props)
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext, lookups)
 
+        const usesProjectSecretKey = classifyAuthMethod(props.apiToken) === 'project_secret_key'
+        if (usesProjectSecretKey) {
+            // The key decides the project. An ID the caller sent is dropped, so it cannot pin another one.
+            props.projectId = await resolveProjectSecretKeyProjectId(props, reqCtx.tokenCache)
+            props.organizationId = undefined
+            requestContext.projectId = props.projectId
+            requestContext.organizationId = undefined
+        }
+
         const { features, tools, organizationId, projectId, readOnly } = props
         const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
         reqCtx.setPinnedContext(pinned)
@@ -203,15 +237,18 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, and MCP_INBOX_FIRST_FLAG a prompt section.
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands, MCP_INBOX_FIRST_FLAG a prompt section,
+        // and MCP_TIME_SERIES_CHARTS_FLAG the chart data block on tool results.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_CURSOR_EXEC_MODE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_INBOX_FIRST_FLAG,
+                MCP_TIME_SERIES_CHARTS_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
@@ -220,7 +257,9 @@ export class RequestStateResolver {
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
         const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
-            this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
+            usesProjectSecretKey
+                ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })
+                : this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
@@ -239,7 +278,13 @@ export class RequestStateResolver {
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
-        const mergedFlags = { ...allFlags, ...overrides }
+        const mergedFlags: EvaluatedFlags = {
+            ...allFlags,
+            // The API gates the key's routes on this flag, and `getApiKey` above succeeded only
+            // because the key passed that gate.
+            ...(usesProjectSecretKey ? { [PROJECT_SECRET_KEY_FEATURE_FLAG]: true } : {}),
+            ...overrides,
+        }
         let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
         if (
             recruitmentPayload === undefined &&
@@ -296,8 +341,9 @@ export class RequestStateResolver {
         const renderUiEnabled = clientProfile.isRenderUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
-            mode: requestContext.mode,
+            mode: requestContext.mode ?? (usesProjectSecretKey ? 'tools' : undefined),
             clientProfile,
+            cursorExecMode: mergedFlags[MCP_CURSOR_EXEC_MODE_FLAG] === true,
         })
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
@@ -341,9 +387,12 @@ export class RequestStateResolver {
                 () => context.stateManager.getUser()
             )
         ).filter(isHeld)
-        const businessKnowledgeContent = allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
-            ? await this.resolveBusinessKnowledgeContent(context)
-            : undefined
+        const [businessKnowledgeContent, metricCatalog] = await Promise.all([
+            allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
+                ? this.resolveBusinessKnowledgeContent(context)
+                : undefined,
+            allTools.some(({ name }) => name === METRIC_LIST_TOOL) ? this.resolveMetricCatalog(context) : undefined,
+        ])
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
@@ -373,6 +422,7 @@ export class RequestStateResolver {
             analyticsContext: flagAnalyticsContext,
             aiConsentGiven: aiConsentGiven ?? undefined,
             businessKnowledgeContent,
+            metricCatalog,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -385,6 +435,7 @@ export class RequestStateResolver {
             heldTools,
             sandboxTaskId: _apiKey?.sandbox_task_id,
             supportsStepUp: _apiKey?.supports_step_up === true,
+            isTaskBound: Boolean(props.taskId || props.taskOriginProduct),
             gatewayToolsEnabled:
                 useSingleExec &&
                 !readOnly &&
@@ -499,6 +550,15 @@ export class RequestStateResolver {
         }
     }
 
+    private async resolveMetricCatalog(context: Context): Promise<MetricCatalogContent | undefined> {
+        try {
+            const projectId = await context.stateManager.getProjectId()
+            return await context.stateManager.getOrFetchMetricCatalog(projectId)
+        } catch {
+            return undefined
+        }
+    }
+
     private async resolveSessionContext(requestContext: MCPRequestContext): Promise<MCPSessionContext | null> {
         if (!requestContext.mcpSessionId) {
             return null
@@ -515,7 +575,7 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment, intent, guidance and Inbox-first experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent, guidance, Inbox-first and chart experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
@@ -524,6 +584,7 @@ export class RequestStateResolver {
                         key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
                             key !== MCP_INTENT_PROMPT_FLAG &&
                             key !== MCP_INBOX_FIRST_FLAG &&
+                            key !== MCP_TIME_SERIES_CHARTS_FLAG &&
                             !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),

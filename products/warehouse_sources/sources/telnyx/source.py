@@ -135,7 +135,8 @@ class TelnyxSource(ResumableSource[TelnyxSourceConfig, TelnyxResumeConfig]):
             releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Enter your Telnyx API v2 key to pull messaging, voice, verify, wireless, and media "
-                "storage detail records into the PostHog Data warehouse. Generate a key from "
+                "storage detail records, plus the phone numbers, messaging profiles, connections, and "
+                "conferences they reference, into the PostHog Data warehouse. Generate a key from "
                 "**API Keys** in the Telnyx portal."
             ),
             iconPath="/static/services/telnyx.png",

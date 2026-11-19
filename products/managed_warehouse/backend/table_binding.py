@@ -11,6 +11,7 @@ from products.managed_warehouse.backend.common import (
     duckgres_data_imports_schema,
     duckgres_data_imports_table_name,
     duckgres_data_modeling_schema,
+    duckgres_data_modeling_table_name,
     ducklake_data_modeling_schema,
     ducklake_data_modeling_table_name,
 )
@@ -115,7 +116,7 @@ def _bind_materialized_models(database: Any, team_id: int) -> None:
             name=saved_query.name,
             external_data_source_id="",
             postgres_schema=schema_name,
-            postgres_table_name=saved_query.normalized_name,
+            postgres_table_name=duckgres_data_modeling_table_name(saved_query.normalized_name),
             fields=existing.fields,
         )
 

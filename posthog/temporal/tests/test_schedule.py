@@ -13,7 +13,9 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.temporal.ai_observability.evaluation_clustering.constants import SAMPLER_WINDOW_MINUTES
 from posthog.temporal.ai_observability.trace_clustering import constants as trace_clustering_constants
 from posthog.temporal.ai_observability.trace_summarization import constants as trace_summarization_constants
+from posthog.temporal.common.registration import TemporalRegistration
 from posthog.temporal.schedule import (
+    a_init_general_queue_schedules,
     cleanup_non_cloud_ai_observability_schedules,
     create_batch_trace_summarization_schedule,
     create_evaluation_sampler_schedule,
@@ -22,6 +24,8 @@ from posthog.temporal.schedule import (
     create_wa_digest_notification_schedule,
     create_wa_weekly_digest_schedule,
 )
+
+from products.ai_observability.backend.facade.temporal import EVAL_SUGGESTIONS_SCHEDULE_ID
 
 
 @pytest.mark.asyncio
@@ -109,7 +113,7 @@ async def test_wa_digest_schedules_target_the_weekly_digest_queue() -> None:
 
 
 # The reaper converges self-hosted instances that still hold clustering/summarization schedule rows a
-# prior release created. It must delete all four there, and nothing where the coordinators still
+# prior release created. It must delete all of them there, and nothing where the coordinators still
 # register, which is cloud and a local DEBUG install.
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -123,6 +127,7 @@ async def test_wa_digest_schedules_target_the_weekly_digest_queue() -> None:
                 trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
                 trace_clustering_constants.COORDINATOR_SCHEDULE_ID,
                 trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+                EVAL_SUGGESTIONS_SCHEDULE_ID,
             ],
         ),
         ("US", False, []),
@@ -170,3 +175,24 @@ async def test_fixed_window_schedules_preserve_coverage(
     interval = schedule.spec.intervals[0]
     assert interval.every + (schedule.spec.jitter or timedelta(0)) <= lookback
     assert (interval.offset or timedelta(0)) == timedelta(0)
+
+
+@pytest.mark.asyncio
+async def test_declared_schedule_reconcilers_run_with_the_core_ones() -> None:
+    reconciled: list[str] = []
+
+    async def core_reconciler(client: Client) -> None:
+        reconciled.append("core")
+
+    async def declared_reconciler(client: Client) -> None:
+        reconciled.append("declared")
+
+    declared = TemporalRegistration(schedules=(declared_reconciler,))
+    with (
+        mock.patch("posthog.temporal.schedule.async_connect", mock.AsyncMock()),
+        mock.patch("posthog.temporal.schedule.schedules", [core_reconciler]),
+        mock.patch("posthog.temporal.schedule.combined_registration", return_value=declared),
+    ):
+        await a_init_general_queue_schedules()
+
+    assert sorted(reconciled) == ["core", "declared"]

@@ -58,6 +58,8 @@ from products.signals.backend.filter_catalog import (
     SignalFilterCatalogVersion as SignalFilterCatalogVersion,
     SignalFilterSourceDefinition as SignalFilterSourceDefinition,
 )
+from products.signals.backend.filter_state import SignalSourceFilterState as SignalSourceFilterState
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.rated_usage_models import SignalRatedUsage as SignalRatedUsage
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
@@ -257,6 +259,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     onboarding = models.JSONField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    default_slack_notification_min_priority = models.CharField(
+        max_length=2, choices=AutonomyPriority, null=True, blank=True
+    )
     # The workspace that owns the channel. A team can connect several Slack workspaces, and a channel
     # id from one of them fails in every other. Null on rows saved before the binding existed.
     # A plain id rather than a foreign key, so readers treat an id of a deleted workspace as unbound.
@@ -265,6 +270,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     scout_instructions = models.TextField(null=True, blank=True)
     research_instructions = models.TextField(null=True, blank=True)
     implementation_instructions = models.TextField(null=True, blank=True)
+    scout_custom_image_id = models.UUIDField(null=True, blank=True)
+    research_custom_image_id = models.UUIDField(null=True, blank=True)
+    implementation_custom_image_id = models.UUIDField(null=True, blank=True)
     # Daily cap on reports surfacing to the inbox, counted against SignalReport.first_visible_at
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
@@ -490,6 +498,9 @@ class SignalReport(UUIDModel):
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
     monitoring_started_at = models.DateTimeField(null=True, blank=True)
+    # When Monitoring ended in Resolved or Closed. Archiving only pauses Monitoring, so it leaves this unset,
+    # and reopening clears it with `monitoring_started_at`. Lets the inbox list reports that left Monitoring recently.
+    monitoring_ended_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -580,6 +591,17 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            # Partial: the stuck-research sweep reads IN_PROGRESS reports across all teams by run start.
+            models.Index(
+                fields=["last_run_at"],
+                condition=models.Q(status="in_progress"),
+                name="signals_report_in_progress",
+            ),
+            models.Index(
+                fields=["team", "monitoring_ended_at"],
+                condition=models.Q(monitoring_ended_at__isnull=False, status__in=["resolved", "closed"]),
+                name="signals_report_monitoring_end",
             ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(
@@ -684,7 +706,8 @@ class SignalReport(UUIDModel):
                 if monitoring_started_at is None or timezone.is_naive(monitoring_started_at):
                     raise ValueError("An aware implementation-complete timestamp is required to enter Monitoring.")
                 self.monitoring_started_at = monitoring_started_at
-                updated_fields.add("monitoring_started_at")
+                self.monitoring_ended_at = None
+                updated_fields.update(["monitoring_started_at", "monitoring_ended_at"])
 
             case (S.MONITORING, S.MONITORING):
                 if self.monitoring_started_at is None:
@@ -698,7 +721,9 @@ class SignalReport(UUIDModel):
                 updated_fields.add("status_before_suppression")
 
             case (S.MONITORING, S.RESOLVED | S.READY | S.CLOSED):
-                pass
+                if new_status != S.READY:
+                    self.monitoring_ended_at = timezone.now()
+                    updated_fields.add("monitoring_ended_at")
 
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
@@ -783,6 +808,9 @@ class SignalReport(UUIDModel):
             # so they are preserved as-is. In-flight states (candidate/in_progress) are never restored
             # here — they have no live workflow to resume and instead route back through POTENTIAL above.
             case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.CLOSED | S.FAILED):
+                if self.status_before_suppression == S.MONITORING and new_status in (S.RESOLVED, S.CLOSED):
+                    self.monitoring_ended_at = timezone.now()
+                    updated_fields.add("monitoring_ended_at")
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
 
@@ -830,6 +858,18 @@ class SignalReport(UUIDModel):
             case (S.RESOLVED | S.CLOSED, S.READY):
                 pass
 
+            # A person's actionability moves a researched report between the two statuses the
+            # pipeline routes a judgment to (see `update_report_actionability`).
+            case (S.READY, S.PENDING_INPUT):
+                if error is None:
+                    raise ValueError("error is required for ready -> pending_input")
+                self.error = error
+                updated_fields.add("error")
+
+            case (S.PENDING_INPUT, S.READY):
+                self.error = None
+                updated_fields.add("error")
+
             # Only researched reports can resolve
             # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook)
             # FAILED resolves too: a run that died in processing still describes real work, and
@@ -852,7 +892,8 @@ class SignalReport(UUIDModel):
         self.status = new_status
         if new_status in (S.POTENTIAL, S.READY) and self.monitoring_started_at is not None:
             self.monitoring_started_at = None
-            updated_fields.add("monitoring_started_at")
+            self.monitoring_ended_at = None
+            updated_fields.update(["monitoring_started_at", "monitoring_ended_at"])
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
 
@@ -1402,6 +1443,9 @@ class SignalReportSlackThread(UUIDModel):
     target = models.CharField(max_length=64, null=True, blank=True)
     # Slack `ts` of each threaded reply of a scout report, in summary chunk order.
     reply_ts = models.JSONField(null=True, blank=True)
+    notified_pr_urls = ArrayField(models.URLField(max_length=2000), null=True, blank=True)
+    # Empty means a project destination; null means the route has no saved recipient scope.
+    recipient_user_ids = ArrayField(models.IntegerField(), null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1475,6 +1519,29 @@ class SignalEmissionRecord(UUIDModel):
                 fields=["team", "source_product", "source_type"],
                 name="signals_emission_lookup_idx",
             ),
+        ]
+
+
+class SignalGroupingRecord(TeamScopedRootMixin, UUIDModel):
+    """Marks a signal as assigned to a report.
+
+    Grouping retries a failed batch, and the failure can come after the assignment committed.
+    The assign step checks this row first, so a retry cannot count the signal on its report again.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    signal_id = models.UUIDField()
+    report_id = models.UUIDField()
+    # A retry emits the signal document again with this timestamp, so ClickHouse deduplicates it.
+    emitted_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "signal_id"], name="signals_grouping_record_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["created_at"], name="signals_grouping_rec_created"),
         ]
 
 
@@ -1632,6 +1699,8 @@ class SignalReportArtefact(UUIDModel):
     actor_agent = models.CharField(max_length=200, null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # Execution permission is bound to this reviewer version independently of writer attribution.
+    implementation_authorization = models.JSONField(null=True, blank=True, editable=False)
     claim = models.ForeignKey(
         "self",
         null=True,
@@ -1766,6 +1835,7 @@ class SignalReportArtefact(UUIDModel):
         content: ArtefactContent,
         attribution: ArtefactAttribution,
         claim_id: str | None = None,
+        implementation_authorization: ImplementationAuthorization | None = None,
     ) -> "SignalReportArtefact":
         """Single write funnel: derive the row's type from the content model's class, map
         attribution to columns, and insert. Content is a typed model (parsed at the API boundary
@@ -1798,6 +1868,9 @@ class SignalReportArtefact(UUIDModel):
             report_id=report_id,
             type=artefact_type_for(content),
             content=content.model_dump_json(),
+            implementation_authorization=implementation_authorization.model_dump()
+            if implementation_authorization
+            else None,
             actor_kind=attribution.kind,
             actor_agent=attribution.agent_name,
             created_by_id=attribution.user_id,
@@ -1819,6 +1892,7 @@ class SignalReportArtefact(UUIDModel):
         reevaluate_autostart: bool = True,
         reviewer_proposal: ReviewerProposal | None = None,
         reviewer_edit: ReviewerEdit | None = None,
+        implementation_authorization: ImplementationAuthorization | None = None,
     ) -> "SignalReportArtefact":
         """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
@@ -1839,7 +1913,7 @@ class SignalReportArtefact(UUIDModel):
             from posthog.models.team.team import Team
 
             from products.signals.backend.report_claims import actor_works_under_claim, get_active_claim
-            from products.signals.backend.reviewer_rules import ReviewerRules
+            from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
 
             rules = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
             with transaction.atomic():
@@ -1863,18 +1937,44 @@ class SignalReportArtefact(UUIDModel):
                         attribution=attribution,
                         claim_id=claim_id,
                     )
-                if update.current is not None and cls._parse_as(update.current, SuggestedReviewers) == update.reviewers:
+                current_reviewers = cls._parse_as(update.current, SuggestedReviewers)
+                unchanged = current_reviewers == update.reviewers
+                retains_reviewers = (
+                    implementation_authorization is not None
+                    and implementation_authorization.mode == "reviewer"
+                    and (
+                        current_reviewers is None
+                        or any(
+                            contains_reviewer(tuple(current_reviewers.root), entry) for entry in update.reviewers.root
+                        )
+                    )
+                )
+                if update.current is not None and reviewer_edit is None and (unchanged or retains_reviewers):
+                    implementation_authorization = ImplementationAuthorization.from_stored(
+                        update.current.implementation_authorization
+                    )
+                authorization = implementation_authorization.model_dump() if implementation_authorization else None
+                if (
+                    update.current is not None
+                    and unchanged
+                    and update.current.implementation_authorization == authorization
+                ):
                     return update.current
                 artefact = cls._create(
                     team_id=team_id,
                     report_id=report_id,
                     content=update.reviewers,
+                    implementation_authorization=implementation_authorization,
                     attribution=attribution,
                     claim_id=claim_id,
                 )
                 if reevaluate_autostart and (not update.protected or rules.effects_enabled):
                     cls._schedule_autostart_reevaluation(
-                        team_id=team_id, report_id=str(report_id), triggering_user_id=attribution.user_id
+                        team_id=team_id,
+                        report_id=str(report_id),
+                        triggering_user_id=implementation_authorization.user_id
+                        if implementation_authorization
+                        else None,
                     )
                 return artefact
         return cls._create(
@@ -1948,6 +2048,25 @@ class SignalReportArtefact(UUIDModel):
             created_before=created_before,
             created_after=created_after,
         ).afirst()
+        return cls._parse_as(artefact, model)
+
+    @classmethod
+    def latest_person_content(
+        cls, *, team_id: int, report_id: str, model: builtins.type[_ContentT]
+    ) -> _ContentT | None:
+        """The newest artefact of `model`'s type, parsed, when a person wrote it, else None.
+
+        A person is any write with a user principal (`created_by`), from the app or from their own
+        agent. A pipeline, scout, or system write leaves `created_by` null. Agent stages read this to
+        keep a decision a person made instead of writing their own over it.
+        """
+        artefact = (
+            cls._latest_of(team_id=team_id, report_id=report_id, model=model, created_before=None, created_after=None)
+            .only("content", "created_by_id")
+            .first()
+        )
+        if artefact is None or artefact.created_by_id is None:
+            return None
         return cls._parse_as(artefact, model)
 
     @classmethod
@@ -2258,6 +2377,7 @@ class SignalReportArtefact(UUIDModel):
         reevaluate_autostart: bool = True,
         reviewer_proposal: ReviewerProposal | None = None,
         reviewer_edit: ReviewerEdit | None = None,
+        implementation_authorization: ImplementationAuthorization | None = None,
     ) -> "SignalReportArtefact":
         """Append an artefact of any content model, routing to its type's append semantics.
 
@@ -2281,6 +2401,7 @@ class SignalReportArtefact(UUIDModel):
                 reevaluate_autostart=reevaluate_autostart,
                 reviewer_proposal=reviewer_proposal,
                 reviewer_edit=reviewer_edit,
+                implementation_authorization=implementation_authorization,
                 claim_id=claim_id,
             )
         if artefact_type in cls.LOG_ARTEFACT_TYPES:
@@ -2757,6 +2878,7 @@ class SignalReportMonitoringAttempt(UUIDModel):
     check_versions = models.JSONField(default=dict)
     aggregation_state = models.CharField(max_length=24, choices=MonitoringAggregation, null=True, blank=True)
     aggregation_result_ids = models.JSONField(null=True, blank=True)
+    aggregation_cancelled_check_count = models.IntegerField(null=True, blank=True)
     aggregation_reason = models.TextField(null=True, blank=True)
     aggregation_checked_at = models.DateTimeField(null=True, blank=True)
     assessment_requested_at = models.DateTimeField(null=True, blank=True)
@@ -2929,6 +3051,9 @@ def default_scout_write_scopes() -> list[str]:
     )
 
     return sorted(SCOUT_DEFAULT_WRITE_SCOPES)
+
+
+DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY = 3
 
 
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
@@ -3187,6 +3312,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # the flag goes off. Free-form rather than a choices list: the model catalog changes
     # without deploys, and `model_selection` already treats an unroutable id defensively.
     model = models.CharField(max_length=200, null=True, blank=True)
+    custom_image_id = models.UUIDField(null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
     # config columns. A Slack destination is active only when its integration and a target — a channel,
@@ -3252,6 +3378,17 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # scout's acting user and project admins: this field decides what an unattended agent may change
     # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
     write_scopes = models.JSONField(default=default_scout_write_scopes, db_default=[])
+    # Report action kinds (`ReportTaskActionKind` values) this scout may start through the report
+    # actions endpoint, which refuses every other sandbox request. Empty by default. Validated
+    # against `SCOUT_GRANTABLE_REPORT_ACTIONS` at the API boundary and again at the endpoint, so
+    # `get_it_merged` can never be granted. Gated and activity-logged like `write_scopes`, and for
+    # the same reason. A dry run ignores it.
+    report_actions = models.JSONField(default=list, db_default=[])
+    # How many report actions this scout may start in a rolling 24 hours, across all its runs.
+    # A scout acts as a person, so the per-user throttles cannot be what bounds it.
+    max_report_actions_per_day = models.SmallIntegerField(
+        default=DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY, db_default=DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY
+    )
     # Opt-in guard on the lifecycle fields (`enabled`, `emit`, deletion, and this flag). Off by
     # default, so the fleet keeps the plain `signal_scout:write` bar. On, only the scout's
     # resolved acting user or a project admin may pause, resume, switch to dry run, or delete it
@@ -3386,12 +3523,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        from products.signals.backend.trial.scouts import (
-            scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
-        )
-
-        with scout_capacity(self):
-            super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     @classmethod
     def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:
@@ -3749,6 +3881,39 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "scout_run"], name="signal_scout_emission_run_idx"),
+        ]
+
+
+class SignalScoutPendingTrigger(TeamScopedRootMixin, UUIDModel):
+    """A workflow "Run scout" fire that arrived while its scout was busy, waiting for a run.
+
+    Written when the workflow cooldown or the in-flight gate turns a fire away, and deleted when a
+    run takes it: the coordinator attaches it to a due scheduled run, or dispatches one
+    workflow-triggered run carrying every pending fire of the lane. See
+    `scout_harness/workflow_trigger_queue.py`. Rows exist only while a fire waits, so the table
+    stays small and the coordinator can read all of it each tick.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale: the coordinator drains with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # No single-column index: the lane index below leads with team_id.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    skill_name = models.CharField(max_length=200)
+    # The note the step rendered from its triggering event. Blank means the event fired with no note.
+    note = models.TextField(blank=True, default="")
+    # The HogFlow whose step fired. Not a foreign key: workflows belong to another product.
+    workflow_id = models.CharField(max_length=64, null=True, blank=True)
+    received_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Signal scout pending trigger"
+        verbose_name_plural = "Signal scout pending triggers"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "skill_name", "received_at"], name="signal_scout_pending_lane_idx"),
         ]
 
 
@@ -4148,6 +4313,12 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
 
 
 class SignalSpend(TeamScopedRootMixin, UUIDModel):
+    """Deliberately transient receipts for monthly billing and cost displays.
+
+    Rows expire three calendar months after creation, including failed and unsettled spend.
+    Consumers must tolerate expiry rather than depend on lifetime accounting or deduplication.
+    """
+
     class Kind(models.TextChoices):
         RESEARCH = "research"
         REPO_SELECTION = "repo_selection"
@@ -4197,6 +4368,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.Index(fields=["created_at"], name="signals_spend_created_at_idx"),
             models.Index(fields=["trial_grant"], name="signals_spend_trial_grant_idx"),
             models.Index(
                 fields=["updated_at"],

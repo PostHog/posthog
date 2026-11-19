@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { saveScannerEnabled } from './saveScannerEnabled'
 
 const LOST_ACCESS = [400, { type: 'validation_error', code: 'scanner_creator_lost_access', detail: 'x' }]
+const FREE_CREDITS_USED = [400, { type: 'validation_error', code: 'scanner_free_credits_used', detail: 'x' }]
 const SAVED = [200, { id: 's1', enabled: true }]
 
 describe('saveScannerEnabled', () => {
@@ -70,16 +71,46 @@ describe('saveScannerEnabled', () => {
     })
 
     it.each([
-        ['approved', true, [{ enabled: true }, { enabled: true, take_over_as_creator: true }], true],
-        ['declined', false, [{ enabled: true }], false],
-    ])('takes the scanner over only once the take-over is %s', async (_name, confirm, expectedPatches, turnedOn) => {
-        useScenario({ consented: true, responses: [LOST_ACCESS, SAVED], answers: [confirm] })
+        [
+            'takes the scanner over once approved',
+            LOST_ACCESS,
+            true,
+            [{ enabled: true }, { enabled: true, take_over_as_creator: true }],
+            true,
+            'Take over this scanner?',
+        ],
+        [
+            'keeps it off when the take-over is declined',
+            LOST_ACCESS,
+            false,
+            [{ enabled: true }],
+            false,
+            'Take over this scanner?',
+        ],
+        [
+            'turns off free credits only once approved',
+            FREE_CREDITS_USED,
+            true,
+            [{ enabled: true }, { enabled: true, free_only: false }],
+            true,
+            'Turn off free credits only and start scanning?',
+        ],
+        [
+            'keeps it free-only and off when declined',
+            FREE_CREDITS_USED,
+            false,
+            [{ enabled: true }],
+            false,
+            'Turn off free credits only and start scanning?',
+        ],
+    ])('%s', async (_name, refusal, confirm, expectedPatches, turnedOn, dialogTitle) => {
+        useScenario({ consented: true, responses: [refusal, SAVED], answers: [confirm] })
 
         const saved = await saveScannerEnabled('1', 's1', true)
 
         expect(saved !== null).toBe(turnedOn)
         expect(patches).toEqual(expectedPatches)
-        expect(dialogTitles).toEqual(['Take over this scanner?'])
+        expect(dialogTitles).toEqual([dialogTitle])
     })
 
     it.each([

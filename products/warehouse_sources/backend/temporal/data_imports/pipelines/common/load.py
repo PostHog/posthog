@@ -1,4 +1,7 @@
+import sys
 import asyncio
+import decimal
+import functools
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
 from django.db.models import F
@@ -37,7 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -99,17 +102,34 @@ def get_incremental_field_value(
     if normalized_field_name not in table.column_names:
         raise IncrementalFieldMissingFromDataError(incremental_field_name, table)
 
+    if aggregate not in ("max", "min"):
+        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+
     column = table[normalized_field_name]
-    processed_column = pa.array(
-        [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
-    )
+    values = [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
+    # A decimal too wide for decimal128 (e.g. BigQuery BIGNUMERIC) reaches here as text. Parse it so
+    # the aggregate orders numbers, not strings, and the watermark serializes as a number.
+    if schema.incremental_field_type in (IncrementalFieldType.Integer, IncrementalFieldType.Numeric) and (
+        pa.types.is_string(column.type) or pa.types.is_large_string(column.type)
+    ):
+        # Python aggregation also accepts values wider than Arrow's decimal256 limit.
+        numeric_values = (decimal.Decimal(val) for val in values if val is not None)
+        numeric_value = max(numeric_values, default=None) if aggregate == "max" else min(numeric_values, default=None)
+        # Decimal-to-int bypasses Python's integer text limit; bound expansion before watermark serialization.
+        max_digits = sys.get_int_max_str_digits() or sys.int_info.default_max_str_digits
+        if numeric_value is not None and numeric_value.adjusted() >= max_digits:
+            raise ValueError(
+                "Incremental numeric cursor exceeds the supported integer digit limit. "
+                "Choose a different incremental field."
+            )
+        return numeric_value
+
+    processed_column = pa.array(values)
 
     if aggregate == "max":
         last_value = pc.max(processed_column)
-    elif aggregate == "min":
-        last_value = pc.min(processed_column)
     else:
-        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+        last_value = pc.min(processed_column)
 
     return last_value.as_py()
 
@@ -145,7 +165,7 @@ async def notify_revenue_analytics_that_sync_has_completed(
                         posthoganalytics.capture(
                             distinct_id=user.distinct_id,
                             event="revenue_analytics_ready",
-                            properties={"source_type": source.source_type},
+                            properties={"source_type": source.source_type, "$update_person_last_seen_at": False},
                         )
 
                 # Mark the team as notified, avoiding spamming emails
@@ -512,6 +532,7 @@ async def _run_cdc_post_load(
     is_initial_load: bool,
     logger: FilteringBoundLogger,
 ) -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.incremental_history import registered_history_columns
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
         register_cdc_companion_table,
     )
@@ -531,6 +552,17 @@ async def _run_cdc_post_load(
                 set_as_schema_table=schema.cdc_table_mode == "cdc_only",
                 live_row_count=await delta_table_ref.get_live_row_count(),
                 live_size_mib=await delta_table_ref.get_live_size_mib(),
+                # An incremental history table keeps the past values of a column the user stopped syncing.
+                project_columns=(
+                    functools.partial(
+                        registered_history_columns,
+                        enabled_columns=schema.enabled_columns,
+                        primary_keys=schema.primary_key_columns,
+                        incremental_field=schema.incremental_field,
+                    )
+                    if schema.is_incremental and schema.keeps_history
+                    else None
+                ),
             )
         logger.debug("Finished registering CDC companion table")
         return

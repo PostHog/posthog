@@ -1388,10 +1388,10 @@ mod tests {
                 ],
             ),
             (
-                r#".a{background:-webkit-image-set(url(/a.avif) type("image/avif") 2x, url(/a.jpg) type("image/jpeg") 1x, linear-gradient(red, blue) 3x)}"#,
+                r#".a{background:-webkit-image-set(url(/a.jxl) type("image/jxl") 2x, url(/a.jpg) type("image/jpeg") 1x, linear-gradient(red, blue) 3x)}"#,
                 vec![
                     "resolved https://app.example.com/a.jpg",
-                    r#"rewrite -webkit-image-set(url(/a.avif) type("image/avif") 2x, url(/a.jpg) type("image/jpeg") 1x, linear-gradient(red, blue) 3x) => -webkit-image-set(url("https://app.example.com/a.jpg") type("image/jpeg") 1x) dropping []"#,
+                    r#"rewrite -webkit-image-set(url(/a.jxl) type("image/jxl") 2x, url(/a.jpg) type("image/jpeg") 1x, linear-gradient(red, blue) 3x) => -webkit-image-set(url("https://app.example.com/a.jpg") type("image/jpeg") 1x) dropping []"#,
                 ],
             ),
             (

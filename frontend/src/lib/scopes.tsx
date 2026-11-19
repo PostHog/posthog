@@ -99,7 +99,7 @@ export type APIScope = {
     disabledActions?: ('read' | 'write')[]
     disabledWhenProjectScoped?: boolean
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
-    /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes.py — excluded from every unprivileged preset. */
+    /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes/exposure.py — excluded from every unprivileged preset. */
     unprivilegedExcluded?: boolean
 }
 
@@ -176,10 +176,11 @@ export const API_SCOPES: APIScope[] = Object.entries(SCOPE_DOCS).map(([key, doc]
 }))
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
-// Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.
+// Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes/project_secret_api_key.py.
 // posthog/test/test_scopes.py compares the two lists.
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'endpoint:read',
+    'person:write',
     'feature_flag:read',
     'account:read',
     'account:write',
@@ -196,6 +197,8 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'transactional_email:read',
     'transactional_email:write',
     'llm_prompt:read',
+    'logs:read',
+    'business_knowledge:read',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -252,7 +255,7 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'source_map_upload',
         label: 'Source map upload',
-        scopes: ['organization:read', 'error_tracking:write'],
+        scopes: ['error_tracking:write'],
     },
     {
         value: 'zapier',
@@ -266,6 +269,7 @@ export const API_KEY_SCOPE_PRESETS: {
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
     { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
+    { value: 'grafana', label: 'Grafana', scopes: ['metrics:read'] },
     {
         value: 'project_management',
         label: 'Project & user management',
@@ -343,10 +347,13 @@ export const getScopeGroupLabel = (scopeObject: string): string =>
 
 // The rows grouped by product area in API_SCOPE_GROUPS order. An object that is in no group goes in
 // the "Other" group at the end, so it still shows. A group with no row is left out.
-export const groupScopeRows = <Row extends ScopePickerRow>(rows: Row[]): ScopePickerGroup<Row>[] => {
+export const groupScopeRows = <Row extends ScopePickerRow>(
+    rows: Row[],
+    groupLabel: (row: Row) => string = (row) => getScopeGroupLabel(row.key)
+): ScopePickerGroup<Row>[] => {
     const rowsByLabel = new Map<string, Row[]>()
     for (const row of rows) {
-        const label = getScopeGroupLabel(row.key)
+        const label = groupLabel(row)
         rowsByLabel.set(label, [...(rowsByLabel.get(label) ?? []), row])
     }
     return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]

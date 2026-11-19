@@ -38,8 +38,6 @@ class FakeRepository {
             uuid,
             team_id: 1,
             properties: { ...properties },
-            properties_last_updated_at: {},
-            properties_last_operation: {},
             created_at: DateTime.fromISO('2026-01-01T00:00:00Z', { zone: 'utc' }),
             version: 1,
             is_identified: false,
@@ -340,8 +338,6 @@ describe('BatchWritingPersonsStore merging through PostgresPersonMerge', () => {
             (
                 _createdAt: DateTime,
                 properties: Record<string, unknown>,
-                _lastUpdatedAt: unknown,
-                _lastOperation: unknown,
                 _teamId: number,
                 _isUserId: number | null,
                 isIdentified: boolean,
