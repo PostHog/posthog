@@ -103,10 +103,10 @@ export function tracesTableColumns({
             title: 'Latency',
             key: 'latency',
             align: 'right',
-            render: (_, { totals, totalsPartial }) => (
+            render: (_, { totals, costAndLatencyPartial }) => (
                 <TotalValue
                     value={totals.latencyMs !== null ? formatLatencyMs(totals.latencyMs) : null}
-                    partial={totalsPartial}
+                    partial={costAndLatencyPartial}
                 />
             ),
         },
@@ -125,10 +125,10 @@ export function tracesTableColumns({
             title: 'Cost',
             key: 'cost',
             align: 'right',
-            render: (_, { totals, totalsPartial }) => (
+            render: (_, { totals, costAndLatencyPartial }) => (
                 <TotalValue
                     value={totals.costUsd !== null ? formatCostUsd(totals.costUsd) : null}
-                    partial={totalsPartial}
+                    partial={costAndLatencyPartial}
                 />
             ),
         },

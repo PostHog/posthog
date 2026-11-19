@@ -115,7 +115,15 @@ export interface FeedbackStepContext {
 /** What a list row already knows about a trace, enough to paint the trace's header before the trace read answers. */
 export type TraceOverview = Pick<
     TraceApi,
-    'id' | 'name' | 'createdAt' | 'sessionId' | 'totals' | 'hasError' | 'errorCount' | 'totalsPartial'
+    | 'id'
+    | 'name'
+    | 'createdAt'
+    | 'sessionId'
+    | 'totals'
+    | 'hasError'
+    | 'errorCount'
+    | 'totalsPartial'
+    | 'costAndLatencyPartial'
 >
 
 export interface TraceSeed {
