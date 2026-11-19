@@ -23,7 +23,7 @@ _sym_db = _symbol_database.Default()
 from personhog.types.v1 import common_pb2 as personhog_dot_types_dot_v1_dot_common__pb2
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x1fpersonhog/types/v1/cohort.proto\x12\x12personhog.types.v1\x1a\x1fpersonhog/types/v1/common.proto"8\n\x10\x43ohortMembership\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x11\n\tis_member\x18\x02 \x01(\x08"|\n\x1c\x43heckCohortMembershipRequest\x12\x11\n\tperson_id\x18\x01 \x01(\x03\x12\x12\n\ncohort_ids\x18\x02 \x03(\x03\x12\x35\n\x0cread_options\x18\x03 \x01(\x0b\x32\x1f.personhog.types.v1.ReadOptions"U\n\x18\x43ohortMembershipResponse\x12\x39\n\x0bmemberships\x18\x01 \x03(\x0b\x32$.personhog.types.v1.CohortMembership"f\n\x19\x43ountCohortMembersRequest\x12\x12\n\ncohort_ids\x18\x01 \x03(\x03\x12\x35\n\x0cread_options\x18\x02 \x01(\x0b\x32\x1f.personhog.types.v1.ReadOptions"+\n\x1a\x43ountCohortMembersResponse\x12\r\n\x05\x63ount\x18\x01 \x01(\x03"A\n\x19\x44\x65leteCohortMemberRequest\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x11\n\tperson_id\x18\x02 \x01(\x03"-\n\x1a\x44\x65leteCohortMemberResponse\x12\x0f\n\x07\x64\x65leted\x18\x01 \x01(\x08"H\n\x1e\x44\x65leteCohortMembersBulkRequest\x12\x12\n\ncohort_ids\x18\x01 \x03(\x03\x12\x12\n\nbatch_size\x18\x02 \x01(\x05"8\n\x1f\x44\x65leteCohortMembersBulkResponse\x12\x15\n\rdeleted_count\x18\x01 \x01(\x03"e\n\x1aInsertCohortMembersRequest\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x12\n\nperson_ids\x18\x02 \x03(\x03\x12\x14\n\x07version\x18\x03 \x01(\x05H\x00\x88\x01\x01\x42\n\n\x08_version"5\n\x1bInsertCohortMembersResponse\x12\x16\n\x0einserted_count\x18\x01 \x01(\x03"\x85\x01\n\x1aListCohortMemberIdsRequest\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x0e\n\x06\x63ursor\x18\x02 \x01(\x03\x12\r\n\x05limit\x18\x03 \x01(\x05\x12\x35\n\x0cread_options\x18\x04 \x01(\x0b\x32\x1f.personhog.types.v1.ReadOptions"F\n\x1bListCohortMemberIdsResponse\x12\x12\n\nperson_ids\x18\x01 \x03(\x03\x12\x13\n\x0bnext_cursor\x18\x02 \x01(\x03\x62\x06proto3'
+    b'\n\x1fpersonhog/types/v1/cohort.proto\x12\x12personhog.types.v1\x1a\x1fpersonhog/types/v1/common.proto"8\n\x10\x43ohortMembership\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x11\n\tis_member\x18\x02 \x01(\x08"|\n\x1c\x43heckCohortMembershipRequest\x12\x11\n\tperson_id\x18\x01 \x01(\x03\x12\x12\n\ncohort_ids\x18\x02 \x03(\x03\x12\x35\n\x0cread_options\x18\x03 \x01(\x0b\x32\x1f.personhog.types.v1.ReadOptions"U\n\x18\x43ohortMembershipResponse\x12\x39\n\x0bmemberships\x18\x01 \x03(\x0b\x32$.personhog.types.v1.CohortMembership"f\n\x19\x43ountCohortMembersRequest\x12\x12\n\ncohort_ids\x18\x01 \x03(\x03\x12\x35\n\x0cread_options\x18\x02 \x01(\x0b\x32\x1f.personhog.types.v1.ReadOptions"+\n\x1a\x43ountCohortMembersResponse\x12\r\n\x05\x63ount\x18\x01 \x01(\x03"A\n\x19\x44\x65leteCohortMemberRequest\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x11\n\tperson_id\x18\x02 \x01(\x03"-\n\x1a\x44\x65leteCohortMemberResponse\x12\x0f\n\x07\x64\x65leted\x18\x01 \x01(\x08"H\n\x1e\x44\x65leteCohortMembersBulkRequest\x12\x12\n\ncohort_ids\x18\x01 \x03(\x03\x12\x12\n\nbatch_size\x18\x02 \x01(\x05"8\n\x1f\x44\x65leteCohortMembersBulkResponse\x12\x15\n\rdeleted_count\x18\x01 \x01(\x03"N\n%DeleteCohortMembersByPersonIdsRequest\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x12\n\nperson_ids\x18\x02 \x03(\x03"?\n&DeleteCohortMembersByPersonIdsResponse\x12\x15\n\rdeleted_count\x18\x01 \x01(\x03"e\n\x1aInsertCohortMembersRequest\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x12\n\nperson_ids\x18\x02 \x03(\x03\x12\x14\n\x07version\x18\x03 \x01(\x05H\x00\x88\x01\x01\x42\n\n\x08_version"5\n\x1bInsertCohortMembersResponse\x12\x16\n\x0einserted_count\x18\x01 \x01(\x03"\x85\x01\n\x1aListCohortMemberIdsRequest\x12\x11\n\tcohort_id\x18\x01 \x01(\x03\x12\x0e\n\x06\x63ursor\x18\x02 \x01(\x03\x12\r\n\x05limit\x18\x03 \x01(\x05\x12\x35\n\x0cread_options\x18\x04 \x01(\x0b\x32\x1f.personhog.types.v1.ReadOptions"F\n\x1bListCohortMemberIdsResponse\x12\x12\n\nperson_ids\x18\x01 \x03(\x03\x12\x13\n\x0bnext_cursor\x18\x02 \x01(\x03\x62\x06proto3'
 )
 
 _globals = globals()
@@ -49,12 +49,16 @@ if not _descriptor._USE_C_DESCRIPTORS:
     _globals["_DELETECOHORTMEMBERSBULKREQUEST"]._serialized_end = 694
     _globals["_DELETECOHORTMEMBERSBULKRESPONSE"]._serialized_start = 696
     _globals["_DELETECOHORTMEMBERSBULKRESPONSE"]._serialized_end = 752
-    _globals["_INSERTCOHORTMEMBERSREQUEST"]._serialized_start = 754
-    _globals["_INSERTCOHORTMEMBERSREQUEST"]._serialized_end = 855
-    _globals["_INSERTCOHORTMEMBERSRESPONSE"]._serialized_start = 857
-    _globals["_INSERTCOHORTMEMBERSRESPONSE"]._serialized_end = 910
-    _globals["_LISTCOHORTMEMBERIDSREQUEST"]._serialized_start = 913
-    _globals["_LISTCOHORTMEMBERIDSREQUEST"]._serialized_end = 1046
-    _globals["_LISTCOHORTMEMBERIDSRESPONSE"]._serialized_start = 1048
-    _globals["_LISTCOHORTMEMBERIDSRESPONSE"]._serialized_end = 1118
+    _globals["_DELETECOHORTMEMBERSBYPERSONIDSREQUEST"]._serialized_start = 754
+    _globals["_DELETECOHORTMEMBERSBYPERSONIDSREQUEST"]._serialized_end = 832
+    _globals["_DELETECOHORTMEMBERSBYPERSONIDSRESPONSE"]._serialized_start = 834
+    _globals["_DELETECOHORTMEMBERSBYPERSONIDSRESPONSE"]._serialized_end = 897
+    _globals["_INSERTCOHORTMEMBERSREQUEST"]._serialized_start = 899
+    _globals["_INSERTCOHORTMEMBERSREQUEST"]._serialized_end = 1000
+    _globals["_INSERTCOHORTMEMBERSRESPONSE"]._serialized_start = 1002
+    _globals["_INSERTCOHORTMEMBERSRESPONSE"]._serialized_end = 1055
+    _globals["_LISTCOHORTMEMBERIDSREQUEST"]._serialized_start = 1058
+    _globals["_LISTCOHORTMEMBERIDSREQUEST"]._serialized_end = 1191
+    _globals["_LISTCOHORTMEMBERIDSRESPONSE"]._serialized_start = 1193
+    _globals["_LISTCOHORTMEMBERIDSRESPONSE"]._serialized_end = 1263
 # @@protoc_insertion_point(module_scope)
