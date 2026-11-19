@@ -10,6 +10,7 @@ from django.db.models import Q, QuerySet
 from posthog.hogql.database.database import Database, is_authored_model
 from posthog.hogql.errors import BaseHogQLError
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.data_modeling.backend.facade.contracts import (
@@ -75,9 +76,21 @@ def _load(
         renamed = locked
 
 
-def _compute(
-    team: Team, saved_query_id: uuid.UUID, new_name: str, *, lock: bool
-) -> tuple[ModelRenamePlan, DataWarehouseSavedQuery, list[tuple[DataWarehouseSavedQuery, str, str]]]:
+@frozen
+class _Rewrite:
+    dependent: DataWarehouseSavedQuery
+    before: str
+    after: str
+
+
+@frozen
+class _ComputedRename:
+    plan: ModelRenamePlan
+    renamed: DataWarehouseSavedQuery
+    rewrites: list[_Rewrite]
+
+
+def _compute(team: Team, saved_query_id: uuid.UUID, new_name: str, *, lock: bool) -> _ComputedRename:
     live_queries = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
     renamed, candidates = _load(live_queries, saved_query_id, lock=lock)
     refusal = _refusal(renamed)
@@ -88,7 +101,7 @@ def _compute(
     spellings = model_spellings(renamed, database)
     new_chain = new_name.split(".")
 
-    spliced: list[tuple[DataWarehouseSavedQuery, str, str]] = []
+    spliced: list[_Rewrite] = []
     blocked: list[ModelRenameBlocked] = []
     fingerprint: list[list[str]] = []
     for dependent in candidates:
@@ -106,59 +119,65 @@ def _compute(
         else:
             if after == before:
                 continue
-            spliced.append((dependent, before, after))
+            spliced.append(_Rewrite(dependent=dependent, before=before, after=after))
         fingerprint.append([str(dependent.id), str(dependent.query_revision), before])
 
-    rewrites: list[tuple[DataWarehouseSavedQuery, str, str]] = []
+    rewrites: list[_Rewrite] = []
     if spliced:
         # The splice proves only that the text changed where it meant to. Resolving each query before and after
         # proves every name still binds to the same table. All the "before" resolutions run first, on the catalog
         # they share, so a part of it built on first use is built once and carried into the renamed copy.
         current: dict[uuid.UUID, QueryBindings | None] = {}
-        for dependent, before, _ in spliced:
+        for rewrite in spliced:
             try:
-                current[dependent.pk] = query_bindings(team, before, database)
+                current[rewrite.dependent.pk] = query_bindings(team, rewrite.before, database)
             except BaseHogQLError:
                 # It does not run today, so there is nothing to preserve.
-                current[dependent.pk] = None
+                current[rewrite.dependent.pk] = None
         try:
             # Every rewrite is checked as if all of them landed: a rename applies only when none is blocked.
             renamed_database: Database | None = database.with_model_renamed(
-                renamed.name, new_name, {dependent.name: after for dependent, _, after in spliced}
+                renamed.name, new_name, {rewrite.dependent.name: rewrite.after for rewrite in spliced}
             )
         except KeyError:
             renamed_database = None
-        for dependent, before, after in spliced:
-            bindings = current[dependent.pk]
+        for rewrite in spliced:
+            bindings = current[rewrite.dependent.pk]
             if renamed_database is None:
                 reason: str | None = PARSE_CHECK_FAILED
             elif bindings is None:
                 reason = None
             else:
-                reason = binding_change(team, bindings, after, renamed_database, renamed.name, new_name)
+                reason = binding_change(team, bindings, rewrite.after, renamed_database, renamed.name, new_name)
             if reason is None:
-                rewrites.append((dependent, before, after))
+                rewrites.append(rewrite)
             else:
-                blocked.append(ModelRenameBlocked(saved_query_id=dependent.id, name=dependent.name, reason=reason))
+                blocked.append(
+                    ModelRenameBlocked(saved_query_id=rewrite.dependent.id, name=rewrite.dependent.name, reason=reason)
+                )
 
     token = hashlib.sha256(
         json.dumps([str(renamed.id), renamed.name, str(renamed.query_revision), new_name, fingerprint]).encode()
     ).hexdigest()
     plan = ModelRenamePlan(
         rewrites=tuple(
-            ModelRenameRewrite(saved_query_id=dependent.id, name=dependent.name, before=before, after=after)
-            for dependent, before, after in rewrites
+            ModelRenameRewrite(
+                saved_query_id=rewrite.dependent.id,
+                name=rewrite.dependent.name,
+                before=rewrite.before,
+                after=rewrite.after,
+            )
+            for rewrite in rewrites
         ),
         blocked=tuple(blocked),
         token=token,
     )
-    return plan, renamed, rewrites
+    return _ComputedRename(plan=plan, renamed=renamed, rewrites=rewrites)
 
 
 def plan_model_rename(team: Team, saved_query_id: uuid.UUID, new_name: str) -> ModelRenamePlan:
     """What renaming the model to `new_name` changes in the models that read it. Writes nothing."""
-    plan, _, _ = _compute(team, saved_query_id, new_name, lock=False)
-    return plan
+    return _compute(team, saved_query_id, new_name, lock=False).plan
 
 
 def _write_rewritten_query(dependent: DataWarehouseSavedQuery, sql: str) -> None:
@@ -189,16 +208,17 @@ def apply_model_rename(
     Call it in a transaction. It locks the model and the models that read it, and writes only when the
     plan is still the one the caller was shown and `authorize` accepts it without raising.
     """
-    plan, renamed, rewrites = _compute(team, saved_query_id, new_name, lock=True)
+    computed = _compute(team, saved_query_id, new_name, lock=True)
+    plan = computed.plan
     if plan.token != plan_token:
         raise ModelRenamePlanStaleError()
     authorize(plan)
     if plan.blocked:
         raise ModelRenameBlockedError(plan)
-    for dependent, _, sql in rewrites:
-        _write_rewritten_query(dependent, sql)
-    renamed.name = new_name
-    renamed.save(update_fields=["name", "updated_at"])
+    for rewrite in computed.rewrites:
+        _write_rewritten_query(rewrite.dependent, rewrite.after)
+    computed.renamed.name = new_name
+    computed.renamed.save(update_fields=["name", "updated_at"])
     return plan
 
 
@@ -209,7 +229,7 @@ def rename_needs_plan(team: Team, saved_query_id: uuid.UUID, new_name: str) -> b
     so a model that starts reading this one cannot commit until the rename has.
     """
     try:
-        plan, _, _ = _compute(team, saved_query_id, new_name, lock=True)
+        plan = _compute(team, saved_query_id, new_name, lock=True).plan
     except ModelRenameRefusedError:
         return False
     return bool(plan.rewrites or plan.blocked)

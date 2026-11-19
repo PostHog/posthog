@@ -2729,7 +2729,7 @@ class TestSavedQuery(APIBaseTest):
                 {
                     "id": str(dependent.id),
                     "name": "signups_report",
-                    "before": dependent.query["query"],
+                    "before": cast(dict[str, Any], dependent.query)["query"],
                     "after": after,
                 }
             ],
@@ -2747,13 +2747,14 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 200, response.content
         assert response.json()["name"] == "staging.signups"
         rename_activity = ActivityLog.objects.get(item_id=str(renamed.id), activity="updated")
-        assert rename_activity.detail["changes"][0]["before"] == "stg_signups"
-        assert rename_activity.detail["changes"][0]["after"] == "staging.signups"
+        assert cast(dict[str, Any], rename_activity.detail)["changes"][0]["before"] == "stg_signups"
+        assert cast(dict[str, Any], rename_activity.detail)["changes"][0]["after"] == "staging.signups"
         rewrite_activity = ActivityLog.objects.get(item_id=str(dependent.id), activity="updated")
         assert rewrite_activity.user == self.user
         assert rewrite_activity.was_impersonated is False
         assert [
-            (change["field"], change["before"], change["after"]) for change in rewrite_activity.detail["changes"]
+            (change["field"], change["before"], change["after"])
+            for change in cast(dict[str, Any], rewrite_activity.detail)["changes"]
         ] == [("query", dependent.query, {"kind": "HogQLQuery", "query": after})]
         stored = DataWarehouseSavedQuery.objects.get(id=dependent.id)
         assert stored.query == {"kind": "HogQLQuery", "query": after}
@@ -2863,9 +2864,9 @@ class TestSavedQuery(APIBaseTest):
         response = self.client.post(f"{url}/rename/", {"name": "sales", "plan_token": token})
 
         assert response.status_code == 200, response.content
-        assert DataWarehouseSavedQuery.objects.get(id=dependent.id).query["query"] == before.replace(
-            "models.revenue", "models.sales"
-        )
+        assert cast(dict[str, Any], DataWarehouseSavedQuery.objects.get(id=dependent.id).query)[
+            "query"
+        ] == before.replace("models.revenue", "models.sales")
         for other in untouched:
             assert DataWarehouseSavedQuery.objects.get(id=other.id).query == other.query
 
