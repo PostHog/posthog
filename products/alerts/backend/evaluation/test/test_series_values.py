@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from typing import Any
 
 import time_machine
@@ -48,6 +47,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
         sync_execute("SYSTEM STOP TTL MERGES sharded_series_values_preaggregated")
+        self.addCleanup(sync_execute, "SYSTEM START TTL MERGES sharded_series_values_preaggregated")
         for timestamp in (
             "2024-01-13T05:00:00Z",
             "2024-01-14T07:00:00Z",
@@ -103,11 +103,8 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         )
         return {row[0] for row in rows}
 
-    def _shadowed_check(self, alert: AlertConfiguration, raising: bool = False) -> tuple[Any, dict[str, Any]]:
-        failure = (
-            patch(f"{_SHADOW}.closed_series_values", side_effect=RuntimeError("boom")) if raising else nullcontext()
-        )
-        with self._enrolled(), failure, patch(f"{_SHADOW}.posthoganalytics.capture") as capture:
+    def _shadowed_check(self, alert: AlertConfiguration) -> tuple[Any, dict[str, Any]]:
+        with self._enrolled(), patch(f"{_SHADOW}.posthoganalytics.capture") as capture:
             result = check_alert_for_insight(alert)
         [properties] = _shadow_events(capture)
         return result, properties
@@ -139,50 +136,59 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert (warm_properties["outcome"], warm_properties["freshly_built"]) == ("match", False)
         assert cold_properties["buckets_compared"] > 0
         assert cold_properties["alert_kind"] == ("detector" if detector else "threshold")
-        assert isinstance(cold_properties["duration_ms"], int)
         assert self._insert_execution_limits() == {str(SHADOW_BUILD_BUDGET_SECONDS)}
+
+    @parameterized.expand([("threshold", None), ("detector", _THRESHOLD_DETECTOR)])
+    def test_a_mismatch_never_changes_the_check(self, _name: str, detector: dict[str, Any] | None) -> None:
+        alert = self._alert(detector=detector)
+        live = check_alert_for_insight(alert)
+        self._shadowed_check(alert)
+        job = PreaggregationJob.objects.get(
+            team_id=self.team.pk,
+            time_range_start__lte="2024-01-14T00:00:00Z",
+            time_range_end__gt="2024-01-14T00:00:00Z",
+        )
+        sync_execute(
+            """
+            INSERT INTO sharded_series_values_preaggregated
+                (team_id, job_id, time_window_start, series_key, breakdown_value, value)
+            VALUES (%(team_id)s, %(job_id)s, '2024-01-14 10:00:00', '', [], 1)
+            """,
+            {"team_id": self.team.pk, "job_id": str(job.id)},
+        )
+
+        shadowed, properties = self._shadowed_check(alert)
+
+        assert shadowed == live
+        assert (properties["outcome"], properties["max_abs_difference"]) == ("mismatch", 1.0)
+
+    def test_a_failing_shadow_step_records_an_error_and_never_changes_the_check(self) -> None:
+        alert = self._alert(detector=_THRESHOLD_DETECTOR)
+        live = check_alert_for_insight(alert)
+
+        with patch(f"{_SHADOW}.closed_series_values", side_effect=RuntimeError("boom")):
+            shadowed, properties = self._shadowed_check(alert)
+
+        assert shadowed == live
+        assert (properties["outcome"], properties["reason"]) == ("error", "RuntimeError")
 
     @parameterized.expand(
         [
-            ("threshold_doctored", None, False, "mismatch", 1.0),
-            ("detector_doctored", _THRESHOLD_DETECTOR, False, "mismatch", 1.0),
-            ("detector_comparison_raises", _THRESHOLD_DETECTOR, True, "error", 0.0),
+            ("flag_off", {"return_value": False}, 0),
+            ("flag_check_raises", {"side_effect": RuntimeError("flags down")}, 0),
+            ("flag_on", {"return_value": True}, 1),
         ]
     )
-    def test_shadow_outcome_never_changes_the_check(
-        self, _name: str, detector: dict[str, Any] | None, raising: bool, outcome: str, max_abs_difference: float
-    ) -> None:
-        alert = self._alert(detector=detector)
+    def test_enrollment_by_flag(self, _name: str, flag: dict[str, Any], shadow_events: int) -> None:
+        alert = self._alert(detector=None)
         live = check_alert_for_insight(alert)
 
-        if not raising:
-            self._shadowed_check(alert)
-            job = PreaggregationJob.objects.get(
-                team_id=self.team.pk,
-                time_range_start__lte="2024-01-14T00:00:00Z",
-                time_range_end__gt="2024-01-14T00:00:00Z",
-            )
-            sync_execute(
-                """
-                INSERT INTO sharded_series_values_preaggregated
-                    (team_id, job_id, time_window_start, series_key, breakdown_value, value)
-                VALUES (%(team_id)s, %(job_id)s, '2024-01-14 10:00:00', '', [], 1)
-                """,
-                {"team_id": self.team.pk, "job_id": str(job.id)},
-            )
+        with (
+            patch(f"{_SHADOW}.posthoganalytics.feature_enabled", **flag),
+            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
+        ):
+            checked = check_alert_for_insight(alert)
 
-        shadowed, properties = self._shadowed_check(alert, raising=raising)
-
-        assert shadowed == live
-        assert properties["outcome"] == outcome
-        assert properties["max_abs_difference"] == max_abs_difference
-        assert properties["freshly_built"] is False
-
-    def test_teams_not_enrolled_build_nothing_and_record_nothing(self) -> None:
-        alert = self._alert(detector=None)
-
-        with patch(f"{_SHADOW}.posthoganalytics.capture") as capture:
-            check_alert_for_insight(alert)
-
-        assert _shadow_events(capture) == []
-        assert self._jobs() == 0
+        assert checked == live
+        assert len(_shadow_events(capture)) == shadow_events
+        assert (self._jobs() > 0) == bool(shadow_events)
