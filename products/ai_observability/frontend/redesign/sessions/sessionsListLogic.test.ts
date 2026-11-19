@@ -12,13 +12,17 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { SessionListApi } from '../../generated/api.schemas'
+import type { SessionListApi, SessionListItemApi } from '../../generated/api.schemas'
 import { listFiltersLogic } from '../lists/listFiltersLogic'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { SESSIONS_LIST_FILTERS, sessionsListLogic } from './sessionsListLogic'
-import { makeSessionListPage } from './testFixtures'
+import { makeSessionListItem, makeSessionListPage } from './testFixtures'
 
 const SESSIONS_URL = '/api/projects/:team_id/ai_observability/sessions/'
+const SESSION_URL = '/api/projects/:team_id/ai_observability/sessions/:id/'
+const UNLISTED_ID = 'session/z?'
+const UNLISTED_SEGMENT = 'c2Vzc2lvbi96Pw'
+const LINK_TIMESTAMP = '2026-08-01T10:00:00Z'
 const LIST_PATH = urls.aiObservabilitySessions()
 const FIRST_PAGE = makeSessionListPage(['session-a', 'session-b'], { nextCursor: 'cursor-2' })
 const SECOND_PAGE = makeSessionListPage(['session-c'])
@@ -32,10 +36,13 @@ const MODEL_FILTER: AnyPropertyFilter = {
 }
 
 type Answer = [number, SessionListApi | { detail: string }]
+type SessionAnswer = [number, SessionListItemApi | { detail: string }]
 
 describe('sessionsListLogic', () => {
     let requests: Record<string, string>[] = []
     let answer: (params: URLSearchParams) => Answer
+    let sessionReads: { id: string; params: Record<string, string> }[] = []
+    let sessionAnswer: SessionAnswer
     let logic: ReturnType<typeof sessionsListLogic.build>
 
     const ids = (): string[] => logic.values.items.map((item) => item.id)
@@ -52,13 +59,22 @@ describe('sessionsListLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         requests = []
+        sessionReads = []
         answer = (params) => [200, params.get('cursor') === 'cursor-2' ? SECOND_PAGE : FIRST_PAGE]
+        sessionAnswer = [200, makeSessionListItem({ id: UNLISTED_ID })]
         useMocks({
             get: {
                 [SESSIONS_URL]: ({ request }) => {
                     const params = new URL(request.url).searchParams
                     requests.push(Object.fromEntries(params))
                     return answer(params)
+                },
+                [SESSION_URL]: ({ request, params }) => {
+                    sessionReads.push({
+                        id: String(params.id),
+                        params: Object.fromEntries(new URL(request.url).searchParams),
+                    })
+                    return sessionAnswer
                 },
             },
         })
@@ -153,6 +169,44 @@ describe('sessionsListLogic', () => {
 
         expect(router.values.searchParams).toEqual({ date_from: '-7d' })
         expect(logic.values.openSessionId).toBeNull()
+    })
+
+    it.each<[string, string, SessionAnswer, string, string | null, number]>([
+        ['a listed session', 'session-b', [200, makeSessionListItem()], 'ready', 'session-b', 0],
+        [
+            'a session the list does not show',
+            UNLISTED_ID,
+            [200, makeSessionListItem({ id: UNLISTED_ID })],
+            'ready',
+            UNLISTED_ID,
+            1,
+        ],
+        ['a session that does not exist', UNLISTED_ID, [404, { detail: 'Session not found.' }], 'not_found', null, 1],
+        ['a session whose read fails', UNLISTED_ID, [500, { detail: 'boom' }], 'failed', null, 1],
+    ])('opens %s from a link', async (_name, sessionId, read, status, openId, readCount) => {
+        jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        sessionAnswer = read
+
+        await mountAt(combineUrl(LIST_PATH, { session: sessionId, timestamp: LINK_TIMESTAMP }).url)
+
+        expect(logic.values.openSessionStatus).toEqual(status)
+        expect(logic.values.openItem?.id ?? null).toEqual(openId)
+        expect(sessionReads).toHaveLength(readCount)
+        if (readCount) {
+            expect(sessionReads[0]).toEqual({ id: UNLISTED_SEGMENT, params: { timestamp: LINK_TIMESTAMP } })
+        }
+    })
+
+    it('keeps the open session open when a filter takes it off the list', async () => {
+        await mountAt(combineUrl(LIST_PATH, { session: 'session-b' }).url)
+        answer = () => [200, SECOND_PAGE]
+
+        listFiltersLogic(SESSIONS_LIST_FILTERS).actions.setPropertyFilters([MODEL_FILTER])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(ids()).toEqual(['session-c'])
+        expect(logic.values.openItem?.id).toEqual('session-b')
+        expect(sessionReads).toHaveLength(0)
     })
 
     it('reads the open session from the url only on the sessions path', async () => {

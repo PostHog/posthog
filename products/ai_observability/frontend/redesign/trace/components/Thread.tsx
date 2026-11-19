@@ -19,7 +19,11 @@ export interface ThreadProps {
     matchingNodeIds?: ReadonlySet<string> | null
     showTiming?: boolean
     conversationOnly?: boolean
+    /** Shown when no turn has anything to show. */
+    emptyMessage?: string
 }
+
+const TRACE_EMPTY_MESSAGE = 'This trace has no conversation to show. Switch to Spans to see its steps.'
 
 export function Thread({
     conversation,
@@ -29,6 +33,7 @@ export function Thread({
     matchingNodeIds = null,
     showTiming = false,
     conversationOnly = false,
+    emptyMessage = TRACE_EMPTY_MESSAGE,
 }: ThreadProps): JSX.Element {
     const highlightRef = useSearchHighlight(highlightQuery)
     if (conversation.status === 'loading') {
@@ -45,11 +50,7 @@ export function Thread({
     }
     const { turns, activeTurnId } = conversation
     if (turns.every((turn) => !turnHasContent(turn) && !turn.error && !turn.pending && !turn.missingReasons)) {
-        return (
-            <p className="m-0 text-secondary">
-                This trace has no conversation to show. Switch to Spans to see its steps.
-            </p>
-        )
+        return <p className="m-0 text-secondary">{emptyMessage}</p>
     }
     return (
         <div className="flex flex-col gap-3" ref={highlightRef}>

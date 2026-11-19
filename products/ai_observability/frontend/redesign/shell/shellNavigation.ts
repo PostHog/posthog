@@ -20,7 +20,7 @@ export interface ShellTab {
     id: ShellTabId
     label: string
     description: string
-    /** Where the tab link goes: the default scope's path when the tab has scopes. */
+    /** Where the tab link goes: the default scope's path when the tab has scopes. See `shellTabPath`. */
     path: string
     /** The manifest route key of `path`, or null when the tab's scopes carry the keys. */
     sceneKey: string | null
@@ -126,12 +126,24 @@ export function shellHref(path: string, linkParams: Record<string, unknown>): st
     return combineUrl(path, linkParams).url
 }
 
-// pinned: the param that carries the open session, which saved links read
+/** Where the Activity tab opens: on Sessions once the project is known to have sessions, on Traces until then. */
+export function activityTabPath(hasSessions: boolean | null): string {
+    return hasSessions ? SESSIONS.path : TRACES.path
+}
+
+export function shellTabPath(tab: ShellTab, hasSessions: boolean | null): string {
+    return tab.id === 'activity' ? activityTabPath(hasSessions) : tab.path
+}
+
+// pinned: the params that carry the open session and its first turn's time, which saved links read
 export const SESSION_PARAM = 'session'
+export const SESSION_TIMESTAMP_PARAM = 'timestamp'
+
+const OPEN_SESSION_PARAMS: ReadonlySet<string> = new Set([SESSION_PARAM, SESSION_TIMESTAMP_PARAM])
 
 /** The params a tab or scope link keeps. An open trace or session belongs to the list it was opened on. */
 export function shellLinkParams<T>(searchParams: Record<string, T>): Record<string, T> {
     return Object.fromEntries(
-        Object.entries(withoutTraceDrawerParams(searchParams)).filter(([name]) => name !== SESSION_PARAM)
+        Object.entries(withoutTraceDrawerParams(searchParams)).filter(([name]) => !OPEN_SESSION_PARAMS.has(name))
     )
 }

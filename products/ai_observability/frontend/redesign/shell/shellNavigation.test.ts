@@ -1,6 +1,13 @@
 import { urls } from 'scenes/urls'
 
-import { SHELL_TABS, ShellLocation, shellDocsUrl, shellLinkParams, shellLocationForSceneKey } from './shellNavigation'
+import {
+    SHELL_TABS,
+    ShellLocation,
+    activityTabPath,
+    shellDocsUrl,
+    shellLinkParams,
+    shellLocationForSceneKey,
+} from './shellNavigation'
 
 const DOCS = 'https://posthog.com/docs/ai-observability'
 
@@ -29,6 +36,14 @@ describe('shellNavigation', () => {
             ['diagnostics', urls.aiObservabilityErrors()],
             ['people', urls.aiObservabilityUsers()],
         ])
+    })
+
+    it.each<[boolean | null, string]>([
+        [true, urls.aiObservabilitySessions()],
+        [false, urls.aiObservabilityTraces()],
+        [null, urls.aiObservabilityTraces()],
+    ])('opens Activity on its sessions scope only when the project has sessions (%s)', (hasSessions, expected) => {
+        expect(activityTabPath(hasSessions)).toBe(expected)
     })
 
     it('lists the scopes of each tab in display order', () => {
@@ -60,7 +75,14 @@ describe('shellNavigation', () => {
 
     it('keeps the filters in tab and scope links but not the open trace or session', () => {
         expect(
-            shellLinkParams({ date_from: '-7d', trace: 't1', ts: '2026-09-01T10:00:00Z', step: 's1', session: 'x' })
+            shellLinkParams({
+                date_from: '-7d',
+                trace: 't1',
+                ts: '2026-09-01T10:00:00Z',
+                step: 's1',
+                session: 'x',
+                timestamp: '2026-09-01T09:00:00Z',
+            })
         ).toEqual({ date_from: '-7d' })
     })
 })

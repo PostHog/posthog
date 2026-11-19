@@ -20,6 +20,7 @@ import { sessionsListLogic } from './sessionsListLogic'
 import { makeSessionListItem } from './testFixtures'
 
 const SESSIONS_URL = '/api/projects/:team_id/ai_observability/sessions/'
+const SESSION_URL = '/api/projects/:team_id/ai_observability/sessions/:id/'
 const FIRST_PAGE: SessionListApi = {
     items: [
         makeSessionListItem({ id: 'session-a', firstTraceId: 'trace-a', firstTraceCreatedAt: '2026-09-01T10:15:00Z' }),
@@ -59,6 +60,7 @@ describe('sessionCellsLogic', () => {
                     200,
                     new URL(request.url).searchParams.get('cursor') === 'cursor-2' ? SECOND_PAGE : FIRST_PAGE,
                 ],
+                [SESSION_URL]: () => [200, makeSessionListItem({ id: 'session-z', firstTraceId: 'trace-z' })],
             },
             post: {
                 [TRACE_CELL_URLS.previews]: async ({ request }: { request: Request }) => {
@@ -74,10 +76,13 @@ describe('sessionCellsLogic', () => {
             },
         })
         initKeaTests()
-        router.actions.push(urls.aiObservabilitySessions())
+    })
+
+    function mountAt(url: string): void {
+        router.actions.push(url)
         logic = sessionCellsLogic()
         logic.mount()
-    })
+    }
 
     afterEach(() => {
         logic.unmount()
@@ -85,6 +90,7 @@ describe('sessionCellsLogic', () => {
     })
 
     it('reads titles by first trace id', async () => {
+        mountAt(urls.aiObservabilitySessions())
         await settle()
 
         expect(bodies.titles).toEqual([{ trace_ids: ['trace-a', 'trace-b'] }])
@@ -103,6 +109,7 @@ describe('sessionCellsLogic', () => {
         titlesFail = true
         jest.spyOn(posthog, 'captureException')
 
+        mountAt(urls.aiObservabilitySessions())
         await settle()
 
         expect(statuses(logic.values.titles, ['trace-a', 'trace-b'])).toEqual(['error', 'error'])
@@ -110,6 +117,7 @@ describe('sessionCellsLogic', () => {
     })
 
     it('reads only the sessions of a page it has not read', async () => {
+        mountAt(urls.aiObservabilitySessions())
         await settle()
 
         sessionsListLogic.actions.showNextPage()
@@ -119,5 +127,14 @@ describe('sessionCellsLogic', () => {
         await settle()
 
         expect(bodies.titles.map((body) => body.trace_ids)).toEqual([['trace-a', 'trace-b'], ['trace-c']])
+    })
+
+    it('reads the cells of a linked session the list does not show', async () => {
+        mountAt(`${urls.aiObservabilitySessions()}?session=session-z`)
+        await settle()
+
+        expect(bodies.titles.map((body) => body.trace_ids)).toEqual([['trace-a', 'trace-b'], ['trace-z']])
+        expect(logic.values.titles.get('trace-z')).toEqual(ready(makeTracePreview('trace-z')))
+        expect(logic.values.people.get('trace-z')).toEqual(ready(makeTracePersonItem('trace-z').person))
     })
 })

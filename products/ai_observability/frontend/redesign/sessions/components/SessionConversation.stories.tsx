@@ -107,5 +107,5 @@ export const ErroredTurns: Story = {
 }
 
 export const FailedToLoad: Story = {
-    args: { conversation: { status: 'error', message: 'Could not load this session.' } },
+    args: { conversation: { status: 'error', message: "Couldn't load this session." } },
 }

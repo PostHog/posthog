@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -8,6 +9,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 
@@ -18,24 +20,36 @@ import { ListTable } from '../lists/components/ListTable'
 import { ListToolbar } from '../lists/components/ListToolbar'
 import { listFiltersLogic } from '../lists/listFiltersLogic'
 import { TraceCellLoad } from '../shared/cellLoads'
+import { sessionsAvailabilityLogic } from '../shell/sessionsAvailabilityLogic'
+import { shellHref, shellLinkParams } from '../shell/shellNavigation'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { TraceDrawerHost } from '../trace/TraceDrawerHost'
 import { traceDrawerLogic } from '../trace/traceDrawerLogic'
 import { opensTraceDrawer } from '../trace/traceDrawerRows'
 import { TraceDrawerRowProps } from '../trace/TraceDrawerRowsHost'
 import { SessionListRow } from './components/SessionListRow'
+import { SessionsSetupCard } from './components/SessionsSetupCard'
 import { sessionCellsLogic } from './sessionCellsLogic'
 import { SessionConversationHost } from './SessionConversationHost'
 import { SESSION_TURNS_LIST } from './sessionConversationLogic'
-import { SESSIONS_LIST_FILTERS, sessionsListLogic } from './sessionsListLogic'
+import { OpenSessionStatus, SESSIONS_LIST_FILTERS, sessionsListLogic } from './sessionsListLogic'
 
 // pinned: autocapture dashboards and tests select the list and its controls by this value and the suffixes built on it
 const DATA_ATTR = 'ai-observability-sessions-list'
 const SESSION_LINK = '[data-attr="ai-observability-session-link"]'
 const UNREAD: TraceCellLoad<never> = { status: 'loading' }
 
-function OpenSessionPlaceholder({ listLoading, onClose }: { listLoading: boolean; onClose: () => void }): JSX.Element {
-    if (listLoading) {
+/** The pane while there is no open session to show the conversation of. */
+function OpenSessionPlaceholder({
+    status,
+    onRetry,
+    onClose,
+}: {
+    status: Exclude<OpenSessionStatus, 'ready'>
+    onRetry: () => void
+    onClose: () => void
+}): JSX.Element {
+    if (status === 'loading') {
         return (
             <div className="flex flex-col gap-3 p-4" aria-busy="true">
                 <LemonSkeleton className="h-6 w-1/2" />
@@ -44,12 +58,26 @@ function OpenSessionPlaceholder({ listLoading, onClose }: { listLoading: boolean
             </div>
         )
     }
+    if (status === 'not_found') {
+        return (
+            <ListEmptyState
+                title="Session not found"
+                description="Check the link, or pick a session from the list."
+                action={{ label: 'Close session', onClick: onClose, 'data-attr': `${DATA_ATTR}-close-session` }}
+            />
+        )
+    }
+    if (status === 'failed') {
+        return (
+            <ListErrorState
+                title="Couldn't load this session"
+                description="Try again. If it keeps happening, contact support."
+                retry={{ onClick: onRetry, 'data-attr': `${DATA_ATTR}-retry-session` }}
+            />
+        )
+    }
     return (
-        <ListEmptyState
-            title="This session is not in the list"
-            description="Change the date range or filters to find it."
-            action={{ label: 'Close session', onClick: onClose, 'data-attr': `${DATA_ATTR}-close-session` }}
-        />
+        <ListEmptyState title="No session open" description="Pick a session from the list to read its conversation." />
     )
 }
 
@@ -63,9 +91,11 @@ export function SessionsListHost(): JSX.Element {
         filterTestAccounts,
         searchEnabled,
         openSessionId,
+        openItem,
+        openSessionStatus,
         sessionHref,
     } = useValues(sessionsListLogic)
-    const { showPreviousPage, showNextPage, reload, openSession } = useActions(sessionsListLogic)
+    const { showPreviousPage, showNextPage, reload, openSession, lookUpSession } = useActions(sessionsListLogic)
     const { filters, searchDraft } = useValues(listFiltersLogic(SESSIONS_LIST_FILTERS))
     const { setPropertyFilters, setFilterTestAccounts, setSearchDraft, resetFilters } = useActions(
         listFiltersLogic(SESSIONS_LIST_FILTERS)
@@ -75,8 +105,8 @@ export function SessionsListHost(): JSX.Element {
     const { setDateRange } = useActions(shellScopeLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { openTraceId } = useValues(traceDrawerLogic({ listId: SESSION_TURNS_LIST }))
-
-    const openItem = items.find((item) => item.id === openSessionId) ?? null
+    const { hasSessions } = useValues(sessionsAvailabilityLogic)
+    const { searchParams } = useValues(router)
     const columns: LemonTableColumns<SessionListItemApi> = useMemo(
         () => [
             {
@@ -109,6 +139,11 @@ export function SessionsListHost(): JSX.Element {
         }),
         [openSession]
     )
+
+    // A link to a session still opens it, since the probe only looks as far back as AI events are kept.
+    if (hasSessions === false && openSessionId === null) {
+        return <SessionsSetupCard tracesHref={shellHref(urls.aiObservabilityTraces(), shellLinkParams(searchParams))} />
+    }
 
     return (
         <div className="flex flex-col gap-3">
@@ -143,7 +178,7 @@ export function SessionsListHost(): JSX.Element {
                 data-attr={DATA_ATTR}
             />
             {/* The panes scroll on their own, so the split fills the window below the scene header and the toolbar. */}
-            <div className="flex h-[calc(100vh-14rem)] min-h-100 gap-3">
+            <div className="flex h-[calc(100vh-16.5rem)] min-h-100 gap-3">
                 <div className="w-75 shrink-0 overflow-y-auto">
                     <ListTable<SessionListItemApi>
                         state={state}
@@ -173,7 +208,7 @@ export function SessionsListHost(): JSX.Element {
                         }
                         errorState={
                             <ListErrorState
-                                title="Could not load sessions"
+                                title="Couldn't load sessions"
                                 description="Try again. If it keeps happening, contact support."
                                 retry={{ onClick: reload, 'data-attr': `${DATA_ATTR}-retry` }}
                             />
@@ -190,12 +225,11 @@ export function SessionsListHost(): JSX.Element {
                             person={people.get(openItem.firstTraceId) ?? UNREAD}
                             aroundTraceId={openTraceId}
                         />
-                    ) : openSessionId ? (
-                        <OpenSessionPlaceholder listLoading={state === 'loading'} onClose={() => openSession(null)} />
                     ) : (
-                        <ListEmptyState
-                            title="No session open"
-                            description="Pick a session from the list to read its conversation."
+                        <OpenSessionPlaceholder
+                            status={openSessionStatus === 'ready' ? 'loading' : openSessionStatus}
+                            onRetry={() => openSessionId !== null && lookUpSession(openSessionId)}
+                            onClose={() => openSession(null)}
                         />
                     )}
                 </div>

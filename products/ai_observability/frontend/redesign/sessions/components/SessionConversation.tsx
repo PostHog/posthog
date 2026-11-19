@@ -92,6 +92,7 @@ export function SessionConversation({
                     onRetryTurns={onRetryTurns}
                     showTiming
                     conversationOnly={conversationOnly}
+                    emptyMessage="This session has no conversation to show. Its traces are in the Traces list."
                 />
                 {newerEdge === 'loading' ? (
                     <LemonSkeleton className="h-10 w-1/2 self-end" />

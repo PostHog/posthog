@@ -58,7 +58,7 @@ export interface ConversationPageRequest {
 export type ConversationEdge = 'more' | 'waiting' | 'loading' | 'failed' | 'end'
 
 const EMPTY_SIDE: NodeSideContent = { kind: 'messages', messages: [] }
-const FIRST_PAGE_ERROR = 'Could not load this session.'
+const FIRST_PAGE_ERROR = "Couldn't load this session."
 
 // A session reads on its own: list filters sent with it are refused, and its window is its own first and last activity.
 function sessionPageParams({

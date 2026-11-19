@@ -144,12 +144,16 @@ export function buildApplyUrlStatePayload({
     }
 }
 
-// Under the navigation flag the traces list keeps its own filters, dates and search in the URL, and two writers would
-// fight over them.
-function tracesListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
+const REDESIGNED_LIST_PATH = new RegExp(
+    `^(${urls.aiObservabilityTraces()}|${urls.aiObservabilitySessions()}(/[^/]+)?)/?$`
+)
+
+// Under the navigation flag the traces list, the sessions list and the session page keep their own filters, dates and
+// search in the URL, and two writers would fight over them.
+function redesignedListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
     return (
         !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] &&
-        removeProjectIdIfPresent(router.values.location.pathname) === urls.aiObservabilityTraces()
+        REDESIGNED_LIST_PATH.test(removeProjectIdIfPresent(router.values.location.pathname))
     )
 }
 
@@ -686,6 +690,20 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             applySearchParams(searchParams)
         }
 
+        function enterRedesignedList(): void {
+            clearDashboardTimer()
+            markTrackCostsTaskCompleted()
+        }
+
+        // Session links carry `timestamp`, so unlike the traces path nothing is stripped here.
+        function applySessions(searchParams: Record<string, unknown>): void {
+            if (redesignedListOwnsUrl(values.featureFlags)) {
+                enterRedesignedList()
+                return
+            }
+            applyNonDashboard(searchParams)
+        }
+
         function applyDashboard(searchParams: Record<string, unknown>): void {
             applySearchParams(searchParams, false)
 
@@ -729,9 +747,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applyNonDashboard(searchParams)
             },
             [urls.aiObservabilityTraces()]: (_, searchParams) => {
-                if (tracesListOwnsUrl(values.featureFlags)) {
-                    clearDashboardTimer()
-                    markTrackCostsTaskCompleted()
+                if (redesignedListOwnsUrl(values.featureFlags)) {
+                    enterRedesignedList()
                     stripStaleParams(searchParams)
                     return
                 }
@@ -741,8 +758,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             [urls.aiObservabilityErrors()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityTools()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilitySentiment()]: (_, searchParams) => applyNonDashboard(searchParams),
-            [urls.aiObservabilitySessions()]: (_, searchParams) => applyNonDashboard(searchParams),
-            '/ai-observability/sessions/:id': (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.aiObservabilitySessions()]: (_, searchParams) => applySessions(searchParams),
+            '/ai-observability/sessions/:id': (_, searchParams) => applySessions(searchParams),
             [urls.aiObservabilityPlayground()]: (_, searchParams) => applyNonDashboard(searchParams),
             // Cluster list and detail both honor the same `filters` / `filter_test_accounts`
             // params so deep links from generations/traces tabs carry their filter set through.
@@ -794,12 +811,12 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
         type UrlWrite = [string, Record<string, unknown>, Record<string, unknown>]
 
-        function unlessTracesListOwnsUrl<P>(write: (payload: P) => UrlWrite): (payload: P) => UrlWrite | undefined {
-            return (payload) => (tracesListOwnsUrl(values.featureFlags) ? undefined : write(payload))
+        function unlessRedesignedListOwnsUrl<P>(write: (payload: P) => UrlWrite): (payload: P) => UrlWrite | undefined {
+            return (payload) => (redesignedListOwnsUrl(values.featureFlags) ? undefined : write(payload))
         }
 
         return {
-            applyUrlState: unlessTracesListOwnsUrl(
+            applyUrlState: unlessRedesignedListOwnsUrl(
                 ({ propertyFilters, dateFrom, dateTo, shouldFilterTestAccounts, searchQuery }) => [
                     router.values.location.pathname,
                     {
@@ -814,7 +831,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     router.values.hashParams,
                 ]
             ),
-            setPropertyFilters: unlessTracesListOwnsUrl(({ propertyFilters }) => [
+            setPropertyFilters: unlessRedesignedListOwnsUrl(({ propertyFilters }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),
@@ -822,7 +839,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 },
                 router.values.hashParams,
             ]),
-            setDates: unlessTracesListOwnsUrl(({ dateFrom, dateTo }) => [
+            setDates: unlessRedesignedListOwnsUrl(({ dateFrom, dateTo }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),
@@ -831,7 +848,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 },
                 router.values.hashParams,
             ]),
-            setDashboardDates: unlessTracesListOwnsUrl(({ dateFrom, dateTo }) => [
+            setDashboardDates: unlessRedesignedListOwnsUrl(({ dateFrom, dateTo }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),
@@ -840,7 +857,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 },
                 router.values.hashParams,
             ]),
-            setShouldFilterTestAccounts: unlessTracesListOwnsUrl(({ shouldFilterTestAccounts }) => [
+            setShouldFilterTestAccounts: unlessRedesignedListOwnsUrl(({ shouldFilterTestAccounts }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),
@@ -848,7 +865,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 },
                 router.values.hashParams,
             ]),
-            setSearchQuery: unlessTracesListOwnsUrl(({ searchQuery }) => [
+            setSearchQuery: unlessRedesignedListOwnsUrl(({ searchQuery }) => [
                 router.values.location.pathname,
                 {
                     ...sharedSearchParams(),

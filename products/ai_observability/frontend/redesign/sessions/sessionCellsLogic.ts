@@ -52,6 +52,13 @@ export interface sessionCellsLogicActions {
     reload: () => {
         value: true
     } // sessionsListLogic
+    sessionLookedUp: (
+        sessionId: string,
+        session: SessionListItemApi
+    ) => {
+        session: SessionListItemApi
+        sessionId: string
+    } // sessionsListLogic
     setPageIndex: (pageIndex: number) => {
         pageIndex: number
     } // sessionsListLogic
@@ -84,7 +91,10 @@ export const sessionCellsLogic = kea<sessionCellsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'redesign', 'sessions', 'sessionCellsLogic']),
     connect(() => ({
         values: [sessionsListLogic, ['items']],
-        actions: [sessionsListLogic, ['loadSessionsPageSuccess', 'loadSessionsPageFailure', 'setPageIndex', 'reload']],
+        actions: [
+            sessionsListLogic,
+            ['loadSessionsPageSuccess', 'loadSessionsPageFailure', 'setPageIndex', 'reload', 'sessionLookedUp'],
+        ],
     })),
     actions({
         cellsRequested: (read: SessionCellRead, traceIds: string[]) => ({ read, traceIds }),
@@ -123,10 +133,11 @@ export const sessionCellsLogic = kea<sessionCellsLogicType>([
     listeners(({ actions, values, cache }) => {
         // A row in flight is never asked for twice, so a failure only ever settles the rows it was asked for.
         const rowsToRead = (
+            rows: SessionListItemApi[],
             loads: ReadonlyMap<string, TraceCellLoad<unknown>>,
             refresh: boolean
         ): SessionListItemApi[] =>
-            values.items.filter((row) => {
+            rows.filter((row) => {
                 const status = loads.get(row.firstTraceId)?.status
                 return status !== 'loading' && (refresh || status !== 'ready')
             })
@@ -138,12 +149,12 @@ export const sessionCellsLogic = kea<sessionCellsLogicType>([
             failed: actions.cellsFailed,
         })
 
-        const readShownPage = async (refresh: boolean): Promise<void> => {
+        const readRows = async (rows: SessionListItemApi[], refresh: boolean): Promise<void> => {
             const projectId = String(ApiConfig.getCurrentProjectId())
             await Promise.all([
                 readCells(
                     'titles',
-                    rowsToRead(values.titles, refresh),
+                    rowsToRead(rows, values.titles, refresh),
                     (rows) =>
                         aiObservabilityTracesPreviewsCreate(projectId, {
                             trace_ids: rows.map((row) => row.firstTraceId),
@@ -152,7 +163,7 @@ export const sessionCellsLogic = kea<sessionCellsLogicType>([
                 ),
                 readCells(
                     'people',
-                    rowsToRead(values.people, refresh),
+                    rowsToRead(rows, values.people, refresh),
                     (rows) => aiObservabilityTracesPeopleCreate(projectId, peopleRequest(rows)),
                     (items) => actions.peopleLoaded(items)
                 ),
@@ -170,9 +181,10 @@ export const sessionCellsLogic = kea<sessionCellsLogicType>([
             loadSessionsPageSuccess: async () => {
                 const refresh = !!cache.refreshOnNextPage
                 cache.refreshOnNextPage = false
-                await readShownPage(refresh)
+                await readRows(values.items, refresh)
             },
-            setPageIndex: () => readShownPage(false),
+            setPageIndex: () => readRows(values.items, false),
+            sessionLookedUp: ({ session }) => readRows([session], false),
         }
     }),
 ])

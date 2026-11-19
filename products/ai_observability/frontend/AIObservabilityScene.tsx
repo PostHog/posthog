@@ -56,6 +56,7 @@ import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyStat
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { SessionsListHost } from './redesign/sessions/SessionsListHost'
 import { ShellHost } from './redesign/shell/ShellHost'
 import { toFullPageListParams } from './redesign/trace/traceBackLink'
 import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
@@ -556,8 +557,20 @@ const TAB_BODIES: Partial<Record<AIObservabilityTabId, () => JSX.Element>> = {
     reviews: () => <AIObservabilityHumanReviews />,
 }
 
-function TabBody({ tab }: { tab: AIObservabilityTabId }): JSX.Element | null {
-    return TAB_BODIES[tab]?.() ?? null
+const SHELL_TAB_BODIES: Partial<Record<AIObservabilityTabId, () => JSX.Element>> = {
+    ...TAB_BODIES,
+    traces: () => <TracesListHost />,
+    sessions: () => <SessionsListHost />,
+}
+
+function TabBody({
+    tab,
+    bodies = TAB_BODIES,
+}: {
+    tab: AIObservabilityTabId
+    bodies?: Partial<Record<AIObservabilityTabId, () => JSX.Element>>
+}): JSX.Element | null {
+    return bodies[tab]?.() ?? null
 }
 
 function AIObservabilitySceneContent(): JSX.Element {
@@ -569,7 +582,11 @@ function AIObservabilitySceneContent(): JSX.Element {
     if (activeTab === 'self-driving' && !featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING]) {
         return <NotFound object="page" />
     }
-    return <ShellHost>{activeTab === 'traces' ? <TracesListHost /> : <TabBody tab={activeTab} />}</ShellHost>
+    return (
+        <ShellHost>
+            <TabBody tab={activeTab} bodies={SHELL_TAB_BODIES} />
+        </ShellHost>
+    )
 }
 
 function AIObservabilityTabbedContent(): JSX.Element {
