@@ -441,14 +441,16 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             )
     # Read last, so a contact who joined a segment after the contact list was read still becomes a person.
     everyone = contacts.everyone
+    # One shared set, so a large opt-out list isn't copied once per segment.
+    non_members = frozenset(unsubscribed)
     yield ImportPage(
         processed=len(everyone),
         save=partial(
             save_contact_lists,
             context,
-            replace(_everyone(everyone), non_members=frozenset(unsubscribed)),
+            replace(_everyone(everyone), non_members=non_members),
             # Unsubscribed contacts stay out of every cohort, as they do for the cohort of all contacts.
-            [replace(segment, non_members=frozenset(unsubscribed)) for segment in segments],
+            [replace(segment, non_members=non_members) for segment in segments],
             contacts.other_spellings,
         ),
     )

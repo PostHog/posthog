@@ -740,6 +740,28 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert {(cohort.is_calculating, cohort.errors_calculating) for cohort in cohorts} == {(False, 1)}
         assert self.people.stored == {}
 
+    def test_every_cohort_shares_one_set_of_unsubscribed_contacts(self) -> None:
+        self.resend.data["segments"] = [
+            {**self.resend.data["segments"][0], "id": f"seg-{n}", "name": f"Segment {n}"} for n in range(3)
+        ]
+        lists: list[Any] = []
+        save = resend.save_contact_lists
+
+        def record(context: Any, everyone: Any, segments: Any, *args: Any) -> Any:
+            lists.extend([everyone, *segments])
+            return save(context, everyone, segments, *args)
+
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+        with (
+            patch.object(resend, "save_contact_lists", side_effect=record),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert len(lists) == 4 and lists[0].non_members
+        assert len({id(contact_list.non_members) for contact_list in lists}) == 1
+
     def test_a_segment_id_cannot_reach_another_resend_endpoint(self) -> None:
         self.resend.data["segments"] = [{**self.resend.data["segments"][0], "id": "s/../../api-keys"}]
 
@@ -823,6 +845,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         # stays out of the cohort.
         plan, segment_plan = run.progress["contacts"]["people_imports"]
         people = self.people.people(plan)
+        segment_people = self.people.people(segment_plan)
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
         assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
@@ -833,7 +856,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert segment_cohorts.count() == 1
         # The segment's list only sets its cohort's members, so its contacts' events go out once, with the list above.
         assert (segment_plan["cohort_id"], segment_plan["send_events"]) == (segment_cohorts.get().id, False)
-        assert [person["distinct_id"] for person in self.people.people(segment_plan)] == ["user-hal"]
+        assert [person["distinct_id"] for person in segment_people] == ["user-hal"]
         workflow = get_workflow(
             team_id=self.team.id,
             workflow_id=next(
