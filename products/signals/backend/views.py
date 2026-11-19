@@ -181,14 +181,7 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.access import can_view_inbox_ranking, user_flag_enabled
 from products.signals.backend.ranking.cache import PUBLIC_LIFT_FIELDS, PUBLIC_SCORE_FIELDS
-from products.signals.backend.ranking.inbox_sort import (
-    PRIORITY_ORDERING,
-    RANKER_ORDERINGS,
-    InboxRanker,
-    RecommendedArm,
-    latest_ranking_value,
-    resolve_recommended_arm,
-)
+from products.signals.backend.ranking.inbox_sort import PRIORITY_ORDERING, latest_ranking_value
 from products.signals.backend.ranking.public_outcomes import MODEL_HEAD_BY_OUTCOME, PUBLIC_OUTCOME_NAMES
 from products.signals.backend.ranking.served_outcomes import served_outcomes
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
@@ -1642,11 +1635,9 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "type": "string",
             "nullable": True,
             "description": (
-                "The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, "
-                "action or fix for that outcome of the served ranking model, or personal when a stored personal "
-                "ranking ordered the page. For sort=personal that is the teammate's ranking with scope=teammate, "
-                "else yours. For sort=recommended it is yours, when your flag arm serves it. Null for every other "
-                "sort. Each row's inbox_merge_key belongs to this ranker."
+                "The ranker that ordered the page when sort=recommended or sort=personal: personal when a stored "
+                "personal ranking ordered the page, else priority. With scope=teammate that is the teammate's "
+                "ranking, else yours. Null for every other sort. Each row's inbox_merge_key belongs to this ranker."
             ),
         }
         paginated["properties"]["ranking_id"] = {
@@ -1715,7 +1706,7 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "nullable": True,
             "description": (
                 "Whether the client shows a ranking score pill on each card, when sort=recommended or "
-                "sort=personal. The same flag arm sets this and the ranker. Null for every other sort."
+                "sort=personal. True when a stored personal ranking ordered the page. Null for every other sort."
             ),
         }
         paginated["properties"]["source_metadata_available"] = {
@@ -1918,16 +1909,12 @@ _REPORT_LIST_PARAMETERS = [
         required=False,
         description=(
             "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored "
-            "when ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
-            "the open, action or fix outcome of the served ranking model, highest score first, with "
-            "unscored reports in priority order after the scored ones, or your stored personal "
-            "ranking, as personal gives it, then the priority order. The response's ranker "
-            "field names the one used, and its ranking_pill field says whether to show score pills. "
-            "personal puts the reports of a stored personal ranking first, by rank, then the reports it "
-            "folded, then every other report in your recommended order. With scope=teammate it reads the "
-            "teammate's stored ranking, else yours. It only reads the stored ranking and never starts a "
-            "build. With no stored personal ranking, or a teammate outside the organization, it is the "
-            "recommended order, or the priority order when recommended gives you the personal ranking."
+            "when ordering is supplied. recommended and personal put the reports of a stored personal "
+            "ranking first, by rank, then the reports it folded, then every other report in priority order. "
+            "With scope=teammate they read the teammate's stored ranking, else yours. They only read the "
+            "stored ranking and never start a build. With no stored personal ranking, or a teammate outside "
+            "the organization, they give the priority order. The response's ranker field names the order "
+            "used, and its ranking_pill field says whether to show score pills."
         ),
     ),
     OpenApiParameter(
@@ -2101,9 +2088,8 @@ class SignalReportViewSet(
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
     _INBOX_SORT_ORDERINGS = {
         "priority": PRIORITY_ORDERING,
-        # A feature flag resolves this preset per user. See `_recommended_arm`.
+        # `_personal_order` puts the stored personal ranking before the priority order for both presets.
         "recommended": PRIORITY_ORDERING,
-        # `_personal_order` puts the stored ranking before the recommended arm's order.
         "personal": PRIORITY_ORDERING,
         "last_updated": "-updated_at,status",
         "newest": "-created_at,status,-updated_at",
@@ -3166,7 +3152,7 @@ class SignalReportViewSet(
             return queryset
         return self._apply_signal_report_ordering(queryset)
 
-    def _parse_ordering_string(self, raw: str, *, allow_ranking: bool = False) -> list[str]:
+    def _parse_ordering_string(self, raw: str) -> list[str]:
         parts = [p.strip() for p in raw.split(",") if p.strip()]
         clauses: list[str] = []
         for part in parts:
@@ -3175,7 +3161,7 @@ class SignalReportViewSet(
             db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
             if db_field is None:
                 continue
-            if name in self._RANKING_ORDERING_HEADS and not allow_ranking and not self._can_view_inbox_ranking:
+            if name in self._RANKING_ORDERING_HEADS and not self._can_view_inbox_ranking:
                 # The serializer hides ranking scores from these users, and the order would leak them.
                 raise serializers.ValidationError({"ordering": f"Ordering by {name} is not available to you."})
             clause = f"-{db_field}" if descending else db_field
@@ -3187,41 +3173,18 @@ class SignalReportViewSet(
         return self._parse_ordering_string(self._DEFAULT_SIGNAL_REPORT_ORDERING)
 
     @cached_property
-    def _recommended_arm(self) -> RecommendedArm | None:
+    def _ranked_inbox_sort(self) -> bool:
+        """`sort=recommended` and `sort=personal`, which read a stored personal ranking. An `ordering` overrides both."""
         params = self.request.query_params
-        inbox_sort = params.get("sort")
-        if params.get("ordering") is not None or inbox_sort not in ("recommended", "personal"):
-            return None
-        own_order = self._own_personal_order
-        # The personal sort only borrows the arm's order, so it records no exposure for the experiment.
-        return resolve_recommended_arm(
-            self.team,
-            cast(User, self.request.user),
-            personal_list_size=len(own_order.report_ids) if own_order is not None else 0,
-            send_feature_flag_events=inbox_sort == "recommended",
-        )
-
-    @cached_property
-    def _own_personal_order(self) -> PersonalListOrder | None:
-        """The caller's stored list. The personal arm of `sort=recommended` serves it."""
-        request = self.request
-        user = request.user
-        if is_service_auth(request) or not isinstance(user, User):
-            return None
-        return personal_list_order(self.team, user, request.query_params.get("ranking_id"))
+        return params.get("ordering") is None and params.get("sort") in ("recommended", "personal")
 
     @cached_property
     def _personal_order(self) -> PersonalListOrder | None:
         request = self.request
         user = request.user
-        arm = self._recommended_arm
-        if arm is None:
-            return None
-        if request.query_params.get("sort") == "recommended":
-            # Only a caller with a stored list can get the personal arm, so this order is never None for it.
-            return self._own_personal_order if arm.personal else None
         if (
-            is_service_auth(request)
+            not self._ranked_inbox_sort
+            or is_service_auth(request)
             or not isinstance(user, User)
             or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
         ):
@@ -3229,8 +3192,6 @@ class SignalReportViewSet(
         owner = self._personal_ranking_owner(user)
         if owner is None:
             return None
-        if owner == user:
-            return self._own_personal_order
         return personal_list_order(self.team, owner, request.query_params.get("ranking_id"))
 
     def _personal_ranking_status(self) -> dict[str, object] | None:
@@ -3247,7 +3208,7 @@ class SignalReportViewSet(
         return dataclasses.asdict(status) if status is not None else None
 
     def _personal_ranking_owner(self, user: User) -> User | None:
-        """Whose stored ranking `sort=personal` reads: the teammate `scope=teammate` names, else the caller."""
+        """Whose stored ranking the ranked sorts read: the teammate `scope=teammate` names, else the caller."""
         params = self.request.query_params
         if params.get("scope") != "teammate":
             return user
@@ -3263,18 +3224,12 @@ class SignalReportViewSet(
         return membership.user if membership is not None else None
 
     @property
-    def _base_inbox_ranker(self) -> InboxRanker | None:
-        return self._recommended_arm.ranker if self._recommended_arm is not None else None
-
-    @property
-    def _inbox_ranker(self) -> str | None:
-        return "personal" if self._personal_order is not None else self._base_inbox_ranker
+    def _inbox_ranker(self) -> Literal["personal", "priority"] | None:
+        if not self._ranked_inbox_sort:
+            return None
+        return "personal" if self._personal_order is not None else "priority"
 
     def _parse_signal_report_ordering(self) -> list[str]:
-        arm = self._recommended_arm
-        if arm is not None:
-            # The flag arm picks the ranker, so users without the model sorts may use this preset.
-            return self._parse_ordering_string(RANKER_ORDERINGS[arm.ranker], allow_ranking=True)
         raw = self.request.query_params.get("ordering")
         if raw is None:
             inbox_sort = self.request.query_params.get("sort")
@@ -3726,14 +3681,14 @@ class SignalReportViewSet(
         self._source_metadata_available = include_source_metadata
         excluded = request.validated_query_data["exclude"]
         if count_only:
-            # A count orders nothing, so it must not record a flag exposure for the ranker.
-            self._recommended_arm = None
+            # A count orders nothing, so it skips the read of the stored personal ranking.
+            self._ranked_inbox_sort = False
             self._personal_order = None
         with trial_state_errors():
             store = trial_store_for_request(request, self.team_id)
             if store is not None:
-                # Private trial reads compare against the priority order, never a flag arm.
-                self._recommended_arm = None
+                # Private trial reads compare against the priority order, never a personal ranking.
+                self._ranked_inbox_sort = False
                 self._personal_order = None
                 return TrialInboxReads(self, store).list(
                     count_only=count_only, include_source_metadata=include_source_metadata
@@ -3801,9 +3756,7 @@ class SignalReportViewSet(
             response = self.get_paginated_response(data)
             response.data["ranker"] = self._inbox_ranker
             response.data["source_metadata_available"] = self._source_metadata_available
-            response.data["ranking_pill"] = (
-                self._recommended_arm.ranking_pill if self._recommended_arm is not None else None
-            )
+            response.data["ranking_pill"] = self._personal_order is not None if self._ranked_inbox_sort else None
             response.data["ranking_id"] = self._personal_order.ranking_id if self._personal_order is not None else None
             # Later pages skip the read: the client records the status of the first page only.
             response.data["personal_ranking_status"] = (
@@ -3937,7 +3890,7 @@ class SignalReportViewSet(
             ),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "monitoring_summaries_map": monitoring_summaries_map,
-            "inbox_ranker": self._base_inbox_ranker,
+            "ranked_inbox_sort": self._ranked_inbox_sort,
             "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
