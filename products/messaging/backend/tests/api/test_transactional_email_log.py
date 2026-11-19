@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
@@ -80,7 +81,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self,
         minutes_ago: int,
         recipient: str,
-        statuses: list[tuple[str, int, str]],
+        statuses: Sequence[tuple[str, float, str]],
         *,
         team: Team | None = None,
         workflow_id: str | None = None,
