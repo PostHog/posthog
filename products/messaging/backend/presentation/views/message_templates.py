@@ -658,6 +658,11 @@ _SCHEDULED_AT_KEY = re.compile(
 SEND_BODY_MAX_MEMBERS_WITH_TWO_TIMES = 1000
 
 
+def _past_json_whitespace(text: str, start: int) -> int:
+    match = _JSON_WHITESPACE.match(text, start)
+    return match.end() if match else start
+
+
 class _JsonObject(dict):
     repeated: dict[str, _Repeated]
 
@@ -673,10 +678,10 @@ class _JsonObject(dict):
     def from_parsed_object(cls, text: str, decoder: json.JSONDecoder) -> Mapping[str, Any]:
         # `text` already parsed as one JSON object, so every member is well formed. Each value is decoded by the
         # stock scanner and kept as the stock parser keeps it, so the walk holds no more memory than that parser.
-        skip = _JSON_WHITESPACE.match
+        skip = _past_json_whitespace
         obj: dict[str, Any] = {}
         times = members = 0
-        end = skip(text, skip(text).end() + 1).end()
+        end = skip(text, skip(text, 0) + 1)
         while text[end] != "}":
             members += 1
             if members > SEND_BODY_MAX_MEMBERS_WITH_TWO_TIMES:
@@ -685,11 +690,11 @@ class _JsonObject(dict):
                     f"{SEND_BODY_MAX_MEMBERS_WITH_TWO_TIMES} top-level members."
                 )
             key, end = decoder.raw_decode(text, end)
-            obj[key], end = decoder.raw_decode(text, skip(text, skip(text, end).end() + 1).end())
+            obj[key], end = decoder.raw_decode(text, skip(text, skip(text, end) + 1))
             times += key == "scheduled_at"
-            end = skip(text, end).end()
+            end = skip(text, end)
             if text[end] == ",":
-                end = skip(text, end + 1).end()
+                end = skip(text, end + 1)
         return cls.with_repeats(obj, {"scheduled_at": _Repeated()} if times > 1 else {})
 
 
