@@ -5,6 +5,8 @@ sending domain, and opens and clicks add rows of their own. The delivery status 
 delivery row, so an open never hides a bounce.
 """
 
+import re
+from collections import defaultdict
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from statistics import median
@@ -570,13 +572,26 @@ def transactional_email_results(
     # The same person can be reached under several distinct ids, so the send and the conversion meet on the person.
     person_by_distinct_id = _persons_for_distinct_ids(team, user, list(sends))
     first_send: dict[str, datetime] = {}
+    distinct_ids_of: defaultdict[str, list[str]] = defaultdict(list)
     for distinct_id, sent_at in sends.items():
         person = person_by_distinct_id.get(distinct_id, f"distinct:{distinct_id}")
         first_send[person] = min(first_send.get(person, sent_at), sent_at)
+        distinct_ids_of[person].append(distinct_id)
 
-    conversions = _conversions(
-        team, user, event, revenue_property, list(sends), first_send, window, start, end + window
-    )
+    # A recipient's distinct ids stay in one batch, so each recipient's conversions come back from one query.
+    conversions: dict[str, _Conversion] = {}
+    for batch in _batches_by_query_size(team.id, list(distinct_ids_of.items()), _recipient_query_bytes):
+        conversions |= _conversions(
+            team,
+            user,
+            event,
+            revenue_property,
+            [distinct_id for _, distinct_ids in batch for distinct_id in distinct_ids],
+            {recipient: first_send[recipient] for recipient, _ in batch},
+            window,
+            start,
+            end + window,
+        )
     converted_at = {person: conversion.first_at for person, conversion in conversions.items()}
     revenue = sum(conversion.revenue for conversion in conversions.values())
 
@@ -723,14 +738,22 @@ def _converted_sends(team: Team, user: User | None, event: str, sends: list[_Fol
     return converted
 
 
+# ClickHouse reads a size setting as an integer with an optional k, K, M, G or T suffix, and an `i` after the suffix
+# makes it a power of two: "16K" is 16000 and "16Ki" is 16384.
+_CLICKHOUSE_SIZE = re.compile(r"(\d+)(?:([kKMGT])(i?))?")
+_SIZE_SUFFIX_POWER = {"k": 1, "K": 1, "M": 2, "G": 3, "T": 4}
+
+
 def _max_query_size(team_id: int) -> int:
-    # Per-team settings come from JSON, so a number can arrive as text. Zero turns the ClickHouse limit off, and a value
-    # with a unit suffix is not parsed here, so both fall back to the default limit.
+    # Per-team settings come from JSON, so a number can arrive as text. Zero turns the ClickHouse limit off, so it falls
+    # back to the default limit, as does a value ClickHouse itself would refuse.
     override = CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
-    try:
-        team_limit = int(override)
-    except (TypeError, ValueError):
-        team_limit = 0
+    size = _CLICKHOUSE_SIZE.fullmatch(str(override)) if isinstance(override, int | str) else None
+    team_limit = 0
+    if size:
+        number, suffix, binary = size.groups()
+        power = _SIZE_SUFFIX_POWER.get(suffix, 0)
+        team_limit = int(number) * (1024**power if binary else 1000**power)
     return team_limit if team_limit > 0 else clickhouse_execute.default_settings()["max_query_size"]
 
 
@@ -755,6 +778,15 @@ def _query_bytes_of(send: _FollowedSend) -> int:
         _DISTINCT_ID_COPIES_IN_QUERY * _escaped_literal_bytes(send.distinct_id)
         + _escaped_literal_bytes(send.recipient)
         + _escaped_literal_bytes(send.message_id)
+        + _SINCE_MS_LITERAL_BYTES
+    )
+
+
+def _recipient_query_bytes(recipient_distinct_ids: tuple[str, list[str]]) -> int:
+    recipient, distinct_ids = recipient_distinct_ids
+    return (
+        _DISTINCT_ID_COPIES_IN_QUERY * sum(_escaped_literal_bytes(distinct_id) for distinct_id in distinct_ids)
+        + _escaped_literal_bytes(recipient)
         + _SINCE_MS_LITERAL_BYTES
     )
 

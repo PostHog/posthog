@@ -11,7 +11,6 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
@@ -28,7 +27,7 @@ from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.services.transactional_email_log import _bucket_starts, _max_query_size
+from products.messaging.backend.services.transactional_email_log import _bucket_starts
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import destroy_workflow
@@ -58,6 +57,9 @@ IMPACT_COUNTS = {
     "window_days": 7,
 }
 LONG_ID_SENDS = 20
+TIED_SENDS = 8
+SPLIT_LOOKUP_OTHERS = 7
+TIED_SENDS_FOLLOWED = 4
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 
 
@@ -575,10 +577,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.json() == {"recipients": 4, "converted": 2, "revenue": 55.0, "median_hours_to_convert": 5.0}
 
     def test_counts_a_person_once_when_their_distinct_ids_need_separate_person_lookups(self, _flag):
-        distinct_ids = {name: f"split-{name}-{'€' * 345}" for name in ["phone", "laptop", "other"]}
+        names = ["phone", "laptop", *[f"other-{index}" for index in range(SPLIT_LOOKUP_OTHERS)]]
+        distinct_ids = {name: f"split-{name}-{'€' * 600}" for name in names}
         create_person(team=self.team, distinct_ids=[distinct_ids["phone"], distinct_ids["laptop"]])
-        create_person(team=self.team, distinct_ids=[distinct_ids["other"]])
-        for minutes_ago, name in [(300, "phone"), (200, "laptop"), (100, "other")]:
+        for name in names[2:]:
+            create_person(team=self.team, distinct_ids=[distinct_ids[name]])
+        for minutes_ago, name in enumerate(names, start=100):
             self._record_distinct_id(
                 str(UUIDT()), distinct_ids[name], f"{name}@example.com", NOW - timedelta(minutes=minutes_ago)
             )
@@ -586,6 +590,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             team=self.team, event="purchase", distinct_id=distinct_ids["laptop"], timestamp=NOW - timedelta(minutes=60)
         )
         flush_persons_and_events()
+
         with patch.dict(
             CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": str(SMALL_MAX_QUERY_SIZE)}}
         ):
@@ -599,7 +604,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["recipients"] == 2
+        assert response.json()["recipients"] == 1 + SPLIT_LOOKUP_OTHERS
         assert response.json()["converted"] == 1
 
     def _seed_impact_sends(self) -> None:
@@ -680,7 +685,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "without_click": {"sends": 3, "converted": 2},
         }
 
-    def test_counts_conversions_of_sends_whose_ids_overflow_one_clickhouse_query(self, _flag):
+    @parameterized.expand([("number_as_text", str(SMALL_MAX_QUERY_SIZE)), ("binary_suffix", "16Ki")])
+    def test_counts_conversions_of_sends_whose_ids_overflow_one_clickhouse_query(self, _flag, _name, team_limit):
         long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
         for minutes_ago, distinct_id in enumerate(long_distinct_ids, start=10):
             create_person(team=self.team, distinct_ids=[distinct_id])
@@ -691,28 +697,53 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 team=self.team, event="purchase", distinct_id=distinct_id, timestamp=sent_at + timedelta(hours=1)
             )
         flush_persons_and_events()
-        with patch.dict(
-            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": str(SMALL_MAX_QUERY_SIZE)}}
-        ):
+        with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": team_limit}}):
             impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert impact["without_click"] == {"sends": LONG_ID_SENDS, "converted": LONG_ID_SENDS}
 
     def test_impact_follows_the_same_sends_when_several_tie_at_the_cap(self, _flag):
         sends = []
-        for name in ["first", "second", "third"]:
+        for index in range(TIED_SENDS):
+            name = f"tied-{index}"
             create_person(team=self.team, distinct_ids=[name])
             message_id = self._send(60, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
             self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
             sends.append((message_id, name))
-        _, left_out = min(sends)
-        _create_event(team=self.team, event="purchase", distinct_id=left_out, timestamp=NOW - timedelta(minutes=30))
+        for _, left_out in sorted(sends)[: TIED_SENDS - TIED_SENDS_FOLLOWED]:
+            _create_event(team=self.team, event="purchase", distinct_id=left_out, timestamp=NOW - timedelta(minutes=30))
         flush_persons_and_events()
 
-        with patch("products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", 2):
+        with patch(
+            "products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", TIED_SENDS_FOLLOWED
+        ):
             impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 
-        assert impact["without_click"] == {"sends": 2, "converted": 0}
+        assert impact["without_click"] == {"sends": TIED_SENDS_FOLLOWED, "converted": 0}
+
+    def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
+        for name in ["one", "two", "three"]:
+            create_person(team=self.team, distinct_ids=[name])
+            message_id = self._send(60, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
+        _create_event(team=self.team, event="purchase", distinct_id="one", timestamp=NOW - timedelta(minutes=30))
+        flush_persons_and_events()
+        [(clickhouse_now,)] = sync_execute("SELECT now()")
+
+        with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": "0"}}):
+            impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+
+        sync_execute("SYSTEM FLUSH LOGS")
+        [(conversion_queries,)] = sync_execute(
+            """
+            SELECT count() FROM system.query_log
+            WHERE type = 'QueryFinish' AND event_time >= %(since)s AND current_database = currentDatabase()
+              AND has(tables, concat(currentDatabase(), '.events')) AND position(query, 'purchase') > 0
+            """,
+            {"since": clickhouse_now},
+        )
+        assert impact["without_click"] == {"sends": 3, "converted": 1}
+        assert conversion_queries == 1
 
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
         self._seed_impact_sends()
@@ -915,18 +946,3 @@ class TestStatsBuckets(SimpleTestCase):
         starts = _bucket_starts(start, end, interval, ZoneInfo("Europe/Prague"))
 
         assert [(moment.month, moment.day, moment.hour) for moment in starts] == expected
-
-
-class TestMaxQuerySize(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("no_override", {}, MAX_QUERY_SIZE_BYTES),
-            ("number", {"max_query_size": 16384}, 16384),
-            ("number_as_text", {"max_query_size": "16384"}, 16384),
-            ("zero_turns_the_limit_off", {"max_query_size": "0"}, MAX_QUERY_SIZE_BYTES),
-            ("unit_suffix", {"max_query_size": "16Mi"}, MAX_QUERY_SIZE_BYTES),
-        ]
-    )
-    def test_max_query_size_follows_a_team_override_it_can_read(self, _name, team_settings, expected):
-        with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {"7": team_settings}):
-            assert _max_query_size(7) == expected
