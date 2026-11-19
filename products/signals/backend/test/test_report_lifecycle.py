@@ -1,6 +1,7 @@
 from datetime import timedelta
 from uuid import UUID
 
+import time_machine
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -52,6 +53,24 @@ class TestReportMonitoringLifecycle(SimpleTestCase):
         if reopened_status == SignalReport.Status.READY:
             report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=retry_at)
             assert report.monitoring_started_at == retry_at
+
+    @parameterized.expand([(SignalReport.Status.RESOLVED,), (SignalReport.Status.CLOSED,)])
+    def test_leaving_monitoring_records_when_it_ended_until_reopened(self, outcome: str) -> None:
+        report = SignalReport(team_id=7, status=SignalReport.Status.READY)
+        report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now() - timedelta(days=3))
+        report.transition_to(SignalReport.Status.SUPPRESSED)
+        report.transition_to(report.restore_target_status())
+        self.assertIsNone(report.monitoring_ended_at)
+
+        ended_at = timezone.now() + timedelta(hours=1)
+        with time_machine.travel(ended_at, tick=False):
+            assert "monitoring_ended_at" in report.transition_to(SignalReport.Status(outcome))
+        assert report.monitoring_ended_at == ended_at
+
+        report.transition_to(SignalReport.Status.READY)
+        self.assertIsNone(report.monitoring_ended_at)
+        report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now())
+        self.assertIsNone(report.monitoring_ended_at)
 
     @parameterized.expand([("missing", None), ("naive", "naive")])
     def test_entry_requires_an_explicit_aware_implementation_time(self, _name: str, invalid_time: str | None) -> None:
