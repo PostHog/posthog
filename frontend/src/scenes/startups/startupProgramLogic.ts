@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
@@ -121,6 +121,7 @@ export interface startupProgramLogicValues {
     user: UserType | null // userLogic
     currentStartupProgramLabel: StartupProgramLabel | null
     domainFromEmail: string
+    eligibilityError: string | null
     formSubmitted: boolean
     isCurrentlyOnStartupPlan: boolean
     isEmailDomainBlocked: boolean
@@ -204,6 +205,10 @@ export interface startupProgramLogicMeta {
         userEmailDomain: (user: UserType | null) => string
         isEmailDomainBlocked: (user: UserType | null) => boolean
         domainFromEmail: (userEmailDomain: string, isEmailDomainBlocked: boolean) => string
+        eligibilityError: (
+            startupProgram: StartupProgramFormValues,
+            startupProgramValidationErrors: DeepPartialMap<StartupProgramFormValues, ValidationErrorType>
+        ) => string | null
         shouldShowEmailDomainBlockedGate: (
             billing: BillingType | null,
             formSubmitted: boolean,
@@ -437,6 +442,41 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     throw error
                 }
             },
+        },
+    })),
+    selectors({
+        // Shown as soon as an answer rules the company out, instead of only after a submit attempt
+        eligibilityError: [
+            (s) => [s.startupProgram, s.startupProgramValidationErrors],
+            (
+                startupProgram: StartupProgramFormValues,
+                startupProgramValidationErrors: DeepPartialMap<StartupProgramFormValues, ValidationErrorType>
+            ): string | null => {
+                if (startupProgram.raised && startupProgramValidationErrors.raised) {
+                    return startupProgramValidationErrors.raised as string
+                }
+                if (startupProgram.incorporation_date && startupProgramValidationErrors.incorporation_date) {
+                    return startupProgramValidationErrors.incorporation_date as string
+                }
+                return null
+            },
+        ],
+    }),
+    listeners(({ values }) => ({
+        submitStartupProgramFailure: () => {
+            // A failed API call leaves no validation errors behind, and its toast already explains it
+            if (!values.startupProgramHasErrors) {
+                return
+            }
+            posthog.capture('startup program application blocked', {
+                program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
+                organization_id: values.currentOrganizationId,
+                blocked_at: 'validation',
+                invalid_fields: Object.keys(values.startupProgramValidationErrors).filter(
+                    (field) => !!values.startupProgramValidationErrors[field as keyof StartupProgramFormValues]
+                ),
+                raised: values.startupProgram.raised,
+            })
         },
     })),
     subscriptions(({ values, cache }) => ({
