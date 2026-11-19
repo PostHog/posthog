@@ -479,11 +479,20 @@ def run_precomputed_metric_query(
 
     Pass `record_use=False` for a viewer who isn't a project member: the tile then reads stored buckets but
     creates no precomputed metric and doesn't keep one in use."""
+    result = run_planned_metric_query(team=team, request=request, record_use=record_use)
+    if isinstance(result, MetricQueryResult):
+        return result
+    return MetricQueryResult(series=_run_metric_query(team, request, {}), provenance=result)
+
+
+def run_planned_metric_query(
+    *, team: Team, request: MetricQueryRequest, record_use: bool = True
+) -> MetricQueryResult | MetricQueryProvenance:
+    """`run_precomputed_metric_query` when a precomputed metric covers at least one clause. Otherwise it runs
+    nothing and returns the raw provenance, with why each clause has no plan, so the caller picks the raw path.
+    Planning still creates the precomputed metric that a long-range tile needs."""
     if not precompute_enabled(team):
-        return MetricQueryResult(
-            series=_run_metric_query(team, request, {}),
-            provenance=MetricQueryProvenance(mode=MetricQueryProvenanceMode.RAW, reasons=(_PRECOMPUTE_OFF,)),
-        )
+        return MetricQueryProvenance(mode=MetricQueryProvenanceMode.RAW, reasons=(_PRECOMPUTE_OFF,))
     plans: list[ClausePlan] = []
     reasons: list[str] = []
     runners: dict[str, PrecomputedClauseRunner] = {}
@@ -500,14 +509,16 @@ def run_precomputed_metric_query(
             continue
         plans.append(plan)
         runners[clause.name] = PrecomputedClauseRunner(team, request, plan, entries)
+    if not plans:
+        return MetricQueryProvenance(mode=MetricQueryProvenanceMode.RAW, reasons=tuple(reasons))
     series = _run_metric_query(team, request, runners)
     provenance = MetricQueryProvenance(
         mode=provenance_mode(plans, len(reasons), request.date_to),
-        precomputed_until=min((plan.cut for plan in plans), default=None),
+        precomputed_until=min(plan.cut for plan in plans),
         reasons=tuple(reasons),
     )
     shadow = None
-    if plans and random.random() < PRECOMPUTE_SHADOW_CHECK_RATE:
+    if random.random() < PRECOMPUTE_SHADOW_CHECK_RATE:
         shadow = _shadow_check(
             team, provenance, series, lambda: _run_metric_query(team, request, {}, record_query=False)
         )

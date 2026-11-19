@@ -1,6 +1,8 @@
 import math
 import datetime as dt
+from typing import Any, cast
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -8,7 +10,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import MetricsQuery, MetricsQueryClause
+from posthog.schema import CachedMetricsQueryResponse, MetricsQuery, MetricsQueryClause, MetricsQueryGroupBy
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 
@@ -276,6 +278,55 @@ class TestPrecomputedMetricQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert result.provenance.mode == MetricQueryProvenanceMode.MIXED
         self._assert_same_series(result.series, run_metric_query(team=self.team, request=request))
+
+    def _refresh_tile(self) -> list[tuple[CachedMetricsQueryResponse, dict[str, Any]]]:
+        query = MetricsQuery(
+            clauses=[
+                MetricsQueryClause(
+                    name="a",
+                    metricName=COUNTER,
+                    aggregation="increase",
+                    groupBy=[MetricsQueryGroupBy(key="service_name")],
+                )
+            ],
+            dateRange={"date_from": "-2d"},
+            interval="hour",
+        )
+        refreshes = []
+        with (
+            patch(
+                "products.metrics.backend.hogql_queries.metrics_query_runner.posthog_feature_flag_enabled",
+                return_value=True,
+            ),
+            time_machine.travel(NOW, tick=False) as traveller,
+        ):
+            for _ in range(2):
+                with patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+                    response = MetricsQueryRunner(
+                        query=query.model_copy(deep=True), team=self.team, user=self.user
+                    ).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, dashboard_id=1)
+                (properties,) = [call.args[1] for call in report.call_args_list if call.args[0] == "query executed"]
+                refreshes.append((cast(CachedMetricsQueryResponse, response), properties))
+                traveller.shift(dt.timedelta(minutes=2))
+        return refreshes
+
+    @override_settings(METRICS_TAIL_REFRESH_VERIFY_RATE=0.0)
+    def test_a_tile_that_a_precomputed_metric_covers_is_answered_by_the_planner_before_the_tail_refresh(self):
+        self._precompute(_counter_clause(MetricAggregation.INCREASE, group_by=BY_SERVICE))
+
+        for response, properties in self._refresh_tile():
+            assert response.provenance is not None and response.provenance.mode == "mixed"
+            assert properties["precompute_provenance"] == "mixed"
+            assert "tail_refresh" not in properties
+
+    @override_settings(METRICS_TAIL_REFRESH_VERIFY_RATE=0.0)
+    def test_a_tile_without_a_covering_precomputed_metric_falls_through_to_the_tail_refresh(self):
+        refreshes = self._refresh_tile()
+
+        assert [properties.get("tail_refresh") for _, properties in refreshes] == ["full", "spliced"]
+        assert [properties["precompute_provenance"] for _, properties in refreshes] == ["raw", "raw"]
+        # The first refresh created the metric, which has no stored buckets yet.
+        assert MetricPrecomputedMetric.objects.for_team(self.team.pk).get().covered_to is None
 
 
 @override_settings(IN_UNIT_TESTING=True)

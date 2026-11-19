@@ -44,7 +44,7 @@ from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.api import (
     derived_metric_resources,
     run_metric_query,
-    run_precomputed_metric_query,
+    run_planned_metric_query,
     run_precomputed_promql_query,
 )
 from products.metrics.backend.facade.contracts import (
@@ -243,12 +243,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         language = self.query.language or MetricsQueryLanguage.BUILDER
         variables = from_query(self.query.variables)
         if language == MetricsQueryLanguage.BUILDER:
-            request = self._builder_request()
-            if self._tile_dashboard_id is not None and self._precompute_enabled:
-                return self._keep_precompute(
-                    run_precomputed_metric_query(team=self.team, request=request, record_use=self._viewer_is_member)
-                )
-            return run_metric_query(team=self.team, request=request)
+            return run_metric_query(team=self.team, request=self._builder_request())
         date_from, date_to = self._date_from, self._date_range.date_to()
         interval = resolve_query_interval(self.query.interval, variables, date_from, date_to)
         if language == MetricsQueryLanguage.PROMQL:
@@ -384,6 +379,23 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
         user = cast("Optional[User | SharedLinkUser]", self.user)
         return user is not None and not user.is_anonymous
 
+    def _run_planned(self) -> list[MetricSeries] | None:
+        """A builder tile that a precomputed metric covers reads its stored buckets, ahead of the tail refresh.
+        Every other query gets None and runs as before."""
+        if (
+            self._tile_dashboard_id is None
+            or (self.query.language or MetricsQueryLanguage.BUILDER) != MetricsQueryLanguage.BUILDER
+            or not self._precompute_enabled
+        ):
+            return None
+        result = run_planned_metric_query(
+            team=self.team, request=self._builder_request(), record_use=self._viewer_is_member
+        )
+        if isinstance(result, MetricQueryProvenanceContract):
+            self._provenance = result
+            return None
+        return self._keep_precompute(result)
+
     def _keep_precompute(self, result: MetricQueryResult) -> list[MetricSeries]:
         self._provenance, self._shadow = result.provenance, result.shadow
         return result.series
@@ -438,17 +450,21 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
     def _calculate(self) -> MetricsQueryResponse:
         self._enforce_alpha_gates_without_a_request_user()
         try:
-            if self._tail is not None:
-                return self._calculate_with_tail(self._tail)
-            series = self._run()
+            series = self._run_planned()
+            if series is None and self._tail is not None:
+                response = self._calculate_with_tail(self._tail)
+            else:
+                response = self._response(self._run() if series is None else series)
         except ValueError as exc:
             # The facade signals user errors (bad formula, unknown clause alias, bad
             # quantile) with ValueError; /query only exposes typed errors, so a bare
             # ValueError would surface as a 500 instead of a 400.
             raise ExposedHogQLError(str(exc)) from exc
-        return self._response(series)
+        response.provenance = self._provenance_response()
+        return response
 
-    def _response(self, series: list[MetricSeries]) -> MetricsQueryResponse:
+    @staticmethod
+    def _response(series: list[MetricSeries]) -> MetricsQueryResponse:
         return MetricsQueryResponse(
             results=[
                 MetricsQuerySeries(
@@ -460,8 +476,7 @@ class MetricsQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsQueryResp
                     histogramBounds=list(s.histogram_bounds) if s.histogram_bounds is not None else None,
                 )
                 for s in series
-            ],
-            provenance=self._provenance_response(),
+            ]
         )
 
     def _provenance_response(self) -> MetricsQueryProvenance | None:
