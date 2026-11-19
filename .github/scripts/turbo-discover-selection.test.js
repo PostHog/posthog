@@ -182,8 +182,9 @@ test('a product cascade gets the lowest phase that covers every file it changed'
     const cases = [
         ['non_isolated_product', ['products/tasks/backend/tests/test_api.py'], 1],
         ['non_isolated_product', ['products/tasks/backend/tests/__snapshots__/test_api.ambr'], 1],
-        ['non_isolated_product', ['products/tasks/backend/test/fixtures/run.json'], 3],
-        ['non_isolated_product', ['products/logs/backend/test/test_logs.jsonnd', 'products/logs/backend/test/test_api.py'], 3],
+        ['non_isolated_product', ['products/tasks/backend/test/fixtures/run.json'], null],
+        ['non_isolated_product', ['products/logs/backend/test/test_logs.jsonnd', 'products/logs/backend/test/test_api.py'], null],
+        ['contract_cascade', ['products/logs/backend/test/test_logs.jsonnd', 'products/logs/backend/logic.py'], null],
         ['contract_cascade', ['products/logs/backend/facade/contracts.py'], 1],
         [
             'non_isolated_product',

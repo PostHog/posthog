@@ -1377,7 +1377,15 @@ function isProductTestFile(file) {
     if (!name.endsWith('.py')) {
         return false
     }
-    return parts.slice(0, -1).some((part) => part === 'tests' || part === 'test') || name.startsWith('test_')
+    return isInProductTestDirectory(parts) || name.startsWith('test_')
+}
+
+function isInProductTestDirectory(parts) {
+    return parts.slice(0, -1).some((part) => part === 'tests' || part === 'test' || part === '__snapshots__')
+}
+
+function isProductFixtureFile(file) {
+    return isInProductTestDirectory(file.split('/').slice(2)) && !isProductTestFile(file)
 }
 
 // How far a product cascade has to be trusted for the selector's subset to replace the
@@ -1389,8 +1397,9 @@ function isProductTestFile(file) {
 //      reaches only by import
 //   2  an isolated product's contract cascade
 //   3  a non-isolated product change, while it touches no models or migrations
-// A changed file outside products/ that the backend can read leaves the cascade unclassified,
-// because the cascade logic cannot say what it reaches. Markdown and frontend code cannot.
+// A changed file outside products/ that the backend can read, or a product test fixture, leaves
+// the cascade unclassified, because the cascade logic cannot say what it reaches. Markdown and
+// frontend code cannot.
 function productCascadePhase(runLegacyReason, changedFiles) {
     if (!PRODUCT_CASCADE_REASONS.has(runLegacyReason) || !Array.isArray(changedFiles)) {
         return null
@@ -1407,6 +1416,9 @@ function productCascadePhase(runLegacyReason, changedFiles) {
     }
     if (productFiles.length > 0 && productFiles.every((file) => isProductTestFile(file) || PRODUCT_FACADE_FILE.test(file))) {
         return 1
+    }
+    if (productFiles.some(isProductFixtureFile)) {
+        return null
     }
     if (runLegacyReason === 'contract_cascade') {
         return 2
