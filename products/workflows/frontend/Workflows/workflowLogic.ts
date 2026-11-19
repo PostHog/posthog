@@ -4837,28 +4837,46 @@ export const workflowLogic = kea<workflowLogicType>([
                 lemonToast.error(`Fix these steps before publishing: ${names}`)
                 return
             }
+            // Edits typed while publish loads must survive the reload, so they get the conflict banner instead.
+            const reloadAfterExternalEdit = (): void => {
+                if (values.hasUnsavedChanges) {
+                    actions.setExternallyEdited(true)
+                } else {
+                    actions.setSyncingExternalEdit(true)
+                    actions.loadWorkflow()
+                }
+            }
             actions.setDraftActionPending('publish')
             let preview
+            let stored
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token
                 // a confirmed publish must return, so a stale draft can never be promoted blind.
                 preview = await api.hogFlows.publishHogFlow(props.id, { confirm: false })
+                // Publish stays pending through the sender check, so a second click opens no second dialog.
+                stored = await fetchStoredWorkflow(props.id)
             } catch {
                 lemonToast.error('Could not load the publish preview. Please try again.')
                 return
             } finally {
                 actions.setDraftActionPending(null)
             }
-            // The token covers the server's draft. When that is not the draft this editor shows, the
-            // warning below would describe the wrong changes, so the user reviews the newer draft first.
-            const stored = await fetchStoredWorkflow(props.id)
-            if (stored && !dayjs(stored.draft_updated_at ?? undefined).isSame(preview.draft_updated_at ?? undefined)) {
-                lemonToast.warning('The staged changes were edited somewhere else. Review them, then publish again.')
-                actions.loadWorkflow()
+            if (!stored) {
+                lemonToast.error('Could not load the publish preview. Please try again.')
                 return
             }
-            const live = stored ?? values.originalWorkflow
-            const movesToSandboxSender = !!live && publishMovesStepsToSandboxSender(live)
+            // The token covers the server's draft. When that is not the draft this editor shows, the
+            // warning below would describe the wrong changes, so the user reviews the newer draft first.
+            const previewDraft = preview.draft_updated_at ?? undefined
+            if (
+                !dayjs(stored.draft_updated_at ?? undefined).isSame(previewDraft) ||
+                !dayjs(values.originalWorkflow?.draft_updated_at ?? undefined).isSame(previewDraft)
+            ) {
+                lemonToast.warning('The staged changes were edited somewhere else. Review them, then publish again.')
+                reloadAfterExternalEdit()
+                return
+            }
+            const movesToSandboxSender = publishMovesStepsToSandboxSender(stored)
             if (movesToSandboxSender) {
                 // pinned: analytics event names and property values
                 posthog.capture('workflows sandbox sender enable warning shown', {
@@ -4866,11 +4884,32 @@ export const workflowLogic = kea<workflowLogicType>([
                     surface: 'publish',
                 })
             }
+            const reviewed = stored
+            // The dialog stays clickable while it animates closed, and a second click would publish twice.
+            let confirmed = false
             openPublishConfirmDialog({
                 impact: preview.impact,
                 inFlightRuns: preview.in_flight_runs,
                 movesToSandboxSender,
-                onConfirm: () => {
+                onConfirm: async () => {
+                    if (confirmed) {
+                        return
+                    }
+                    confirmed = true
+                    // The token fences only the draft. An API write can change the live steps while the
+                    // dialog is open, and then the warning the user confirmed no longer describes this publish.
+                    const latest = await fetchStoredWorkflow(reviewed.id)
+                    if (
+                        !latest ||
+                        !dayjs(latest.updated_at).isSame(reviewed.updated_at) ||
+                        !dayjs(latest.draft_updated_at ?? undefined).isSame(previewDraft)
+                    ) {
+                        lemonToast.warning(
+                            'This workflow changed while you reviewed it. Review it, then publish again.'
+                        )
+                        reloadAfterExternalEdit()
+                        return
+                    }
                     if (movesToSandboxSender) {
                         posthog.capture('workflows sandbox sender enabled anyway', {
                             workflow_id: props.id,
@@ -4993,9 +5032,23 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             const enabling = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
             if (enabling && !sandboxSenderConfirmed) {
-                // Enabling resumes the stored live config, not the staged draft the form shows, so the
-                // sender check reads the steps that will actually run.
-                const live = (await fetchStoredWorkflow(merged.id)) ?? stored ?? merged
+                // A second click while the check below runs would open a second dialog.
+                if (cache.checkingSandboxSender) {
+                    return
+                }
+                cache.checkingSandboxSender = true
+                let live
+                try {
+                    // Enabling resumes the stored live config, not the staged draft the form shows, so the
+                    // sender check reads the steps that will actually run.
+                    live = await fetchStoredWorkflow(merged.id)
+                } finally {
+                    cache.checkingSandboxSender = false
+                }
+                if (!live) {
+                    lemonToast.error("Couldn't check this workflow's email steps. Refresh the page and try again.")
+                    return
+                }
                 if (isLiveOnSandboxSender({ ...live, status: 'active' })) {
                     confirmEnableOnSandboxSender(merged.id, 'editor', () => actions.saveWorkflowPartial(workflow, true))
                     return

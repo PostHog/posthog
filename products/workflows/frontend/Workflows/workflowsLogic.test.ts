@@ -138,10 +138,16 @@ describe('workflowsLogic', () => {
                 )
                 return [status, response]
             }
-        const useListMocks = (status = 200, response: unknown = { deleted: 1 }, stored?: unknown): void =>
+        const STORED_AT = '2026-05-01T00:00:00.000Z'
+        // The server's copy of the workflow, which the enable check reads. Null when it can't be read.
+        const useListMocks = (
+            status = 200,
+            response: unknown = { deleted: 1 },
+            stored: HogFlow | null = { ...workflow('draft'), updated_at: STORED_AT }
+        ): void =>
             useMocks({
                 get: {
-                    [DETAIL_URL]: () => (stored ? [200, stored] : [404, { detail: 'Not found' }]),
+                    [DETAIL_URL]: () => (stored ? [200, stored] : [500, { detail: 'Server error' }]),
                     [LIST_URL]: ({ request }) => {
                         listQueries.push(Object.fromEntries(new URL(request.url).searchParams))
                         return [
@@ -302,14 +308,20 @@ describe('workflowsLogic', () => {
             await expectLogic(logic, () => action(workflow(from))).toDispatchActions(['loadWorkflowsSuccess'])
 
             expect(dialogs).toEqual([])
-            expect(writes).toEqual([{ method: 'PATCH', path: 'flow-1/', body: { status: to } }])
+            // Enabling sends the stamp it checked, so the server refuses it if the steps changed since.
+            const fence = verb === 'toggle' && to === 'active' ? { base_updated_at: STORED_AT } : {}
+            expect(writes).toEqual([{ method: 'PATCH', path: 'flow-1/', body: { status: to, ...fence } }])
             if (verb === 'restore') {
                 expect(successToast).toHaveBeenCalledWith('Workflow "Churn win-back" restored to draft status')
             }
         })
 
         const withEmail = (status: HogFlow['status'], stepType: string): HogFlow =>
-            ({ ...workflow(status), actions: [{ id: 'email', type: stepType }] }) as unknown as HogFlow
+            ({
+                ...workflow(status),
+                actions: [{ id: 'email', type: stepType }],
+                updated_at: STORED_AT,
+            }) as unknown as HogFlow
 
         const ENABLE_DIALOG = 'Enable on the PostHog test sender?'
         const toggleFromList = async (row: HogFlow): Promise<void> => {
@@ -332,7 +344,7 @@ describe('workflowsLogic', () => {
                 userEvent.click,
             ],
         ] as const)('enables a draft %s', async (_, rowStep, storedStep, press) => {
-            useListMocks(200, { deleted: 1 }, storedStep ? withEmail('draft', storedStep) : undefined)
+            useListMocks(200, { deleted: 1 }, withEmail('draft', storedStep ?? rowStep))
             await toggleFromList(withEmail('draft', rowStep))
             expect(await screen.findByText(ENABLE_DIALOG)).toBeTruthy()
             expect(writes).toEqual([])
@@ -341,11 +353,13 @@ describe('workflowsLogic', () => {
             await waitFor(() => expect(screen.queryByText(ENABLE_DIALOG)).toBeNull())
             await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess']).toFinishAllListeners()
 
-            expect(writes).toEqual([{ method: 'PATCH', path: 'flow-1/', body: { status: 'active' } }])
+            expect(writes).toEqual([
+                { method: 'PATCH', path: 'flow-1/', body: { status: 'active', base_updated_at: STORED_AT } },
+            ])
         })
 
         it('keeps a draft on the test sender off after "Cancel"', async () => {
-            useListMocks()
+            useListMocks(200, { deleted: 1 }, withEmail('draft', 'email_sandbox'))
             await toggleFromList(withEmail('draft', 'email_sandbox'))
 
             await userEvent.click(await screen.findByText('Cancel'))
@@ -366,12 +380,39 @@ describe('workflowsLogic', () => {
                 'active',
             ],
         ] as const)('%s without asking', async (_, from, rowStep, storedStep, to) => {
-            useListMocks(200, { deleted: 1 }, storedStep ? withEmail(from, storedStep) : undefined)
+            useListMocks(200, { deleted: 1 }, withEmail(from, storedStep ?? rowStep))
             await toggleFromList(withEmail(from, rowStep))
             await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess']).toFinishAllListeners()
 
             expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
-            expect(writes).toEqual([{ method: 'PATCH', path: 'flow-1/', body: { status: to } }])
+            const fence = to === 'active' ? { base_updated_at: STORED_AT } : {}
+            expect(writes).toEqual([{ method: 'PATCH', path: 'flow-1/', body: { status: to, ...fence } }])
+        })
+
+        it("enables nothing when the server's copy can't be read", async () => {
+            useListMocks(200, { deleted: 1 }, null)
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            await toggleFromList(withEmail('draft', 'function_email'))
+
+            expect(errorToast).toHaveBeenCalledWith(
+                "Couldn't check this workflow's email steps. Refresh the page and try again."
+            )
+            expect(screen.queryByText(ENABLE_DIALOG)).toBeNull()
+            expect(writes).toEqual([])
+        })
+
+        it('reloads instead of enabling when the steps changed after the check', async () => {
+            useListMocks(409, { detail: 'This workflow was updated elsewhere' }, withEmail('draft', 'function_email'))
+            const warningToast = jest.spyOn(lemonToast, 'warning')
+            await toggleFromList(withEmail('draft', 'function_email'))
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess']).toFinishAllListeners()
+
+            expect(writes).toEqual([
+                { method: 'PATCH', path: 'flow-1/', body: { status: 'active', base_updated_at: STORED_AT } },
+            ])
+            expect(warningToast).toHaveBeenCalledWith(
+                'This workflow was edited somewhere else. Review it, then enable it again.'
+            )
         })
 
         it('duplicates a workflow as a draft copy and reloads the list', async () => {

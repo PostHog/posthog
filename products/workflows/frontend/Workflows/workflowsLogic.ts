@@ -14,6 +14,7 @@ import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLog
 
 import { fetchStoredWorkflow, isLiveOnSandboxSender } from '../Channels/sandboxSender'
 import { hogFlowsPartialUpdate } from '../generated/api'
+import type { PatchedHogFlowUpdateApi } from '../generated/api.schemas'
 import { confirmEnableOnSandboxSender } from './confirmEnableOnSandboxSender'
 import type { HogFlow } from './hogflows/types'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
@@ -241,8 +242,10 @@ export interface workflowsLogicActions {
     }
     toggleWorkflowStatus: (
         workflow: HogFlow,
-        sandboxSenderConfirmed?: boolean
+        sandboxSenderConfirmed?: boolean,
+        checkedUpdatedAt?: string
     ) => {
+        checkedUpdatedAt: string | undefined
         sandboxSenderConfirmed: boolean
         workflow: HogFlow
     }
@@ -256,12 +259,14 @@ export interface workflowsLogicActions {
     toggleWorkflowStatusSuccess: (
         workflows: WorkflowsResult,
         payload?: {
+            checkedUpdatedAt: string | undefined
             sandboxSenderConfirmed: boolean
             workflow: HogFlow
         }
     ) => {
         workflows: WorkflowsResult
         payload?: {
+            checkedUpdatedAt: string | undefined
             sandboxSenderConfirmed: boolean
             workflow: HogFlow
         }
@@ -297,9 +302,14 @@ export const workflowsLogic = kea<workflowsLogicType>([
     key(() => 'workflowsLogic'),
     path(['products', 'workflows', 'frontend', 'workflowsLogic']),
     actions({
-        toggleWorkflowStatus: (workflow: HogFlow, sandboxSenderConfirmed: boolean = false) => ({
+        toggleWorkflowStatus: (
+            workflow: HogFlow,
+            sandboxSenderConfirmed: boolean = false,
+            checkedUpdatedAt?: string
+        ) => ({
             workflow,
             sandboxSenderConfirmed,
+            checkedUpdatedAt,
         }),
         duplicateWorkflow: (workflow: HogFlow) => ({ workflow }),
         archiveWorkflow: (workflow: HogFlow) => ({ workflow }),
@@ -379,19 +389,39 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     breakpoint()
                     return response
                 },
-                toggleWorkflowStatus: async ({ workflow, sandboxSenderConfirmed }) => {
+                toggleWorkflowStatus: async ({ workflow, sandboxSenderConfirmed, checkedUpdatedAt }) => {
                     const status = workflow.status === 'active' ? 'draft' : 'active'
+                    let baseUpdatedAt = checkedUpdatedAt
                     if (status === 'active' && !sandboxSenderConfirmed) {
                         // The row can be older than the server's steps, so the check reads the server's copy.
-                        const live = (await fetchStoredWorkflow(workflow.id)) ?? workflow
-                        if (isLiveOnSandboxSender({ ...live, status })) {
-                            confirmEnableOnSandboxSender(workflow.id, 'list', () =>
-                                actions.toggleWorkflowStatus(workflow, true)
+                        const live = await fetchStoredWorkflow(workflow.id)
+                        if (!live) {
+                            lemonToast.error(
+                                "Couldn't check this workflow's email steps. Refresh the page and try again."
                             )
                             return values.workflows
                         }
+                        if (isLiveOnSandboxSender({ ...live, status })) {
+                            confirmEnableOnSandboxSender(workflow.id, 'list', () =>
+                                actions.toggleWorkflowStatus(workflow, true, live.updated_at)
+                            )
+                            return values.workflows
+                        }
+                        baseUpdatedAt = live.updated_at
                     }
-                    await hogFlowsPartialUpdate(String(ApiConfig.getCurrentTeamId()), workflow.id, { status })
+                    // The server rejects the write with a 409 when the steps changed after the check above.
+                    const body: PatchedHogFlowUpdateApi & { base_updated_at?: string } = {
+                        status,
+                        ...(baseUpdatedAt ? { base_updated_at: baseUpdatedAt } : {}),
+                    }
+                    try {
+                        await hogFlowsPartialUpdate(String(ApiConfig.getCurrentTeamId()), workflow.id, body)
+                    } catch (error: any) {
+                        if (error?.status !== 409) {
+                            throw error
+                        }
+                        lemonToast.warning('This workflow was edited somewhere else. Review it, then enable it again.')
+                    }
                     // Reload instead of patching in place: the new status may no longer match the
                     // active status filter, so the row has to be re-fetched through the server query.
                     actions.loadWorkflows()
