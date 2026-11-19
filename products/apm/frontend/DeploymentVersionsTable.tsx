@@ -9,7 +9,7 @@ import { formatMs, formatPercent } from './healthDisplay'
 export interface DeploymentVersionsTableProps {
     versions: DeploymentVersionApi[]
     loading: boolean
-    emptyState: string
+    emptyState: React.ReactNode
     dataAttr: string
 }
 
