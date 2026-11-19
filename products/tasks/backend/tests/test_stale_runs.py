@@ -150,7 +150,6 @@ class TestCollectStaleLiveRuns(TestCase):
         quiet_for: timedelta,
         idle_timeout_seconds: int | None = None,
         awaits_first_message: bool = False,
-        warm_activation_started: bool = False,
         no_write_for: timedelta | None = None,
         agent_status: str | None = TaskRun.AgentStatus.READY,
     ) -> TaskRun:
@@ -173,7 +172,6 @@ class TestCollectStaleLiveRuns(TestCase):
             state={
                 **({"inactivity_timeout_seconds": idle_timeout_seconds} if idle_timeout_seconds else {}),
                 **({"await_user_message": True} if awaits_first_message else {}),
-                **({"warm_activation_started": True} if warm_activation_started else {}),
             },
         )
         TaskRun.objects.filter(id=run.id).update(updated_at=django_timezone.now() - (no_write_for or quiet_for))
@@ -222,11 +220,10 @@ class TestCollectStaleLiveRuns(TestCase):
             ),
             ("queued_run", {USER.key: "enforce"}, {"status": TaskRun.Status.QUEUED}, None),
             ("local_run", {USER.key: "enforce"}, {"environment": LOCAL}, None),
-            ("warm_run_waiting_for_its_first_message", {USER.key: "enforce"}, {"awaits_first_message": True}, None),
             (
-                "warm_run_whose_activation_started",
+                "warm_run_waiting_for_its_first_message_whose_workflow_is_gone",
                 {USER.key: "enforce"},
-                {"awaits_first_message": True, "warm_activation_started": True},
+                {"awaits_first_message": True},
                 USER.key,
             ),
             ("task_without_a_profile", {USER.key: "enforce"}, {"profile": None}, None),
@@ -276,6 +273,20 @@ class TestCollectStaleLiveRuns(TestCase):
 
         statuses = set(TaskRun.objects.filter(id__in=[run.id for run in runs]).values_list("status", flat=True))
         assert statuses == {TaskRun.Status.FAILED if ended else TaskRun.Status.IN_PROGRESS}
+
+    def test_a_warm_run_waiting_for_its_first_message_is_left_while_its_workflow_runs(self) -> None:
+        run = self._run(profile=USER.key, quiet_for=timedelta(hours=1), awaits_first_message=True)
+        self.describe_workflow.side_effect = None
+        self.describe_workflow.return_value = SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+
+        with patch(
+            "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+            return_value={USER.key: "enforce"},
+        ):
+            tasks_facade.sweep_stale_live_task_runs()
+
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
 
     def test_sweep_ends_a_run_with_no_writes_for_a_day_even_if_its_workflow_runs(self) -> None:
         run = self._run(profile=USER.key, quiet_for=timedelta(seconds=5), no_write_for=timedelta(hours=25))

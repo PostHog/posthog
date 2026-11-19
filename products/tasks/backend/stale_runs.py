@@ -73,7 +73,6 @@ class _LiveRun:
     profile: str | None
     environment: str
     status: str
-    awaits_first_message: bool
     rules: frozenset[StaleRule]
     quiet_since: datetime
     not_written_since: datetime
@@ -179,8 +178,6 @@ def _live_runs(*, sweepable_only: bool = False) -> Iterator[_LiveRun]:
             "environment",
             "status",
             "state__inactivity_timeout_seconds",
-            "state__await_user_message",
-            "state__warm_activation_started",
             "state__workflow_id",
             "task_id",
             "agent_status",
@@ -199,8 +196,6 @@ def _live_runs(*, sweepable_only: bool = False) -> Iterator[_LiveRun]:
         environment,
         status,
         run_timeout_seconds,
-        awaits_first_message,
-        warm_activation_started,
         persisted_workflow_id,
         task_id,
         agent_status,
@@ -223,7 +218,6 @@ def _live_runs(*, sweepable_only: bool = False) -> Iterator[_LiveRun]:
             profile=profile_key,
             environment=environment,
             status=status,
-            awaits_first_message=bool(awaits_first_message) and not warm_activation_started,
             rules=stale_rules(
                 environment=environment,
                 last_heartbeat_at=last_heartbeat_at,
@@ -266,7 +260,7 @@ def modes_for(flag: str, pairs: set[tuple[int, str | None]]) -> dict[tuple[int, 
 
 
 def runs_to_sweep() -> list[RunToSweep]:
-    stale = [run for run in _live_runs(sweepable_only=True) if run.rules and not run.awaits_first_message]
+    stale = [run for run in _live_runs(sweepable_only=True) if run.rules]
     if not stale:
         return []
     modes = modes_for(SWEEP_FLAG, {(run.team_id, run.profile) for run in stale})
