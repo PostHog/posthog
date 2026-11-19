@@ -244,6 +244,26 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         dependent.refresh_from_db()
         assert dependent.evaluation_runtime == "client"
 
+    def test_stored_disabled_hidden_dependency_reveals_nothing_on_an_edit(self) -> None:
+        hidden = self._hidden_flag_as_member("hidden_disabled_dependency", "all")
+        hidden.active = False
+        hidden.save()
+        dependent = self._flag("dependent_on_hidden", "all", filters=_depends_on(hidden.id))
+
+        response = self._patch(dependent, {"filters": _depends_on(hidden.id, rollout_percentage=50)})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_runtime_change_ignores_a_dependent_the_caller_cannot_read(self) -> None:
+        dependent = self._hidden_flag_as_member("hidden_dependent", "server")
+        dependent.filters = _depends_on(self._flag("target", "client").id)
+        dependent.save()
+        target = FeatureFlag.objects.get(key="target", team=self.team)
+
+        response = self._patch(target, {"evaluation_runtime": "server"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def test_readable_dependency_shows_its_runtime_to_a_member(self) -> None:
         from posthog.models.organization import OrganizationMembership
 

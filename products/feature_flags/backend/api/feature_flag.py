@@ -1949,10 +1949,18 @@ class FeatureFlagSerializer(
         runtime_changed = self.instance is not None and _runtime(runtime) != _runtime(stored_runtime)
 
         if self.instance is not None and runtime_changed:
+            # A dependent the caller cannot read is ignored, so the write reveals neither its runtime nor its existence.
+            dependents = find_dependent_flags(self.instance)
+            readable_ids = set(
+                self._readable_flags(FeatureFlag.objects.filter(id__in=[d.id for d in dependents])).values_list(
+                    "id", flat=True
+                )
+            )
             broken_dependents = [
                 dependent
-                for dependent in find_dependent_flags(self.instance)
-                if not _runtime_supports_dependency(dependent.evaluation_runtime, runtime)
+                for dependent in dependents
+                if dependent.id in readable_ids
+                and not _runtime_supports_dependency(dependent.evaluation_runtime, runtime)
             ]
             if broken_dependents:
                 raise serializers.ValidationError(
@@ -2837,10 +2845,11 @@ class FeatureFlagSerializer(
                 code="unsupported_dependency_config_version",
             ) from exc
 
-    def _validate_flag_reference(self, flag_reference, *, require_read_access: bool = False):
-        """Validate and convert flag reference to flag key.
+    def _validate_flag_reference(self, flag_reference, *, required: bool) -> Optional[str]:
+        """Validate a flag reference and return the referenced flag's key.
 
-        With ``require_read_access``, a flag the caller cannot read raises the same error as a missing flag.
+        A flag the caller cannot read is an error when ``required`` (a dependency this write adds) and is
+        skipped otherwise (a stored reference), so a stored reference reveals nothing about a hidden flag.
         """
         flag_id = safe_int(flag_reference)
         if flag_id is None:
@@ -2849,23 +2858,22 @@ class FeatureFlagSerializer(
                 f"Invalid reference: '{flag_reference}'"
             )
 
+        queryset = FeatureFlag.objects.filter(id=flag_id, team__project_id=self.context["project_id"])
         try:
-            queryset = FeatureFlag.objects.filter(id=flag_id, team__project_id=self.context["project_id"])
-            if require_read_access:
-                queryset = self._readable_flags(queryset)
-            flag = queryset.get()
-
-            # Check if the referenced flag is active
-            if not flag.active:
-                raise serializers.ValidationError(
-                    f"Cannot create dependency on disabled flag '{flag.key}' (ID: {flag_id}). "
-                    f"Flag dependencies must reference active flags only."
-                )
-
-            self._validate_dependency_formats(flag.filters, flag_id=flag_id)
-            return flag.key
+            flag = self._readable_flags(queryset).get()
         except FeatureFlag.DoesNotExist:
-            raise _missing_dependency_error(flag_id)
+            if required or not queryset.exists():
+                raise _missing_dependency_error(flag_id)
+            return None
+
+        if not flag.active:
+            raise serializers.ValidationError(
+                f"Cannot create dependency on disabled flag '{flag.key}' (ID: {flag_id}). "
+                f"Flag dependencies must reference active flags only."
+            )
+
+        self._validate_dependency_formats(flag.filters, flag_id=flag_id)
+        return flag.key
 
     def _get_properties_from_filters(self, filters: dict, property_type: PropertyFilterType | None = None):
         """
@@ -2891,19 +2899,18 @@ class FeatureFlagSerializer(
             if prop.get("key") == "$group_key"
         ]
 
-    def _extract_flag_dependencies(self, filters, *, readable_only_ids: AbstractSet[int] = frozenset()):
-        """Extract flag dependencies from filters.
+    def _extract_flag_dependencies(self, filters, *, added_ids: AbstractSet[int] = frozenset()) -> set[str]:
+        """Extract flag dependency keys from filters, skipping stored references the caller cannot read.
 
-        Only the references in ``readable_only_ids`` must point at flags the caller can read.
+        A reference in ``added_ids`` must point at a flag the caller can read.
         """
         dependencies = set()
         for flag_prop in self._get_properties_from_filters(filters, PropertyFilterType.FLAG):
             flag_reference = flag_prop.get("key")
             if flag_reference:
-                flag_key = self._validate_flag_reference(
-                    flag_reference, require_read_access=safe_int(flag_reference) in readable_only_ids
-                )
-                dependencies.add(flag_key)
+                flag_key = self._validate_flag_reference(flag_reference, required=safe_int(flag_reference) in added_ids)
+                if flag_key is not None:
+                    dependencies.add(flag_key)
         return dependencies
 
     def _check_flag_circular_dependencies(self, filters):
@@ -2917,7 +2924,7 @@ class FeatureFlagSerializer(
         # dependency, that the caller cannot read must not block an edit the caller is allowed to make.
         stored_filters = (self.instance.filters if self.instance is not None else None) or {}
         added_ids = set(flag_dependency_ids(filters)) - set(flag_dependency_ids(stored_filters))
-        flag_dependencies = self._extract_flag_dependencies(filters, readable_only_ids=added_ids)
+        flag_dependencies = self._extract_flag_dependencies(filters, added_ids=added_ids)
         if not flag_dependencies:
             return
 
