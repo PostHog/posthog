@@ -45883,6 +45883,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `no_runs` - No runs
+     * * `one_outcome` - One outcome
+     */
+    export type EvalFixProblemEnum = typeof EvalFixProblemEnum[keyof typeof EvalFixProblemEnum];
+
+
+    export const EvalFixProblemEnum = {
+      NoRuns: 'no_runs',
+      OneOutcome: 'one_outcome',
+    } as const;
+
+    /**
      * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
      */
     export type EvalSuggestionDraft = { [key: string]: unknown };
@@ -46029,6 +46041,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly target_evaluation_name: string | null;
+      /** What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it returned the same result and reasoning almost every time. Null for other kinds.
+       *
+       * * `no_runs` - No runs
+       * * `one_outcome` - One outcome */
+      readonly fix_problem: EvalFixProblemEnum | null;
       /**
          * Existing evaluation that may already cover this suggestion.
          * @nullable
