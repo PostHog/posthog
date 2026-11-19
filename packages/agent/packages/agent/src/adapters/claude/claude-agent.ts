@@ -3476,6 +3476,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       logger: this.logger,
       systemPrompt,
       userProvidedOptions: meta?.claudeCode?.options,
+      title: meta?.taskTitle,
       sessionId,
       taskId: resolveTaskId(meta),
       isResume,

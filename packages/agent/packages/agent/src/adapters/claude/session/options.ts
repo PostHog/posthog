@@ -110,6 +110,7 @@ export interface BuildOptionsParams {
   userProvidedOptions?: Options;
   sessionId: string;
   taskId?: string;
+  title?: string;
   isResume: boolean;
   forkSession?: boolean;
   additionalDirectories?: string[];
@@ -927,6 +928,11 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     if (isLegacyJavaScriptClaudeExecutable(claudeCodeExecutable)) {
       options.executable = "node";
     }
+  }
+
+  // The SDK otherwise spends a model call titling the session from the first prompt.
+  if (params.title) {
+    options.title = params.title;
   }
 
   if (params.isResume) {

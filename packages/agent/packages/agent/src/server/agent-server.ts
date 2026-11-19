@@ -2512,6 +2512,7 @@ export class AgentServer {
       sessionId: payload.run_id,
       taskRunId: payload.run_id,
       taskId: payload.task_id,
+      ...(launch.title && { taskTitle: launch.title }),
       environment: "cloud",
       mode: this.getEffectiveMode(payload),
       systemPrompt: sessionSystemPrompt,

@@ -238,6 +238,7 @@ export type SDKMessageFilter = {
 export type NewSessionMeta = {
   taskRunId?: string;
   taskId?: string;
+  taskTitle?: string;
   environment?: "local" | "cloud";
   /**
    * Run mode. "background" means unattended (loops, durable ingest) — no human
