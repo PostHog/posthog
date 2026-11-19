@@ -584,17 +584,35 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"recipients": 5, "converted": 3, "revenue": 62.0, "median_hours_to_convert": 5.0}
 
-    def test_leaves_out_a_send_and_its_conversion_from_before_a_fractional_date_from(self, _flag):
-        date_from = NOW - timedelta(hours=2) + timedelta(milliseconds=500)
+    @parameterized.expand(
+        [
+            (
+                "send_before_date_from",
+                timedelta(milliseconds=500),
+                timedelta(milliseconds=-400),
+                timedelta(milliseconds=-200),
+                0,
+            ),
+            (
+                "same_millisecond",
+                timedelta(microseconds=500_500),
+                timedelta(microseconds=300),
+                timedelta(microseconds=-100),
+                1,
+            ),
+        ]
+    )
+    def test_leaves_out_a_conversion_from_before_a_fractional_date_from(
+        self, _flag, _name, date_from_offset, send_offset, purchase_offset, recipients
+    ):
+        date_from = NOW - timedelta(hours=2) + date_from_offset
         create_person(team=self.team, distinct_ids=["just-before"])
-        self._record_distinct_id(
-            str(UUIDT()), "just-before", "just-before@example.com", date_from - timedelta(milliseconds=400)
-        )
+        self._record_distinct_id(str(UUIDT()), "just-before", "just-before@example.com", date_from + send_offset)
         _create_event(
             team=self.team,
             event="purchase",
             distinct_id="just-before",
-            timestamp=date_from - timedelta(milliseconds=200),
+            timestamp=date_from + purchase_offset,
         )
         flush_persons_and_events()
 
@@ -604,7 +622,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["recipients"] == 0
+        assert (response.json()["recipients"], response.json()["converted"]) == (recipients, 0)
 
     def test_counts_a_conversion_whose_window_ends_in_the_repeated_daylight_saving_hour(self, _flag):
         self.team.timezone = "Europe/London"

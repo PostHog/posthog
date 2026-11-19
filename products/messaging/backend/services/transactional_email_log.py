@@ -63,7 +63,7 @@ MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
 _DISTINCT_ID_COPIES_IN_QUERY = 3
-_SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
+_SINCE_MICROS_LITERAL_BYTES = len("1700000000000000, ")
 IMPACT_WINDOW_DAYS = 7
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
@@ -775,7 +775,7 @@ def _query_bytes_of(send: _FollowedSend) -> int:
         _DISTINCT_ID_COPIES_IN_QUERY * _escaped_literal_bytes(send.distinct_id)
         + _escaped_literal_bytes(send.recipient)
         + _escaped_literal_bytes(send.message_id)
-        + _SINCE_MS_LITERAL_BYTES
+        + _SINCE_MICROS_LITERAL_BYTES
     )
 
 
@@ -784,7 +784,7 @@ def _recipient_query_bytes(recipient_distinct_ids: tuple[str, list[str]]) -> int
     return (
         _DISTINCT_ID_COPIES_IN_QUERY * sum(_escaped_literal_bytes(distinct_id) for distinct_id in distinct_ids)
         + _escaped_literal_bytes(recipient)
-        + _SINCE_MS_LITERAL_BYTES
+        + _SINCE_MICROS_LITERAL_BYTES
     )
 
 
@@ -804,11 +804,11 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
             SELECT
                 tupleElement(send, 1) AS message_id,
                 tupleElement(send, 2) AS recipient,
-                fromUnixTimestamp64Milli(tupleElement(send, 3)) AS since
-            FROM (SELECT arrayJoin(arrayZip({message_ids}, {recipients}, {since_ms})) AS send)
+                tupleElement(send, 3) AS since_micros
+            FROM (SELECT arrayJoin(arrayZip({message_ids}, {recipients}, {since_micros})) AS send)
         ) AS sends ON conversions.recipient = sends.recipient
-        WHERE conversions.timestamp >= sends.since
-          AND conversions.timestamp <= sends.since + toIntervalSecond({window_seconds})
+        WHERE conversions.micros >= sends.since_micros
+          AND conversions.micros <= sends.since_micros + {window_micros}
         LIMIT {limit}
         """,
         team=team,
@@ -820,8 +820,8 @@ def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_
             "distinct_ids": ast.Constant(value=list({send.distinct_id for send in sends})),
             "message_ids": ast.Constant(value=[send.message_id for send in sends]),
             "recipients": ast.Constant(value=[send.recipient for send in sends]),
-            "since_ms": ast.Constant(value=[_epoch_ms(send.since) for send in sends]),
-            "window_seconds": ast.Constant(value=int(window.total_seconds())),
+            "since_micros": ast.Constant(value=[_epoch_micros(send.since) for send in sends]),
+            "window_micros": ast.Constant(value=window // timedelta(microseconds=1)),
             "limit": ast.Constant(value=len(sends)),
         },
         query_type="transactional_email_impact_conversions",
@@ -864,23 +864,24 @@ _RECIPIENT_EVENTS = """
         if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
            toString(person_id), concat('distinct:', distinct_id)) AS recipient,
         timestamp,
+        dateDiff('microsecond', fromUnixTimestamp64Milli(0), timestamp) AS micros,
         {revenue} AS value
     FROM events
     WHERE event = {event}
-      AND timestamp >= fromUnixTimestamp64Milli({start_ms}) AND timestamp < fromUnixTimestamp64Milli({end_ms})
+      AND timestamp >= fromUnixTimestamp64Milli({start_ms}) AND timestamp <= fromUnixTimestamp64Milli({end_ms})
       AND (distinct_id IN {distinct_ids}
            OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
 """
 
 
-def _epoch_ms(value: datetime) -> int:
-    return int(value.timestamp() * 1000)
+def _epoch_micros(value: datetime) -> int:
+    return (value - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1)
 
 
 def _events_range_placeholders(sent_at: list[datetime], window: timedelta) -> dict[str, ast.Expr]:
     return {
-        "start_ms": ast.Constant(value=_epoch_ms(min(sent_at))),
-        "end_ms": ast.Constant(value=_epoch_ms(max(sent_at) + window + timedelta(seconds=1))),
+        "start_ms": ast.Constant(value=_epoch_micros(min(sent_at)) // 1000),
+        "end_ms": ast.Constant(value=-(-_epoch_micros(max(sent_at) + window) // 1000)),
     }
 
 
@@ -920,11 +921,11 @@ def _conversions(
         + _RECIPIENT_EVENTS
         + """) AS conversions
         INNER JOIN (
-            SELECT tupleElement(send, 1) AS recipient, fromUnixTimestamp64Milli(tupleElement(send, 2)) AS sent_at
-            FROM (SELECT arrayJoin(arrayZip({recipients}, {sent_at_ms})) AS send)
+            SELECT tupleElement(send, 1) AS recipient, tupleElement(send, 2) AS sent_at_micros
+            FROM (SELECT arrayJoin(arrayZip({recipients}, {sent_at_micros})) AS send)
         ) AS sends ON conversions.recipient = sends.recipient
-        WHERE conversions.timestamp >= sends.sent_at
-          AND conversions.timestamp <= sends.sent_at + toIntervalSecond({window_seconds})
+        WHERE conversions.micros >= sends.sent_at_micros
+          AND conversions.micros <= sends.sent_at_micros + {window_micros}
         GROUP BY conversions.recipient
         LIMIT {limit}
         """,
@@ -936,8 +937,8 @@ def _conversions(
             **_events_range_placeholders(list(first_send.values()), window),
             "distinct_ids": ast.Constant(value=distinct_ids),
             "recipients": ast.Constant(value=recipients),
-            "sent_at_ms": ast.Constant(value=[_epoch_ms(first_send[recipient]) for recipient in recipients]),
-            "window_seconds": ast.Constant(value=int(window.total_seconds())),
+            "sent_at_micros": ast.Constant(value=[_epoch_micros(first_send[recipient]) for recipient in recipients]),
+            "window_micros": ast.Constant(value=window // timedelta(microseconds=1)),
             "limit": ast.Constant(value=len(recipients)),
         },
         query_type="transactional_email_results_conversions",
