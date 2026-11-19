@@ -1,7 +1,6 @@
 import * as prometheus from 'prom-client'
 import express, { NextFunction, Request, Response } from 'ultimate-express'
 
-import { bytesParserLimit, createCompressedBodyMiddleware } from '~/common/api/middleware/compressed-body'
 import { corsMiddleware } from '~/common/api/middleware/cors'
 import { httpMetricsMiddleware } from '~/common/api/middleware/http-metrics'
 import { createInternalApiAuthMiddleware } from '~/common/api/middleware/internal-api-auth'
@@ -33,15 +32,14 @@ export interface SetupExpressAppOptions {
     internalApiSecret?: string
     // Comma-separated previous secrets still accepted for verification during rotation.
     internalApiSecretFallbacks?: string
-    // JSON body size limit in bytes. Overridable in tests.
-    jsonBodyLimitBytes?: number
+    // JSON body size limit, e.g. '20mb'. Overridable in tests.
+    jsonBodyLimit?: string
     // Path prefixes that only serve reads. Other methods get a 405 before the body parser buffers anything, so an
     // unauthenticated caller cannot make the server parse a large body for a route that never reads one.
     readOnlyPathPrefixes?: string[]
 }
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
-const DEFAULT_JSON_BODY_LIMIT_BYTES = 20 * 1024 * 1024
 
 export function setupCommonRoutes(
     app: express.Application,
@@ -89,12 +87,9 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
         })
     }
 
-    const jsonBodyLimitBytes = options.jsonBodyLimitBytes ?? DEFAULT_JSON_BODY_LIMIT_BYTES
-    app.use(createCompressedBodyMiddleware(jsonBodyLimitBytes))
     app.use(
         express.json({
-            limit: bytesParserLimit(jsonBodyLimitBytes),
-            inflate: false,
+            limit: options.jsonBodyLimit ?? '20mb',
             verify: (req, res, buf) => {
                 ;(req as any).rawBody = buf.toString('utf8')
             },
@@ -110,6 +105,10 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
     app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
         if (err?.message === 'Request entity too large' || err?.status === 413 || err?.type === 'entity.too.large') {
             res.status(413).json({ status: 'error', error: 'Request entity too large' })
+            return
+        }
+        if (err?.type === 'encoding.malformed') {
+            res.status(400).json({ status: 'error', error: 'Malformed compressed body' })
             return
         }
         next(err)

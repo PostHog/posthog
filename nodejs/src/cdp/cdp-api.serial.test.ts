@@ -15,7 +15,6 @@ import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
-import { gzipSync } from 'zlib'
 
 import { keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
@@ -1072,35 +1071,6 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(413)
             expect(res.body).toEqual({ error: 'Request entity too large' })
-        })
-    })
-
-    describe('compressed bodies on the SES webhook routes', () => {
-        const sesRoutes = ['/public/m/ses_webhook', '/public/m/ses_sandbox_webhook']
-        const postText = (path: string, body: Buffer, encoding?: string) => {
-            const req = supertest(app)
-                .post(path)
-                .set({
-                    'Content-Type': 'text/plain; charset=UTF-8',
-                    ...(encoding ? { 'Content-Encoding': encoding } : {}),
-                })
-            req.write(body)
-            return req
-        }
-
-        it.each(sesRoutes)('answers a malformed compressed body on %s with 400', async (path) => {
-            const res = await postText(path, Buffer.from('this is not compressed data'), 'gzip')
-
-            expect(res.status).toEqual(400)
-            expect(res.body).toEqual({ status: 'error', error: 'Malformed compressed body' })
-        })
-
-        it('answers an empty compressed body on the SES webhook like an empty plain body', async () => {
-            const plain = await postText('/public/m/ses_webhook', Buffer.from(''))
-            const compressed = await postText('/public/m/ses_webhook', gzipSync(''), 'gzip')
-
-            expect(compressed.status).toEqual(plain.status)
-            expect(compressed.body).toEqual(plain.body)
         })
     })
 

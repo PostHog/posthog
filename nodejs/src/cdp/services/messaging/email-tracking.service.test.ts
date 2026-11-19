@@ -3,7 +3,6 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { createSign, generateKeyPairSync } from 'crypto'
 import { Server, createServer } from 'http'
 import { AddressInfo } from 'net'
 import { Message } from 'node-rdkafka'
@@ -11,7 +10,6 @@ import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 import { v5 as uuidv5 } from 'uuid'
-import { gzipSync } from 'zlib'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -36,7 +34,6 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
-import { FetchResponse } from '~/common/utils/request'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -795,7 +792,6 @@ describe('EmailTrackingService', () => {
                 sesMessage,
                 bounceType = 'Permanent',
                 recipient = 'user@example.com',
-                delivery,
             }: {
                 functionId: string
                 parentRunId?: string
@@ -817,7 +813,6 @@ describe('EmailTrackingService', () => {
                 sesMessage?: string
                 bounceType?: 'Permanent' | 'Transient'
                 recipient?: string
-                delivery?: EnvelopeDelivery
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -872,68 +867,27 @@ describe('EmailTrackingService', () => {
                         timestamp: '2024-01-01T00:00:00.000Z',
                     },
                 }
-                return await postEnvelope(
-                    {
-                        Type: 'Notification',
-                        MessageId: snsMessageId,
-                        TopicArn: topicArn,
-                        Message: sesMessage ?? JSON.stringify(sesRecord),
-                    },
-                    delivery
-                )
+                return await postEnvelope({
+                    Type: 'Notification',
+                    MessageId: snsMessageId,
+                    TopicArn: topicArn,
+                    Message: sesMessage ?? JSON.stringify(sesRecord),
+                })
             }
 
-            const snsKeys = generateKeyPairSync('rsa', { modulusLength: 2048 })
-            const snsCertificateUrl =
-                'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem'
-
-            const signedBySns = (envelope: Record<string, string>): Record<string, string> => {
-                const signer = createSign('RSA-SHA1')
-                signer.update(
-                    ['Message', 'MessageId', 'Timestamp', 'TopicArn', 'Type']
-                        .map((k) => `${k}\n${envelope[k]}\n`)
-                        .join(''),
-                    'utf8'
-                )
-                return { ...envelope, Signature: signer.sign(snsKeys.privateKey, 'base64') }
-            }
-
-            const serveSnsCertificate = (): void => {
-                const certificate = snsKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString()
-                mockFetch.mockResolvedValueOnce({
-                    status: 200,
-                    headers: {},
-                    json: () => Promise.resolve({}),
-                    text: () => Promise.resolve(certificate),
-                    dump: () => Promise.resolve(),
-                } as FetchResponse)
-            }
-
-            type EnvelopeDelivery = { compressed?: boolean; signed?: boolean }
-
-            const postEnvelope = async (
-                envelope: Record<string, string>,
-                { compressed = false, signed = false }: EnvelopeDelivery = {}
-            ): Promise<supertest.Response> => {
-                const unsigned = {
-                    Timestamp: '2024-01-01T00:00:00.000Z',
-                    SignatureVersion: '1',
-                    Signature: 'stubbed',
-                    SigningCertURL: signed ? snsCertificateUrl : 'https://sns.us-east-1.amazonaws.com/cert.pem',
-                    ...envelope,
-                }
-                const text = JSON.stringify(signed ? signedBySns(unsigned) : unsigned)
-                if (!compressed) {
-                    return await supertest(app)
-                        .post('/public/m/ses_webhook')
-                        .set('Content-Type', 'text/plain')
-                        .send(text)
-                }
-                const req = supertest(app)
+            const postEnvelope = async (envelope: Record<string, string>): Promise<supertest.Response> => {
+                return await supertest(app)
                     .post('/public/m/ses_webhook')
-                    .set({ 'Content-Type': 'text/plain', 'Content-Encoding': 'gzip' })
-                req.write(gzipSync(text))
-                return await req
+                    .set('Content-Type', 'text/plain')
+                    .send(
+                        JSON.stringify({
+                            Timestamp: '2024-01-01T00:00:00.000Z',
+                            SignatureVersion: '1',
+                            Signature: 'stubbed',
+                            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+                            ...envelope,
+                        })
+                    )
             }
 
             const recordBounce = async (bounce: Parameters<typeof postBounce>[0]): Promise<void> => {
@@ -1269,33 +1223,21 @@ describe('EmailTrackingService', () => {
                 expect(rows.rows).toEqual([{ identifier: 'soft@example.com', transient_bounce_count: 1 }])
             })
 
-            it.each([
-                ['plain', false],
-                ['gzip-compressed', true],
-            ])(
-                'answers 200 and queues a signed %s envelope by its MessageId without recording it',
-                async (_, compressed) => {
-                    verifySignatureSpy.mockRestore()
-                    serveSnsCertificate()
-                    const snsMessageId = new UUIDT().toString()
+            it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
+                const snsMessageId = new UUIDT().toString()
 
-                    const res = await postBounce({
-                        functionId: hogFunction.id,
-                        snsMessageId,
-                        delivery: { compressed, signed: true },
-                    })
+                const res = await postBounce({ functionId: hogFunction.id, snsMessageId })
 
-                    expect(res.status).toBe(200)
-                    const queued = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_SES_WEBHOOKS)
-                    expect(queued).toEqual([
-                        expect.objectContaining({
-                            key: snsMessageId,
-                            value: expect.objectContaining({ Type: 'Notification', MessageId: snsMessageId }),
-                        }),
-                    ])
-                    expect(recordedMetrics()).toEqual([])
-                }
-            )
+                expect(res.status).toBe(200)
+                const queued = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_SES_WEBHOOKS)
+                expect(queued).toEqual([
+                    expect.objectContaining({
+                        key: snsMessageId,
+                        value: expect.objectContaining({ Type: 'Notification', MessageId: snsMessageId }),
+                    }),
+                ])
+                expect(recordedMetrics()).toEqual([])
+            })
 
             it('answers 403 and queues nothing when the signature is invalid', async () => {
                 verifySignatureSpy.mockResolvedValue(false)

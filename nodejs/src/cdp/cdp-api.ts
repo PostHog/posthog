@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 import { z } from 'zod'
 
-import { createTextBodyParser } from '~/common/api/middleware/compressed-body'
 import { ModifiedRequest } from '~/common/api/router'
 import type { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
@@ -623,8 +622,6 @@ export class CdpApi {
             next()
         }
 
-        const parseTextBody = createTextBodyParser()
-
         // Public routes (excluded from authentication by middleware)
         router.post(
             '/public/webhooks/dwh/:webhook_id',
@@ -634,11 +631,11 @@ export class CdpApi {
         router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
-        router.post('/public/m/ses_webhook', publicBodySizeLimit, parseTextBody, asyncHandler(this.postSesWebhook()))
+        router.post('/public/m/ses_webhook', publicBodySizeLimit, express.text(), asyncHandler(this.postSesWebhook()))
         router.post(
             '/public/m/ses_sandbox_webhook',
             publicBodySizeLimit,
-            parseTextBody,
+            express.text(),
             asyncHandler(this.postSesSandboxWebhook())
         )
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))

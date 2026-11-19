@@ -1,0 +1,38 @@
+diff --git a/src/middlewares.js b/src/middlewares.js
+index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..f391dae8c5840693dd15df5b72f7f5e4c041385e 100644
+--- a/src/middlewares.js
++++ b/src/middlewares.js
+@@ -234,12 +234,22 @@ function createBodyParser(defaultType, beforeReturn) {
+ 
+             req.bodyRead = true;
+ 
++            let undecodable = false;
+             function onData(buf) {
++                if(undecodable) {
++                    return;
++                }
+                 if(!Buffer.isBuffer(buf)) {
+                     buf = Buffer.from(buf);
+                 }
+                 if(inflate) {
+-                    buf = inflate.process(buf);
++                    try {
++                        buf = inflate.process(buf);
++                    } catch(e) {
++                        undecodable = true;
++                        res.status(400);
++                        return next(Object.assign(e, { status: 400, type: 'encoding.malformed' }));
++                    }
+                 }
+ 
+                 // shallow copy, to avoid shared references for large bodies.
+@@ -252,6 +262,9 @@ function createBodyParser(defaultType, beforeReturn) {
+             }
+     
+             function onEnd() {
++                if(undecodable) {
++                    return;
++                }
+                 const buf = Buffer.concat(abs);
+                 if(options.verify) {
+                     try {
