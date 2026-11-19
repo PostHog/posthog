@@ -53,6 +53,11 @@ import {
 import { HOGQL_METRIC_DEFINITION_KIND } from 'products/data_catalog/frontend/common'
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import {
+    warehouseSavedQueriesRenameCreate,
+    warehouseSavedQueriesRenamePlanCreate,
+} from 'products/data_warehouse/frontend/generated/api'
+import type { SavedQueryRenamePlanApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import {
     TABLE_CATEGORY_LIMIT,
@@ -90,7 +95,6 @@ import {
     DataWarehouseSavedQueryDownstreamReferenceState,
     DataWarehouseSavedQuerySummary,
     dataWarehouseViewsLogic,
-    renameDataWarehouseSavedQuery,
 } from '../../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from '../draftsLogic'
@@ -105,6 +109,8 @@ export interface RenameViewState {
     nameError?: string
     submitError?: string
     isSaving: boolean
+    /** Set when the rename changes models that read this view, so the user reviews it before confirming. */
+    plan?: SavedQueryRenamePlanApi
 }
 
 function getRenameViewNameError(error: unknown): string | undefined {
@@ -2133,6 +2139,9 @@ export interface queryDatabaseLogicActions {
     setRenameViewNameError: (error: string | undefined) => {
         error: string | undefined
     }
+    setRenameViewPlan: (plan: SavedQueryRenamePlanApi) => {
+        plan: SavedQueryRenamePlanApi
+    }
     setRenameViewSaving: (isSaving: boolean) => {
         isSaving: boolean
     }
@@ -2411,6 +2420,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setRenameViewName: (name: string) => ({ name }),
         setRenameViewNameError: (error: string | undefined) => ({ error }),
         setRenameViewSubmitError: (error: string | undefined) => ({ error }),
+        setRenameViewPlan: (plan: SavedQueryRenamePlanApi) => ({ plan }),
         setRenameViewSaving: (isSaving: boolean) => ({ isSaving }),
         submitRenameView: true,
     }),
@@ -2522,10 +2532,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     isSaving: false,
                 }),
                 closeRenameView: () => null,
-                setRenameViewName: (state, { name }) => (state ? { ...state, name, nameError: undefined } : state),
+                setRenameViewName: (state, { name }) =>
+                    state ? { ...state, name, nameError: undefined, plan: undefined } : state,
                 setRenameViewNameError: (state, { error }) => (state ? { ...state, nameError: error } : state),
                 setRenameViewSubmitError: (state, { error }) => (state ? { ...state, submitError: error } : state),
                 setRenameViewSaving: (state, { isSaving }) => (state ? { ...state, isSaving } : state),
+                setRenameViewPlan: (state, { plan }) => (state ? { ...state, plan } : state),
             },
         ],
         selectedSchema: [
@@ -2765,13 +2777,33 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             actions.setRenameViewNameError(undefined)
             actions.setRenameViewSubmitError(undefined)
             actions.setRenameViewSaving(true)
+            const projectId = String(values.currentProjectId)
             try {
-                await renameDataWarehouseSavedQuery(view.id, name)
+                const plan = view.plan ?? (await warehouseSavedQueriesRenamePlanCreate(projectId, view.id, { name }))
+                if (!view.plan && (plan.dependents.length > 0 || plan.blocked.length > 0)) {
+                    actions.setRenameViewPlan(plan)
+                    return
+                }
+                await warehouseSavedQueriesRenameCreate(projectId, view.id, { name, plan_token: plan.plan_token })
                 actions.loadDataWarehouseSavedQueries()
                 actions.refreshDatabaseSchema()
                 lemonToast.success('View renamed')
                 actions.closeRenameView()
-            } catch (error) {
+            } catch (caught) {
+                let error = caught
+                if (error instanceof ApiError && error.status === 409) {
+                    try {
+                        actions.setRenameViewPlan(
+                            await warehouseSavedQueriesRenamePlanCreate(projectId, view.id, { name })
+                        )
+                        actions.setRenameViewSubmitError(
+                            'The models that read this view changed. Review the new changes, then rename again.'
+                        )
+                        return
+                    } catch (planError) {
+                        error = planError
+                    }
+                }
                 const nameError = getRenameViewNameError(error)
                 if (nameError) {
                     actions.setRenameViewNameError(nameError)

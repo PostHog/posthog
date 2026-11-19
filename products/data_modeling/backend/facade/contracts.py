@@ -83,6 +83,49 @@ class Dependent:
 
 
 @frozen
+class ModelRenameRewrite:
+    """A model whose query reads the renamed model, with its query before and after the rename."""
+
+    saved_query_id: UUID
+    name: str
+    before: str
+    after: str
+
+
+@frozen
+class ModelRenameBlocked:
+    """A model whose query cannot be rewritten for a rename, and why."""
+
+    saved_query_id: UUID
+    name: str
+    reason: str
+
+
+@frozen
+class ModelRenamePlan:
+    """What a rename changes in the models that read the renamed model.
+
+    The token identifies the queries the plan was computed from. A rename applies only the plan it was shown.
+    """
+
+    rewrites: tuple[ModelRenameRewrite, ...]
+    blocked: tuple[ModelRenameBlocked, ...]
+    token: str
+
+
+class ModelRenameBlockedError(Exception):
+    """A model that reads the renamed model cannot be rewritten, so the rename changes nothing."""
+
+    def __init__(self, plan: ModelRenamePlan) -> None:
+        super().__init__("A model that reads this model cannot be rewritten.")
+        self.plan = plan
+
+
+class ModelRenamePlanStaleError(Exception):
+    """The models that read the renamed model changed after the plan was computed."""
+
+
+@frozen
 class NodeLineageCounts:
     """How many nodes sit upstream and downstream of one node."""
 

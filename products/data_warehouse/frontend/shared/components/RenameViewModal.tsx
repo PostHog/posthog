@@ -5,6 +5,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import type { SavedQueryRenamePlanApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+
+import { RenameViewQueryDiff } from './RenameViewQueryDiff'
+
 export interface RenameViewReference {
     id: string
     name: string
@@ -20,6 +24,8 @@ export interface RenameViewModalProps {
     references: RenameViewReference[]
     referencesLoading: boolean
     referencesError: boolean
+    /** The models this rename rewrites, shown for review before the user confirms. */
+    plan?: SavedQueryRenamePlanApi
     inline?: boolean
     onNameChange: (name: string) => void
     onClose: () => void
@@ -52,6 +58,7 @@ export function RenameViewModal({
     references,
     referencesLoading,
     referencesError,
+    plan,
     inline,
     onNameChange,
     onClose,
@@ -82,11 +89,19 @@ export function RenameViewModal({
                     <LemonButton
                         type="primary"
                         loading={isSaving}
-                        disabledReason={referencesLoading ? 'Loading known references' : undefined}
+                        disabledReason={
+                            referencesLoading
+                                ? 'Loading known references'
+                                : plan?.blocked.length
+                                  ? 'Some models that read this view cannot be updated'
+                                  : undefined
+                        }
                         onClick={submit}
                         data-attr="data-warehouse-rename-view-submit"
                     >
-                        Rename view
+                        {plan?.dependents.length
+                            ? `Rename and update ${plan.dependents.length} ${plan.dependents.length === 1 ? 'model' : 'models'}`
+                            : 'Rename view'}
                     </LemonButton>
                 </>
             }
@@ -136,9 +151,41 @@ export function RenameViewModal({
                     <p className="text-secondary text-sm">No downstream references found in data model lineage.</p>
                 )}
 
+                {plan?.blocked.length ? (
+                    <LemonBanner type="error" alignItems="start">
+                        <p>These models read this view, and their SQL cannot be updated. Fix them, then try again.</p>
+                        <ul className="mt-1 space-y-1">
+                            {plan.blocked.map((model) => (
+                                <li key={model.id} className="break-words">
+                                    <Link to={urls.nodeDetail(model.id)} target="_blank">
+                                        {model.name}
+                                    </Link>
+                                    : {model.reason}
+                                </li>
+                            ))}
+                        </ul>
+                    </LemonBanner>
+                ) : null}
+
+                {plan?.dependents.length ? (
+                    <div className="space-y-2" data-attr="data-warehouse-rename-view-plan">
+                        <p className="text-sm">
+                            These models read this view. Their SQL is updated to the new name in the same change.
+                        </p>
+                        <LemonCollapse
+                            multiple
+                            panels={plan.dependents.map((model) => ({
+                                key: model.id,
+                                header: model.name,
+                                content: <RenameViewQueryDiff before={model.before} after={model.after} />,
+                            }))}
+                        />
+                    </div>
+                ) : null}
+
                 <LemonBanner type="warning" alignItems="start">
-                    This changes the view name only. SQL in saved views, materialized views, endpoints, insights,
-                    dashboards, notebooks, and external systems is not updated and can stop working after the rename.
+                    Models that read this view are updated with the new name. Endpoints, insights, dashboards,
+                    notebooks, and external systems are not updated and can stop working after the rename.
                 </LemonBanner>
 
                 {submitError ? <p className="text-danger text-sm">{submitError}</p> : null}

@@ -175,8 +175,8 @@ describe('queryDatabaseLogic', () => {
                 '/api/projects/:team_id/warehouse_saved_queries/': { results: [] },
                 '/api/projects/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
             },
-            patch: {
-                '/api/projects/:team_id/warehouse_saved_queries/:id/': [
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/rename_plan/': [
                     400,
                     {
                         type: 'validation_error',
@@ -204,6 +204,108 @@ describe('queryDatabaseLogic', () => {
 
         expect(logic.values.renameView).toMatchObject({ nameError, submitError: undefined })
         logic.unmount()
+    })
+
+    describe('renaming a view through its rename plan', () => {
+        const dependent = {
+            id: 'view-2',
+            name: 'orders_report',
+            before: 'select * from orders_by_day',
+            after: 'select * from orders_by_week',
+        }
+
+        function useRenamePlanMocks(
+            plans: { dependents: (typeof dependent)[]; plan_token: string }[],
+            renameResponses: [number, Record<string, unknown>][]
+        ): unknown[] {
+            const renameBodies: unknown[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/warehouse_saved_queries/': { results: [] },
+                    '/api/projects/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                },
+                post: {
+                    '/api/projects/:team_id/warehouse_saved_queries/:id/rename_plan/': () => {
+                        const plan = plans.length > 1 ? plans.shift()! : plans[0]
+                        return [200, { name: 'orders_by_week', blocked: [], ...plan }]
+                    },
+                    '/api/projects/:team_id/warehouse_saved_queries/:id/rename/': async ({ request }) => {
+                        renameBodies.push(await request.json())
+                        return renameResponses.length > 1 ? renameResponses.shift()! : renameResponses[0]
+                    },
+                },
+            })
+            return renameBodies
+        }
+
+        async function openAndSubmit(): Promise<ReturnType<typeof queryDatabaseLogic>> {
+            initKeaTests()
+            const logic = queryDatabaseLogic()
+            logic.mount()
+            await expectLogic(dataWarehouseViewsLogic.findMounted()!, () => {
+                logic.actions.openRenameView({ id: 'view-1', name: 'orders_by_day' })
+            }).toDispatchActions(['loadDataWarehouseSavedQueryDownstreamReferencesSuccess'])
+            logic.actions.setRenameViewName('orders_by_week')
+            await expectLogic(logic, () => logic.actions.submitRenameView()).toFinishAllListeners()
+            return logic
+        }
+
+        it('renames right away when no model reads the view', async () => {
+            const renameBodies = useRenamePlanMocks(
+                [{ dependents: [], plan_token: 'token-1' }],
+                [[200, { id: 'view-1', name: 'orders_by_week' }]]
+            )
+            const logic = await openAndSubmit()
+
+            expect(renameBodies).toEqual([{ name: 'orders_by_week', plan_token: 'token-1' }])
+            expect(logic.values.renameView).toBeNull()
+            logic.unmount()
+        })
+
+        it('shows the plan first, then renames with its token', async () => {
+            const renameBodies = useRenamePlanMocks(
+                [{ dependents: [dependent], plan_token: 'token-1' }],
+                [[200, { id: 'view-1', name: 'orders_by_week' }]]
+            )
+            const logic = await openAndSubmit()
+
+            expect(renameBodies).toEqual([])
+            expect(logic.values.renameView?.plan?.dependents).toEqual([dependent])
+
+            await expectLogic(logic, () => logic.actions.submitRenameView()).toFinishAllListeners()
+            expect(renameBodies).toEqual([{ name: 'orders_by_week', plan_token: 'token-1' }])
+            expect(logic.values.renameView).toBeNull()
+            logic.unmount()
+        })
+
+        it('drops the plan when the name changes', async () => {
+            useRenamePlanMocks([{ dependents: [dependent], plan_token: 'token-1' }], [[200, {}]])
+            const logic = await openAndSubmit()
+
+            logic.actions.setRenameViewName('orders_by_month')
+            expect(logic.values.renameView?.plan).toBeUndefined()
+            logic.unmount()
+        })
+
+        it('loads the new plan when the old one went stale', async () => {
+            const renameBodies = useRenamePlanMocks(
+                [
+                    { dependents: [dependent], plan_token: 'token-1' },
+                    { dependents: [dependent, { ...dependent, id: 'view-3' }], plan_token: 'token-2' },
+                ],
+                [[409, { detail: 'stale' }]]
+            )
+            const logic = await openAndSubmit()
+
+            await expectLogic(logic, () => logic.actions.submitRenameView()).toFinishAllListeners()
+
+            expect(renameBodies).toEqual([{ name: 'orders_by_week', plan_token: 'token-1' }])
+            expect(logic.values.renameView).toMatchObject({
+                plan: { plan_token: 'token-2' },
+                submitError: 'The models that read this view changed. Review the new changes, then rename again.',
+            })
+            logic.unmount()
+        })
     })
 
     it('loads pre-expanded properties, paginates, and filters them', async () => {

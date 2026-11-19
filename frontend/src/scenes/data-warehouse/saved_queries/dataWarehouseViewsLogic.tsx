@@ -106,10 +106,6 @@ export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSave
     acknowledge_breaking_changes?: boolean
 }
 
-export async function renameDataWarehouseSavedQuery(viewId: string, name: string): Promise<void> {
-    await warehouseSavedQueriesPartialUpdate(String(ApiConfig.getCurrentTeamId()), viewId, { name })
-}
-
 // A plain function, not a logic action: the toast that calls it can outlive the logic, and an
 // unmounted logic has no listeners.
 async function openViewPage(viewId: string): Promise<void> {

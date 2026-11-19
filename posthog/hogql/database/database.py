@@ -353,18 +353,18 @@ def is_reserved_models_name(name: str) -> bool:
     return name == "models" or name.startswith("models.")
 
 
-def models_namespace_chain(saved_query: Any) -> list[str] | None:
-    """The `models.` path an authored saved query also resolves under, or None when it gets only its stored name.
-
-    `origin` is nullable on old rows, so authored means "not machine-made" rather than an exact origin match.
-    """
+def is_authored_model(saved_query: Any) -> bool:
+    # `origin` is nullable on old rows, so authored means "not machine-made" rather than an exact origin match.
     origin = getattr(saved_query, "origin", None)
     if origin in (DataWarehouseSavedQueryOrigin.ENDPOINT, DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET):
-        return None
-    if getattr(saved_query, "managed_viewset_id", None) is not None:
-        return None
+        return False
+    return getattr(saved_query, "managed_viewset_id", None) is None
+
+
+def models_namespace_chain(saved_query: Any) -> list[str] | None:
+    """The `models.` path an authored saved query also resolves under, or None when it gets only its stored name."""
     name: str = saved_query.name
-    if is_reserved_models_name(name) or is_reserved_system_name(name):
+    if not is_authored_model(saved_query) or is_reserved_models_name(name) or is_reserved_system_name(name):
         return None
     return ["models", *name.split(".")]
 

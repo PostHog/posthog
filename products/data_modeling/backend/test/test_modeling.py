@@ -8,7 +8,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver import resolve_types
 
+from products.data_modeling.backend.logic.model_references import (
+    ModelReferenceRewriteError,
+    model_spellings,
+    rename_model_references,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
@@ -19,6 +25,7 @@ from products.data_modeling.backend.models.modeling import (
     ResolutionTimeoutError,
     get_parents_from_model_query,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 GET_PARENTS_TEST_CASES = [
     ("select events.*, persons.* from events, persons", {"events", "persons"}),
@@ -164,6 +171,192 @@ class TestGetParentsFromModelQuery(BaseTest):
         """Test that referencing a non-existent table raises QueryError."""
         with pytest.raises(QueryError, match="Unknown table"):
             get_parents_from_model_query(self.team, "test_model", "select * from some_random_view")
+
+
+class TestRenameModelReferences(BaseTest):
+    def setUp(self):
+        super().setUp()
+        for name, origin in [
+            ("revenue", None),
+            ("marts.orders", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+            ("wrapper", None),
+            ("shared", None),
+            ("ep_view", DataWarehouseSavedQuery.Origin.ENDPOINT),
+            ("costs", None),
+            ("marts.fees", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+            ("held", None),
+        ]:
+            body = "select * from revenue" if name == "wrapper" else "select 1 as id"
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                origin=origin,
+                query={"query": body},
+                columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+            )
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        for table_name in ("shared", "held"):
+            DataWarehouseTable.objects.create(
+                name=table_name,
+                format="Parquet",
+                team=self.team,
+                credential=credential,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+
+    def _resolves(self, query: str) -> bool:
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.database = Database.create_for(team=self.team)
+        try:
+            resolve_types(parse_select(query), context, dialect="clickhouse")
+        except QueryError:
+            return False
+        return True
+
+    @parameterized.expand(
+        [
+            (model, table, qualifier)
+            for model, tables, qualifiers in [
+                ("revenue", ["revenue", "models.revenue", "`revenue`"], ["revenue", "models.revenue", "`revenue`"]),
+                (
+                    "marts.fees",
+                    ["marts.fees", "models.marts.fees", "`marts.fees`", "models.`marts.fees`"],
+                    [
+                        "marts.fees",
+                        "models.marts.fees",
+                        "`marts.fees`",
+                        "models.`marts.fees`",
+                        "fees",
+                        "marts__fees",
+                        "models__marts__fees",
+                    ],
+                ),
+            ]
+            for table in tables
+            for qualifier in qualifiers
+        ]
+    )
+    def test_a_rename_rewrites_the_spellings_the_resolver_binds(self, model: str, table: str, qualifier: str):
+        query = f"select {qualifier}.id from {table}"
+        table_binds = self._resolves(f"select 1 from {table}")
+        qualifier_binds = self._resolves(query)
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name=model)
+
+        rewritten = rename_model_references(
+            query, model_spellings(renamed, Database.create_for(team=self.team)), ["moved", "income"]
+        )
+
+        # A reference keeps its form, and a qualifier takes the form of the table it binds to.
+        new_name = "models.moved.income" if table.startswith("models") else "moved.income"
+        new_table = new_name if table_binds else table
+        new_qualifier = new_name if qualifier_binds else qualifier
+        assert rewritten == f"select {new_qualifier}.id from {new_table}"
+        if qualifier_binds:
+            renamed.name = "moved.income"
+            renamed.save()
+            assert self._resolves(rewritten)
+
+    @parameterized.expand(
+        [
+            (
+                "another_subquery_qualifies_a_column_named_like_the_model",
+                "revenue",
+                "select a.id from (select id from revenue) as a join (select revenue.id from events) as b on 1 = 1",
+                "select a.id from (select id from moved.income) as a join (select revenue.id from events) as b on 1 = 1",
+            ),
+            (
+                "a_subquery_does_not_see_the_outer_table",
+                "revenue",
+                "select 1 from revenue where id in (select revenue.id from events)",
+                "select 1 from moved.income where id in (select revenue.id from events)",
+            ),
+            (
+                "cte_named_like_the_model",
+                "revenue",
+                "with revenue as (select 1 as id) select revenue.id from revenue",
+                None,
+            ),
+            (
+                "aliased_read_changes_the_table_only",
+                "revenue",
+                "select r.id, revenue.id, revenue from revenue as r",
+                "select r.id, revenue.id, revenue from moved.income as r",
+            ),
+            (
+                "asterisk",
+                "revenue",
+                "select revenue.*, marts.orders.* from revenue join marts.orders on revenue.id = marts.orders.id",
+                "select moved.income.*, marts.orders.* from moved.income join marts.orders on moved.income.id = marts.orders.id",
+            ),
+            (
+                "comments_and_formatting_survive",
+                "revenue",
+                "SELECT\n    `revenue` . id, -- revenue.id stays in a comment\n    'revenue.id' AS label /* revenue */\nFROM\n    revenue -- from revenue\nWHERE revenue.id > 1",
+                "SELECT\n    moved.income . id, -- revenue.id stays in a comment\n    'revenue.id' AS label /* revenue */\nFROM\n    moved.income -- from revenue\nWHERE moved.income.id > 1",
+            ),
+            (
+                "lambda_argument_named_like_the_model",
+                "revenue",
+                "select arrayMap(revenue -> revenue.1, [(1, 2)]), arrayMap(x -> revenue.id + x, [1]) from revenue",
+                "select arrayMap(revenue -> revenue.1, [(1, 2)]), arrayMap(x -> moved.income.id + x, [1]) from moved.income",
+            ),
+            (
+                "another_table_under_the_same_prefix",
+                "revenue",
+                "select revenue.id from revenue join revenue.archive on 1 = 1",
+                "select moved.income.id from moved.income join revenue.archive on 1 = 1",
+            ),
+            (
+                "a_synced_table_holds_the_bare_name",
+                "held",
+                "select held.id, models.held.id from held join models.held on 1 = 1",
+                "select held.id, models.moved.income.id from held join models.moved.income on 1 = 1",
+            ),
+            ("other_models_stay", "revenue", "select costs.id from costs", None),
+        ]
+    )
+    def test_rename_model_references(self, _case: str, model: str, query: str, expected: str | None):
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name=model)
+        spellings = model_spellings(renamed, Database.create_for(team=self.team))
+        assert rename_model_references(query, spellings, ["moved", "income"]) == (
+            expected if expected is not None else query
+        )
+
+    def test_a_rename_to_a_bare_name_keeps_each_reference_form(self):
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name="revenue")
+        spellings = model_spellings(renamed, Database.create_for(team=self.team))
+
+        rewritten = rename_model_references(
+            "select revenue.id, models.revenue.id from revenue join models.revenue on 1 = 1",
+            spellings,
+            ["moved", "income"],
+        )
+
+        assert rewritten == (
+            "select moved.income.id, models.moved.income.id from moved.income join models.moved.income on 1 = 1"
+        )
+
+    @parameterized.expand(
+        [
+            ("does_not_parse", "revenue", "select * from revenue where", "does not parse"),
+            (
+                "comment_inside_a_table_name",
+                "marts.orders",
+                "select 1 from marts /* c */ . orders",
+                "parse check failed",
+            ),
+        ]
+    )
+    def test_rename_model_references_refuses_what_it_cannot_prove(
+        self, _case: str, model: str, query: str, reason: str
+    ):
+        renamed = DataWarehouseSavedQuery.objects.get(team=self.team, name=model)
+        spellings = model_spellings(renamed, Database.create_for(team=self.team))
+        with pytest.raises(ModelReferenceRewriteError, match=reason):
+            rename_model_references(query, spellings, ["moved", "income"])
 
 
 class TestBoundedResolver(BaseTest):

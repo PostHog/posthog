@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 24 enabled ops
+ * PostHog API - MCP 26 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -628,6 +628,51 @@ export const WarehouseSavedQueriesMaterializeCreateBody = () => zod
             ),
     })
     .describe('Body of the `materialize` action: which cadence to enable materialization at.')
+
+/**
+ * Rename this model and update the models that read it, in one change.
+ *
+ * Every reference to the old name becomes the new name, and keeps its `models.` prefix if it had one.
+ * The update does not change what those models compute, so none of them is rebuilt. Nothing is renamed
+ * when any of them is blocked.
+ */
+export const WarehouseSavedQueriesRenameCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSavedQueriesRenameCreateBody = () => zod
+    .object({
+        name: zod.string().describe("The model's new name."),
+        plan_token: zod
+            .string()
+            .describe(
+                'The plan_token of the rename plan you reviewed for this name. The rename is refused with a 409 when the models that read this model changed after that plan was made.'
+            ),
+    })
+    .describe('Body of the `rename` action.')
+
+/**
+ * Show what renaming this model changes in the models that read it. Changes nothing.
+ */
+export const WarehouseSavedQueriesRenamePlanCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this data warehouse saved query.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSavedQueriesRenamePlanCreateBody = () => zod
+    .object({
+        name: zod.string().describe("The model's new name."),
+    })
+    .describe('Body of the `rename_plan` action.')
 
 /**
  * Resume materialization suspended after repeated failures.

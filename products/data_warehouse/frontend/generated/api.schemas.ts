@@ -2401,6 +2401,55 @@ export interface SavedQueryMaterializeApi {
 }
 
 /**
+ * Body of the `rename` action.
+ */
+export interface SavedQueryRenameRequestApi {
+    /** The model's new name. */
+    name: string
+    /** The plan_token of the rename plan you reviewed for this name. The rename is refused with a 409 when the models that read this model changed after that plan was made. */
+    plan_token: string
+}
+
+/**
+ * Body of the `rename_plan` action.
+ */
+export interface SavedQueryRenamePlanRequestApi {
+    /** The model's new name. */
+    name: string
+}
+
+export interface SavedQueryRenameRewriteApi {
+    /** Id of the model whose query the rename updates. */
+    id: string
+    /** Name of that model. */
+    name: string
+    /** The model's SQL now. */
+    before: string
+    /** The model's SQL after the rename. Only the references change. */
+    after: string
+}
+
+export interface SavedQueryRenameBlockedApi {
+    /** Id of the model whose query cannot be updated. */
+    id: string
+    /** Name of that model. */
+    name: string
+    /** Why its query cannot be updated: 'does not parse' when the SQL is not valid HogQL, or 'parse check failed' when the updated SQL could not be proven equivalent. */
+    reason: string
+}
+
+export interface SavedQueryRenamePlanApi {
+    /** The name the model is stored under after the rename. */
+    name: string
+    /** The models that read this model, with their SQL before and after. */
+    dependents: SavedQueryRenameRewriteApi[]
+    /** The models that read this model and whose SQL cannot be updated. The rename is refused while any model is blocked. */
+    blocked: SavedQueryRenameBlockedApi[]
+    /** Send this back to the `rename` action to apply this plan. */
+    plan_token: string
+}
+
+/**
  * * `clickhouse` - ClickHouse
  * * `trino` - Trino
  */

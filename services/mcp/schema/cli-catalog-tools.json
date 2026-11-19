@@ -50473,6 +50473,100 @@
             "validators": []
         }
     },
+    "view-rename": {
+        "name": "view-rename",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/warehouse_saved_queries/{id}/rename/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                },
+                {
+                    "param": "plan_token",
+                    "key": "plan_token"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/sql",
+                "joiner": "",
+                "prefix": "?open_view=",
+                "field": "id",
+                "suffix": "",
+                "source": "params"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "view-rename-plan": {
+        "name": "view-rename-plan",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/warehouse_saved_queries/{id}/rename_plan/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/sql",
+                "joiner": "",
+                "prefix": "?open_view=",
+                "field": "id",
+                "suffix": "",
+                "source": "params"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "view-resume": {
         "name": "view-resume",
         "kind": "http",

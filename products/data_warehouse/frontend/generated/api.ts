@@ -89,6 +89,9 @@ import type {
     SavedQueryDescendantsApi,
     SavedQueryLineageRequestApi,
     SavedQueryMaterializeApi,
+    SavedQueryRenamePlanApi,
+    SavedQueryRenamePlanRequestApi,
+    SavedQueryRenameRequestApi,
     SavedQueryResumeApi,
     SavedQueryResumeRequestApi,
     SavedQueryResumeSchedulesRequestApi,
@@ -2030,6 +2033,52 @@ export const warehouseSavedQueriesMaterializeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(savedQueryMaterializeApi),
+    })
+}
+
+export const getWarehouseSavedQueriesRenameCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${id}/rename/`
+}
+
+/**
+ * Rename this model and update the models that read it, in one change.
+ *
+ * Every reference to the old name becomes the new name, and keeps its `models.` prefix if it had one.
+ * The update does not change what those models compute, so none of them is rebuilt. Nothing is renamed
+ * when any of them is blocked.
+ */
+export const warehouseSavedQueriesRenameCreate = async (
+    projectId: string,
+    id: string,
+    savedQueryRenameRequestApi: SavedQueryRenameRequestApi,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryApi> => {
+    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRenameCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(savedQueryRenameRequestApi),
+    })
+}
+
+export const getWarehouseSavedQueriesRenamePlanCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${id}/rename_plan/`
+}
+
+/**
+ * Show what renaming this model changes in the models that read it. Changes nothing.
+ */
+export const warehouseSavedQueriesRenamePlanCreate = async (
+    projectId: string,
+    id: string,
+    savedQueryRenamePlanRequestApi: SavedQueryRenamePlanRequestApi,
+    options?: RequestInit
+): Promise<SavedQueryRenamePlanApi> => {
+    return apiMutator<SavedQueryRenamePlanApi>(getWarehouseSavedQueriesRenamePlanCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(savedQueryRenamePlanRequestApi),
     })
 }
 

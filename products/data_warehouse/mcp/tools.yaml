@@ -274,6 +274,40 @@ tools:
             rejected when the view's lineage cannot support it: no more often than its sources deliver new data, and no
             less often than a downstream view or endpoint needs. Materialized views are faster to query but use storage.
             Use 'view-unmaterialize' to undo. Rate limited.
+    view-rename:
+        operation: warehouse_saved_queries_rename_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: ?open_view={params.id}
+        title: Rename saved query
+        description: >
+            Rename a saved query and update the SQL of every model that reads it, in one change. First call
+            'view-rename-plan' with the new name and show the user each model's SQL before and after. Then call this
+            tool with the same name and the plan_token from that plan. Nothing is renamed when any model in the plan is
+            blocked. A 409 means the models that read this view changed since the plan was made, so get a new plan and
+            show it again. The updated models are not rebuilt. Endpoints, insights and dashboards that use the old name
+            are not updated.
+    view-rename-plan:
+        operation: warehouse_saved_queries_rename_plan_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: ?open_view={params.id}
+        title: Plan a saved query rename
+        description: >
+            Show what renaming a saved query changes, without changing anything. Returns the models whose SQL reads
+            this view, each with its SQL before and after, the models that block the rename with the reason, and a
+            plan_token. Show the user the changes, then call 'view-rename' with the same name and the plan_token. Needs
+            edit access to every model in the plan.
     view-resume:
         operation: warehouse_saved_queries_resume_create
         enabled: true
@@ -356,7 +390,8 @@ tools:
         title: Update saved query
         description: >
             Update an existing data warehouse saved query (view). Can change the name, HogQL query, sync frequency, or
-            `description`. Agents may use `description` to decide when to use this data and how to query it, so update
+            `description`. Changing the name fails when other models read the view; use 'view-rename-plan' and then
+            'view-rename' instead, so their SQL is updated too. Agents may use `description` to decide when to use this data and how to query it, so update
             it whenever the meaning of the view changes, and state what one row represents, what the view includes or
             leaves out, and when to use it. An empty string clears it; per-column descriptions are set via the
             saved-query column annotation tools. Changing the query triggers column re-inference and sets the status to
