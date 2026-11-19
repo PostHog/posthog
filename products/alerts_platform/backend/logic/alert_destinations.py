@@ -401,11 +401,18 @@ def record_source_destination(
     hog_function_groups: Sequence[AlertDestinationGroup],
     enabled: bool = True,
     keeps_legacy_webhook_body: bool = False,
+    only_while_platform_owned: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
     destination outlives them. None when the platform has no alert under `public_id`. Delivery skips
-    the row while any of these HogFunctions exists, so the destination sends once."""
-    configuration_id = _configurations_by_public_id(team_id, public_id).values_list("id", flat=True).first()
+    the row while any of these HogFunctions exists, so the destination sends once.
+
+    With `only_while_platform_owned`, also None unless the platform evaluates the alert. The copy is
+    locked for the check, the lock a handback takes before it changes the owner."""
+    configurations = _configurations_by_public_id(team_id, public_id)
+    if only_while_platform_owned:
+        configurations = configurations.filter(owner=PlatformAlertOwner.PLATFORM).select_for_update()
+    configuration_id = configurations.values_list("id", flat=True).first()
     if configuration_id is None:
         return None
     (created,) = create_alert_destinations(

@@ -96,7 +96,7 @@ from products.alerts_platform.backend.facade.enums import HoldRelease, HoldRelea
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.discord.template_discord import template as template_discord
-from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack, template_webhook
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.notebooks.backend.facade.api import create_notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -701,37 +701,48 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             self.copy_id = platform_testing.copy_of(self.alert.id).id
         self.url = f"/api/projects/{self.team.id}/alerts"
 
-    def test_a_destination_moves_between_its_row_and_hog_functions_through_customize_and_reset(self) -> None:
+    def test_a_new_destination_is_a_row_that_keeps_its_id_through_customize_and_reset(self) -> None:
         sync_template_to_db(template_discord)
         destinations_url = f"{self.url}/{self.alert.id}/destinations/"
-        hog_function_ids = self.client.post(
-            f"{destinations_url}webhook/",
-            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
-            format="json",
-        ).json()["hog_function_ids"]
-        (stock,) = self.client.get(destinations_url).json()
 
         with patch("products.alerts.backend.presentation.views.alert.posthoganalytics.capture") as capture:
-            reset = self.client.post(f"{destinations_url}reset/", {"hog_function_ids": hog_function_ids}, format="json")
-            assert reset.status_code == status.HTTP_200_OK, reset.json()
+            created = self.client.post(
+                f"{destinations_url}webhook/",
+                {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
+                format="json",
+            )
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
             (row_only,) = self.client.get(destinations_url).json()
-            assert (row_only["id"], row_only["hog_function_ids"]) == (reset.json()["id"], [])
-            assert row_only["id"] == stock["id"]
+            assert created.json() == {"id": row_only["id"], "hog_function_ids": []}
+            assert (row_only["hog_function_ids"], row_only["message_customized"]) == ([], False)
+            assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
 
             customized = self.client.post(
                 f"{destinations_url}customize/", {"destination_id": row_only["id"]}, format="json"
             )
+            assert customized.status_code == status.HTTP_200_OK, customized.json()
+            (listed,) = self.client.get(destinations_url).json()
+            assert (listed["id"], listed["hog_function_ids"]) == (row_only["id"], customized.json()["hog_function_ids"])
+            (hog_function_id,) = listed["hog_function_ids"]
+            assert HogFunction.objects.get(id=hog_function_id).encrypted_inputs["webhookUrl"]["value"] == (
+                "https://discord.com/api/webhooks/1/secret"
+            )
 
-        assert customized.status_code == status.HTTP_200_OK, customized.json()
-        (listed,) = self.client.get(destinations_url).json()
-        assert (listed["id"], listed["hog_function_ids"]) == (row_only["id"], customized.json()["hog_function_ids"])
-        (hog_function_id,) = listed["hog_function_ids"]
-        assert HogFunction.objects.get(id=hog_function_id).encrypted_inputs["webhookUrl"]["value"] == (
-            "https://discord.com/api/webhooks/1/secret"
+            reset = self.client.post(
+                f"{destinations_url}reset/", {"hog_function_ids": [hog_function_id]}, format="json"
+            )
+
+        assert reset.status_code == status.HTTP_200_OK, reset.json()
+        (after_reset,) = self.client.get(destinations_url).json()
+        assert (reset.json()["id"], after_reset["id"], after_reset["hog_function_ids"]) == (
+            row_only["id"],
+            row_only["id"],
+            [],
         )
         assert [call.kwargs["event"] for call in capture.call_args_list] == [
-            "insight alert destination reset",
+            "insight alert destination created",
             "insight alert destination customized",
+            "insight alert destination reset",
         ]
         changes = [
             (change["action"], (change["before"] or change["after"])["id"])
@@ -740,10 +751,11 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             ).order_by("created_at")
             for change in (row.detail or {})["changes"]
         ]
-        assert changes[-3:] == [
-            ("deleted", hog_function_ids[0]),
-            ("created", reset.json()["id"]),
+        assert changes == [
+            ("created", row_only["id"]),
             ("created", hog_function_id),
+            ("deleted", hog_function_id),
+            ("created", row_only["id"]),
         ]
 
     @parameterized.expand([("row_only", False, 1, 0), ("row_copying_live_hog_functions", True, 0, 1)])
@@ -767,6 +779,10 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         if through_hog_functions:
             created = self.client.post(f"{alert_url}/destinations/", slack, format="json")
             assert created.status_code == status.HTTP_201_CREATED, created.json()
+            customized = self.client.post(
+                f"{alert_url}/destinations/customize/", {"destination_id": created.json()["id"]}, format="json"
+            )
+            assert customized.status_code == status.HTTP_200_OK, customized.json()
         else:
             with team_scope(self.team.id):
                 create_alert_destinations(
@@ -827,32 +843,91 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert response.json()["detail"] == "This alert already has 5 destinations. Remove one to add another."
         assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
 
-    @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
+    @parameterized.expand([("by_its_id",), ("customized_then_deleted_as_a_hog_function",)])
     def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:
         sync_template_to_db(template_discord)
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/"
         created = self.client.post(
-            f"{self.url}/{self.alert.id}/destinations/webhook/",
+            f"{destinations_url}webhook/",
             {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
             format="json",
         )
         assert created.status_code == status.HTTP_201_CREATED, created.json()
-        (hog_function_id,) = created.json()["hog_function_ids"]
-        (listed,) = self.client.get(f"{self.url}/{self.alert.id}/destinations/").json()
-        assert listed["id"] is not None
 
-        if delete_path == "alert_route":
+        if delete_path == "by_its_id":
             response = self.client.post(
-                f"{self.url}/{self.alert.id}/destinations/delete/",
-                {"hog_function_ids": [hog_function_id]},
-                format="json",
+                f"{destinations_url}delete/", {"destination_ids": [created.json()["id"]]}, format="json"
             )
         else:
+            customized = self.client.post(
+                f"{destinations_url}customize/", {"destination_id": created.json()["id"]}, format="json"
+            )
+            (hog_function_id,) = customized.json()["hog_function_ids"]
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_functions/{hog_function_id}/", {"deleted": True}, format="json"
             )
 
         assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
-        assert self.client.get(f"{self.url}/{self.alert.id}/destinations/").json() == []
+        assert self.client.get(destinations_url).json() == []
+
+    @parameterized.expand(
+        [
+            ("platform_sends_the_alertmanager_body", PlatformAlertOwner.PLATFORM, False, "webhook", False),
+            ("team_keeps_the_legacy_webhook_body", PlatformAlertOwner.PLATFORM, True, "webhook", True),
+            ("webhook_body_flag_unreadable", PlatformAlertOwner.PLATFORM, None, "webhook", True),
+            ("handed_back_after_the_alert_was_read", PlatformAlertOwner.SOURCE, False, "webhook", True),
+            ("pagerduty_keeps_the_stock_incident", PlatformAlertOwner.PLATFORM, False, "pagerduty", True),
+        ]
+    )
+    def test_a_new_destination_gets_hog_functions_only_where_a_row_would_not_send_what_they_send(
+        self,
+        _name: str,
+        copy_owner: PlatformAlertOwner,
+        keeps_legacy_body: bool | None,
+        route: str,
+        has_hog_functions: bool,
+    ) -> None:
+        sync_template_to_db(template_webhook)
+        sync_template_to_db(template_pagerduty)
+        with team_scope(self.team.id):
+            platform_testing.set_owner(self.copy_id, copy_owner)
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/"
+        payload = (
+            {"type": "webhook", "webhook_url": "https://hooks.example.com/secret"}
+            if route == "webhook"
+            else {"pagerduty_routing_key": "a" * 32}
+        )
+
+        with patch(
+            "products.alerts.backend.presentation.views.alert.keeps_legacy_webhook_body",
+            return_value=keeps_legacy_body,
+        ):
+            created = self.client.post(f"{destinations_url}{route}/", payload, format="json")
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        (listed,) = self.client.get(destinations_url).json()
+        assert listed["id"] == created.json()["id"]
+        assert sorted(listed["hog_function_ids"]) == sorted(created.json()["hog_function_ids"])
+        assert bool(listed["hog_function_ids"]) is has_hog_functions
+
+    def test_an_alert_stops_taking_row_only_destinations_at_the_cap(self) -> None:
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/webhook/"
+        for index in range(MAX_DESTINATIONS_PER_ALERT):
+            response = self.client.post(
+                destinations_url,
+                {"type": "discord", "webhook_url": f"https://discord.com/api/webhooks/{index}/secret"},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.post(
+            destinations_url,
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/one-too-many/secret"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert len(self.client.get(f"{self.url}/{self.alert.id}/destinations/").json()) == MAX_DESTINATIONS_PER_ALERT
 
     def _copy(self) -> Any:
         with team_scope(self.team.id):
@@ -1840,12 +1915,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert elsewhere.json()["attr"] == "alert", elsewhere.json()
         assert watched.json()["detail"] == "simulated", watched.json()
 
-    @patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
-    def test_destinations_of_an_alert_insight_keeps_no_row_for_match_its_platform_id(self, mock_trigger) -> None:
-        mock_trigger.return_value = [
-            AlertDelivery(channel="hog_function", target="Eng alerts", template="slack", at="2026-08-11T00:00:00+00:00")
-        ]
-        sync_template_to_db(template_slack)
+    def test_destinations_of_an_alert_insight_keeps_no_row_for_match_its_platform_id(self) -> None:
         integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -1855,31 +1925,30 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         )
         self._forget_the_insight_row()
         alert_url = f"{self.url}/{self.copy_id}"
+        slack = {
+            "type": "slack",
+            "slack_workspace_id": integration.id,
+            "slack_channel_id": "C123",
+            "slack_channel_name": "product-alerts",
+        }
 
-        created = self.client.post(
-            f"{alert_url}/destinations/",
-            {
-                "type": "slack",
-                "slack_workspace_id": integration.id,
-                "slack_channel_id": "C123",
-                "slack_channel_name": "product-alerts",
-            },
-            format="json",
-        )
+        created = self.client.post(f"{alert_url}/destinations/", slack, format="json")
         assert created.status_code == status.HTTP_201_CREATED, created.json()
-        [hog_function_id] = created.json()["hog_function_ids"]
-        assert (HogFunction.objects.get(id=hog_function_id).filters or {})["properties"][0]["value"] == str(
-            self.copy_id
-        )
-        tested = self.client.post(f"{alert_url}/test-delivery/")
-        assert (tested.status_code, tested.json()["destination_count"]) == (status.HTTP_202_ACCEPTED, 1)
+        destination_id = created.json()["id"]
+        assert created.json()["hog_function_ids"] == []
+        assert [destination["id"] for destination in self.client.get(f"{alert_url}/destinations/").json()] == [
+            destination_id
+        ]
+        again = self.client.post(f"{alert_url}/destinations/", slack, format="json")
+        assert again.status_code == status.HTTP_400_BAD_REQUEST, again.json()
+        assert again.json()["detail"] == "This alert already sends to this destination."
 
         deleted = self.client.post(
-            f"{alert_url}/destinations/delete/", {"hog_function_ids": [hog_function_id]}, format="json"
+            f"{alert_url}/destinations/delete/", {"destination_ids": [destination_id]}, format="json"
         )
 
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
-        assert self.client.post(f"{alert_url}/test-delivery/").status_code == status.HTTP_409_CONFLICT
+        assert self.client.get(f"{alert_url}/destinations/").json() == []
         logged = ActivityLog.objects.filter(
             team_id=self.team.id,
             scope="AlertConfiguration",
@@ -1893,8 +1962,8 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             )
             for row in logged
         ] == [
-            (self.user.id, [("created", {"id": hog_function_id, "type": "slack"})]),
-            (self.user.id, [("deleted", {"id": hog_function_id, "type": "slack"})]),
+            (self.user.id, [("created", {"id": destination_id, "type": "slack"})]),
+            (self.user.id, [("deleted", {"id": destination_id, "type": "slack"})]),
         ]
 
     def _destination(self, alert_id: UUID | None = None) -> HogFunction:
