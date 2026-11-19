@@ -549,6 +549,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         assert logs.status_code == status.HTTP_200_OK
         assert logs.json()[0]["message"] == entry["message"]
         usage = {"input_tokens": 12, "output_tokens": 4}
+        retry = {"classification": "upstream_rate_limited", "attempt": 1, "delay_ms": 15_000}
         response = client.patch(
             base,
             {
@@ -558,6 +559,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
                     "budget_guard": {},
                     "benjamin_version": "test",
                     "agent_version": "test-agent",
+                    "upstream_turn_retry": retry,
                 },
             },
             format="json",
@@ -567,6 +569,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         assert run.state is not None
         assert run.state["token_usage"] == usage
         assert run.state["agent_version"] == "test-agent"
+        assert run.state["upstream_turn_retry"] == retry
         response = client.patch(
             f"{base}set_summary/",
             {"summary": "Reviewed recent exports", "tags": ["synthetic-trial-tag"]},
@@ -9322,6 +9325,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("with_error_type", {"error_type": "agent_declined"}, "agent_declined"),
+            ("rate_limited", {"error_type": "upstream_rate_limited"}, "upstream_rate_limited"),
             ("without_error_type", {}, None),
         ]
     )
