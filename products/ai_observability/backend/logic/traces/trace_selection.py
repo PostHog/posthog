@@ -179,7 +179,8 @@ def resolve_window(team: Team, date_from: str | None, date_to: str | None, now: 
         window.read_bounds()
     except (ValueError, OverflowError) as error:
         raise InvalidTraceWindowError("The date range is outside the dates that can be read") from error
-    if end < start:
+    # Python compares two datetimes in the same zone by wall-clock time, and the hour clocks go back repeats.
+    if end.astimezone(UTC) < start.astimezone(UTC):
         raise InvalidTraceWindowError("The date range ends before it starts")
     return window
 

@@ -516,16 +516,13 @@ class TraceReviewStatus(Contract):
 
 
 class TraceListItem(TraceOverview):
-    distinct_id: str | None = Field(
-        description="The distinct id of whoever ran the trace, preferring the trace event's, or null when no event has one."
-    )
     default_node_id: str | None = Field(
         description="The step the trace opens on. Null when the totals are partial, because the opening step may be "
         "among the events not read."
     )
     first_error: str | None = Field(
-        description="The error text of the trace's earliest failed step, cut at 200 characters. Null when the trace "
-        "has no error or the failed step carries no text."
+        description="The error text of the trace's earliest failed step that carries one, cut at 200 characters. "
+        "Null when no failed step carries error text."
     )
     tools_called: list[str] = Field(
         description="The tools the trace's steps called, each once, in the order first called."
