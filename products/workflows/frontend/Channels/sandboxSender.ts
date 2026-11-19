@@ -2,11 +2,16 @@ import posthog from 'posthog-js'
 
 import { workflowEmailSandboxProvision, workflowEmailSandboxStatus } from '../generated/api'
 import type { WorkflowEmailSandboxStatusApi } from '../generated/api.schemas'
+import type { HogFlow } from '../Workflows/hogflows/types'
 
 export type SandboxSenderSurface = 'first_run' | 'inserted_step' | 'sender_control' | 'channels'
 
 export function canAdoptSandboxSender(status: WorkflowEmailSandboxStatusApi | null | undefined): boolean {
     return !!status?.adoption_enabled && !status.organization_blocked && !!status.from_address
+}
+
+export function isLiveOnSandboxSender(workflow: Pick<HogFlow, 'status' | 'actions'>): boolean {
+    return workflow.status === 'active' && (workflow.actions ?? []).some((action) => action.type === 'email_sandbox')
 }
 
 export async function provisionSandboxSender(teamId: string, surface: SandboxSenderSurface): Promise<number> {

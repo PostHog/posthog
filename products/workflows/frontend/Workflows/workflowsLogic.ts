@@ -12,7 +12,9 @@ import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
+import { isLiveOnSandboxSender } from '../Channels/sandboxSender'
 import { hogFlowsPartialUpdate } from '../generated/api'
+import { confirmEnableOnSandboxSender } from './confirmEnableOnSandboxSender'
 import type { HogFlow } from './hogflows/types'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 
@@ -237,7 +239,11 @@ export interface workflowsLogicActions {
     toggleArchivedWorkflowSelection: (id: string) => {
         id: string
     }
-    toggleWorkflowStatus: (workflow: HogFlow) => {
+    toggleWorkflowStatus: (
+        workflow: HogFlow,
+        sandboxSenderConfirmed?: boolean
+    ) => {
+        sandboxSenderConfirmed: boolean
         workflow: HogFlow
     }
     toggleWorkflowStatusFailure: (
@@ -250,11 +256,13 @@ export interface workflowsLogicActions {
     toggleWorkflowStatusSuccess: (
         workflows: WorkflowsResult,
         payload?: {
+            sandboxSenderConfirmed: boolean
             workflow: HogFlow
         }
     ) => {
         workflows: WorkflowsResult
         payload?: {
+            sandboxSenderConfirmed: boolean
             workflow: HogFlow
         }
     }
@@ -289,7 +297,10 @@ export const workflowsLogic = kea<workflowsLogicType>([
     key(() => 'workflowsLogic'),
     path(['products', 'workflows', 'frontend', 'workflowsLogic']),
     actions({
-        toggleWorkflowStatus: (workflow: HogFlow) => ({ workflow }),
+        toggleWorkflowStatus: (workflow: HogFlow, sandboxSenderConfirmed: boolean = false) => ({
+            workflow,
+            sandboxSenderConfirmed,
+        }),
         duplicateWorkflow: (workflow: HogFlow) => ({ workflow }),
         archiveWorkflow: (workflow: HogFlow) => ({ workflow }),
         restoreWorkflow: (workflow: HogFlow) => ({ workflow }),
@@ -368,10 +379,15 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     breakpoint()
                     return response
                 },
-                toggleWorkflowStatus: async ({ workflow }) => {
-                    await api.hogFlows.updateHogFlow(workflow.id, {
-                        status: workflow.status === 'active' ? 'draft' : 'active',
-                    })
+                toggleWorkflowStatus: async ({ workflow, sandboxSenderConfirmed }) => {
+                    const status = workflow.status === 'active' ? 'draft' : 'active'
+                    if (!sandboxSenderConfirmed && isLiveOnSandboxSender({ ...workflow, status })) {
+                        confirmEnableOnSandboxSender(workflow.id, 'list', () =>
+                            actions.toggleWorkflowStatus(workflow, true)
+                        )
+                        return values.workflows
+                    }
+                    await api.hogFlows.updateHogFlow(workflow.id, { status })
                     // Reload instead of patching in place: the new status may no longer match the
                     // active status filter, so the row has to be re-fetched through the server query.
                     actions.loadWorkflows()

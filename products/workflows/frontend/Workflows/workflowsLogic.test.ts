@@ -301,6 +301,27 @@ describe('workflowsLogic', () => {
             }
         })
 
+        it.each([
+            ['enables a draft on the test sender only after "Enable anyway"', 'draft', 'email_sandbox', true],
+            ['disables a workflow on the test sender without asking', 'active', 'email_sandbox', false],
+            ['enables a draft on its own sender without asking', 'draft', 'function_email', false],
+        ] as const)('%s', async (_, from, stepType, asks) => {
+            useListMocks()
+            const row = { ...workflow(from), actions: [{ id: 'email', type: stepType }] } as unknown as HogFlow
+
+            await expectLogic(logic, () => logic.actions.toggleWorkflowStatus(row)).toFinishAllListeners()
+            if (asks) {
+                expect(writes).toEqual([])
+                confirm('Enable on the PostHog test sender?')
+            }
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+
+            expect(dialogs.map((dialog) => dialog.title)).toEqual(asks ? ['Enable on the PostHog test sender?'] : [])
+            expect(writes).toEqual([
+                { method: 'PATCH', path: 'flow-1/', body: { status: from === 'active' ? 'draft' : 'active' } },
+            ])
+        })
+
         it('duplicates a workflow as a draft copy and reloads the list', async () => {
             useListMocks()
 

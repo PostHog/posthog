@@ -63,7 +63,7 @@ import {
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
-import { readySandboxSender } from '../Channels/sandboxSender'
+import { isLiveOnSandboxSender, readySandboxSender } from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -74,6 +74,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import { confirmEnableOnSandboxSender } from './confirmEnableOnSandboxSender'
 import {
     EmailSendingPause,
     emailSendingPause,
@@ -2920,7 +2921,11 @@ export interface workflowLogicActions {
         error: string
         errorObject?: any
     }
-    saveWorkflowPartial: (workflow: Partial<HogFlow>) => {
+    saveWorkflowPartial: (
+        workflow: Partial<HogFlow>,
+        sandboxSenderConfirmed?: boolean
+    ) => {
+        sandboxSenderConfirmed: boolean
         workflow: Partial<HogFlow>
     }
     saveWorkflowSuccess: (
@@ -3735,7 +3740,10 @@ export const workflowLogic = kea<workflowLogicType>([
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
         restoreScheduleEdits: (edits: ScheduleEdits) => ({ edits }),
-        saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
+        saveWorkflowPartial: (workflow: Partial<HogFlow>, sandboxSenderConfirmed: boolean = false) => ({
+            workflow,
+            sandboxSenderConfirmed,
+        }),
         markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
             variables,
@@ -4935,7 +4943,7 @@ export const workflowLogic = kea<workflowLogicType>([
         submitWorkflow: () => {
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
         },
-        saveWorkflowPartial: async ({ workflow }) => {
+        saveWorkflowPartial: async ({ workflow, sandboxSenderConfirmed }) => {
             // Recorded before the error guard: an enable attempt on an invalid draft must still
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
@@ -4952,10 +4960,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.enableBlocked()
                 return
             }
+            const enabling = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
+            if (enabling && !sandboxSenderConfirmed && isLiveOnSandboxSender(merged)) {
+                confirmEnableOnSandboxSender(merged.id, 'editor', () => actions.saveWorkflowPartial(workflow, true))
+                return
+            }
             // This is the one path that means to change the lifecycle. The loader reads the flag
             // as it handles the action below, so it describes this save and no other.
             cache.nextSaveChangesStatus = 'status' in workflow
-            cache.enablingWorkflow = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
+            cache.enablingWorkflow = enabling
             cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },

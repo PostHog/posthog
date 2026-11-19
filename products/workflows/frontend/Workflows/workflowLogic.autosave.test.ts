@@ -571,6 +571,61 @@ describe('workflowLogic auto-save', () => {
             captureSpy.mockRestore()
         })
 
+        it('enables a workflow on the test sender only after "Enable anyway"', async () => {
+            const [trigger, exit] = activeWorkflow.actions
+            const sandboxStep = {
+                id: 'sandbox_email',
+                type: 'email_sandbox',
+                name: 'Email',
+                description: '',
+                created_at: 0,
+                updated_at: 0,
+                config: {
+                    inputs: {
+                        email: {
+                            templating: 'liquid',
+                            value: { to: { email: 'ops@example.com' }, subject: 'Hi', text: 'Hi', html: '<p>Hi</p>' },
+                        },
+                    },
+                },
+            } as HogFlow['actions'][number]
+            const dialogs: LemonDialogProps[] = []
+            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation((props) => {
+                dialogs.push(props)
+            })
+            useMocks(
+                activeMocks({
+                    ...activeWorkflow,
+                    status: 'draft',
+                    actions: [trigger, sandboxStep, exit],
+                    edges: [
+                        { from: trigger.id, to: sandboxStep.id, type: 'continue' },
+                        { from: sandboxStep.id, to: exit.id, type: 'continue' },
+                    ],
+                })
+            )
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveWorkflowPartial({ status: 'active' })
+                }).toFinishAllListeners()
+                expect(dialogs.map((dialog) => dialog.title)).toEqual(['Enable on the PostHog test sender?'])
+                expect(patchBodies).toEqual([])
+
+                await expectLogic(logic, () => {
+                    ;(dialogs[0].primaryButton?.onClick as () => void)()
+                }).toDispatchActions(['saveWorkflowSuccess'])
+                expect(patchBodies).toMatchObject([{ status: 'active' }])
+                expect(dialogs).toHaveLength(1)
+            } finally {
+                openDialog.mockRestore()
+            }
+        })
+
         it('a status transition sends lifecycle and metadata only, never stage_draft', async () => {
             useMocks(
                 activeMocks({
