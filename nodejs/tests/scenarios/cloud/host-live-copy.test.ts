@@ -45,7 +45,7 @@ case $target in
 */live.jsonl)
     [ -z "\${FAKE_LIVE_FAILS:-}" ] || exit 1
     [ -z "\${FAKE_LIVE_DELAY:-}" ] || sleep "$FAKE_LIVE_DELAY"
-    if [ -n "\${FAKE_LIVE_HANGS:-}" ]; then
+    if [ "\${FAKE_LIVE_HANGS:-}" = every ] || { [ "\${FAKE_LIVE_HANGS:-}" = first ] && [ ! -e "$FAKE_S3.hanging" ]; }; then
         trap '' TERM
         touch "$FAKE_S3.hanging"
         exec sleep 1000
@@ -61,6 +61,7 @@ run="$XDG_CACHE_HOME/posthog-scenarios/${RUN_ID}"
 mkdir -p "$run"
 end_live_log() { [ -z "\${FAKE_LIVE:-}" ] || printf '%s\\n%s\\n' '${TICK.slice(14)}' '${END}' >>"$run/live.jsonl"; }
 [ -z "\${FAKE_SLOW_STOP:-}" ] || trap 'sleep "$FAKE_SLOW_STOP"; end_live_log; exit 0' TERM
+[ -z "\${FAKE_STUCK_STOP:-}" ] || trap 'end_live_log; sleep 1000' TERM
 [ -z "\${FAKE_LIVE:-}" ] || printf '%s\\n%s' '${START}' '${TICK.slice(0, 14)}' >>"$run/live.jsonl"
 [ -z "\${FAKE_CARD_SECONDS:-}" ] || sleep "$FAKE_CARD_SECONDS"
 if [ -n "\${FAKE_HOLD:-}" ]; then
@@ -248,14 +249,17 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         expect(existsSync(object(run, 'live.jsonl'))).toBe(false)
     })
 
-    it('stops at once with a copy in flight, and bounds its final copy', async () => {
+    it.each([
+        ['cancels a copy in flight and makes its final copy', 'first', '60', `${START}\n`],
+        ['bounds a final copy that hangs', 'every', '1', undefined],
+    ])('%s when the card ends', async (_, hangs, limit, finalCopy) => {
         const run = start(
             'run',
             {
                 FAKE_HOLD: '1',
-                FAKE_LIVE_HANGS: '1',
+                FAKE_LIVE_HANGS: hangs,
                 SCENARIO_LIVE_COPY_SECONDS: '600',
-                SCENARIO_LIVE_COPY_LIMIT_SECONDS: '1',
+                SCENARIO_LIVE_COPY_LIMIT_SECONDS: limit,
             },
             { runId: RUN_ID, content: `${START}\n` }
         )
@@ -269,22 +273,41 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
 
         expect(ended).toBe(true)
         expect(parseJSON(readFileSync(object(run, 'host/done'), 'utf8'))).toMatchObject({ exitCode: 0, uploaded: true })
+        expect(existsSync(object(run, 'live.jsonl')) ? copied(run) : undefined).toBe(finalCopy)
+    })
+
+    it('leaves no process behind when the whole run is killed during a copy', async () => {
+        const run = start('run', { FAKE_HOLD: '1', FAKE_LIVE_HANGS: 'first' }, { runId: RUN_ID, content: `${START}\n` })
+        await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
+
+        signalAll(run, 'SIGKILL')
+
+        await until(() => processesBesideTheRunner(run).length === 0, 'every process of the run to end')
     })
 
     it.each([
         ['', {}, false],
-        [' while it stops', { FAKE_SLOW_STOP: '1000' }, true],
-    ])('leaves no process but the card behind once the wrapper is gone%s', async (_, env, stopping) => {
-        const run = start('run', { ...env, FAKE_LIVE: '1', FAKE_HOLD: '1' })
-        await until(() => existsSync(object(run, 'live.jsonl')), 'a live log copy')
+        [' while it stops', { FAKE_STUCK_STOP: '1' }, true],
+    ])(
+        'leaves no process but the card behind, and copies nothing more, once the wrapper is gone%s',
+        async (_, env, stopping) => {
+            const run = start('run', { ...env, FAKE_LIVE: '1', FAKE_HOLD: '1' })
+            await until(() => existsSync(object(run, 'live.jsonl')), 'a live log copy')
+            const before = copied(run)
 
-        if (stopping) {
-            signalAll(run, 'SIGTERM')
+            if (stopping) {
+                signalAll(run, 'SIGTERM')
+                await until(
+                    () => readFileSync(liveLogIn(run.dir, RUN_ID), 'utf8').endsWith(`${END}\n`),
+                    'the card to write its last records'
+                )
+            }
+            run.wrapper.kill('SIGKILL')
+
+            await until(() => processesBesideTheRunner(run).length === 0, 'the copy loop to end')
+            expect(copied(run)).toBe(before)
         }
-        run.wrapper.kill('SIGKILL')
-
-        await until(() => processesBesideTheRunner(run).length === 0, 'the copy loop to end')
-    })
+    )
 
     it('never copies the live log of an earlier run on the same host', async () => {
         const run = start(

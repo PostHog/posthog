@@ -53,7 +53,9 @@ finish() {
     while kill -0 "$runner" 2>/dev/null && kill -0 "$wrapper" 2>/dev/null; do
         sleep 0.2
     done
-    copy
+    if kill -0 "$wrapper" 2>/dev/null; then
+        copy
+    fi
     rm -f "$snapshot"
     exit 0
 }
