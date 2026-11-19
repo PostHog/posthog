@@ -18,23 +18,27 @@ const REVIEWED_READ_ONLY_WRITE_SCOPE_TOOLS: Record<string, string> = {
     'scout-trial-setup': 'GET; the write scope gates private trials',
     'vision-requests-get': 'GET; the write scope gates scanner output',
     'external-data-schemas-incremental-fields-create':
-        'PR #138684 relabels it as a write; whichever of the two PRs merges second drops this entry',
+        'PR #138684 relabels it as a write, so its entry goes when that PR merges',
     'external-data-sources-check-cdc-prerequisites-create':
-        'PR #138684 relabels it as a write; whichever of the two PRs merges second drops this entry',
-    'external-data-sources-db-schema':
-        'PR #138684 relabels it as a write; whichever of the two PRs merges second drops this entry',
+        'PR #138684 relabels it as a write, so its entry goes when that PR merges',
+    'external-data-sources-db-schema': 'PR #138684 relabels it as a write, so its entry goes when that PR merges',
 }
 
 describe('read-only tools that require a write scope', () => {
-    it('are all reviewed', () => {
-        const definitions = getToolDefinitions()
-        const unreviewed = Object.entries(definitions)
-            .filter(([, definition]) => definition.annotations.readOnlyHint)
-            .filter(([, definition]) => (definition.required_scopes ?? []).some((scope) => scope.endsWith(':write')))
-            .map(([name]) => name)
-            .filter((name) => !(name.endsWith('-prepare') && definitions[name.replace(/-prepare$/, '-execute')]))
-            .filter((name) => !(name in REVIEWED_READ_ONLY_WRITE_SCOPE_TOOLS))
+    const definitions = getToolDefinitions()
+    const readOnlyWithWriteScope = Object.entries(definitions)
+        .filter(([, definition]) => definition.annotations.readOnlyHint)
+        .filter(([, definition]) => (definition.required_scopes ?? []).some((scope) => scope.endsWith(':write')))
+        .map(([name]) => name)
+        .filter((name) => !(name.endsWith('-prepare') && definitions[name.replace(/-prepare$/, '-execute')]))
 
-        expect(unreviewed).toEqual([])
+    it('are all reviewed', () => {
+        expect(readOnlyWithWriteScope.filter((name) => !(name in REVIEWED_READ_ONLY_WRITE_SCOPE_TOOLS))).toEqual([])
+    })
+
+    it('leave no stale review entries', () => {
+        expect(
+            Object.keys(REVIEWED_READ_ONLY_WRITE_SCOPE_TOOLS).filter((name) => !readOnlyWithWriteScope.includes(name))
+        ).toEqual([])
     })
 })
