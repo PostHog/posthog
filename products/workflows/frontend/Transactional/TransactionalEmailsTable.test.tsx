@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -288,8 +289,13 @@ describe('TransactionalEmailsTable', () => {
             const wizardButton = screen.getByLabelText('Copy wizard command')
             const promptButton = container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!
             expect(wizardButton.compareDocumentPosition(promptButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+            const capture = jest.spyOn(posthog, 'capture')
             fireEvent.click(wizardButton)
             await waitFor(() => expect(clipboard.text).toBe('npx -y @posthog/wizard@latest email'))
+            expect(capture).toHaveBeenCalledWith('wizard command copy requested', {
+                event_source: 'wizard_ui',
+                command: 'email',
+            })
         }
 
         fireEvent.click(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!)
