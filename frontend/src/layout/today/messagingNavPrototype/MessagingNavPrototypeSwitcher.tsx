@@ -19,10 +19,14 @@ export const MESSAGING_NAV_VARIANT_LABELS: Record<MessagingNavVariant, string> =
     C: 'C (Rail item)',
 }
 
+// Every variant moves the same rows and tabs, so they share these flags.
+const SHARED_FLAGS =
+    'muscle memory: Broadcasts and Transactional rows, Channels, Library and Calendar tabs · agent contract: /broadcasts and setup tab links · known pain: Workflows tab bar'
+
 export const MESSAGING_NAV_VARIANT_FLAGS: Record<MessagingNavVariant, string> = {
-    A: 'muscle memory: Broadcasts row, setup tabs',
-    B: 'muscle memory: Broadcasts row, setup tabs',
-    C: 'muscle memory: Broadcasts row, setup tabs · new rail item',
+    A: `${SHARED_FLAGS} · two navs side by side`,
+    B: `${SHARED_FLAGS} · new shell pane`,
+    C: `${SHARED_FLAGS} · new rail item`,
 }
 
 function step(current: MessagingNavVariant, by: number): MessagingNavVariant {
