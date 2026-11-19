@@ -66,9 +66,8 @@ INTERNAL_FUNCTIONS = frozenset(
     }
 )
 
-# Every async function the Node worker registers in `nodejs/src/cdp/async-functions/`, and `postHogCapture`. Each one
-# sends a request or a message out of the function. A function added there must be added here too, or code that calls
-# only that function counts as code with no outbound call.
+# Every async function in `nodejs/src/cdp/async-functions/`, and `postHogCapture`. A function added there must be
+# added here too, or code that calls only that function counts as making no outbound call.
 OUTBOUND_FUNCTIONS = INTERNAL_FUNCTIONS | {
     "fetch",
     "postHogCapture",
@@ -289,9 +288,8 @@ class _HogCodeVisitor(TraversingVisitor):
         super().visit_variable_declaration(node)
         self._scopes[-1].add(node.name)
 
-    # An input value can hold a closure that calls an async function, and code can swap the upvalues of a local
-    # function, so any call that does not name a builtin could reach one. A lambda literal passed as a callback is safe
-    # because its body is visited.
+    # An input can hold a closure that calls an async function, and code can swap a local function's upvalues, so any
+    # call that does not name a builtin could reach one. A lambda literal callback is safe because its body is visited.
     def visit_expr_call(self, node: ast.ExprCall) -> None:
         super().visit_expr_call(node)
         self.calls_out = True
