@@ -110,30 +110,14 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def _alert(self, *, detector: dict[str, Any] | None, interval: str = "day") -> AlertConfiguration:
-        return self._alert_on(
+        return _create_alert(
+            self.team,
+            self.user,
             _trends_query(interval),
             {"type": "TrendsAlertConfig", "series_index": 0},
-            detector=detector,
-            calculation_interval="daily" if interval == "day" else "hourly",
+            detector,
+            "daily" if interval == "day" else "hourly",
         )
-
-    def _sql_alert(self, *, detector: dict[str, Any] | None) -> AlertConfiguration:
-        return self._alert_on(
-            _DAILY_SQL,
-            {"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
-            detector=detector,
-            calculation_interval="daily",
-        )
-
-    def _alert_on(
-        self,
-        query: dict[str, Any],
-        config: dict[str, Any],
-        *,
-        detector: dict[str, Any] | None,
-        calculation_interval: str,
-    ) -> AlertConfiguration:
-        return _create_alert(self.team, self.user, query, config, detector, calculation_interval)
 
     def _enrolled(self) -> Any:
         return override_settings(ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS=[self.team.pk])
@@ -294,20 +278,6 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert len(_shadow_events(capture)) == shadow_events
         assert (self._jobs() > 0) == bool(shadow_events)
 
-    def test_a_cancelled_sql_alert_check_stops_while_recording(self) -> None:
-        alert = self._sql_alert(detector=None)
-
-        def cancel_on_shadow_event(**kwargs: Any) -> None:
-            if kwargs.get("event") == SHADOW_COMPARISON_EVENT:
-                raise CancelledError()
-
-        with (
-            self._enrolled(),
-            patch(f"{_SHADOW}.posthoganalytics.capture", side_effect=cancel_on_shadow_event),
-            self.assertRaises(CancelledError),
-        ):
-            check_alert_for_insight(alert)
-
 
 _WINDOWED_SQL = (
     "SELECT toStartOfDay(timestamp) AS day, count() AS value FROM events "
@@ -399,6 +369,20 @@ class TestSeriesValuesShadowForSqlAlerts(ClickhouseTestMixin, APIBaseTest):
         assert checked == live
         assert alert.enabled
         assert (properties["outcome"], properties["reason"]) == ("error", "ExposedHogQLError")
+
+    def test_a_cancelled_sql_alert_check_stops_while_recording(self) -> None:
+        alert = self._sql_alert(_WINDOWED_SQL, detector=None)
+
+        def cancel_on_shadow_event(**kwargs: Any) -> None:
+            if kwargs.get("event") == SHADOW_COMPARISON_EVENT:
+                raise CancelledError()
+
+        with (
+            self.settings(ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
+            patch(f"{_SHADOW}.posthoganalytics.capture", side_effect=cancel_on_shadow_event),
+            self.assertRaises(CancelledError),
+        ):
+            check_alert_for_insight(alert)
 
     @parameterized.expand(
         [
