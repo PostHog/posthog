@@ -111,7 +111,7 @@ on:
         # draft or ready; turbo-tests still skip drafts. When selection can't be
         # trusted, a ready source PR runs the full matrices and a draft skips them.
         # Once a full run passed on the PR, a selector full-run request or a product cascade
-        # with a selection runs the subset instead, until a merge queue kick for failed tests
+        # with a selection runs the subset instead, until a failed merge queue attempt
         # re-arms full runs (.github/scripts/backend-full-run-state.js).
         # Add the `run-ci-backend` label to force the full matrices on a PR's next run;
         # the gate removes it once that run completes, so later pushes select again. The
@@ -883,7 +883,9 @@ jobs:
               timeout-minutes: 2
               env:
                   GH_TOKEN: ${{ steps.full-run-token.outputs.token || github.token }}
+                  TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: node .github/scripts/backend-full-run-state.js >> "$GITHUB_OUTPUT"
             - name: Install turbo
               uses: ./.depot/actions/setup-turbo

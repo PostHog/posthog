@@ -8,12 +8,12 @@
 // that force-pushes replaced. Any other app can post a check with the same name and external id.
 // The check lives on a commit, not on the branch, so a rebase or a master merge keeps it.
 //
-// A Trunk merge queue kick for failed tests after the newest pass re-arms full runs, until the
-// next full run passes. Trunk reports queue state only in one sticky comment that it rewrites in
-// place, so the comment's update time is the kick time. When the comments read here are not the
-// whole history and none of them is Trunk's, a kick cannot be ruled out, so the run stays full.
+// A failed Trunk merge queue attempt after the newest pass re-arms full runs, until the next full
+// run passes. Trunk's API reports only the pull request's current queue state and when it changed,
+// so a pull request that was enqueued again since its failure no longer shows the failure. The
+// merge queue still runs the full matrices, so a missed re-arm defers a failure to the queue.
 //
-// Input:  GH_TOKEN, GITHUB_REPOSITORY, PR_NUMBER
+// Input:  GH_TOKEN, TRUNK_API_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, BASE_REF
 // Output: key=value lines for GITHUB_OUTPUT on stdout. A failed read exits non-zero and prints
 //         nothing, which the workflow reads as "no full pass", so the run stays full.
 
@@ -22,8 +22,9 @@ const { execFileSync } = require('child_process')
 const GATE_CHECK_NAME = 'Backend CI on Depot / Test results'
 const GATE_APP_ID = 2492437
 const FULL_RUN_EXTERNAL_ID = 'backend-matrix=full'
-const TRUNK_LOGIN = /^trunk-io(\[bot\])?$/
-const QUEUE_FAILURE_WORDING = [/removed from the merge queue because it failed tests/, /required check .* has failed/]
+const TRUNK_API_URL = 'https://api.trunk.io/v1/getSubmittedPullRequest'
+// Trunk's docs do not list the state values, so any state naming a failure counts.
+const FAILED_QUEUE_STATE = /fail/i
 
 const QUERY = `
 query ($owner: String!, $name: String!, $number: Int!, $checkName: String!, $appId: Int!) {
@@ -33,7 +34,6 @@ query ($owner: String!, $name: String!, $number: Int!, $checkName: String!, $app
             timelineItems(last: 100, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]) {
                 nodes { ... on HeadRefForcePushedEvent { beforeCommit { ...gateChecks } } }
             }
-            comments(last: 100) { pageInfo { hasPreviousPage } nodes { author { login } body updatedAt } }
         }
     }
 }
@@ -47,8 +47,15 @@ fragment gateChecks on Commit {
 }`
 
 function newest(timestamps) {
-    const parsed = timestamps.map((t) => Date.parse(t)).filter(Number.isFinite)
+    const parsed = timestamps.map((t) => (typeof t === 'number' ? t : Date.parse(t))).filter(Number.isFinite)
     return parsed.length > 0 ? Math.max(...parsed) : null
+}
+
+function headsOf(pullRequest) {
+    return [
+        ...(pullRequest.commits?.nodes ?? []).map((node) => node?.commit),
+        ...(pullRequest.timelineItems?.nodes ?? []).map((node) => node?.beforeCommit),
+    ]
 }
 
 function gateChecksOf(commit) {
@@ -57,39 +64,52 @@ function gateChecksOf(commit) {
         .flatMap((suite) => suite.checkRuns?.nodes ?? [])
 }
 
-// The pull request as the GraphQL query returns it -> whether a full run counts as passed.
-function fullRunState(pullRequest) {
-    const heads = [
-        ...(pullRequest.commits?.nodes ?? []).map((node) => node?.commit),
-        ...(pullRequest.timelineItems?.nodes ?? []).map((node) => node?.beforeCommit),
-    ]
+// The pull request as the GraphQL query returns it, and its Trunk queue entry (null when it was
+// never submitted) -> whether a full run counts as passed.
+function fullRunState(pullRequest, queueEntry) {
     const lastFullPassAt = newest(
-        heads
+        headsOf(pullRequest)
             .flatMap(gateChecksOf)
             .filter((check) => check?.conclusion === 'SUCCESS' && check.externalId === FULL_RUN_EXTERNAL_ID)
             .map((check) => check.completedAt)
     )
-    const trunkComments = (pullRequest.comments?.nodes ?? []).filter((comment) =>
-        TRUNK_LOGIN.test(comment?.author?.login ?? '')
-    )
-    const queueKickAt = newest(
-        trunkComments
-            .filter((comment) => QUEUE_FAILURE_WORDING.some((wording) => wording.test(comment.body ?? '')))
-            .map((comment) => comment.updatedAt)
-    )
-    const trunkCommentMayBeUnread =
-        trunkComments.length === 0 && pullRequest.comments?.pageInfo?.hasPreviousPage !== false
-    const rearmedByQueueKick = lastFullPassAt !== null && queueKickAt !== null && queueKickAt > lastFullPassAt
-    return { passed: lastFullPassAt !== null && !rearmedByQueueKick && !trunkCommentMayBeUnread, rearmedByQueueKick }
+    const queueFailedAt = FAILED_QUEUE_STATE.test(queueEntry?.state ?? '')
+        ? newest([queueEntry.stateChangedAt ?? ''])
+        : null
+    const rearmedByQueueKick = lastFullPassAt !== null && queueFailedAt !== null && queueFailedAt > lastFullPassAt
+    return { passed: lastFullPassAt !== null && !rearmedByQueueKick, rearmedByQueueKick }
 }
 
 module.exports = { fullRunState, FULL_RUN_EXTERNAL_ID, GATE_APP_ID, GATE_CHECK_NAME }
 
-if (require.main === module) {
+// -> the pull request's queue entry, or null when Trunk has none for it. Throws on any other answer.
+async function readQueueEntry({ owner, name, number, baseRef, token }) {
+    const response = await fetch(TRUNK_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-token': token },
+        body: JSON.stringify({
+            repo: { host: 'github.com', owner, name },
+            pr: { number: Number(number) },
+            targetBranch: baseRef,
+        }),
+        signal: AbortSignal.timeout(30_000),
+    })
+    if (response.status === 404) {
+        return null
+    }
+    if (!response.ok) {
+        throw new Error(`Trunk answered ${response.status}`)
+    }
+    const entry = await response.json()
+    return { state: entry.state, stateChangedAt: entry.stateChangedAt }
+}
+
+async function main() {
     const [owner, name] = (process.env.GITHUB_REPOSITORY ?? '').split('/')
     const number = process.env.PR_NUMBER ?? ''
-    if (!owner || !name || !/^[0-9]+$/.test(number)) {
-        console.error('GITHUB_REPOSITORY and PR_NUMBER are required')
+    const trunkToken = process.env.TRUNK_API_TOKEN ?? ''
+    if (!owner || !name || !/^[0-9]+$/.test(number) || !trunkToken) {
+        console.error('GITHUB_REPOSITORY, PR_NUMBER and TRUNK_API_TOKEN are required')
         process.exit(1)
     }
     const args = [
@@ -114,22 +134,28 @@ if (require.main === module) {
         console.error(`Could not read PR ${number}: ${JSON.stringify(response.errors ?? 'no pull request')}`)
         process.exit(1)
     }
-    const { passed, rearmedByQueueKick } = fullRunState(pullRequest)
-    const heads = [
-        ...(pullRequest.commits?.nodes ?? []).map((node) => node?.commit),
-        ...(pullRequest.timelineItems?.nodes ?? []).map((node) => node?.beforeCommit),
-    ]
+    let queueEntry
+    try {
+        queueEntry = await readQueueEntry({ owner, name, number, baseRef: process.env.BASE_REF || 'master', token: trunkToken })
+    } catch (error) {
+        console.error(`Could not read the merge queue state of PR ${number}: ${error.message}`)
+        process.exit(1)
+    }
+    const heads = headsOf(pullRequest)
     const suites = heads.flatMap((commit) => commit?.checkSuites?.nodes ?? [])
-    const comments = pullRequest.comments?.nodes ?? []
     console.error(
         `Read: ${heads.length} heads, ${suites.length} gate check suites ` +
             `(app ids ${JSON.stringify([...new Set(suites.map((suite) => suite?.app?.databaseId ?? null))])}), ` +
-            `${heads.flatMap(gateChecksOf).length} gate checks, ${comments.length} comments ` +
-            `(${comments.filter((comment) => TRUNK_LOGIN.test(comment?.author?.login ?? '')).length} from Trunk, ` +
-            `more unread: ${pullRequest.comments?.pageInfo?.hasPreviousPage})`
+            `${heads.flatMap(gateChecksOf).length} gate checks, ` +
+            `queue state ${queueEntry ? `${queueEntry.state} since ${queueEntry.stateChangedAt}` : 'none'}`
     )
+    const { passed, rearmedByQueueKick } = fullRunState(pullRequest, queueEntry)
     console.error(
-        `Full backend run already passed: ${passed}${rearmedByQueueKick ? ' (re-armed by a merge queue kick)' : ''}`
+        `Full backend run already passed: ${passed}${rearmedByQueueKick ? ' (re-armed by a failed merge queue attempt)' : ''}`
     )
     process.stdout.write(`passed=${passed}\nrearmed_by_queue_kick=${rearmedByQueueKick}\n`)
+}
+
+if (require.main === module) {
+    main()
 }

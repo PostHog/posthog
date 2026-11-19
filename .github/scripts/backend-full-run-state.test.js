@@ -13,13 +13,11 @@ const commitWith = (...checks) => commitFromApp(GATE_APP_ID, ...checks)
 const commitFromApp = (appId, ...checks) => ({
     checkSuites: { nodes: [{ app: { databaseId: appId }, checkRuns: { nodes: checks } }] },
 })
-const trunkComment = (body, updatedAt, login = 'trunk-io') => ({ author: { login }, body, updatedAt })
-const KICKED = 'This PR has been removed from the merge queue because it failed tests.'
+const queueEntry = (state, stateChangedAt) => ({ state, stateChangedAt })
 
-const pullRequest = ({ commits = [], replacedHeads = [], comments = [], olderComments = false }) => ({
+const pullRequest = ({ commits = [], replacedHeads = [] }) => ({
     commits: { nodes: commits.map((commit) => ({ commit })) },
     timelineItems: { nodes: replacedHeads.map((beforeCommit) => ({ beforeCommit })) },
-    comments: { pageInfo: { hasPreviousPage: olderComments }, nodes: comments },
 })
 
 test('a full run counts as passed only when its gate check succeeded and no queue kick came after it', () => {
@@ -53,61 +51,42 @@ test('a full run counts as passed only when its gate check succeeded and no queu
             false,
         ],
         [
-            'a queue kick after the pass',
-            { commits: [commitWith(passed)], comments: [trunkComment(KICKED, '2026-11-10T11:00:00Z')] },
+            'a failed queue attempt after the pass',
+            { commits: [commitWith(passed)], queue: queueEntry('FAILED', '2026-11-10T11:00:00Z') },
             false,
             true,
         ],
         [
-            'a queue kick before a later pass',
+            'a failed queue attempt after the pass, timed in epoch milliseconds',
+            { commits: [commitWith(passed)], queue: queueEntry('FAILED', Date.parse('2026-11-10T11:00:00Z')) },
+            false,
+            true,
+        ],
+        [
+            'a failed queue attempt before a later pass',
             {
                 commits: [commitWith(passed), commitWith(gateCheck('SUCCESS', '2026-11-10T12:00:00Z'))],
-                comments: [trunkComment(KICKED, '2026-11-10T11:00:00Z', 'trunk-io[bot]')],
+                queue: queueEntry('FAILED', '2026-11-10T11:00:00Z'),
             },
             true,
             false,
         ],
         [
-            'kick wording from someone other than Trunk',
-            { commits: [commitWith(passed)], comments: [trunkComment(KICKED, '2026-11-10T11:00:00Z', 'someone')] },
+            'a queue attempt still testing after the pass',
+            { commits: [commitWith(passed)], queue: queueEntry('TESTING', '2026-11-10T11:00:00Z') },
             true,
             false,
         ],
         [
-            'older comments unread and no Trunk comment among the newer ones',
-            {
-                commits: [commitWith(passed)],
-                comments: [trunkComment('LGTM', '2026-11-10T11:00:00Z', 'someone')],
-                olderComments: true,
-            },
-            false,
-            false,
-        ],
-        [
-            'older comments unread but Trunk comment read without a failure',
-            {
-                commits: [commitWith(passed)],
-                comments: [trunkComment('This PR is in the merge queue.', '2026-11-10T11:00:00Z')],
-                olderComments: true,
-            },
-            true,
-            false,
-        ],
-        [
-            'a queue removal because the branch was pushed to',
-            {
-                commits: [commitWith(passed)],
-                comments: [
-                    trunkComment('removed from the merge queue because it was pushed to', '2026-11-10T11:00:00Z'),
-                ],
-            },
+            'a cancelled queue attempt after the pass',
+            { commits: [commitWith(passed)], queue: queueEntry('CANCELLED', '2026-11-10T11:00:00Z') },
             true,
             false,
         ],
     ]
-    for (const [label, shape, passedExpected, rearmedExpected] of cases) {
+    for (const [label, { queue = null, ...shape }, passedExpected, rearmedExpected] of cases) {
         assert.deepEqual(
-            fullRunState(pullRequest(shape)),
+            fullRunState(pullRequest(shape), queue),
             { passed: passedExpected, rearmedByQueueKick: rearmedExpected },
             label
         )
