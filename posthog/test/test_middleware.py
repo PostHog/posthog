@@ -3777,6 +3777,42 @@ class TestCurrentAliasUsage(APIBaseTest):
             (event["properties"]["access_method"], event["properties"]["oauth_application_id"]) for event in events
         ] == [("oauth", application_id) for application_id in tokens.values()]
 
+    @parameterized.expand(
+        [
+            ("unscoped_key_on_project", "/api/projects/@current/", {}, False),
+            ("project_scoped_key_on_project", "/api/projects/@current/", {"scoped_teams": "team"}, True),
+            ("unscoped_key_on_organization", "/api/organizations/@current/members/", {}, False),
+            (
+                "organization_scoped_key_on_organization",
+                "/api/organizations/@current/members/",
+                {"scoped_organizations": "organization"},
+                True,
+            ),
+        ]
+    )
+    def test_reports_whether_the_credential_pins_the_scope(
+        self, _name: str, path: str, key_scoping: dict[str, str], expected_pins_scope: bool
+    ) -> None:
+        scoping_values = {"team": [self.team.id], "organization": [str(self.organization.id)]}
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["*"],
+            **{field: scoping_values[kind] for field, kind in key_scoping.items()},
+        )
+        self.client.logout()
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            response = self.client.get(path, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        [event] = self._alias_events(capture)
+        assert (event["properties"]["project_from"], event["properties"]["credential_pins_scope"]) == (
+            "user",
+            expected_pins_scope,
+        )
+
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(token), scopes=["*"])

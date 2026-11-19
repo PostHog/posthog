@@ -23,6 +23,7 @@ from posthog import cloud_utils
 from posthog.api import project_tags
 from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scope_resolution import note_user_scope
 from posthog.api.scoped_related_fields import ProjectScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
@@ -1774,6 +1775,7 @@ class ProjectViewSet(
     def safely_get_object(self, queryset):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
+            note_user_scope(self.request)
             team = getattr(self.request.user, "team", None)
             if team is None:
                 raise exceptions.NotFound()

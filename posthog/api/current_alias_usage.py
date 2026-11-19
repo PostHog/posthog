@@ -8,6 +8,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
+from posthog.api.scope_resolution import scope_resolution
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.event_usage import get_request_analytics_properties, sanitize_header_value
@@ -81,6 +82,13 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
     source = str(get_query_tag_value("source") or "")
     token_in_query = any(param in request.GET for param in TOKEN_QUERY_PARAMS)
     method = request.method or ""
+    resolution = scope_resolution(request)
+    project_from = resolution.source.value if resolution else ""
+    credential_pins_scope = bool(resolution) and (
+        resolution.credential_pins_organization
+        if scope == CurrentAliasScope.ORGANIZATION
+        else resolution.credential_pins_project
+    )
 
     client = posthoganalytics.default_client
     if client is not None:
@@ -94,6 +102,8 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
                 "access_method": access_method,
                 "source": source,
                 "token_in_query": token_in_query,
+                "project_from": project_from,
+                "credential_pins_scope": credential_pins_scope,
                 "status_class": status_class,
             },
         )
@@ -145,6 +155,8 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
             "status_class": status_class,
             "access_method": access_method,
             "token_in_query": token_in_query,
+            "project_from": project_from,
+            "credential_pins_scope": credential_pins_scope,
             "api_key_mask": api_key_mask,
             "api_key_label": get_query_tag_value("api_key_label"),
             "oauth_application_id": oauth_application_id,
