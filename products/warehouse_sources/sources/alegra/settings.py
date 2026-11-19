@@ -48,6 +48,8 @@ ENDPOINTS: dict[str, AlegraEndpoint] = {
     # Recurring invoices only sort by editable schedule fields, so keep the API default order.
     "recurring_invoices": AlegraEndpoint(path="recurring-invoices"),
     "taxes": AlegraEndpoint(path="taxes"),
+    # Journals only sort by editable fields, so keep the API default order.
+    "journals": AlegraEndpoint(path="journals"),
 }
 
 # Document dates can be edited, and server-side date filters have not been verified against a live account.
