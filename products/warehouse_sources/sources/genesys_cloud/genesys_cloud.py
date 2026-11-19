@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 import structlog
@@ -58,6 +58,10 @@ class GenesysCloudResumeConfig:
     page_number: Optional[int] = None
     # Scan endpoints: cursor of the next page to read. Genesys Cloud keeps a cursor for 24 hours.
     cursor: Optional[str] = None
+    # Fan-out endpoints: `page_number` is the parent page, `parent_id` the next parent to read on it, and
+    # `next_uri` the next child page of that parent.
+    parent_id: Optional[str] = None
+    next_uri: Optional[str] = None
 
 
 def _validated_region(region: str) -> str:
@@ -345,6 +349,121 @@ def _iter_scan_rows(
         cursor = next_cursor
 
 
+def _child_url(base_url: str, config: GenesysCloudEndpointConfig, parent_id: str) -> str:
+    if config.parent_id_param:
+        return f"{base_url}{config.path}"
+    return f"{base_url}{config.path.replace('{parent_id}', quote(parent_id, safe=''))}"
+
+
+def _child_params(config: GenesysCloudEndpointConfig, parent_id: str, next_uri: Optional[str]) -> dict[str, Any]:
+    # Only the query of nextUri is used. The request always goes to the configured host and path.
+    params: dict[str, Any] = (
+        dict(parse_qs(urlparse(next_uri).query))
+        if next_uri
+        else {**config.params, "pageSize": config.page_size, "pageNumber": 1}
+    )
+    if config.parent_id_param:
+        params[config.parent_id_param] = parent_id
+    return params
+
+
+def _is_skipped_child_error(response: requests.Response, config: GenesysCloudEndpointConfig) -> bool:
+    # A parent removed after the parent page was read returns 404.
+    if response.status_code == 404:
+        return True
+    if response.status_code != 400 or not config.skipped_error_codes:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and body.get("code") in config.skipped_error_codes
+
+
+def _iter_fan_out_rows(
+    session: requests.Session,
+    base_url: str,
+    config: GenesysCloudEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[GenesysCloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.parent is not None
+    parent = GENESYS_CLOUD_ENDPOINTS[config.parent]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    page_number = resume.page_number if resume is not None and resume.page_number else 1
+    resume_parent_id = resume.parent_id if resume is not None else None
+    resume_next_uri = resume.next_uri if resume is not None else None
+
+    parent_url = f"{base_url}{parent.path}"
+    while True:
+        response = session.get(
+            parent_url,
+            params={**parent.params, "pageSize": LISTING_PAGE_SIZE, "pageNumber": page_number},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        data = response.json() or {}
+        parents = data.get("entities") or []
+        has_next_parent_page = bool(parents) and page_number < int(data.get("pageCount") or 0)
+        parent_ids = [str(row["id"]) for row in parents if row.get("id")]
+        if resume_parent_id in parent_ids:
+            parent_ids = parent_ids[parent_ids.index(resume_parent_id) :]
+        else:
+            # The parent is gone from its page, so read the page from its first parent.
+            resume_next_uri = None
+        resume_parent_id = None
+
+        for index, parent_id in enumerate(parent_ids):
+            # After the last parent, the next parent page. On the last page that page is empty and ends the run.
+            after_parent = (
+                GenesysCloudResumeConfig(page_number=page_number, parent_id=parent_ids[index + 1])
+                if index + 1 < len(parent_ids)
+                else GenesysCloudResumeConfig(page_number=page_number + 1)
+            )
+
+            url = _child_url(base_url, config, parent_id)
+            next_uri, resume_next_uri = resume_next_uri, None
+            sends_resumed_uri = next_uri is not None
+            params = _child_params(config, parent_id, next_uri)
+            while True:
+                response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+                if _is_skipped_child_error(response, config):
+                    rows: list[dict[str, Any]] = []
+                    next_uri = None
+                else:
+                    if sends_resumed_uri and response.status_code in (400, 422):
+                        # The saved child page is no longer valid. Drop it, so the retry runs as a fresh full refresh.
+                        resumable_source_manager.clear_state()
+                    response.raise_for_status()
+                    data = response.json() or {}
+                    rows = data.get("entities") or []
+                    next_uri = data.get("nextUri") if rows else None
+                sends_resumed_uri = False
+
+                next_params = _child_params(config, parent_id, next_uri) if next_uri else None
+                if next_params == params:
+                    next_params = None
+                resumable_source_manager.save_state(
+                    GenesysCloudResumeConfig(page_number=page_number, parent_id=parent_id, next_uri=next_uri)
+                    if next_params is not None
+                    else after_parent
+                )
+
+                if config.parent_key:
+                    rows = [{**row, config.parent_key: parent_id} for row in rows]
+                if rows:
+                    yield rows
+                else:
+                    resumable_source_manager.safe_point()
+                if next_params is None:
+                    break
+                params = next_params
+
+        if not has_next_parent_page:
+            resumable_source_manager.clear_state()
+            return
+        page_number += 1
+
+
 def genesys_cloud_source(
     region: str,
     client_id: str,
@@ -364,6 +483,8 @@ def genesys_cloud_source(
             )
         elif config.kind == "scan":
             yield from _iter_scan_rows(session, base_url, config, resumable_source_manager)
+        elif config.kind == "fan_out":
+            yield from _iter_fan_out_rows(session, base_url, config, resumable_source_manager)
         else:
             yield from _iter_listing_rows(session, base_url, config, resumable_source_manager)
 
@@ -374,9 +495,31 @@ def genesys_cloud_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
-        # User status records arrive grouped by user, not ordered by startTime.
-        sort_mode=None if config.kind == "user_analytics" else "asc",
+        # User status records arrive grouped by user, and fan-out rows grouped by parent, not ordered.
+        sort_mode=None if config.kind in ("user_analytics", "fan_out") else "asc",
     )
+
+
+def _probe_fan_out(session: requests.Session, base_url: str, config: GenesysCloudEndpointConfig) -> requests.Response:
+    assert config.parent is not None
+    parent = GENESYS_CLOUD_ENDPOINTS[config.parent]
+    response = session.get(
+        f"{base_url}{parent.path}",
+        params={**parent.params, "pageSize": 1, "pageNumber": 1},
+        timeout=VALIDATION_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        return response
+    parents = (response.json() or {}).get("entities") or []
+    if not parents or not parents[0].get("id"):
+        return response
+    parent_id = str(parents[0]["id"])
+    child_response = session.get(
+        _child_url(base_url, config, parent_id),
+        params={**_child_params(config, parent_id, None), "pageSize": 1},
+        timeout=VALIDATION_TIMEOUT_SECONDS,
+    )
+    return response if _is_skipped_child_error(child_response, config) else child_response
 
 
 def validate_credentials(
@@ -398,6 +541,8 @@ def validate_credentials(
                 json={"interval": _interval(now - timedelta(hours=1), now), "paging": {"pageSize": 1, "pageNumber": 1}},
                 timeout=VALIDATION_TIMEOUT_SECONDS,
             )
+        elif config.kind == "fan_out":
+            response = _probe_fan_out(session, base_url, config)
         else:
             response = session.get(
                 f"{base_url}{config.path}",
