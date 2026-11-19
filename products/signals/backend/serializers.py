@@ -3502,11 +3502,10 @@ class SignalReportListSerializer(SignalReportSerializer):
         help_text=(
             "Sort key from the ranker named by the list response's ranker field, for sort=recommended and "
             "sort=personal only. Lower keys rank first, so rows from several requests merge in the order of one "
-            "request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from "
-            "0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses "
-            "the priority rank only, from 0 (P0) to 5 (no priority). For the personal ranker, a report in the "
-            "stored personal ranking gets its position in that ranking from 0, and every other report gets the "
-            "number of those positions plus its key from the recommended ranker. Null for every other sort."
+            "request. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). For the "
+            "personal ranker, a report in the stored personal ranking gets its position in that ranking from 0, "
+            "and every other report gets the number of those positions plus its priority rank. Null for every "
+            "other sort."
         ),
     )
     personal_tier = serializers.SerializerMethodField(
@@ -3547,11 +3546,9 @@ class SignalReportListSerializer(SignalReportSerializer):
         return dict(ReportMonitoringSummarySerializer(summary).data)
 
     def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
-        ranker = self.context.get("inbox_ranker")
-        if ranker is None:
+        if not self.context.get("ranked_inbox_sort"):
             return None
-        score = None if ranker == "priority" else getattr(obj, f"inbox_ranking_{ranker}_score", None)
-        key = inbox_merge_key(ranker, score, getattr(obj, "inbox_priority_sort_rank", None))
+        key = inbox_merge_key(getattr(obj, "inbox_priority_sort_rank", None))
         personal_order: PersonalListOrder | None = self.context.get("personal_order")
         if personal_order is None:
             return key
@@ -3604,7 +3601,7 @@ class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
     ranking_id = serializers.UUIDField(
         required=False,
         help_text=(
-            "For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the "
+            "For sort=recommended and sort=personal when the ranker is personal: the ranking_id of the "
             "first page. Pass it on later pages, so a new personal "
             "ranking does not reorder them. When that ranking no longer exists, the latest one applies."
         ),

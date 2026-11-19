@@ -27,6 +27,7 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
+import { EXECUTE_SQL_TOOL_NAME } from './posthogAiTools/executeSql'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -2275,6 +2276,9 @@ export function createExecTool(
                         } catch (err) {
                             const detail = err instanceof Error ? err.message : String(err)
                             throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
+                        }
+                        if (typeof parsed === 'string' && tool.name === EXECUTE_SQL_TOOL_NAME) {
+                            parsed = { query: parsed }
                         }
                         if (typeof parsed !== 'object' || parsed === null) {
                             const received = parsed === null ? 'null' : `a ${typeof parsed}`
