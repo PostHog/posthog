@@ -129,11 +129,12 @@ export function placeTiles(items: PlacedItem[], cols: number, gesture?: Gesture)
     const hit = gesture.kind === 'drag' ? others.filter((other) => collides(active, other)) : []
     if (hit.length > 0) {
         const rowTop = Math.min(...hit.map((item) => item.y))
-        const rowHeight = Math.min(...hit.filter((item) => item.y === rowTop).map((item) => item.h))
+        const row = hit.filter((item) => item.y === rowTop)
+        const rowHeight = Math.min(...row.map((item) => item.h))
         if (active.y < rowTop + rowHeight / 2) {
             placed = joinRow(active, others, rowTop, cols) ?? placed
         } else {
-            placed = [...others, { ...active, y: bottomOf(hit) }]
+            placed = [...others, { ...active, y: bottomOf(row) }]
         }
     }
     const result = packUp(placed, active.i)

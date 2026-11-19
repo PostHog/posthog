@@ -1,4 +1,4 @@
-import { applyEdit, settleDashboard } from './dashboardEdits'
+import { applyEdit, dropIntoGrid, findTile, settleDashboard } from './dashboardEdits'
 import type { Dashboard, Tile } from './dashboardTypes'
 
 const text = (id: string, x: number, y: number, w: number, h: number): Tile => ({
@@ -63,5 +63,17 @@ describe('dashboardEdits', () => {
         },
     ])('$name', ({ edit, expected }) => {
         expect(allPlaces(applyEdit(nested, edit))).toEqual(expected)
+    })
+
+    it('previews a section moved into a narrower grid with the height and children it is saved with', () => {
+        const board = dashboard([
+            section('wide', 0, 0, 24, [text('left', 0, 0, 12, 4), text('right', 12, 0, 12, 4)]),
+            section('half', 0, 6, 12, []),
+        ])
+        const wide = findTile(board, 'wide')!
+        const preview = dropIntoGrid([], 12, wide, 0, 0)
+        const saved = findTile(applyEdit(board, { edit: 'moveTile', id: 'wide', grid: 'half', x: 0, y: 0 }), 'wide')
+
+        expect(preview.find((tile) => tile.id === 'wide')).toEqual(saved)
     })
 })

@@ -136,7 +136,9 @@ function newId(dashboard: Dashboard, prefix: string): string {
  */
 export function dropIntoGrid(tiles: Tile[], cols: number, tile: Tile, x: number, y: number): Tile[] {
     const w = Math.min(tile.place.w, cols)
-    const dropped = { ...tile, place: { ...tile.place, w, x: Math.max(0, Math.min(cols - w, x)), y: Math.max(0, y) } }
+    // A section that lands narrower reflows its own tiles, which changes its height, so the preview uses the result.
+    const [sized] = settleGrid([{ ...tile, place: { ...tile.place, w } }], w)
+    const dropped = { ...sized, place: { ...sized.place, x: Math.max(0, Math.min(cols - w, x)), y: Math.max(0, y) } }
     const next = [...tiles, dropped]
     const placed = placeTiles(toPlacedItems(next), cols, {
         activeId: tile.id,
@@ -146,43 +148,49 @@ export function dropIntoGrid(tiles: Tile[], cols: number, tile: Tile, x: number,
     return withPlaces(next, placed)
 }
 
+function moveTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'moveTile' }>): Dashboard {
+    const tile = findTile(dashboard, edit.id)
+    // A section cannot go inside itself, so the target is looked up once the tile is out of the tree.
+    // Settled first, so a section the tile left already has its new height when the drop cell is used.
+    const without = settleDashboard(changeTileEverywhere(dashboard, edit.id, () => null))
+    const target = findGrid(without, edit.grid)
+    if (!tile || !target) {
+        return dashboard
+    }
+    const y = edit.y ?? bottomOf(target.tiles.map((other) => other.place))
+    return changeGrid(without, edit.grid, (tiles) => dropIntoGrid(tiles, target.cols, tile, edit.x ?? 0, y))
+}
+
+function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'addTile' }>): Dashboard {
+    const target = findGrid(dashboard, edit.grid)
+    if (!target) {
+        return dashboard
+    }
+    const size = widgetSize(edit.widget)
+    const tile: Tile = {
+        id: newId(dashboard, edit.widget.type === 'section' ? 'section' : 'tile'),
+        widget: edit.widget,
+        // New tiles go on a new row at the bottom, so adding one never moves or resizes what is there.
+        place: {
+            x: 0,
+            y: bottomOf(target.tiles.map((other) => other.place)),
+            w: Math.min(size.w, target.cols),
+            h: size.h,
+        },
+    }
+    return changeGrid(dashboard, edit.grid, (tiles) => [...tiles, tile])
+}
+
 function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
     switch (edit.edit) {
         case 'placeTiles':
             return changeGrid(dashboard, edit.grid, (tiles) =>
                 tiles.map((tile) => (edit.places[tile.id] ? { ...tile, place: edit.places[tile.id] } : tile))
             )
-        case 'moveTile': {
-            const tile = findTile(dashboard, edit.id)
-            // A section cannot go inside itself, so the target is looked up once the tile is out of the tree.
-            // Settled first, so a section the tile left already has its new height when the drop cell is used.
-            const without = settleDashboard(changeTileEverywhere(dashboard, edit.id, () => null))
-            const target = findGrid(without, edit.grid)
-            if (!tile || !target) {
-                return dashboard
-            }
-            const y = edit.y ?? bottomOf(target.tiles.map((other) => other.place))
-            return changeGrid(without, edit.grid, (tiles) => dropIntoGrid(tiles, target.cols, tile, edit.x ?? 0, y))
-        }
-        case 'addTile': {
-            const target = findGrid(dashboard, edit.grid)
-            if (!target) {
-                return dashboard
-            }
-            const size = widgetSize(edit.widget)
-            const tile: Tile = {
-                id: newId(dashboard, edit.widget.type === 'section' ? 'section' : 'tile'),
-                widget: edit.widget,
-                // New tiles go on a new row at the bottom, so adding one never moves or resizes what is there.
-                place: {
-                    x: 0,
-                    y: bottomOf(target.tiles.map((other) => other.place)),
-                    w: Math.min(size.w, target.cols),
-                    h: size.h,
-                },
-            }
-            return changeGrid(dashboard, edit.grid, (tiles) => [...tiles, tile])
-        }
+        case 'moveTile':
+            return moveTile(dashboard, edit)
+        case 'addTile':
+            return addTile(dashboard, edit)
         case 'removeTile':
             return changeTileEverywhere(dashboard, edit.id, () => null)
         case 'updateSection':
