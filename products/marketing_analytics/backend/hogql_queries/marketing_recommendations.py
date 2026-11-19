@@ -258,7 +258,6 @@ class _Term:
     conversions: float
     status: str
     excluded_everywhere: bool
-    excluded_anywhere: bool
     top_campaign_id: str
     ad_group_ids: frozenset[str]
     organic: OrganicQueryStats | None
@@ -998,7 +997,7 @@ class _Recommender:
             and term.term not in self.brand_terms
             and term.conversions == 0
             and term.cost >= 2 * benchmark.cpa
-            and (term.excluded_everywhere or not (_is_keyword(term.status) or term.excluded_anywhere))
+            and (term.excluded_everywhere or not _is_keyword(term.status))
             and self._serving(term)
             for advice in (self._no_conversion_advice(term, competitors),)
         ]
@@ -1330,7 +1329,15 @@ class _Recommender:
         cost_by_campaign: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         ad_groups: dict[str, set[str]] = defaultdict(set)
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
+        serving_campaigns: dict[str, set[str]] = defaultdict(set)
         for row in self.inputs.search_terms:
+            if (row.term, row.campaign_id) not in self.inputs.excluded_searches:
+                serving_campaigns[row.term].add(row.campaign_id)
+        for row in self.inputs.search_terms:
+            # Spend in a campaign that already blocks the search is not recoverable, so it only counts once every
+            # campaign blocks it and the recommendation is applied.
+            if row.term in serving_campaigns and row.campaign_id not in serving_campaigns[row.term]:
+                continue
             total = totals[row.term]
             total[0] += row.clicks
             total[1] += row.cost
@@ -1350,12 +1357,7 @@ class _Recommender:
                 cost=cost,
                 conversions=conversions,
                 status=statuses[term],
-                excluded_everywhere=all(
-                    (term, campaign_id) in self.inputs.excluded_searches for campaign_id in cost_by_campaign[term]
-                ),
-                excluded_anywhere=any(
-                    (term, campaign_id) in self.inputs.excluded_searches for campaign_id in cost_by_campaign[term]
-                ),
+                excluded_everywhere=term not in serving_campaigns,
                 top_campaign_id=max(cost_by_campaign[term], key=lambda campaign: cost_by_campaign[term][campaign]),
                 ad_group_ids=frozenset(ad_groups[term]),
                 organic=self.organic.get(term),

@@ -1019,8 +1019,8 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("already_a_keyword", "ELIGIBLE", ("ADDED",), [], 0),
             ("now_a_negative", "ELIGIBLE", ("EXCLUDED",), ["negative_keyword"], 0),
             ("keyword_and_negative", "ELIGIBLE", ("ADDED_EXCLUDED",), ["negative_keyword"], 0),
-            ("negative_in_one_of_two_campaigns", "ELIGIBLE", ("EXCLUDED", "NONE"), [], 0),
-            ("negative_in_the_second_of_two_campaigns", "ELIGIBLE", ("NONE", "EXCLUDED"), [], 0),
+            ("negative_in_one_of_two_campaigns", "ELIGIBLE", ("EXCLUDED", "NONE"), [None], 1),
+            ("keyword_and_negative_in_one_of_two_campaigns", "ELIGIBLE", ("ADDED_EXCLUDED", "NONE"), [None], 1),
         ]
     )
     def test_spend_without_conversions_needs_a_serving_campaign_and_detects_negatives(
@@ -1051,6 +1051,11 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         assert [rec.detectedChange for rec in rows] == expected_changes
         assert len(apply_resolutions(rows, {}, include_resolved=False)) == expected_unresolved
+        # Spend in a campaign that already blocks the search can't be saved, and that campaign needs no new negative.
+        serving = [name for name, status in zip(("Search", "Other"), term_statuses) if "EXCLUDED" not in status]
+        assert [(rec.campaign, rec.reason.split(" (")[0]) for rec in rows] == [
+            (serving[0] if serving else "Search", f"Spent ${500 * max(len(serving), 1):,}")
+        ] * len(rows)
         assert apply_resolutions(rows, {}, include_resolved=True) == rows
 
     def test_category_words_are_not_treated_as_competitors(self) -> None:
