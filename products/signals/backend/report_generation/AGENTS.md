@@ -18,6 +18,7 @@ It is exercised locally via management commands, and it is also used by the prod
   - Before the shortcut or agent runs, a source not confirmed public restricts destinations to itself when eligible or to confirmed-private candidates. Missing or non-boolean visibility is unconfirmed. The restricted candidates also govern result validation.
 - `source_repository.py`
   The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source can still route to an eligible confirmed-private repository, or to any eligible repository when the source is confirmed public.
+  `source_issue_urls` lists the issues a report was filed from: GitHub issue signals and `source_issue` artefacts. Research and actionability prompts exempt these issues, and their assignees, from the in-flight check, in both prompt variants. A link that another source quotes exempts nothing.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   With `code_available=False`, the opening prompt states once that no repository is checked out. Research uses project evidence, omits code-history requirements, and converts its response to the canonical `SignalFinding` before persistence.

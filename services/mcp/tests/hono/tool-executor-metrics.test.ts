@@ -1000,6 +1000,7 @@ describe('ToolExecutor metrics', () => {
             ['frobnicate', 'unknown_command', 'exec'],
             ['docs-search {"query":"funnels"}', 'tool_as_command', 'docs-search'],
             ['call docs-search {not json}', 'invalid_json', 'docs-search'],
+            ['call docs-search "funnels"', 'invalid_json', 'docs-search'],
         ])('classifies %s as validation', async (command, reason, analyticsTool) => {
             await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 

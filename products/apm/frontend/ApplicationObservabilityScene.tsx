@@ -15,6 +15,7 @@ import {
     applicationObservabilityLogic,
 } from './applicationObservabilityLogic'
 import { DependenciesTab } from './DependenciesTab'
+import { DeploymentsTab } from './DeploymentsTab'
 import { EndpointsTab } from './EndpointsTab'
 import { environmentOptions } from './environmentDisplay'
 import { ServiceMapTab } from './ServiceMapTab'
@@ -88,6 +89,7 @@ export function ApplicationObservabilityScene(): JSX.Element {
                     { key: 'endpoints', label: 'Endpoints', content: <EndpointsTab /> },
                     { key: 'map', label: 'Map', content: <ServiceMapTab /> },
                     { key: 'dependencies', label: 'Dependencies', content: <DependenciesTab /> },
+                    { key: 'deployments', label: 'Deployments', content: <DeploymentsTab /> },
                     { key: 'usage', label: 'Usage', content: <UsageTab /> },
                 ]}
                 data-attr="apm-tabs"

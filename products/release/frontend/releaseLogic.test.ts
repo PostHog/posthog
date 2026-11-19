@@ -57,15 +57,18 @@ describe('releaseLogic', () => {
     })
 
     it.each([
-        ['loads once the flag arrives after mount', true, 1],
-        ['loads nothing while the flag is off', false, 0],
-    ])('%s', async (_name, enabled, calls) => {
+        ['loads objects without the area', false, true, 1],
+        ['loads objects with the area', true, true, 1],
+        ['loads no objects for the area alone', true, false, 0],
+        ['loads nothing while both flags are off', false, false, 0],
+    ])('%s', async (_name, areaEnabled, objectsEnabled, calls) => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         const logic = releaseLogic()
         logic.mount()
 
-        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.RELEASES_AREA] : [], {
-            [FEATURE_FLAGS.RELEASES_AREA]: enabled,
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.RELEASES_AREA]: areaEnabled,
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: objectsEnabled,
         })
         await expectLogic(logic).toFinishAllListeners()
 
@@ -114,7 +117,9 @@ describe('releaseLogic', () => {
             count: 1,
             next: null,
         } as never)
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         router.actions.push(url)
         const logic = releaseLogic({ id: url === urls.release('r1') ? 'r1' : undefined })
         logic.mount()
@@ -168,7 +173,9 @@ describe('releaseLogic', () => {
             }
             return { ...release, ...changes } as never
         })
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASES_AREA], { [FEATURE_FLAGS.RELEASES_AREA]: true })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RELEASE_OBJECTS], {
+            [FEATURE_FLAGS.RELEASE_OBJECTS]: true,
+        })
         const logic = releaseLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
