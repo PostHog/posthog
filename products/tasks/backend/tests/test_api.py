@@ -13643,6 +13643,7 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         [
             ("pi_session_log_entries", True, "log_entries/?start=0"),
             ("pi_session_logs", True, "logs/"),
+            ("pi_session_stream", True, "stream/"),
             ("resume_chain_log_entries", False, "log_entries/"),
             ("resume_chain_session_logs", False, "session_logs/"),
         ]

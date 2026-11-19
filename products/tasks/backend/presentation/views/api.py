@@ -4632,15 +4632,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
         backlog_serve_after: int | None = None
         backlog_logs: list[tasks_facade.TaskRunLog] = []
+        reader = self._log_context_reader()
         if thin_tail:
             if not last_event_id:
                 backlog_serve_after = -1
             else:
                 backlog_serve_after = parse_log_cursor(last_event_id)
             with _run_context_denied():
-                backlog_logs = (
-                    tasks_facade.get_task_run_logs(pk, task_id, self.team_id, reader=self._log_context_reader()) or []
-                )
+                backlog_logs = tasks_facade.get_task_run_logs(pk, task_id, self.team_id, reader=reader) or []
+        else:
+            with _run_context_denied():
+                tasks_facade.check_task_run_history_context(pk, task_id, self.team_id, reader=reader)
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)

@@ -477,6 +477,7 @@ __all__ = [
     "thread_view_of_log_content",
     "read_task_run_conversation_log_slice",
     "read_task_run_conversation_log_page",
+    "check_task_run_history_context",
     "page_log_objects",
     "mark_task_run_stream_watched",
     "read_task_run_logs",
@@ -5789,6 +5790,14 @@ def _check_chain_context(chain: list[TaskRun], reader: Callable[[object], bool] 
         state = ancestor.state or {}
         if "analytics_query_context" in state and not reader(state["analytics_query_context"]):
             raise contracts.TaskRunContextUnreadable()
+
+
+def check_task_run_history_context(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, reader: Callable[[object], bool] | None
+) -> None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is not None:
+        _check_chain_context(run.get_history_chain(), reader)
 
 
 def read_task_run_conversation_logs(
