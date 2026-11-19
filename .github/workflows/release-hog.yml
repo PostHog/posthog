@@ -162,7 +162,18 @@ jobs:
                   OWNERS_MRKDWN: ${{ steps.owners.outputs.owners_mrkdwn }}
               run: |
                   set -euo pipefail
+                  # Slack refuses a section over 3000 characters, and a weekly release can list dozens of
+                  # pull requests, so each list keeps the entries that fit and counts the rest.
                   payload=$(jq -nc '
+                    def fit($separator):
+                      if length <= 2900 then .
+                      else
+                        reduce (split($separator)[]) as $entry ({kept: [], size: 0, dropped: 0};
+                          if .dropped == 0 and .size + ($entry | length) + ($separator | length) <= 2850
+                          then .kept += [$entry] | .size += ($entry | length) + ($separator | length)
+                          else .dropped += 1 end)
+                        | (.kept | join($separator)) + "\($separator)…and \(.dropped) more"
+                      end;
                     {
                       channel: $ENV.CHANNEL,
                       text: "🚀 hog release approval needed",
@@ -171,9 +182,9 @@ jobs:
                           {type: "header", text: {type: "plain_text", text: "🚀 hog release approval needed", emoji: true}},
                           {type: "section", text: {type: "mrkdwn", text: "A hog release is ready for approval in `\($ENV.REPOSITORY)`."}}
                         ]
-                        + (if $ENV.PRS_MRKDWN != "" then [{type: "section", text: {type: "mrkdwn", verbatim: true, text: "*Changesets from:*\n\($ENV.PRS_MRKDWN)"}}] else [] end)
+                        + (if $ENV.PRS_MRKDWN != "" then [{type: "section", text: {type: "mrkdwn", verbatim: true, text: "*Changesets from:*\n\($ENV.PRS_MRKDWN | fit("\n"))"}}] else [] end)
                         + (if $ENV.OWNERS_MRKDWN != "" then [
-                            {type: "section", text: {type: "mrkdwn", text: "⛔ *Cannot approve this release:* \($ENV.OWNERS_MRKDWN)"}},
+                            {type: "section", text: {type: "mrkdwn", text: "⛔ *Cannot approve this release:* \($ENV.OWNERS_MRKDWN | fit(", "))"}},
                             {type: "context", elements: [{type: "mrkdwn", text: "Whoever opened, merged or pushed commits to a pull request whose changeset this release ships can'"'"'t approve it."}]}
                           ] else [] end)
                         + (if $ENV.USER_GROUP != "" then [{type: "section", text: {type: "mrkdwn", text: "<!subteam^\($ENV.USER_GROUP)> Please review and approve the release."}}] else [] end)
