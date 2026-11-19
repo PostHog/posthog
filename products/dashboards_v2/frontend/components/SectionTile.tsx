@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 
 import { IconDrag, IconTrash } from '@posthog/icons'
 import { Button } from '@posthog/quill'
@@ -8,6 +8,7 @@ import { dashboardV2Logic } from '../dashboardV2Logic'
 import { GRID, type SectionWidget, spanPx } from '../layout/dashboardTypes'
 import { AddTileMenu } from './AddTileMenu'
 import { SectionTitle } from './SectionTitle'
+import { TileContextMenu, useSectionActions } from './TileContextMenu'
 import { TileGrid } from './TileGrid'
 
 export function SectionTile({
@@ -27,6 +28,9 @@ export function SectionTile({
 }): JSX.Element {
     const { applyDashboardEdit } = useActions(dashboardV2Logic)
     const collapsed = !!widget.collapsed
+    const [draft, setDraft] = useState<string | null>(null)
+    const actions = useSectionActions(id, collapsed, () => setDraft(widget.title))
+    const remove = actions.find((action) => action.key === 'remove')
 
     const onLiveRows = useCallback(
         (rows: number | null): void =>
@@ -36,32 +40,41 @@ export function SectionTile({
 
     return (
         <section className="DashboardV2__section" data-attr="dashboard-v2-section">
-            <header className="DashboardV2__section-header DashboardV2__handle">
-                {editable && <IconDrag className="DashboardV2__chrome size-4 shrink-0 text-muted-foreground" />}
-                <SectionTitle
-                    title={widget.title}
-                    collapsed={collapsed}
-                    canEdit={editable}
-                    onToggle={() => applyDashboardEdit({ edit: 'updateSection', id, patch: { collapsed: !collapsed } })}
-                    onRename={(title) => applyDashboardEdit({ edit: 'updateSection', id, patch: { title } })}
-                />
-                <span className="text-xs text-muted-foreground tabular-nums">{widget.tiles.length}</span>
-                <div className="flex-1" />
-                {editable && (
-                    <div className="DashboardV2__chrome flex items-center gap-1">
-                        <AddTileMenu gridId={id} />
-                        <Button
-                            size="icon-xs"
-                            tooltip="Remove section and its tiles"
-                            aria-label="Remove section"
-                            data-attr="dashboard-v2-section-remove"
-                            onClick={() => applyDashboardEdit({ edit: 'removeTile', id })}
-                        >
-                            <IconTrash />
-                        </Button>
-                    </div>
-                )}
-            </header>
+            <TileContextMenu actions={actions}>
+                <header className="DashboardV2__section-header DashboardV2__handle">
+                    {editable && <IconDrag className="DashboardV2__chrome size-4 shrink-0 text-muted-foreground" />}
+                    <SectionTitle
+                        title={widget.title}
+                        collapsed={collapsed}
+                        canEdit={editable}
+                        onToggle={() =>
+                            applyDashboardEdit({ edit: 'updateSection', id, patch: { collapsed: !collapsed } })
+                        }
+                        onRename={(title) => applyDashboardEdit({ edit: 'updateSection', id, patch: { title } })}
+                        draft={draft}
+                        onDraftChange={setDraft}
+                    />
+                    <span className="text-xs text-muted-foreground tabular-nums">{widget.tiles.length}</span>
+                    <div className="flex-1" />
+                    {editable && (
+                        <div className="DashboardV2__chrome flex items-center gap-1">
+                            <AddTileMenu gridId={id} />
+                            {remove && (
+                                <Button
+                                    size="icon-xs"
+                                    tooltip="Remove section and its tiles"
+                                    aria-label={remove.label}
+                                    data-attr={remove.dataAttr}
+                                    disabledReason={remove.disabledReason}
+                                    onClick={remove.onSelect}
+                                >
+                                    <IconTrash />
+                                </Button>
+                            )}
+                        </div>
+                    )}
+                </header>
+            </TileContextMenu>
             {!collapsed && (
                 <div className="DashboardV2__section-body">
                     {widget.tiles.length === 0 && (
