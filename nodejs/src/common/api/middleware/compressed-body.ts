@@ -52,8 +52,16 @@ function mediaTypeOf(req: Request): string {
 }
 
 function charsetOf(req: Request): string {
-    const match = /;\s*charset\s*=\s*([^;]+)/i.exec(req.headers['content-type'] ?? '')
-    return match ? match[1].trim().toLowerCase() : 'utf-8'
+    const contentType = req.headers['content-type'] ?? ''
+    const charsetIndex = contentType.indexOf('charset=')
+    if (charsetIndex === -1) {
+        return 'utf-8'
+    }
+    return contentType
+        .substring(charsetIndex + 'charset='.length)
+        .split(';')[0]
+        .trim()
+        .toLowerCase()
 }
 
 const BODY_READING_METHODS = new Set(['POST', 'PUT', 'PATCH'])
@@ -82,7 +90,9 @@ function onceOnly(callback: (error?: unknown) => void): (error?: unknown) => voi
 }
 
 export function createCompressedBodyMiddleware(limitBytes: number): RequestHandler {
-    const readRawBody = express.raw({ type: () => true, inflate: false, limit: bytesParserLimit(limitBytes) })
+    const textLimitBytes = Math.min(limitBytes, DEFAULT_TEXT_PARSER_LIMIT_BYTES)
+    const readRawJson = express.raw({ type: () => true, inflate: false, limit: bytesParserLimit(limitBytes) })
+    const readRawText = express.raw({ type: () => true, inflate: false, limit: bytesParserLimit(textLimitBytes) })
 
     const decodeBody = async (
         req: Request,
@@ -94,10 +104,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
         const isText = mediaType === TEXT_MEDIA_TYPE
         let decoded: Buffer
         try {
-            decoded = await decompress(
-                req.body,
-                isText ? Math.min(limitBytes, DEFAULT_TEXT_PARSER_LIMIT_BYTES) : limitBytes
-            )
+            decoded = await decompress(req.body, isText ? textLimitBytes : limitBytes)
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
                 return next(tooLarge())
@@ -128,6 +135,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
             return refuse(res, 415, 'Unsupported charset')
         }
 
+        const readRawBody = mediaType === TEXT_MEDIA_TYPE ? readRawText : readRawJson
         readRawBody(
             req,
             res,
@@ -136,7 +144,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
                     if (readError) {
                         return next(readError)
                     }
-                    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+                    if (!Buffer.isBuffer(req.body) || (req.body.length === 0 && mediaType === JSON_MEDIA_TYPE)) {
                         req.body = {}
                         return next()
                     }

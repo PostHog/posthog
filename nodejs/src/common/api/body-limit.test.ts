@@ -84,29 +84,32 @@ describe('setupExpressApp request body handling', () => {
     })
 
     it.each([
-        [100 * 1024, 200],
-        [100 * 1024 + 1, 413],
-    ])('caps compressed text at the default text parser limit: %d bytes get %d', async (size, status) => {
-        const wideApp = setupExpressApp({ bodyLimitBytes: 1024 * 1024 })
-        wideApp.post('/echo-text', express.text(), echoText)
-        const wideServer = wideApp.listen(0, () => {})
-        try {
-            const compressed = gzipSync('x'.repeat(size))
-            const req = supertest(wideApp)
-                .post('/echo-text')
-                .set({
-                    'Content-Type': 'text/plain',
-                    'Content-Encoding': 'gzip',
-                    'Content-Length': String(compressed.length),
-                })
-            req.write(compressed)
-            const res = await req
+        ['decoded', 100 * 1024, 200, gzipSync('x'.repeat(100 * 1024))],
+        ['decoded', 100 * 1024 + 1, 413, gzipSync('x'.repeat(100 * 1024 + 1))],
+        ['sent', 100 * 1024 + 1, 413, gzipSync(randomBytes(100 * 1024))],
+    ])(
+        'caps compressed text at the default text parser limit: %s size %d gets %d',
+        async (_, __, status, compressed) => {
+            const wideApp = setupExpressApp({ bodyLimitBytes: 1024 * 1024 })
+            wideApp.post('/echo-text', express.text(), echoText)
+            const wideServer = wideApp.listen(0, () => {})
+            try {
+                const req = supertest(wideApp)
+                    .post('/echo-text')
+                    .set({
+                        'Content-Type': 'text/plain',
+                        'Content-Encoding': 'gzip',
+                        'Content-Length': String(compressed.length),
+                    })
+                req.write(compressed)
+                const res = await req
 
-            expect(res.status).toEqual(status)
-        } finally {
-            wideServer.close()
+                expect(res.status).toEqual(status)
+            } finally {
+                wideServer.close()
+            }
         }
-    })
+    )
 
     it('rejects streamed compressed bytes past the limit with 413 and keeps serving', async () => {
         const res = await postBytes(
@@ -163,14 +166,26 @@ describe('setupExpressApp request body handling', () => {
     })
 
     it.each([
-        ['gzip', 'text/plain', gzipSync('hello')],
-        ['br', 'Text/Plain; charset=utf-16le', brotliCompressSync(Buffer.from('hello', 'utf16le'))],
-        ['deflate', 'text/plain; charset=latin1', deflateSync(Buffer.from('hello', 'latin1'))],
+        ['gzip', 'text/plain', gzipSync('héllo')],
+        ['br', 'Text/Plain; charset=utf-16le', brotliCompressSync(Buffer.from('héllo', 'utf16le'))],
+        ['deflate', 'text/plain; charset=latin1', deflateSync(Buffer.from('héllo', 'latin1'))],
+        ['gzip', 'text/plain; note="; CHARSET=utf-32"; charset=utf-8', gzipSync('héllo')],
     ])('decodes a %s body sent as %s for a text route', async (encoding, contentType, body) => {
         const res = await postEncoded('/echo-text', encoding, body, contentType)
 
         expect(res.status).toEqual(200)
-        expect(res.body).toEqual({ body: 'hello' })
+        expect(res.body).toEqual({ body: 'héllo' })
+    })
+
+    it('answers an empty chunked compressed text body with 400', async () => {
+        const res = await postBytes(
+            '/echo-text',
+            { 'Content-Type': 'text/plain', 'Content-Encoding': 'gzip', 'Transfer-Encoding': 'chunked' },
+            []
+        )
+
+        expect(res.status).toEqual(400)
+        expect(res.body).toEqual({ status: 'error', error: 'Malformed compressed body' })
     })
 
     it('decodes a compressed body on a method the app adds to its body methods', async () => {
