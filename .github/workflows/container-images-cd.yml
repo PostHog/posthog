@@ -607,6 +607,10 @@ jobs:
                       # An edit that adds a path here also deploys once, through
                       # check_general_purpose_coverage_added below.
                       generalPurpose:
+                        # MCPA_TASK_QUEUE defaults to the general-purpose queue, and prod runs no
+                        # separate MCP analytics worker, so this worker runs intent clustering.
+                        - 'products/mcp_analytics/backend/**'
+                        - 'posthog/temporal/mcp_analytics/**'
                         - 'products/notebooks/backend/**'
                         - 'products/subscriptions/backend/temporal/**'
                         - 'products/subscriptions/backend/facade/temporal.py'
@@ -640,6 +644,11 @@ jobs:
                         - 'products/security/backend/logic/**'
                         - 'products/metrics/backend/temporal/**'
                         - 'products/metrics/backend/suggested_dashboards/**'
+                        - 'posthog/temporal/cimd_provisioning_review/**'
+                        - 'posthog/api/oauth/provisioning_review.py'
+                        - 'posthog/api/oauth/provisioning_review_slack.py'
+                        - 'posthog/models/oauth_provisioning_review.py'
+                        - 'posthog/egress/firecrawl/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -817,7 +826,7 @@ jobs:
                       dataWarehouseCdpProducer:
                         - 'posthog/hogql*/**'
                         - 'products/warehouse_sources_queue/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
@@ -868,7 +877,7 @@ jobs:
                         - 'products/managed_warehouse/backend/**'
                         - '!products/managed_warehouse/backend/temporal/**'
                         - '!products/managed_warehouse/backend/tests/temporal/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'posthog/temporal/data_warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/warehouse/**'
@@ -1898,7 +1907,7 @@ jobs:
                   shared-image-force: ${{ inputs.shared-image-force || '[]' }}
                   shared-image-bootstrap: ${{ inputs.shared-image-bootstrap }}
                   shared-image-regctl: ${{ runner.temp }}/regctl
-                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":20,"concurrency":4,"channelMs":300000,"totalMs":720000}'
+                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":40,"concurrency":8,"channelMs":300000,"totalMs":720000}'
 
             - name: Retain shared-image publication evidence
               if: ${{ !cancelled() && steps.shared-image-channels.outputs.channels == 'true' }}

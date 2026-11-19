@@ -20,6 +20,9 @@
 //	{"cmd":"remove-proc","process":"my-proc"}
 //	{"cmd":"focus","process":"web"}
 //	{"cmd":"toggle-proc","process":"web"}
+//	{"cmd":"restart","process":"web"}
+//	{"cmd":"start","process":"web"}
+//	{"cmd":"stop","process":"web"}
 //	{"cmd":"quit"}
 //
 // Responses (one JSON object per line):
@@ -42,6 +45,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 	"syscall"
 
 	"github.com/posthog/posthog/phrocs/internal/process"
@@ -70,6 +75,8 @@ type request struct {
 	Grep    string `json:"grep,omitempty"`
 	Keys    string `json:"keys,omitempty"`
 	Shell   string `json:"shell,omitempty"`
+	// NoMetrics skips sampling, which reads the whole host process table.
+	NoMetrics bool `json:"no_metrics,omitempty"`
 }
 
 // Binds a Unix domain socket at path and returns the listener.
@@ -174,6 +181,21 @@ func handle(conn net.Conn, mgr *process.Manager) {
 	}
 }
 
+// processNotFound lists the known names, so a caller can correct a typo
+// without a separate list request.
+func processNotFound(mgr *process.Manager, name string) map[string]any {
+	procs := mgr.Procs()
+	names := make([]string, 0, len(procs))
+	for _, p := range procs {
+		names = append(names, p.Name)
+	}
+	sort.Strings(names)
+	return map[string]any{
+		"ok":    false,
+		"error": fmt.Sprintf("process not found: %s (known: %s)", name, strings.Join(names, ", ")),
+	}
+}
+
 func dispatch(req request, mgr *process.Manager) any {
 	switch req.Cmd {
 	case "list":
@@ -187,13 +209,22 @@ func dispatch(req request, mgr *process.Manager) any {
 	case "status":
 		p, ok := mgr.Get(req.Process)
 		if !ok {
-			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+			return processNotFound(mgr, req.Process)
+		}
+		if req.NoMetrics {
+			return okSnapshot{OK: true, Snapshot: p.LastSnapshot()}
 		}
 		return okSnapshot{OK: true, Snapshot: p.Snapshot()}
 
 	case "status_all":
 		procs := mgr.Procs()
 		result := make(map[string]any, len(procs))
+		if req.NoMetrics {
+			for _, p := range procs {
+				result[p.Name] = p.LastSnapshot()
+			}
+			return map[string]any{"ok": true, "processes": result}
+		}
 		for i, snap := range process.Snapshots(procs) {
 			result[procs[i].Name] = snap
 		}
@@ -202,7 +233,7 @@ func dispatch(req request, mgr *process.Manager) any {
 	case "logs":
 		p, ok := mgr.Get(req.Process)
 		if !ok {
-			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+			return processNotFound(mgr, req.Process)
 		}
 		n := req.Lines
 		if n <= 0 {
@@ -247,10 +278,13 @@ func dispatch(req request, mgr *process.Manager) any {
 	case "send-keys":
 		p, ok := mgr.Get(req.Process)
 		if !ok {
-			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+			return processNotFound(mgr, req.Process)
 		}
 		if req.Keys == "" {
 			return map[string]any{"ok": false, "error": "missing keys"}
+		}
+		if !p.IsRunning() {
+			return map[string]any{"ok": false, "error": fmt.Sprintf("%s is %s, so nothing reads its input. Start it first.", p.Name, p.Status())}
 		}
 		if err := p.WriteInput([]byte(req.Keys)); err != nil {
 			return map[string]any{"ok": false, "error": err.Error()}
@@ -276,7 +310,7 @@ func dispatch(req request, mgr *process.Manager) any {
 
 	case "remove-proc":
 		if !mgr.Remove(req.Process) {
-			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+			return processNotFound(mgr, req.Process)
 		}
 		// Notify TUI to refresh process list
 		send := mgr.Send()
@@ -288,7 +322,7 @@ func dispatch(req request, mgr *process.Manager) any {
 	case "focus":
 		_, ok := mgr.Get(req.Process)
 		if !ok {
-			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+			return processNotFound(mgr, req.Process)
 		}
 		send := mgr.Send()
 		if send != nil {
@@ -299,13 +333,57 @@ func dispatch(req request, mgr *process.Manager) any {
 	case "toggle-proc":
 		p, ok := mgr.Get(req.Process)
 		if !ok {
-			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+			return processNotFound(mgr, req.Process)
 		}
 		if p.IsRunning() {
 			p.Stop()
 		} else if send := mgr.Send(); send != nil {
 			go func() { _ = p.Start(send) }()
 		}
+		return map[string]any{"ok": true}
+
+	case "start":
+		p, ok := mgr.Get(req.Process)
+		if !ok {
+			return processNotFound(mgr, req.Process)
+		}
+		if p.IsRunning() {
+			return map[string]any{"ok": true, "already": true}
+		}
+		send := mgr.Send()
+		if send == nil {
+			return map[string]any{"ok": false, "error": "phrocs is still starting"}
+		}
+		// Return only once the new run is spawned, so a status read right
+		// after sees it instead of the old state.
+		if err := p.Start(send); err != nil {
+			return map[string]any{"ok": false, "error": err.Error()}
+		}
+		return map[string]any{"ok": true}
+
+	case "stop":
+		p, ok := mgr.Get(req.Process)
+		if !ok {
+			return processNotFound(mgr, req.Process)
+		}
+		// A crashed process may sit in autorestart backoff; stopping it
+		// cancels the scheduled restart.
+		if st := p.Status(); st == process.StatusStopped || st == process.StatusDone {
+			return map[string]any{"ok": true, "already": true}
+		}
+		p.Stop()
+		return map[string]any{"ok": true}
+
+	case "restart":
+		p, ok := mgr.Get(req.Process)
+		if !ok {
+			return processNotFound(mgr, req.Process)
+		}
+		send := mgr.Send()
+		if send == nil {
+			return map[string]any{"ok": false, "error": "phrocs is still starting"}
+		}
+		p.Restart(send)
 		return map[string]any{"ok": true}
 
 	case "quit":

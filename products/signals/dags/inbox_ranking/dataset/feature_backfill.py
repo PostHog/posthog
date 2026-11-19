@@ -430,8 +430,9 @@ def already_addressed_judgments(teams: Mapping[str, int], cutoff: datetime.datet
 def inbox_report_feature_backfill(context: dagster.AssetExecutionContext, config: FeatureBackfillConfig) -> None:
     """The ML-feature groups of each report born on D, with their provenance, in one frozen batch.
 
-    No schedule runs it and nothing reads it yet. A day already written in the batch is left as it
-    is, so a repeat cannot read the mutable current state again; a refresh is a new batch id.
+    No schedule runs it, and only the backfill experiments read it (`nn/feature_backfill.py`). A day
+    already written in the batch is left as it is, so a repeat cannot read the mutable current state
+    again; a refresh is a new batch id.
     """
     if skip_unconfigured(context):
         return

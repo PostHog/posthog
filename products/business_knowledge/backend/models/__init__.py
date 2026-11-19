@@ -17,6 +17,7 @@ from .constants import (
 from .knowledge_chunk import KnowledgeChunk
 from .knowledge_document import KnowledgeDocument
 from .knowledge_gap_suggestion import KnowledgeGapSuggestion
+from .knowledge_key_library import KnowledgeKeyLibrary
 from .knowledge_learning_run import KnowledgeLearningRun
 from .knowledge_library import KnowledgeLibrary
 from .knowledge_library_repository import KnowledgeLibraryRepository
@@ -37,6 +38,7 @@ __all__ = [
     "KnowledgeChunk",
     "KnowledgeDocument",
     "KnowledgeGapSuggestion",
+    "KnowledgeKeyLibrary",
     "KnowledgeLearningRun",
     "KnowledgeLibrary",
     "KnowledgeLibraryRepository",

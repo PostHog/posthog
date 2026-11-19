@@ -25,6 +25,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, AlertState
+from posthog.tasks.alerts.utils import evaluated_by_insight_stack_q
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -590,14 +591,15 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("list", "list", None),
-            ("retrieve", "retrieve", None),
-            ("threshold_insight_hidden", "list", "threshold"),
-            ("alert_moved_to_a_hidden_insight", "list", "alert"),
+            ("list", "list", None, False),
+            ("retrieve", "retrieve", None, False),
+            ("shared_with_an_alert_the_insight_stack_owns", "list", None, True),
+            ("threshold_insight_hidden", "list", "threshold", False),
+            ("alert_moved_to_a_hidden_insight", "list", "alert", False),
         ]
     )
     def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(
-        self, _name: str, action: str, hidden: str | None
+        self, _name: str, action: str, hidden: str | None, shared_with_row_alert: bool
     ) -> None:
         assert self.alert.threshold is not None
         threshold_insight_id = self.alert.insight_id
@@ -605,6 +607,22 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         copy_threshold = self.alert.threshold.configuration
         row_threshold = {"type": "absolute", "bounds": {"upper": 999.0}}
         Threshold.objects.filter(id=self.alert.threshold.id).update(configuration=row_threshold, name="Revenue bound")
+        expected = [(copy_threshold, self.alert.name, copy_threshold, "Revenue bound")]
+        if shared_with_row_alert:
+            row_alert = AlertConfiguration.objects.create(
+                team=self.team,
+                insight=self.alert.insight,
+                threshold=self.alert.threshold,
+                name="Row alert",
+                created_by=self.user,
+            )
+            # Edits to the row alert still write the threshold row, so the row's bounds are current.
+            expected = sorted(
+                [
+                    (row_threshold, self.alert.name, copy_threshold, "Revenue bound"),
+                    (row_threshold, row_alert.name, row_threshold, "Revenue bound"),
+                ]
+            )
         if hidden is not None:
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -626,11 +644,11 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         thresholds = [response.json()] if action == "retrieve" else response.json()["results"]
-        assert [
+        assert sorted(
             (threshold["configuration"], alert["name"], alert["threshold"]["configuration"], alert["threshold"]["name"])
             for threshold in thresholds
             for alert in threshold["alerts"]
-        ] == ([(row_threshold, self.alert.name, copy_threshold, "Revenue bound")] if hidden is None else [])
+        ) == (expected if hidden is None else [])
 
     @parameterized.expand(
         [
@@ -677,6 +695,51 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         with team_scope(self.team.id):
             self.copy_id = platform_testing.copy_of(self.alert.id).id
         self.url = f"/api/projects/{self.team.id}/alerts"
+
+    def test_a_destination_moves_between_its_row_and_hog_functions_through_customize_and_reset(self) -> None:
+        sync_template_to_db(template_discord)
+        destinations_url = f"{self.url}/{self.alert.id}/destinations/"
+        hog_function_ids = self.client.post(
+            f"{destinations_url}webhook/",
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
+            format="json",
+        ).json()["hog_function_ids"]
+        (stock,) = self.client.get(destinations_url).json()
+
+        with patch("products.alerts.backend.presentation.views.alert.posthoganalytics.capture") as capture:
+            reset = self.client.post(f"{destinations_url}reset/", {"hog_function_ids": hog_function_ids}, format="json")
+            assert reset.status_code == status.HTTP_200_OK, reset.json()
+            (row_only,) = self.client.get(destinations_url).json()
+            assert (row_only["id"], row_only["hog_function_ids"]) == (reset.json()["id"], [])
+            assert row_only["id"] == stock["id"]
+
+            customized = self.client.post(
+                f"{destinations_url}customize/", {"destination_id": row_only["id"]}, format="json"
+            )
+
+        assert customized.status_code == status.HTTP_200_OK, customized.json()
+        (listed,) = self.client.get(destinations_url).json()
+        assert (listed["id"], listed["hog_function_ids"]) == (row_only["id"], customized.json()["hog_function_ids"])
+        (hog_function_id,) = listed["hog_function_ids"]
+        assert HogFunction.objects.get(id=hog_function_id).encrypted_inputs["webhookUrl"]["value"] == (
+            "https://discord.com/api/webhooks/1/secret"
+        )
+        assert [call.kwargs["event"] for call in capture.call_args_list] == [
+            "insight alert destination reset",
+            "insight alert destination customized",
+        ]
+        changes = [
+            (change["action"], (change["before"] or change["after"])["id"])
+            for row in ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=str(self.alert.id), detail__type="alert_destination_change"
+            ).order_by("created_at")
+            for change in (row.detail or {})["changes"]
+        ]
+        assert changes[-3:] == [
+            ("deleted", hog_function_ids[0]),
+            ("created", reset.json()["id"]),
+            ("created", hog_function_id),
+        ]
 
     @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
     def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:
@@ -1280,6 +1343,10 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         if team_owner == "platform":
             # The insight stack shadows the new alert only for what is left of the team's week.
             assert created.owner_changed_at == team_cutover_at
+        # A team's first alert has no insight history to shadow.
+        assert AlertConfiguration.objects.filter(
+            evaluated_by_insight_stack_q(timezone.now()), id=created.id
+        ).exists() is (team_owner is not None)
 
     @parameterized.expand(
         [
@@ -1588,7 +1655,6 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                     check_interval_minutes=60 * 24,
                     recurrence_unit="day",
                     owner=PlatformAlertOwner.PLATFORM,
-                    destinations_owner=PlatformAlertOwner.PLATFORM,
                 )
 
         watched = insight_short_ids_watched_by(team_id=self.team.id, user_id=subscriber.id, limit=1)

@@ -87,7 +87,8 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         default=AnomalyOrder.UNUSUAL,
         help_text=(
             "`unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged "
-            "bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series."
+            "bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts "
+            "as `unusual`. With `group_by: insight`, each insight sorts by its first series."
         ),
     )
     search = serializers.CharField(
@@ -102,6 +103,13 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         max_value=10_000,
         default=0,
         help_text="Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.",
+    )
+    include_points = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. "
+            "Costs one more query. Has no effect with `group_by: insight`."
+        ),
     )
 
 
@@ -134,6 +142,17 @@ class AnomalyFlaggedPointSerializer(serializers.Serializer):
     score = serializers.FloatField(
         allow_null=True, help_text="The detector score of the bucket. Compare it only with buckets of the same series."
     )
+
+
+class AnomalySeriesPointSerializer(serializers.Serializer):
+    bucket_start = ProjectDateTimeField(help_text="The start of the scored bucket, in the project timezone.")
+    value = serializers.FloatField(allow_null=True, help_text="The series value of the bucket at scoring time.")
+    flag = serializers.BooleanField(help_text="Whether the detector flagged the bucket.")
+
+
+class AnomalyDashboardSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="The numeric id of the dashboard.")
+    name = serializers.CharField(allow_null=True, help_text="The name of the dashboard. Null when it has none.")
 
 
 class AnomalySeriesSerializer(serializers.Serializer):
@@ -195,6 +214,25 @@ class AnomalySeriesSerializer(serializers.Serializer):
     flagged_points = AnomalyFlaggedPointSerializer(
         many=True, help_text="Up to 5 flagged buckets in the range, newest first."
     )
+    dashboards = AnomalyDashboardSerializer(
+        many=True,
+        help_text="The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none.",
+    )
+    points = AnomalySeriesPointSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. "
+            "A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. "
+            "Fewer points than `scored_buckets` means the cap left older buckets out."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if instance.points is None:
+            data.pop("points")
+        return data
 
 
 class AnomalyTopSeriesSerializer(serializers.Serializer):
@@ -452,6 +490,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=query["limit"],
             offset=query["offset"],
             search=query.get("search") or None,
+            include_points=query["include_points"],
         )
         try:
             result = signals_facade.search_anomalies(team=self.team, user=user, filters=filters, now=now)
@@ -464,6 +503,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             order=filters.order.value,
             offset=filters.offset,
             searched=filters.search is not None,
+            include_points=filters.include_points,
             scoring_enabled=result.scoring_enabled,
             rows=len(result.series) + len(result.insights),
             insights_scored_in_range=result.insights_scored_in_range,

@@ -2426,6 +2426,8 @@ export interface BlastRadiusRequestApi {
     sends_email?: boolean
     /** The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify. */
     email_sending_rate_limit?: HogFlowEmailSendingRateLimitApi | null
+    /** Count the audience now instead of reusing a count from the last few minutes. Set it when the count decides whether a send may go ahead. */
+    refresh?: boolean
 }
 
 /**
@@ -2906,9 +2908,10 @@ export type WorkflowImportRequestApiLayouts = { [key: string]: string }
 /**
  * * `customerio` - Customer.io
  */
-export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
+export type WorkflowImportRequestSourceEnumApi =
+    (typeof WorkflowImportRequestSourceEnumApi)[keyof typeof WorkflowImportRequestSourceEnumApi]
 
-export const ImportProviderKeyEnumApi = {
+export const WorkflowImportRequestSourceEnumApi = {
     Customerio: 'customerio',
 } as const
 
@@ -2955,7 +2958,7 @@ export interface WorkflowImportRequestApi {
     /** The tool the automations come from.
      *
      * * `customerio` - Customer.io */
-    source: ImportProviderKeyEnumApi
+    source: WorkflowImportRequestSourceEnumApi
     /** The automations to import, at most 50. People are never read from these objects. */
     campaigns: CustomerioCampaignApi[]
     /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */

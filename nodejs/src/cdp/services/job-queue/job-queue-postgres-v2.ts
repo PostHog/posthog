@@ -9,6 +9,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { EncryptedFields } from '../../utils/encryption-utils'
 import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import {
     CyclotronV2DequeuedJob,
@@ -17,7 +18,7 @@ import {
     CyclotronV2Worker,
     countStaleCommit,
 } from '../cyclotron-v2'
-import { encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import { StateOpener, encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
 import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
@@ -83,6 +84,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     private resultWrites = new PromiseScheduler()
     private stopDeadline?: number
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
+    private stateOpener: StateOpener
 
     constructor(
         // protected — the rate-limited subclass needs this to cap its token
@@ -101,10 +103,13 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
             | 'CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK'
+            | 'CDP_CYCLOTRON_RELEASE_WRITE_RETRY'
+            | 'CDP_SEALED_STATE_KEYS'
         > &
             Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>
     ) {
         this.sanitizer = createInvocationSanitizer(config)
+        this.stateOpener = new EncryptedFields(config.CDP_SEALED_STATE_KEYS)
     }
 
     public async startAsProducer(): Promise<void> {
@@ -151,6 +156,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
             boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
             boundedFairDequeue: this.config.CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE,
+            releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
             includeEmptyBatches: true,
         })
 
@@ -160,7 +166,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
-                const invocation = v2JobToInvocation(job)
+                const invocation = v2JobToInvocation(job, this.stateOpener)
                 invocations.push(invocation)
                 const { wait, dueAt } = dueTimeOf(job, invocation)
                 this.pickups.set(job, {
@@ -258,7 +264,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
     public async queueInvocations(
         invocations: CyclotronJobInvocation[],
-        options: { overwriteExisting?: boolean } = {}
+        options: { overwriteExisting?: boolean; oneInsert?: boolean } = {}
     ): Promise<void> {
         if (invocations.length === 0) {
             return
@@ -276,7 +282,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         }))
 
         try {
-            const chunked = chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+            const chunked = options.oneInsert ? [jobs] : chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
             if (this.config.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
                 await Promise.all(
                     chunked.map((batch) =>
@@ -415,7 +421,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                 if (job) {
                     try {
                         await this.resultWrites.schedule(
-                            job.defer({ scheduledAt, state: encodeStateColumns(invocation).state })
+                            job.defer({ scheduledAt, state: encodeStateColumns(this.sanitizer.seal(invocation)).state })
                         )
                     } finally {
                         this.forgetPendingJob(job, 'parked')

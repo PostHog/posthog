@@ -1,3 +1,4 @@
+from .agent_egress import AgentEgressProbeWorkflow
 from .bake_dev_stack_image.activation import ActivateDevStackImageWorkflow, activate_dev_stack_image
 from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
 from .bake_dev_stack_image.workflow import BakeDevStackImageWorkflow
@@ -34,7 +35,7 @@ from .process_task.activities import (
     launch_agent_server,
     mark_repo_ready,
     materialize_context_layer_in_sandbox,
-    post_permission_delivery_failure_notice,
+    persist_agent_memory,
     post_slack_update,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
@@ -45,13 +46,17 @@ from .process_task.activities import (
     restore_sandbox_connection_state,
     run_wizard,
     send_followup_to_sandbox,
-    send_permission_denial_guidance,
-    send_permission_response_to_sandbox,
     start_agent_server,
     start_dev_stack_preview,
     track_workflow_event,
     update_task_run_status,
     wait_dev_stack_preview,
+)
+from .process_task.activities.agent_egress import (
+    cleanup_agent_egress,
+    prepare_agent_egress,
+    probe_agent_egress,
+    renew_agent_egress,
 )
 from .process_task.activities.feature_flags import is_slack_app_agent_design_enabled_for_task_activity
 from .process_task.activities.get_pr_babysit_snapshot import get_pr_babysit_snapshot
@@ -67,6 +72,7 @@ from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
 WORKFLOWS = [
+    AgentEgressProbeWorkflow,
     TaskRunGatewayUsageWorkflow,
     ProcessTaskWorkflow,
     SlackAgentDesignRelayWorkflow,
@@ -78,6 +84,10 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    prepare_agent_egress,
+    renew_agent_egress,
+    probe_agent_egress,
+    cleanup_agent_egress,
     reconcile_gateway_usage,
     # process_task activities
     get_task_processing_context,
@@ -98,9 +108,7 @@ ACTIVITIES = [
     relay_sandbox_events_deferred_completion,
     get_sandbox_exit_reason,
     create_resume_snapshot,
-    post_permission_delivery_failure_notice,
-    send_permission_denial_guidance,
-    send_permission_response_to_sandbox,
+    persist_agent_memory,
     send_followup_to_sandbox,
     start_agent_server,
     launch_agent_server,

@@ -2,7 +2,11 @@ import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
-import { PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
+import {
+    PersonhogFencedError,
+    PersonhogPropertiesDepthError,
+    PersonhogPropertiesSizeError,
+} from '~/common/personhog/persons'
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
@@ -893,6 +897,42 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.fetchPersonById).not.toHaveBeenCalled()
     })
 
+    it("a create that finds a person without properties writes the event's properties as an update", async () => {
+        person.properties = {}
+        repository.getOrCreatePersonByDistinctId.mockResolvedValue({ person, created: false } as never)
+        repository.fetchPersonById.mockResolvedValue(person as never)
+        const bound = store.forBatch(0)
+
+        const result = await bound.createPerson(
+            DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+            { plan: 'pro', first: 'x' },
+            {},
+            {},
+            1,
+            null,
+            false,
+            'advisory-uuid',
+            { distinctId: 'd1' },
+            undefined
+        )
+        if (!result.success) {
+            throw new Error('create did not succeed')
+        }
+        expect(result.created).toBe(false)
+        await bound.applyEventOps(
+            result.person,
+            ops({ $set: { plan: 'pro' }, $set_once: { first: 'x' } }, '$pageview'),
+            'd1'
+        )
+        await bound.flush()
+
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        const sent = repository.updatePersonProperties.mock.calls[0][0]
+        expect(sent.personId).toEqual('7')
+        expect(sent.setProperties).toEqual({ plan: 'pro' })
+        expect(sent.setOnceProperties).toEqual({ first: 'x' })
+    })
+
     it('a create answer declined by a purge still clears the absence it contradicts', async () => {
         const bound = store.forBatch(0)
         // Identity has no mapping yet, so the update read caches an absence.
@@ -1002,8 +1042,11 @@ describe('PersonhogPersonsStore', () => {
         expect(edgeOf('1:d1')).toBeUndefined()
     })
 
-    it('drops a size-rejected segment from the lane rather than retrying it forever', async () => {
-        repository.updatePersonProperties.mockRejectedValue(new PersonhogPropertiesSizeError('too big', 1, '7'))
+    it.each([
+        ['size', new PersonhogPropertiesSizeError('too big', 1, '7')],
+        ['nesting', new PersonhogPropertiesDepthError('too deep', 1, '7')],
+    ])('drops a %s-rejected segment from the lane rather than retrying it forever', async (_limit, refusal) => {
+        repository.updatePersonProperties.mockRejectedValue(refusal)
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         await bound.flush()

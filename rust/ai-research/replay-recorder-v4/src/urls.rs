@@ -100,11 +100,12 @@ fn remote_urls(block: &Block, keys: &FlushKeys) -> Vec<(CanonicalUrl, UrlAsset, 
 /// Builds one job per new remote image or font URL. Counts the image URLs of each block, and adds their references to
 /// its image sketch, in the stats paired with it.
 /// `index` is the block's position in the blocks that `urls` was built from. `already_sent` names references this
-/// process sent or found fresh today.
+/// process sent or found fresh today. A fetcher that packs the image writes its index row in `write_day`.
 pub fn fetch_jobs<'b>(
     urls: &FlushUrls,
     blocks: impl IntoIterator<Item = (usize, &'b Block, &'b mut BlockStats)>,
     now_ms: i64,
+    write_day: &str,
     already_sent: &dyn Fn(&str) -> bool,
 ) -> FetchJobs {
     let mut jobs = FetchJobs::new();
@@ -131,6 +132,7 @@ pub fn fetch_jobs<'b>(
                     "fetchCount": 0,
                     "republishCount": 0,
                     "lastRepublishReason": null,
+                    "writeDays": [write_day],
                 }));
         }
     }
@@ -314,7 +316,13 @@ mod tests {
         let already_sent = |reference: &str| reference == sent;
 
         let urls = FlushUrls::new([&block], &keys(&["s"]), &already_sent);
-        let jobs = fetch_jobs(&urls, [(0, &block, &mut stats)], 1_000, &already_sent);
+        let jobs = fetch_jobs(
+            &urls,
+            [(0, &block, &mut stats)],
+            1_000,
+            "2026-10-14",
+            &already_sent,
+        );
         let images = ("example.com".to_owned(), UrlAsset::Image);
         assert_eq!(jobs.keys().collect::<Vec<_>>(), [&images]);
         let fetched: Vec<_> = jobs[&images]
@@ -337,6 +345,7 @@ mod tests {
             (job["sessionId"].as_str(), job["remainingHops"].as_u64()),
             (Some("s"), Some(10))
         );
+        assert_eq!(job["writeDays"], json!(["2026-10-14"]));
         // Every public URL the block referenced counts, sent before or not.
         assert_eq!(stats.image_urls, 4);
     }
@@ -365,6 +374,7 @@ mod tests {
             &urls,
             [(1, &blocks[1], first_stats), (2, &blocks[2], second_stats)],
             1_000,
+            "2026-10-14",
             &|_| false,
         );
         let sessions: Vec<_> = jobs[&("example.com".to_owned(), UrlAsset::Image)]

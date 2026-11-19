@@ -21,6 +21,7 @@ import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
+import { buildTimeSeriesChartData } from '@/lib/time-series-chart-data'
 import { LearnLookupError } from '@/skills/skill-catalog'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -271,6 +272,7 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    appendTimeSeriesChartData?: boolean
     mcpClientName?: string | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
@@ -1450,13 +1452,30 @@ export function formatInputValidationError(
         }
         if (issue.code === 'unrecognized_keys') {
             // A bare rejection makes many agents stop instead of trying again, so the
-            // message tells the caller to drop the keys and call again. Keep the
-            // `unexpected property: <keys>` prefix, because MCP failure buckets and
+            // message says how to fix the call. A key that another variant of the
+            // object declares (`event_name` sent with `kind: "events"`) is a real field
+            // in the wrong variant, and dropping it answers a different question. Keep
+            // the `unexpected property: <keys>` prefix, because MCP failure buckets and
             // saved analytics queries match on that text.
-            const plural = issue.keys.length > 1
             const location = path ? ` in "${path}"` : ''
-            const them = plural ? 'them' : 'it'
-            return `unexpected ${plural ? 'properties' : 'property'}: ${issue.keys.join(', ')}${location}; this tool does not accept ${them}, so remove ${them} and call the tool again`
+            const variantFields = schema && path ? wrapperFieldNames(schema, issue.path.map(String)) : new Set()
+            const misplaced = issue.keys.filter((key) => variantFields.has(key))
+            const unknown = issue.keys.filter((key) => !variantFields.has(key))
+            const mixed = misplaced.length > 0 && unknown.length > 0
+            const pronoun = (keys: string[]): string => (keys.length > 1 ? 'them' : 'it')
+            const subject = (keys: string[]): string => (mixed ? keys.join(', ') : pronoun(keys))
+            const advice: string[] = []
+            if (misplaced.length > 0) {
+                advice.push(
+                    `"${path}" accepts ${subject(misplaced)} only in another variant, so change its other fields to match that variant instead of removing ${pronoun(misplaced)}`
+                )
+            }
+            if (unknown.length > 0) {
+                advice.push(
+                    `this tool does not accept ${subject(unknown)}, so remove or rename ${pronoun(unknown)} and call the tool again`
+                )
+            }
+            return `unexpected ${issue.keys.length > 1 ? 'properties' : 'property'}: ${issue.keys.join(', ')}${location}; ${advice.join('; ')}`
         }
         // A too-long string names the limit and the input's actual length so the
         // agent knows how much to trim (zod's default names only the limit).
@@ -2369,6 +2388,7 @@ export function createExecTool(
                                 mcpClientName: options.mcpClientName,
                                 includeUiResponseMeta: isInlineUiAppHost,
                                 includeRenderNote: isInlineUiAppHost,
+                                appendTimeSeriesChartData: options.appendTimeSeriesChartData,
                             })
                         )
                         trackInnerCall?.(tool.name, {
@@ -2397,6 +2417,12 @@ export function createExecTool(
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
                         outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                        const chartData = options.appendTimeSeriesChartData
+                            ? buildTimeSeriesChartData(result)
+                            : undefined
+                        if (chartData) {
+                            outputText = `${outputText}\n\n${chartData}`
+                        }
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,

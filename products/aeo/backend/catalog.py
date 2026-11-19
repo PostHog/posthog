@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 import datetime as dt
 from collections import Counter, defaultdict
 from urllib.parse import urlparse
@@ -15,7 +16,7 @@ import tldextract
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.aeo.backend.brand import SEGMENT_SQL, brand_names, segment_sql_params
+from products.aeo.backend.brand import SEGMENT_SQL, brand_names, branded_filter, names_brand, segment_sql_params
 from products.aeo.backend.engines import is_target_url, own_domains_key, target_position
 from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
@@ -30,6 +31,7 @@ from products.aeo.backend.facade.contracts import (
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck
 from products.aeo.backend.rankings import word_pattern
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 
 # Community, review and media sites that engines cite for every topic. They are sources, not companies we compete with.
 PUBLISHER_DOMAINS = frozenset(
@@ -105,25 +107,66 @@ def recompute_own_citations(team_id: int) -> int:
     changed = 0
     domains = own_domains(team_id)
     for _ in range(RECOMPUTE_MAX_PASSES):
-        changed += _recompute_with(team_id, domains)
+        recomputed = _recompute_with(team_id, domains)
+        changed += recomputed.changed
+        key = own_domains_key(domains)
+        failed_on_another_key = _failed_checks_on_another_key(team_id, key)
+        _recompute_branded_prompts(team_id, domains, whole_history=recomputed.rekeyed or bool(failed_on_another_key))
+        # Only the checks read before the prompt pass get the key. A failed check that a run records
+        # meanwhile keeps its own, so the next reconcile still sees it.
+        AEOCitationCheck.objects.for_team(team_id, canonical=True).filter(id__in=failed_on_another_key).update(
+            own_domains_key=key
+        )
         current = own_domains(team_id)
         if current == domains:
             break
         domains = current
+    bump_data_version_on_commit(team_id)
     return changed
 
 
-def _recompute_with(team_id: int, domains: list[str]) -> int:
+def _failed_checks_on_another_key(team_id: int, key: str) -> list[uuid.UUID]:
+    """Failed checks keyed for other own domains. A failed check has no citations to recompute, so the
+    citation pass leaves its key alone, and it still shows a change of the own domains when no answered
+    check does. The failed checks are found in the window index first, so only their rows are loaded."""
+    checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
+    failed = list(checks.filter(check_failed=True).values_list("id", flat=True))
+    return list(checks.filter(id__in=failed).exclude(own_domains_key=key).values_list("id", flat=True))
+
+
+@frozen
+class _Recomputed:
+    changed: int
+    # A check carried the key of other own domains, so the own domains changed since the last reconcile.
+    rekeyed: bool
+
+
+def _recompute_branded_prompts(team_id: int, domains: list[str], *, whole_history: bool) -> None:
+    """Set `prompt_branded` on the checks of the team, failed ones included, because the branded split
+    counts them too. The runner stores it against the own domains of the moment, so the whole history is
+    read again only when those changed. Otherwise only the checks that have none are read, from the
+    window index. Only the rows on the wrong side are written."""
+    checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
+    if not whole_history:
+        checks = checks.filter(prompt_branded__isnull=True)
+    branded = branded_filter(domains)
+    checks.filter(branded).exclude(prompt_branded=True).update(prompt_branded=True)
+    checks.exclude(branded).exclude(prompt_branded=False).update(prompt_branded=False)
+
+
+def _recompute_with(team_id: int, domains: list[str]) -> _Recomputed:
     key = own_domains_key(domains)
     checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
-    # exclude() keeps the null keys of checks recorded before the key existed.
+    # exclude() keeps the null keys of checks recorded before the key existed. A check on the current
+    # key that has no `names_brand` yet was recorded before that column existed, and is filled here too.
     stale = (
         checks.filter(check_failed=False)
-        .exclude(own_domains_key=key)
-        .only("id", "cited_urls", "cited", "target_urls", "target_best_position", "own_domains_key")
+        .exclude(own_domains_key=key, names_brand__isnull=False)
+        .only("id", "cited_urls", "cited", "target_urls", "target_best_position", "own_domains_key", "answer_text")
         .order_by("id")
     )
     changed = 0
+    rekeyed = False
     last_id = None
     # Keyset pages with a database limit: behind PgBouncer, iterator() would buffer the whole result.
     while page := list((stale.filter(id__gt=last_id) if last_id else stale)[:RECOMPUTE_BATCH_SIZE]):
@@ -132,20 +175,24 @@ def _recompute_with(team_id: int, domains: list[str]) -> int:
         kept: list[AEOCitationCheck] = []
         for check in page:
             citations_moved = _recompute_check(check, domains)
-            # A keyed check was scored for a different set of own brands, even when its citations match both.
+            check.names_brand = names_brand(check.answer_text, domains)
+            # A check keyed for other own brands was scored for them, even when its citations match both.
             # A check from before the key existed was scored for the domains it was cited against.
-            if check.own_domains_key is not None or citations_moved:
+            # A check already on the current key is only here to get its `names_brand`.
+            if check.own_domains_key != key and (check.own_domains_key is not None or citations_moved):
                 # The next sentiment run scores a cleared check again when it names the current brand and
                 # falls inside the run's backlog window.
                 check.brand_sentiment = None
                 check.brand_sentiment_score = None
+                check.brand_sentiment_sentences = None
                 rescored.append(check)
             else:
                 kept.append(check)
+            rekeyed = rekeyed or check.own_domains_key != key
             check.own_domains_key = key
             changed += citations_moved
         _write_recomputed(checks, rescored, kept)
-    return changed
+    return _Recomputed(changed=changed, rekeyed=rekeyed)
 
 
 def _recompute_check(check: AEOCitationCheck, domains: list[str]) -> bool:
@@ -168,13 +215,14 @@ def _recompute_check(check: AEOCitationCheck, domains: list[str]) -> bool:
     return moved
 
 
-_CITATION_FIELDS = ["cited", "target_urls", "target_best_position", "own_domains_key"]
+_CITATION_FIELDS = ["cited", "target_urls", "target_best_position", "own_domains_key", "names_brand"]
+_SENTIMENT_FIELDS = ["brand_sentiment", "brand_sentiment_score", "brand_sentiment_sentences"]
 
 
 def _write_recomputed(
     checks: QuerySet[AEOCitationCheck], rescored: list[AEOCitationCheck], kept: list[AEOCitationCheck]
 ) -> None:
-    checks.bulk_update(rescored, [*_CITATION_FIELDS, "brand_sentiment", "brand_sentiment_score"])
+    checks.bulk_update(rescored, [*_CITATION_FIELDS, *_SENTIMENT_FIELDS])
     # Sentiment is left out, so a score written meanwhile for these checks survives.
     checks.bulk_update(kept, _CITATION_FIELDS)
 
@@ -223,6 +271,7 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
         )
     # A concurrent sync may insert the same domain first; its row wins.
     AEOBrand.objects.for_team(team_id, canonical=True).bulk_create(new_brands, ignore_conflicts=True)
+    bump_data_version_on_commit(team_id)
     return BrandSyncResult(domains=len(domains), created=len(new_brands))
 
 
@@ -331,7 +380,7 @@ def competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandida
     if not brands:
         return []
     since = timezone.now() - dt.timedelta(days=COMPETITOR_CANDIDATE_DAYS)
-    segment = segment_sql_params(BrandedSegment.NON_BRANDED, own)
+    segment = segment_sql_params(BrandedSegment.NON_BRANDED)
     with connection.cursor() as cursor:
         cursor.execute(_CITED_HOSTS_SQL, [team_id, since, *segment])
         cited_hosts = _cited_brand_hosts(cursor.fetchall(), set(brands))

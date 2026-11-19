@@ -1816,13 +1816,13 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
-    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
      *
      * * `history_over_limit` - History over limit
      * * `too_large_to_build` - Too large to build */
     reason: CohortRealtimeUnavailableReasonEnumApi | null
     /**
-     * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+     * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
      * @nullable
      */
     history_limit_days: number | null
@@ -2208,7 +2208,7 @@ export interface BulkDeleteFiltersApi {
     active?: ActiveEnumApi
     /** Filter to flags created by a specific user ID. */
     created_by_id?: number
-    /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. */
+    /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags. */
     search?: string
     /** Filter by flag type.
      *
@@ -2775,7 +2775,7 @@ export type FeatureFlagsListParams = {
      */
     offset?: number
     /**
-     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.
+     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags.
      */
     search?: string
     /**
