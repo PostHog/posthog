@@ -58,6 +58,7 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
         sync_execute("SYSTEM STOP TTL MERGES sharded_series_values_preaggregated")
+        self.addCleanup(sync_execute, "SYSTEM START TTL MERGES sharded_series_values_preaggregated")
 
     def _set_timezone(self, timezone: str) -> None:
         self.team.timezone = timezone
