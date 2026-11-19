@@ -11695,13 +11695,13 @@ Diffed against: <https://core-api.uk.plain.com/graphql/v1/schema.graphql>
 - [x] `tenants` — multi-tenant grouping dimension for customers and threads (high)
 - [x] `customerSurveys` — CSAT survey definitions: template, targeting and send settings, not responses (high)
 - [ ] CSAT survey responses — individual responses and scores, the headline support-quality metric; the schema has no list query for them (high)
-- [ ] `tiers` — SLA tier per company/tenant, needed to segment thread response times (medium)
-- [ ] `tasks` — work items attached to threads, needed for workload analysis (medium)
+- [x] `tiers` — SLA tier per company/tenant, needed to segment thread response times (medium)
+- [x] `tasks` — work items attached to threads, needed for workload analysis (medium)
 - [x] `discussions` — internal discussion threads separate from customer-facing threads (medium)
 - [x] `customerGroups` — lookup resolving group IDs on customers (medium)
 - [x] `workflowExecutions` — automation run history, for measuring deflection and routing (medium)
-- [ ] `threadFieldSchemas` — lookup defining the custom thread fields whose values appear on threads (medium)
-- [ ] `knowledgeGaps` — AI knowledge-gap records for content prioritization (low)
+- [x] `threadFieldSchemas` — lookup defining the custom thread fields whose values appear on threads (medium)
+- [x] `knowledgeGaps` — AI knowledge-gap records for content prioritization (low)
 
 Note: Plain is GraphQL-only; I enumerated every \*Connection field on type Query from the published SDL. 62 paginated collections exist against the 3 tables PostHog exposes. Non-analytical Connections (webhookTargets, workspaceSlackIntegrations, serviceAuthorizations, savedThreadsViews, chatApps, roles, billingPlans) were deliberately excluded as config/plumbing.
 

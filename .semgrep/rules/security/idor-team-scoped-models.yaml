@@ -1507,6 +1507,7 @@ rules:
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
                               |OrganizationIPRestrictions
+                              |OrganizationEntitlementAppliedState
                               |OrganizationEventsRetentionConfig
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
@@ -1592,6 +1593,7 @@ rules:
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
                         |OrganizationIPRestrictions
+                        |OrganizationEntitlementAppliedState
                         |OrganizationEventsRetentionConfig
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
