@@ -21,9 +21,10 @@ from posthog import redis
 
 logger = structlog.get_logger(__name__)
 
-# A rewind is as long as the checkpoint lags the newest point when a checkpoint read fails. A floor
-# older than this is pruned, so a rewind longer than a day goes unprotected.
-_RETENTION: Final = timedelta(days=1)
+# A rewind is as long as the checkpoint lags the newest point when a checkpoint read fails, and the
+# checkpoint has no age limit. A floor older than this is pruned, so a rewind longer than a week goes
+# unprotected. A floor is one sorted-set member per configuration, so a week of them costs little.
+_RETENTION: Final = timedelta(days=7)
 # The batch spends its time budget on queries, so the shared client's long default timeout on a
 # stalled Redis would push the activity past its deadline and lose every verdict. One second is far
 # above a healthy call, and a call that runs out of it costs only the floor.

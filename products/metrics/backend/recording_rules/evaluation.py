@@ -14,7 +14,7 @@ an alert can still correct a read later.
 import math
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Final
 
 from django.conf import settings
@@ -47,6 +47,10 @@ FRESHNESS_QUERY_SECONDS: Final = 5
 # Every series becomes a stored series, so one high-cardinality expression is refused rather than
 # multiplying the team's metrics.
 MAX_SERIES: Final = 1000
+# Capture replaces a sample timestamp more than 24 hours old with the ingest time
+# (`override_timestamp` in rust/capture-logs), which would store an old minute as a current sample.
+# A checkpoint further back than this waits instead, with an hour of margin for the export to land.
+MAX_RECORDED_AGE: Final = timedelta(hours=23)
 
 _UNEXPECTED_ERROR: Final = "The rule failed unexpectedly. PostHog has been notified."
 
@@ -93,7 +97,7 @@ def evaluate_team_recording_rules(team_id: int, now: datetime) -> int:
 
     deadline = time.monotonic() + TEAM_QUERY_BUDGET_SECONDS
     checkpoint = _read_instant(fetch_partition_checkpoint, team)
-    if checkpoint is None:
+    if checkpoint is None or now - checkpoint > MAX_RECORDED_AGE:
         logger.info("Recording rules are waiting for ingestion to report how far it has reached", team_id=team_id)
         MetricRecordingRule.objects.filter(team_id=team_id, enabled=True).update(
             last_error="Waiting for metrics ingestion to catch up."
