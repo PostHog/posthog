@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 import yaml
 from drf_spectacular.generators import EndpointEnumerator, SchemaGenerator
 
-TOOLS_YAML = Path(__file__).parents[2] / "mcp" / "tools.yaml"
+TOOLS_YAML = Path(__file__).parents[3] / "products" / "aeo" / "mcp" / "tools.yaml"
 
 
 class _AEOEndpointEnumerator(EndpointEnumerator):
