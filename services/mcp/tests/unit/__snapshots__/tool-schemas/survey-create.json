@@ -1253,7 +1253,7 @@
                                                 "type": "null"
                                             }
                                         ],
-                                        "description": "Display-only name for this release condition group, shown in the UI. It does not affect evaluation."
+                                        "description": "Display-only name for this release condition group. It does not affect evaluation."
                                     },
                                     "properties": {
                                         "description": "Property conditions for this release condition group.",

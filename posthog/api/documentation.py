@@ -612,7 +612,7 @@ class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="Display-only name for this release condition group, shown in the UI. It does not affect evaluation.",
+        help_text="Display-only name for this release condition group. It does not affect evaluation.",
     )
 
 

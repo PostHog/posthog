@@ -502,7 +502,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .nullish()
                             .describe(
-                                'Display-only name for this release condition group, shown in the UI. It does not affect evaluation.'
+                                'Display-only name for this release condition group. It does not affect evaluation.'
                             ),
                     })
                 )
@@ -984,7 +984,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .nullish()
                             .describe(
-                                'Display-only name for this release condition group, shown in the UI. It does not affect evaluation.'
+                                'Display-only name for this release condition group. It does not affect evaluation.'
                             ),
                     })
                 )

@@ -317,9 +317,7 @@ export const ExperimentHoldoutsCreateBody = () => zod
                     description: zod
                         .string()
                         .nullish()
-                        .describe(
-                            'Display-only name for this release condition group, shown in the UI. It does not affect evaluation.'
-                        ),
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()
@@ -636,9 +634,7 @@ export const ExperimentHoldoutsPartialUpdateBody = () => zod
                     description: zod
                         .string()
                         .nullish()
-                        .describe(
-                            'Display-only name for this release condition group, shown in the UI. It does not affect evaluation.'
-                        ),
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()

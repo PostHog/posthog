@@ -24,20 +24,25 @@ export function restoreConditionDescriptions(
     }
     const flagLevel = flagLevelGroupIndex(existing)
     const storedIds = storedGroups.map((group) => (isRecord(group) ? conditionId(group, flagLevel) : undefined))
-    const storedDescription = (id: string, index: number): unknown => {
-        if (storedIds[index] === id) {
-            return storedGroups[index]?.description
+    // `undefined` marks an ID whose stored conditions disagree on the description.
+    const descriptionById = new Map<string, unknown>()
+    storedIds.forEach((id, index) => {
+        if (id !== undefined) {
+            const description = storedGroups[index]?.description
+            descriptionById.set(
+                id,
+                descriptionById.has(id) && descriptionById.get(id) !== description ? undefined : description
+            )
         }
-        const descriptions = new Set(
-            storedGroups.flatMap((group, storedIndex) => (storedIds[storedIndex] === id ? [group?.description] : []))
-        )
-        return descriptions.size === 1 ? [...descriptions][0] : undefined
-    }
+    })
     const groups = incoming.groups.map((group, index) => {
         if (!isRecord(group) || typeof group.condition_id !== 'string' || hasKey(group, 'description')) {
             return group
         }
-        const description = storedDescription(group.condition_id, index)
+        const description =
+            storedIds[index] === group.condition_id
+                ? storedGroups[index]?.description
+                : descriptionById.get(group.condition_id)
         return typeof description === 'string' ? { ...group, description } : group
     })
     return { ...incoming, groups }

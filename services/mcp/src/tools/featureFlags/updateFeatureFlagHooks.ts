@@ -5,7 +5,6 @@
  * `filters` param shape changes, if the API changes the `groups[i].properties[j].type: ` prefix
  * of its property type rejection, or if it changes the code or the `groups[i].properties[j]: `
  * prefix of its group type mismatch rejection.
- * Before the merge, a condition with a `condition_id` and no `description` gets its stored description back.
  * The merge removes each `condition_id` before the PATCH, because the API does not store it.
  * afterResponse adds a `condition_id` to each condition in the returned flag.
  */

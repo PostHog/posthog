@@ -399,7 +399,7 @@ export interface FeatureFlagConditionGroupSchemaApi {
      */
     aggregation_group_type_index?: number | null
     /**
-     * Display-only name for this release condition group, shown in the UI. It does not affect evaluation.
+     * Display-only name for this release condition group. It does not affect evaluation.
      * @nullable
      */
     description?: string | null
