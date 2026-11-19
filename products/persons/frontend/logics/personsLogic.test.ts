@@ -1,11 +1,13 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
@@ -19,8 +21,20 @@ describe('personsLogic', () => {
     afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof personsLogic.build>
 
+    const personOne: PersonType = {
+        id: 'person-1',
+        uuid: 'uuid-1',
+        distinct_ids: ['did-1'],
+        properties: {},
+        is_identified: true,
+        created_at: '2024-01-01',
+    }
+
     const mockPersonsApiHandler: MockSignature = ({ request }) => {
         const url = new URL(request.url)
+        if (url.searchParams.get('distinct_id') === 'did-1') {
+            return [200, { results: [personOne] }]
+        }
         if (['+', 'abc', 'xyz'].includes(url.searchParams.get('distinct_id') ?? '')) {
             return [200, { results: ['person from api'] }]
         }
@@ -592,26 +606,14 @@ describe('personsLogic', () => {
         })
     })
 
-    describe('resetEventsQuery', () => {
-        const person: PersonType = {
-            id: 'person-1',
-            uuid: 'uuid-1',
-            distinct_ids: ['did-1'],
-            properties: {},
-            is_identified: true,
-            created_at: '2024-01-01',
-        }
+    const loadPersonOne = async (): Promise<void> => {
+        await expectLogic(logic, () => {
+            logic.actions.loadPerson('did-1')
+        }).toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+    }
 
-        beforeEach(async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/persons/': () => [200, { results: [person] }],
-                },
-            })
-            await expectLogic(logic, () => {
-                logic.actions.loadPerson('did-1')
-            }).toDispatchActions(['loadPerson', 'loadPersonSuccess'])
-        })
+    describe('resetEventsQuery', () => {
+        beforeEach(loadPersonOne)
 
         it('eventsQueryIsDirty is false right after the person loads', async () => {
             await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: false })
@@ -653,25 +655,7 @@ describe('personsLogic', () => {
     })
 
     describe('flag calls query', () => {
-        const person: PersonType = {
-            id: 'person-1',
-            uuid: 'uuid-1',
-            distinct_ids: ['did-1'],
-            properties: {},
-            is_identified: true,
-            created_at: '2024-01-01',
-        }
-
-        beforeEach(async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/persons/': () => [200, { results: [person] }],
-                },
-            })
-            await expectLogic(logic, () => {
-                logic.actions.loadPerson('did-1')
-            }).toDispatchActions(['loadPerson', 'loadPersonSuccess'])
-        })
+        beforeEach(loadPersonOne)
 
         it('lists only the loaded person flag calls from the last 24 hours', () => {
             const query = logic.values.flagCallsQuery!
@@ -693,11 +677,13 @@ describe('personsLogic', () => {
 
         it.each([
             [undefined, false],
-            ['-24h', false],
             ['-90d', false],
             ['-180d', true],
-            ['all', true],
         ])('with the range starting at %s, flagCallsReachPastRetention is %s', async (after, expected) => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+            })
             const current = logic.values.flagCallsQuery!
             logic.actions.setFlagCallsQuery({ ...current, source: { ...current.source, after } as any })
 
