@@ -568,7 +568,6 @@ def recompute_email_sending_tiers(
             "team__name",
             "team__organization_id",
             "team__organization__has_active_subscription",
-            "team__organization__created_at",
             "team__organization__customer_trust_scores",
         )
     }
@@ -632,7 +631,6 @@ def raise_trusted_floor_for_team(team_id: int) -> Optional[TierDecision]:
             "email_sending_tier_demoted_at",
             "email_sending_suspended_at",
             "team__organization__has_active_subscription",
-            "team__organization__created_at",
             "team__organization__customer_trust_scores",
         )
         .first()
