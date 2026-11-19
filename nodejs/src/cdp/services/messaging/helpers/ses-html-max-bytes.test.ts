@@ -65,13 +65,17 @@ describe('sesHtmlMaxBytes', () => {
             },
         },
     ])('bounds the bytes SES gets for $case', ({ html, utm = UTM }) => {
-        const sent = htmlForSes(
-            tagEmailLinks(html, utm, { runId: invocation.id, senderEmail: 'hi@example.com', siteUrl: SITE_URL }),
-            { invocation, signer, isTest: false },
-            PREHEADER
-        )
+        // Both link passes stay in the bound: the HTML parser and the regex scan teams off its allowlist keep.
+        for (const linkParser of [true, false]) {
+            const runTag = { runId: invocation.id, senderEmail: 'hi@example.com', siteUrl: SITE_URL }
+            const sent = htmlForSes(
+                tagEmailLinks(html, utm, runTag, linkParser),
+                { invocation, signer, isTest: false, linkParser },
+                PREHEADER
+            )
 
-        expect(Buffer.byteLength(sent, 'utf8')).toBeLessThanOrEqual(maxBytes(html, utm))
+            expect(Buffer.byteLength(sent, 'utf8')).toBeLessThanOrEqual(maxBytes(html, utm))
+        }
     })
 
     it.each<{ case: string; html: string }>([

@@ -173,7 +173,7 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
 }
 
 // A browser drops tabs and newlines anywhere in a URL, and control characters before it, then reads the scheme.
-const isJavascriptHref = (href: string): boolean => {
+export const isJavascriptHref = (href: string): boolean => {
     const url = href.replace(/[\t\n\r]/g, '')
     let start = 0
     while (start < url.length && (url.charCodeAt(start) <= 0x20 || /\s/.test(url[start]))) {

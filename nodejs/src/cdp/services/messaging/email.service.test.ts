@@ -248,6 +248,7 @@ describe('EmailService', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                linkParserTeams: '*',
                 ...config,
             },
             hub.integrationManager,
@@ -4056,20 +4057,36 @@ describe('EmailService', () => {
                 ])
             })
 
-            it('hands SES a marked link with a > and a quote in its href whole, before an opted-out link', async () => {
-                const marked = `<a data-ph-no-utm href="https://app.posthog-test.com/f.pdf?q='a>b&amp;Signature=abc">a</a>`
-                const optedOut = '<a href="https://example.com/" data-ph-no-track>b</a>'
-                invocation.hogFunction.metadata = { tracking_enabled: true, sensitive: false }
-                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: marked + optedOut })
+            it.each([
+                {
+                    case: 'whole for a team on the link parser allowlist',
+                    teams: (): string => `${team.id}`,
+                    sent: `<a data-ph-no-utm href="https://app.posthog-test.com/f.pdf?q='a>b&amp;Signature=abc" ses:tags="phl:0">a</a>`,
+                },
+                {
+                    case: 'as the base did for a team off the link parser allowlist',
+                    teams: (): string => `${team.id + 1}`,
+                    sent: `<a data-ph-no-utm href="https://app.posthog-test.com/f.pdf?q='a ses:tags="phl:0">b&amp;Signature=abc">a</a>`,
+                },
+            ])(
+                'hands SES a marked link with a > and a quote in its href $case, before an opted-out link',
+                async ({ teams, sent }) => {
+                    const marked = `<a data-ph-no-utm href="https://app.posthog-test.com/f.pdf?q='a>b&amp;Signature=abc">a</a>`
+                    const optedOut = '<a href="https://example.com/" data-ph-no-track>b</a>'
+                    invocation.hogFunction.metadata = { tracking_enabled: true, sensitive: false }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 1 },
+                        html: marked + optedOut,
+                    })
 
-                const result = await service.executeSendEmail(invocation)
+                    const result = await createService({ linkParserTeams: teams() }).executeSendEmail(invocation)
 
-                expect(result.error).toBeUndefined()
-                expect(ses.sent[0].html).toContain(
-                    `<a data-ph-no-utm href="https://app.posthog-test.com/f.pdf?q='a>b&amp;Signature=abc" ses:tags="phl:0">a</a>` +
-                        '<a href="https://example.com/" data-ph-no-track ses:no-track>b</a>'
-                )
-            })
+                    expect(result.error).toBeUndefined()
+                    expect(ses.sent[0].html).toContain(
+                        sent + '<a href="https://example.com/" data-ph-no-track ses:no-track>b</a>'
+                    )
+                }
+            )
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3

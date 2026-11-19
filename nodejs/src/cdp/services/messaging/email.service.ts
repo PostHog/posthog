@@ -44,12 +44,8 @@ import {
     messageCreatedAtOf,
 } from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
-import {
-    addTrackingToEmail,
-    resolveEmailSendingAppSourceVersion,
-    resolveEmailTrackingDistinctId,
-} from './email-tracking.service'
-import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
+import { resolveEmailSendingAppSourceVersion, resolveEmailTrackingDistinctId } from './email-tracking.service'
+import { UtmTagging, htmlForSes, tagEmailLinks, trackLinks, utmTagsFor } from './helpers/email-html'
 import { EmailHtmlTooComplexError } from './helpers/href-anchors'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
@@ -482,6 +478,7 @@ export interface EmailServiceConfig {
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierDailyCaps?: number[]
     utmLinkScannerTeams?: string
+    linkParserTeams?: string
     workflowRunLinkTagTeams?: string
     templateTagsTeams?: string
     attachmentSendDeadlineMs?: number
@@ -592,6 +589,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
+    private linkParserTeams: ValueMatcher<number>
     private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
     private templateTagsTeams: ValueMatcher<number>
 
@@ -621,6 +619,7 @@ export class EmailService {
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
+        this.linkParserTeams = buildIntegerMatcher(this.sesConfig.linkParserTeams, true)
         this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
     }
 
@@ -835,7 +834,8 @@ export class EmailService {
                       html: tagEmailLinks(
                           paramsWithReplyTo.html,
                           this.utmTaggingFor(invocation, addLog),
-                          await this.workflowRunTagFor(invocation, trackingEnabled, isTest, from.email)
+                          await this.workflowRunTagFor(invocation, trackingEnabled, isTest, from.email),
+                          this.linkParserTeams(invocation.teamId)
                       ),
                   }
                 : paramsWithReplyTo
@@ -1551,7 +1551,12 @@ export class EmailService {
             ...(params.html
                 ? {
                       html: trackingEnabled
-                          ? addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest)
+                          ? trackLinks(this.linkParserTeams(result.invocation.teamId))(
+                                params.html,
+                                result.invocation,
+                                this.trackingCodeSigner,
+                                isTest
+                            )
                           : params.html,
                   }
                 : {}),
@@ -1624,7 +1629,14 @@ export class EmailService {
         const html = params.html
             ? htmlForSes(
                   params.html,
-                  trackingEnabled ? { invocation: result.invocation, signer: this.trackingCodeSigner, isTest } : null,
+                  trackingEnabled
+                      ? {
+                            invocation: result.invocation,
+                            signer: this.trackingCodeSigner,
+                            isTest,
+                            linkParser: this.linkParserTeams(result.invocation.teamId),
+                        }
+                      : null,
                   params.preheader
               )
             : null

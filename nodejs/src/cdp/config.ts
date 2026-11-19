@@ -269,6 +269,9 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose UTM link tagging runs the scanner in helpers/utm.ts.
     // Every other team runs the previous scanner in helpers/utm-legacy.ts.
     CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: string
+    // Comma-separated team ids, or "*", whose link tagging and click tracking read anchors with the HTML
+    // parser in helpers/href-anchors.ts. Every other team runs the regex scan in helpers/link-passes-regex.ts.
+    CDP_EMAIL_LINK_PARSER_TEAMS: string
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
@@ -566,6 +569,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
+        CDP_EMAIL_LINK_PARSER_TEAMS: '',
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
         CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: '',
         CDP_EMAIL_TEMPLATE_TAGS_TEAMS: '',

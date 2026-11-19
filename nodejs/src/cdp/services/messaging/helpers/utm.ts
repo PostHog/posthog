@@ -88,7 +88,7 @@ export const resolveUtmTags = (defaults: UtmTags, rendered: unknown): UtmTags =>
     return tags
 }
 
-const hostOf = (url: string): string | null => {
+export const hostOf = (url: string): string | null => {
     try {
         return new URL(url).host
     } catch {
@@ -98,7 +98,7 @@ const hostOf = (url: string): string | null => {
 
 const isStrippedByUrlParser = (char: string): boolean => char <= ' '
 
-const trimUrlWhitespace = (href: string): string => {
+export const trimUrlWhitespace = (href: string): string => {
     let start = 0
     let end = href.length
     while (start < end && isStrippedByUrlParser(href[start])) {
@@ -110,7 +110,7 @@ const trimUrlWhitespace = (href: string): string => {
     return href.slice(start, end)
 }
 
-const parseTaggableUrl = (url: string, isTaggedHost: (url: URL) => boolean): URL | null => {
+export const parseTaggableUrl = (url: string, isTaggedHost: (url: URL) => boolean): URL | null => {
     if (url.includes('{{') || url.includes('{%')) {
         return null
     }
@@ -131,7 +131,7 @@ const parseTaggableUrl = (url: string, isTaggedHost: (url: URL) => boolean): URL
  * not an absolute http(s) URL, a host the caller does not tag, an unrendered template tag, or a
  * link that already has every tag.
  */
-const addTagsToUrl = (url: string, tags: LinkTags, isTaggedHost: (url: URL) => boolean): string | null => {
+export const addTagsToUrl = (url: string, tags: LinkTags, isTaggedHost: (url: URL) => boolean): string | null => {
     const parsed = parseTaggableUrl(url, isTaggedHost)
     if (!parsed) {
         return null
@@ -158,7 +158,8 @@ const addTagsToEmailLinks = (html: string, tagger: LinkTagger): string =>
         return tagged === null ? null : { name: 'href', value: tagged }
     })
 
-const registrableDomainOf = (hostname: string): string | null => getDomain(hostname, { allowPrivateDomains: true })
+export const registrableDomainOf = (hostname: string): string | null =>
+    getDomain(hostname, { allowPrivateDomains: true })
 
 export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, fixedScanner: boolean): string => {
     if (!fixedScanner) {
