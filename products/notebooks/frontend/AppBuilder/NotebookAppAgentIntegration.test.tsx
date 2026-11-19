@@ -1,8 +1,10 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { notebookTestTemplate } from 'scenes/notebooks/Notebook/__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -42,7 +44,34 @@ describe('app builder AI updates', () => {
     afterEach(() => {
         cleanup()
         logic.unmount()
+        jest.restoreAllMocks()
     })
+
+    it.each(['notebook', 'source', 'app', 'another-notebook'])(
+        'keeps unsaved edits when canceling navigation to %s',
+        async (target) => {
+            await waitFor(() => expect(logic.values.layout.title).toBe('Original app'))
+            router.actions.replace(urls.notebook(shortId), { view: 'builder' })
+            const builderPath = router.values.location.pathname
+            logic.actions.changeLayout({ ...logic.values.layout, title: 'Unsaved app' })
+            jest.spyOn(window, 'confirm').mockReturnValue(false)
+            const pathname = target === 'another-notebook' ? builderPath.replace(shortId, 'other') : builderPath
+            router.actions.push(
+                pathname,
+                target === 'app' ? { view: 'app' } : {},
+                target === 'source' ? { node: 'cell-1' } : {}
+            )
+            expect(router.values.location.pathname).toBe(builderPath)
+            expect(router.values.searchParams.view).toBe('builder')
+            expect(logic.values.layout.title).toBe('Unsaved app')
+            jest.spyOn(window, 'confirm').mockReturnValue(true)
+            router.actions.push(pathname, target === 'app' ? { view: 'app' } : {})
+            expect(router.values.location.pathname).toBe(
+                target === 'another-notebook' ? builderPath.replace(shortId, 'other') : builderPath
+            )
+            expect(router.values.searchParams.view).toBe(target === 'app' ? 'app' : undefined)
+        }
+    )
 
     it.each([
         { target: shortId, dirty: false, expected: 'AI app', pending: false },

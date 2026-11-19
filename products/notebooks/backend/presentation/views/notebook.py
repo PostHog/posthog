@@ -381,6 +381,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if {"app_draft", "app_published", "app_revision"}.intersection(attrs) and not self.app_builder_enabled:
             raise PermissionDenied("App builder is not available for this project.")
+        if set(attrs) == {"app_revision"}:
+            raise serializers.ValidationError({"app_revision": "Include an app layout or notebook change to save."})
         return super().validate(attrs)
 
     def to_representation(self, instance: Notebook) -> dict[str, Any]:

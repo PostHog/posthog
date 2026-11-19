@@ -50,20 +50,46 @@ export function newAppBlock(
 }
 
 export function pinAppCell(markdown: string, nodeId: string): { markdown: string; nodeId: string } {
+    const pinned = pinAppCells(markdown, [nodeId])
+    return { markdown: pinned.markdown, nodeId: pinned.nodeIds[0] }
+}
+
+export function pinAppCells(markdown: string, nodeIds: string[]): { markdown: string; nodeIds: string[] } {
     const document = parseMarkdownNotebook(markdown)
-    const node = document.nodes.find(
-        (item) => item.id === nodeId || (item.type === 'component' && item.props.nodeId === nodeId)
+    const sources = new Map(
+        document.nodes.flatMap((node) => [
+            [node.id, node] as const,
+            ...(node.type === 'component' && typeof node.props.nodeId === 'string'
+                ? [[node.props.nodeId, node] as const]
+                : []),
+        ])
     )
-    if (!node || node.id.startsWith('phb-') || (node.type === 'component' && node.props.nodeId)) {
-        return { markdown, nodeId }
+    let changed = false
+    const pinnedIds = nodeIds.map((nodeId) => {
+        const node = sources.get(nodeId)
+        if (!node || node.id.startsWith('phb-') || (node.type === 'component' && node.props.nodeId)) {
+            return nodeId
+        }
+        // Pin against the original parse: anchoring one repeated paragraph changes the next paragraph's derived ID.
+        const pinnedId = `phb-${uuid()}`
+        node.id = pinnedId
+        if (node.type === 'component') {
+            node.props = { ...node.props, nodeId: pinnedId }
+        }
+        changed = true
+        return pinnedId
+    })
+    return { markdown: changed ? serializeMarkdownNotebook(document) : markdown, nodeIds: pinnedIds }
+}
+
+export function normalizeAppLayout(layout: NotebookAppLayoutApi): NotebookAppLayoutApi {
+    return {
+        ...layout,
+        blocks: layout.blocks.map((block) => ({
+            ...block,
+            ...(block.options ? { options: block.options.map((option) => option.trim()).filter(Boolean) } : {}),
+        })),
     }
-    // Derived text IDs change with edits. Persist an anchor before a layout starts referring to the cell.
-    const pinnedId = `phb-${uuid()}`
-    node.id = pinnedId
-    if (node.type === 'component') {
-        node.props = { ...node.props, nodeId: pinnedId }
-    }
-    return { markdown: serializeMarkdownNotebook(document), nodeId: pinnedId }
 }
 
 export function moveAppBlock(layout: NotebookAppLayoutApi, id: string, beforeId: string): NotebookAppLayoutApi {

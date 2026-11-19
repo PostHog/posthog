@@ -55,7 +55,7 @@ class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     variables: JSONField = JSONField(default=None, null=True, blank=True)
     app_draft: JSONField = JSONField(default=None, null=True, blank=True)
     app_published: JSONField = JSONField(default=None, null=True, blank=True)
-    app_revision = models.PositiveIntegerField(default=0)
+    app_revision = models.PositiveIntegerField(default=0, db_default=0)
 
     class Meta:
         unique_together = ("team", "short_id")

@@ -132,11 +132,17 @@ class TestNotebookAppLayout(APIBaseTest):
         notebook.refresh_from_db()
         assert notebook.app_draft is None
 
-    def test_invalid_layout_is_rejected_by_the_endpoint(self) -> None:
+    @parameterized.expand(
+        [
+            ("incomplete_layout", {"app_revision": 0, "app_draft": {"title": "Incomplete"}}),
+            ("revision_only", {"app_revision": 0}),
+        ]
+    )
+    def test_invalid_layout_is_rejected_by_the_endpoint(self, _name: str, payload: dict[str, Any]) -> None:
         notebook = Notebook.objects.create(team=self.team, created_by=self.user)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/",
-            {"app_revision": 0, "app_draft": {"title": "Incomplete"}},
+            payload,
             format="json",
         )
         assert response.status_code == 400

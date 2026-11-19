@@ -40,7 +40,7 @@ export function NotebookAppBlock({
         return (
             <div>
                 {block.title && <h3 className="mb-3">{block.title}</h3>}
-                <LemonMarkdown>{block.text || '*Add text in component settings.*'}</LemonMarkdown>
+                <LemonMarkdown disableImages="all">{block.text || '*Add text in component settings.*'}</LemonMarkdown>
             </div>
         )
     }

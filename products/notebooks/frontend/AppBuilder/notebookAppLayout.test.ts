@@ -1,6 +1,14 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 
-import { appSourceCells, emptyAppLayout, mergeAppCellOutput, moveAppBlock, pinAppCell } from './notebookAppLayout'
+import {
+    appSourceCells,
+    emptyAppLayout,
+    mergeAppCellOutput,
+    moveAppBlock,
+    normalizeAppLayout,
+    pinAppCell,
+    pinAppCells,
+} from './notebookAppLayout'
 
 it('keeps an app source attached to a text cell after its content changes', () => {
     const markdown = '## Original title\n\nSome context'
@@ -17,6 +25,31 @@ it('preserves executable cell identifiers and code when linking a source', () =>
     expect(appSourceCells(markdown)[0].id).toBe('query-1')
     expect(appSourceCells(markdown.replace('select 1', 'select 2'))[0].id).toBe('query-1')
     expect(pinAppCell(markdown, 'query-1')).toEqual({ markdown, nodeId: 'query-1' })
+})
+
+it('links repeated paragraphs to distinct persistent sources in bulk', () => {
+    const markdown = 'Repeated paragraph\n\nRepeated paragraph\n\n<SQLV2 nodeId="query-1" code="select 1" />'
+    const cells = appSourceCells(markdown)
+    const pinned = pinAppCells(
+        markdown,
+        cells.map((cell) => cell.id)
+    )
+    expect(new Set(pinned.nodeIds).size).toBe(3)
+    expect(appSourceCells(pinned.markdown).map((cell) => cell.id)).toEqual(pinned.nodeIds)
+    expect(pinned.nodeIds.slice(0, 2).every((id) => id.startsWith('phb-'))).toBe(true)
+    expect(pinned.nodeIds[2]).toBe('query-1')
+    expect(pinAppCells(pinned.markdown, pinned.nodeIds)).toEqual(pinned)
+})
+
+it('normalizes dropdown options at save time without changing the editable lines', () => {
+    const layout = {
+        ...emptyAppLayout(),
+        blocks: [
+            { id: 'region', kind: 'input' as const, tab_id: 'overview', options: [' Europe ', '', '  ', 'Asia', ''] },
+        ],
+    }
+    expect(normalizeAppLayout(layout).blocks[0].options).toEqual(['Europe', 'Asia'])
+    expect(layout.blocks[0].options).toEqual([' Europe ', '', '  ', 'Asia', ''])
 })
 
 it.each(['select 1', 'select 2'])('merges app execution output without overwriting source edits: %s', (code) => {
