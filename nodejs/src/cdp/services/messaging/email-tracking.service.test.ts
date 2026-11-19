@@ -683,6 +683,14 @@ describe('EmailTrackingService', () => {
                 expect(() => sesTrack(annotated(2_000, 10_000))).toThrow(EmailFormattingTooCostlyError)
             })
 
+            it('refuses an email whose long foreign tag name the parser rereads for each end tag', () => {
+                // Each end tag inside SVG that matches no open element makes the parser read the names of the open ones.
+                const reread = (length: number, endTags: number): string =>
+                    `<body><svg><${'x'.repeat(length)}>${'</z>'.repeat(endTags)}</svg><a href="https://example.com/">a</a></body>`
+                expect(sesTrack(reread(100, 1_000))).toContain('phl:0')
+                expect(() => sesTrack(reread(500_000, 50_000))).toThrow(EmailFormattingTooCostlyError)
+            })
+
             it('sends a small email nested deeper than the floor of the limit', () => {
                 const html = `<body>${'<div>'.repeat(2 * MIN_NESTING_LIMIT)}Hi</body>`
                 expect(sesTrack(html).indexOf('<img src="')).toBe(html.indexOf('</body>'))

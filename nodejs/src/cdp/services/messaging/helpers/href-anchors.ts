@@ -210,6 +210,15 @@ const boundedAdapter = (
             }
             return defaultTreeAdapter.getAttrList(element)
         },
+        // Inside SVG or MathML, each end tag makes the parser read and lowercase the names of open elements until one
+        // matches, so each read costs the name's length.
+        getTagName(element) {
+            bounds.formattingLeft -= element.tagName.length
+            if (bounds.formattingLeft < 0) {
+                throw new EmailFormattingTooCostlyError()
+            }
+            return defaultTreeAdapter.getTagName(element)
+        },
         createCommentNode(data) {
             if (--bounds.elementsLeft < 0) {
                 throw new EmailFormattingTooCostlyError()
