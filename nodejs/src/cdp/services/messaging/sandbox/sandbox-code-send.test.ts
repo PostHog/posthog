@@ -37,8 +37,8 @@ import {
     MinimalAppMetric,
 } from '../../../types'
 import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
-import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
 import { IdempotentJobQueue } from '../../job-queue/job-queue.interface'
+import { createEmailAttachmentsValkeyPool } from '../attachment-uploads'
 import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
@@ -186,7 +186,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         queued = []
         api = new CdpApi(
             hub,
-            { ...createCdpConsumerDeps(hub), idempotencyValkey: createIdempotencyValkeyPool(hub) },
+            { ...createCdpConsumerDeps(hub), emailAttachmentsValkey: createEmailAttachmentsValkeyPool(hub) },
             {
                 hogQueue: createMockJobQueue(),
                 hogflowQueue: {

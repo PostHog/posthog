@@ -71,7 +71,7 @@ import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
 import { CyclotronV2JobProducer } from './services/cyclotron-v2/types'
-import { createIdempotencyValkeyPool, requestFingerprint } from './services/hogflows/idempotency-keys'
+import { requestFingerprint } from './services/hogflows/idempotency-keys'
 import {
     ATTACHMENT_CONTENT_ID_MAX_LENGTH,
     ATTACHMENT_CONTENT_TYPE_MAX_LENGTH,
@@ -89,7 +89,11 @@ import {
     S3AttachmentStore,
     buildAttachmentStore,
 } from './services/messaging/attachment-store'
-import { ATTACHMENT_VERIFICATION_DEADLINE_MS, AttachmentUploads } from './services/messaging/attachment-uploads'
+import {
+    ATTACHMENT_VERIFICATION_DEADLINE_MS,
+    AttachmentUploads,
+    createEmailAttachmentsValkeyPool,
+} from './services/messaging/attachment-uploads'
 import { cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { UTM_VALUE_LIMIT_CHARS } from './services/messaging/helpers/utm'
@@ -218,7 +222,7 @@ describe('CDP API', () => {
         cdpDeps = createCdpConsumerDeps(hub)
         api = new CdpApi(
             hub,
-            { ...cdpDeps, idempotencyValkey: createIdempotencyValkeyPool(hub) },
+            { ...cdpDeps, emailAttachmentsValkey: createEmailAttachmentsValkeyPool(hub) },
             {
                 hogQueue: createMockJobQueue(),
                 hogflowQueue: createMockJobQueue(),
@@ -3762,7 +3766,7 @@ describe('CDP API', () => {
                         ...cdpDeps,
                         postgres: router,
                         personRepository: personsReadFrom(new PostgresPersonRepository(router)),
-                        idempotencyValkey: createIdempotencyValkeyPool(hub),
+                        emailAttachmentsValkey: createEmailAttachmentsValkeyPool(hub),
                     },
                     { hogQueue: createMockJobQueue(), hogflowQueue: producer }
                 )
@@ -6253,7 +6257,7 @@ describe('CDP API', () => {
                 ...getDefaultCdpConfig(),
                 CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-api-test/${Date.now()}`,
             })!
-            redis = createIdempotencyValkeyPool(hub)!
+            redis = createEmailAttachmentsValkeyPool(hub)!
         })
 
         beforeEach(async () => {
@@ -6391,12 +6395,12 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['answers upload with the idempotency Valkey as its counter', true, 200],
-            ['answers delivery_unavailable without the idempotency Valkey', false, 503],
+            ['answers upload with the upload budget Valkey as its counter', true, 200],
+            ['answers delivery_unavailable without the upload budget Valkey', false, 503],
         ])('on a cdp-api built from its settings, %s', async (_name, withValkey, status) => {
             const builtApi = new CdpApi(
                 { ...hub, CDP_EMAIL_ATTACHMENTS_TEAMS: `${teamId}` },
-                { ...cdpDeps, idempotencyValkey: withValkey ? createIdempotencyValkeyPool(hub) : null },
+                { ...cdpDeps, emailAttachmentsValkey: withValkey ? createEmailAttachmentsValkeyPool(hub) : null },
                 { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
             )
             const builtApp = setupExpressApp()
@@ -6470,10 +6474,10 @@ describe('CDP API', () => {
                 'the upload counter does not answer',
                 () =>
                     uploadsFor(`${teamId}`, {
-                        counter: createIdempotencyValkeyPool({
+                        counter: createEmailAttachmentsValkeyPool({
                             ...hub,
-                            CDP_IDEMPOTENCY_VALKEY_HOST: '127.0.0.1',
-                            CDP_IDEMPOTENCY_VALKEY_PORT: 9,
+                            CDP_EMAIL_ATTACHMENTS_VALKEY_HOST: '127.0.0.1',
+                            CDP_EMAIL_ATTACHMENTS_VALKEY_PORT: 9,
                         }),
                     }),
             ],
