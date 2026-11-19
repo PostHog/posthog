@@ -532,8 +532,6 @@ def _collect_join_constraint_field_roots(join_expr: ast.JoinExpr | None) -> set[
         if current.table_args:
             for arg in current.table_args:
                 roots.update(_collect_field_root_names(arg))
-        if isinstance(current.table, ast.JoinExpr):
-            roots.update(_collect_join_constraint_field_roots(current.table))
         current = current.next_join
     return roots
 
@@ -1180,6 +1178,7 @@ class Resolver(CloningVisitor):
         scalar_cte_frame = self._pending_scalar_ctes[-1]
         if scalar_cte_frame["staged"] or scalar_cte_frame["pending"]:
             assert current_level_ctes is not None
+            assert node.ctes is not None
             for name, staged_cte in scalar_cte_frame["staged"].items():
                 self.ctes[name] = staged_cte
                 current_level_ctes[name] = staged_cte
