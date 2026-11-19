@@ -125,11 +125,11 @@ class OnboardingStep:
     def apply_action(self, ctx: OnboardingContext, action_id: str, value: dict[str, Any]) -> StepClick:
         raise NotImplementedError
 
-    def completed_properties(self, ctx: OnboardingContext) -> dict[str, object]:
+    def completed_properties(self, ctx: OnboardingContext) -> dict[str, Any]:
         return {}
 
     def record_completed(
-        self, ctx: OnboardingContext, *, choice: str | None = None, model: str | None = None, **properties: object
+        self, ctx: OnboardingContext, *, choice: str | None = None, model: str | None = None, **properties: Any
     ) -> None:
         capture_slack_event(
             ctx.integration,

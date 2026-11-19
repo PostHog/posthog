@@ -36,7 +36,7 @@ class SourcesStep(OnboardingStep):
     def is_done(self, ctx: OnboardingContext) -> bool:
         return has_enabled_source(ctx.integration.team_id)
 
-    def completed_properties(self, ctx: OnboardingContext) -> dict[str, object]:
+    def completed_properties(self, ctx: OnboardingContext) -> dict[str, Any]:
         return {"sources": enabled_source_keys(ctx.integration.team_id)}
 
     def render(self, ctx: OnboardingContext) -> list[dict]:
