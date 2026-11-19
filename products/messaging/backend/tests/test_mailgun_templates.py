@@ -14,8 +14,9 @@ from products.messaging.backend.provider_imports.mailgun_templates import conver
 
 ESCAPED_X = '{{ variables.x | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}'
 IF_A = (
-    '{% assign tested1 = variables.a | json %}{% if tested1 != nil and tested1 != "false" and tested1 != "null" '
-    """and tested1 != '""' and tested1 != "[]" and tested1 != "0" %}"""
+    "{% assign tested1 = false %}{% if variables.a and variables.a != 0 %}{% assign tested1 = true %}"
+    "{% if variables.a == empty %}{% assign tested1_json = variables.a | json %}"
+    '{% if tested1_json != "{}" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}'
 )
 RENDER_CASES = json.loads((Path(__file__).parent / "fixtures" / "mailgun_template_renders.json").read_text())
 
@@ -183,6 +184,16 @@ class TestMailgunTemplateConversion(SimpleTestCase):
     def test_a_tag_that_cannot_convert_stays_as_text_in_the_subject(self) -> None:
         assert convert_text("{{lookup a b}}", is_html=False).text == '{{ "{{" }}lookup a b}}'
 
+    def test_a_go_value_after_a_dropped_tag_that_joins_a_tag_name_is_left_out(self) -> None:
+        converted = convert_text('<scr{{printf ""}}ipt>var x = {{.X}};</script>', engine="go")
+
+        assert "variables." not in converted.text
+
+    def test_a_long_list_is_only_turned_into_json_when_it_is_empty(self) -> None:
+        converted = convert_text("{{#if items}}x{{/if}}").text
+
+        assert converted.index("| json") > converted.index("{% if variables.items == empty %}")
+
     def test_a_go_value_in_page_text_converts(self) -> None:
         converted = convert_text("<p>{{.Name}}</p>", engine="go")
 
@@ -198,6 +209,13 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     def test_unclosed_braces_scan_in_linear_time(self) -> None:
         assert convert_text("{{ " * 20000).text.count('{{ "{{" }}') == 20000
+
+    def test_markup_in_a_template_too_large_to_convert_shows_as_text(self) -> None:
+        converted = convert_text("{{#with a}}" * 101 + "<img src=x onerror=alert(1)>")
+
+        assert converted.too_large
+        assert "<img" not in converted.text
+        assert "&lt;img src=x onerror=alert(1)&gt;" in converted.text
 
     @parameterized.expand(
         [

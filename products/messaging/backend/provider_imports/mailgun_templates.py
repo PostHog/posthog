@@ -10,6 +10,7 @@ https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send
 """
 
 import re
+import html
 from collections.abc import Mapping
 from dataclasses import field, replace
 from typing import Any, Literal
@@ -282,7 +283,9 @@ class _Converter:
         try:
             return self._convert()
         except _TooLarge:
-            return ConvertedText(text=_literal(self.text), has_tags=True, too_large=True)
+            # The source shows as text, so its markup can't render, as nothing would where Mailgun's blocks were false.
+            source = html.escape(self.text, quote=False) if self.is_html else self.text
+            return ConvertedText(text=_literal(source), has_tags=True, too_large=True)
 
     def _convert(self) -> ConvertedText:
         matches = _tokens(self.text)
@@ -499,14 +502,18 @@ class _Converter:
         return f"{path} and {path} != empty and {path} != 0"
 
     def _handlebars_test(self, path: str, *, zero_is_empty: bool = True) -> _Comparison:
-        """Handlebars renders a block unless the value is missing, false, null, "", an empty list or, for `if`, 0. An
-        object always renders, even one with a `length` field. Its JSON tells these apart where Liquid's own test
-        can't."""
+        """Handlebars renders a block unless the value is missing, false, "", an empty list or, for `if`, 0. An object
+        always renders, even an empty one or one with a `length` field. Liquid calls "", [] and {} all empty, so only an
+        empty value is turned into JSON to tell them apart, which keeps the check cheap for a long list."""
         self.compare_count += 1
-        name = f"tested{self.compare_count}"
-        empty = ['"false"', '"null"', """'""'""", '"[]"', *(['"0"'] if zero_is_empty else [])]
-        condition = " and ".join([f"{name} != nil", *(f"{name} != {value}" for value in empty)])
-        return _Comparison(setup=f"{{% assign {name} = {path} | json %}}", condition=condition)
+        name, kind = f"tested{self.compare_count}", f"tested{self.compare_count}_json"
+        present = f"{path} and {path} != 0" if zero_is_empty else f"{path} or {path} == 0"
+        setup = (
+            f"{{% assign {name} = false %}}{{% if {present} %}}{{% assign {name} = true %}}"
+            f"{{% if {path} == empty %}}{{% assign {kind} = {path} | json %}}"
+            f'{{% if {kind} != "{{}}" %}}{{% assign {name} = false %}}{{% endif %}}{{% endif %}}{{% endif %}}'
+        )
+        return _Comparison(setup=setup, condition=name)
 
     def _equal(self, left: str, right: str) -> _Comparison | None:
         # Mailgun's `equal` compares both sides as strings, so 5 equals "5". Liquid can't filter inside an `if`.
@@ -799,8 +806,14 @@ class _Converter:
 
     def _unsupported(self, token: str) -> str:
         self.unsupported.append(token)
-        # Anything left in an HTML body could turn into markup, so the tag is left out and named in a note.
-        return "" if self.is_html else _literal(token)
+        if not self.is_html:
+            return _literal(token)
+        # Anything left in an HTML body could turn into markup, so the tag is left out and named in a note. Inside a
+        # tag but outside a quoted value, the text on either side then meets and could name a `<script>`, so later Go
+        # values are left for a person too.
+        if self.tag.in_tag and not self.tag.quote:
+            self.unclear_context = True
+        return ""
 
 
 def _escaped(path: str) -> str:

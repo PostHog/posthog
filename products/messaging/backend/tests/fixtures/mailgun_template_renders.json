@@ -26,7 +26,7 @@
       "spanish": false,
       "french": false
     },
-    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% assign tested1 = variables.customer | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}  <p>Hello {{ variables.customer.firstName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.customer.lastName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }},</p>\n  <p>Email: {{ variables.customer.email | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared3 = variables.accountType | append: \"\" %}{% if compared3 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% assign tested4 = variables.paymentReceived | json %}{% unless tested4 != nil and tested4 != \"false\" and tested4 != \"null\" and tested4 != '\"\"' and tested4 != \"[]\" and tested4 != \"0\" %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% assign tested5 = variables.paymentReceived | json %}{% if tested5 != nil and tested5 != \"false\" and tested5 != \"null\" and tested5 != '\"\"' and tested5 != \"[]\" and tested5 != \"0\" %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% assign item1_is_object = variables.items | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}    <li>{{ item1_value.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} - Quantity: {{ item1_value.quantity | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} - ${{ item1_value.price | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</li>\n{% endfor %}  </ul>\n\n{% assign tested6 = variables.spanish | json %}{% if tested6 != nil and tested6 != \"false\" and tested6 != \"null\" and tested6 != '\"\"' and tested6 != \"[]\" and tested6 != \"0\" %}  <p>Gracias por su compra!</p>\n{% else %}{% assign tested7 = variables.french | json %}{% if tested7 != nil and tested7 != \"false\" and tested7 != \"null\" and tested7 != '\"\"' and tested7 != \"[]\" and tested7 != \"0\" %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}{% endif %}\n</body>\n</html>",
+    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% assign tested1 = false %}{% if variables.customer or variables.customer == 0 %}{% assign tested1 = true %}{% if variables.customer == empty %}{% assign tested1_json = variables.customer | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}  <p>Hello {{ variables.customer.firstName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.customer.lastName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }},</p>\n  <p>Email: {{ variables.customer.email | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared3 = variables.accountType | append: \"\" %}{% if compared3 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% assign tested4 = false %}{% if variables.paymentReceived and variables.paymentReceived != 0 %}{% assign tested4 = true %}{% if variables.paymentReceived == empty %}{% assign tested4_json = variables.paymentReceived | json %}{% if tested4_json != \"{}\" %}{% assign tested4 = false %}{% endif %}{% endif %}{% endif %}{% unless tested4 %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% assign tested5 = false %}{% if variables.paymentReceived and variables.paymentReceived != 0 %}{% assign tested5 = true %}{% if variables.paymentReceived == empty %}{% assign tested5_json = variables.paymentReceived | json %}{% if tested5_json != \"{}\" %}{% assign tested5 = false %}{% endif %}{% endif %}{% endif %}{% if tested5 %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% assign item1_is_object = variables.items | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}    <li>{{ item1_value.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} - Quantity: {{ item1_value.quantity | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} - ${{ item1_value.price | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</li>\n{% endfor %}  </ul>\n\n{% assign tested6 = false %}{% if variables.spanish and variables.spanish != 0 %}{% assign tested6 = true %}{% if variables.spanish == empty %}{% assign tested6_json = variables.spanish | json %}{% if tested6_json != \"{}\" %}{% assign tested6 = false %}{% endif %}{% endif %}{% endif %}{% if tested6 %}  <p>Gracias por su compra!</p>\n{% else %}{% assign tested7 = false %}{% if variables.french and variables.french != 0 %}{% assign tested7 = true %}{% if variables.french == empty %}{% assign tested7_json = variables.french | json %}{% if tested7_json != \"{}\" %}{% assign tested7 = false %}{% endif %}{% endif %}{% endif %}{% if tested7 %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}{% endif %}\n</body>\n</html>",
     "expected": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n  <p>Hello Maria Garcia,</p>\n  <p>Email: maria@example.com</p>\n\n  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n\n\n\n  <p>✓ Payment confirmed! Your order is being processed.</p>\n\n  <h2>Order Items:</h2>\n  <ul>\n    <li>Wireless Headphones - Quantity: 1 - $79.99</li>\n    <li>Phone Case - Quantity: 2 - $24.99</li>\n  </ul>\n\n  <p>Thank you for your purchase!</p>\n  \n</body>\n</html>",
     "collapse_whitespace": true
   },
@@ -46,7 +46,7 @@
       "spanish": false,
       "french": true
     },
-    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% assign tested1 = variables.customer | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}  <p>Hello {{ variables.customer.firstName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.customer.lastName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }},</p>\n  <p>Email: {{ variables.customer.email | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared3 = variables.accountType | append: \"\" %}{% if compared3 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% assign tested4 = variables.paymentReceived | json %}{% unless tested4 != nil and tested4 != \"false\" and tested4 != \"null\" and tested4 != '\"\"' and tested4 != \"[]\" and tested4 != \"0\" %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% assign tested5 = variables.paymentReceived | json %}{% if tested5 != nil and tested5 != \"false\" and tested5 != \"null\" and tested5 != '\"\"' and tested5 != \"[]\" and tested5 != \"0\" %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% assign item1_is_object = variables.items | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}    <li>{{ item1_value.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} - Quantity: {{ item1_value.quantity | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} - ${{ item1_value.price | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</li>\n{% endfor %}  </ul>\n\n{% assign tested6 = variables.spanish | json %}{% if tested6 != nil and tested6 != \"false\" and tested6 != \"null\" and tested6 != '\"\"' and tested6 != \"[]\" and tested6 != \"0\" %}  <p>Gracias por su compra!</p>\n{% else %}{% assign tested7 = variables.french | json %}{% if tested7 != nil and tested7 != \"false\" and tested7 != \"null\" and tested7 != '\"\"' and tested7 != \"[]\" and tested7 != \"0\" %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}{% endif %}\n</body>\n</html>",
+    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% assign tested1 = false %}{% if variables.customer or variables.customer == 0 %}{% assign tested1 = true %}{% if variables.customer == empty %}{% assign tested1_json = variables.customer | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}  <p>Hello {{ variables.customer.firstName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.customer.lastName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }},</p>\n  <p>Email: {{ variables.customer.email | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared3 = variables.accountType | append: \"\" %}{% if compared3 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% assign tested4 = false %}{% if variables.paymentReceived and variables.paymentReceived != 0 %}{% assign tested4 = true %}{% if variables.paymentReceived == empty %}{% assign tested4_json = variables.paymentReceived | json %}{% if tested4_json != \"{}\" %}{% assign tested4 = false %}{% endif %}{% endif %}{% endif %}{% unless tested4 %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% assign tested5 = false %}{% if variables.paymentReceived and variables.paymentReceived != 0 %}{% assign tested5 = true %}{% if variables.paymentReceived == empty %}{% assign tested5_json = variables.paymentReceived | json %}{% if tested5_json != \"{}\" %}{% assign tested5 = false %}{% endif %}{% endif %}{% endif %}{% if tested5 %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% assign item1_is_object = variables.items | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.items %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}    <li>{{ item1_value.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} - Quantity: {{ item1_value.quantity | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} - ${{ item1_value.price | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</li>\n{% endfor %}  </ul>\n\n{% assign tested6 = false %}{% if variables.spanish and variables.spanish != 0 %}{% assign tested6 = true %}{% if variables.spanish == empty %}{% assign tested6_json = variables.spanish | json %}{% if tested6_json != \"{}\" %}{% assign tested6 = false %}{% endif %}{% endif %}{% endif %}{% if tested6 %}  <p>Gracias por su compra!</p>\n{% else %}{% assign tested7 = false %}{% if variables.french and variables.french != 0 %}{% assign tested7 = true %}{% if variables.french == empty %}{% assign tested7_json = variables.french | json %}{% if tested7_json != \"{}\" %}{% assign tested7 = false %}{% endif %}{% endif %}{% endif %}{% if tested7 %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}{% endif %}\n</body>\n</html>",
     "expected": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n  <p>Hello Maria Garcia,</p>\n  <p>Email: maria@example.com</p>\n\n\n  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n\n  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n\n\n  <h2>Order Items:</h2>\n  <ul>\n  </ul>\n\n  <p>Merci pour votre achat!</p>\n\n</body>\n</html>",
     "collapse_whitespace": true
   },
@@ -57,7 +57,7 @@
     "variables": {
       "spanish": true
     },
-    "liquid": "{% assign tested1 = variables.english | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}<p>This text is in the English language.</p>\n{% else %}{% assign tested2 = variables.spanish | json %}{% if tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}<p>Este texto está en idioma español.</p>\n{% else %}{% assign tested3 = variables.french | json %}{% if tested3 != nil and tested3 != \"false\" and tested3 != \"null\" and tested3 != '\"\"' and tested3 != \"[]\" and tested3 != \"0\" %}<p>Ce texte est en langue française.</p>\n{% endif %}{% endif %}{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.english and variables.english != 0 %}{% assign tested1 = true %}{% if variables.english == empty %}{% assign tested1_json = variables.english | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}<p>This text is in the English language.</p>\n{% else %}{% assign tested2 = false %}{% if variables.spanish and variables.spanish != 0 %}{% assign tested2 = true %}{% if variables.spanish == empty %}{% assign tested2_json = variables.spanish | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% if tested2 %}<p>Este texto está en idioma español.</p>\n{% else %}{% assign tested3 = false %}{% if variables.french and variables.french != 0 %}{% assign tested3 = true %}{% if variables.french == empty %}{% assign tested3_json = variables.french | json %}{% if tested3_json != \"{}\" %}{% assign tested3 = false %}{% endif %}{% endif %}{% endif %}{% if tested3 %}<p>Ce texte est en langue française.</p>\n{% endif %}{% endif %}{% endif %}",
     "expected": "<p>Este texto está en idioma español.</p>\n"
   },
   {
@@ -65,7 +65,7 @@
     "engine": "handlebars",
     "template": "{{#if english}}\n<p>This text is in the English language.</p>\n{{else if spanish}}\n<p>Este texto está en idioma español.</p>\n{{else if french}}\n<p>Ce texte est en langue française.</p>\n{{/if}}\n",
     "variables": {},
-    "liquid": "{% assign tested1 = variables.english | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}<p>This text is in the English language.</p>\n{% else %}{% assign tested2 = variables.spanish | json %}{% if tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}<p>Este texto está en idioma español.</p>\n{% else %}{% assign tested3 = variables.french | json %}{% if tested3 != nil and tested3 != \"false\" and tested3 != \"null\" and tested3 != '\"\"' and tested3 != \"[]\" and tested3 != \"0\" %}<p>Ce texte est en langue française.</p>\n{% endif %}{% endif %}{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.english and variables.english != 0 %}{% assign tested1 = true %}{% if variables.english == empty %}{% assign tested1_json = variables.english | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}<p>This text is in the English language.</p>\n{% else %}{% assign tested2 = false %}{% if variables.spanish and variables.spanish != 0 %}{% assign tested2 = true %}{% if variables.spanish == empty %}{% assign tested2_json = variables.spanish | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% if tested2 %}<p>Este texto está en idioma español.</p>\n{% else %}{% assign tested3 = false %}{% if variables.french and variables.french != 0 %}{% assign tested3 = true %}{% if variables.french == empty %}{% assign tested3_json = variables.french | json %}{% if tested3_json != \"{}\" %}{% assign tested3 = false %}{% endif %}{% endif %}{% endif %}{% if tested3 %}<p>Ce texte est en langue française.</p>\n{% endif %}{% endif %}{% endif %}",
     "expected": ""
   },
   {
@@ -75,7 +75,7 @@
     "variables": {
       "paid": false
     },
-    "liquid": "{% assign tested1 = variables.paid | json %}{% unless tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}<h3>WARNING</h3>\n{% endunless %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.paid and variables.paid != 0 %}{% assign tested1 = true %}{% if variables.paid == empty %}{% assign tested1_json = variables.paid | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% unless tested1 %}<h3>WARNING</h3>\n{% endunless %}",
     "expected": "<h3>WARNING</h3>\n"
   },
   {
@@ -85,7 +85,7 @@
     "variables": {
       "paid": true
     },
-    "liquid": "{% assign tested1 = variables.paid | json %}{% unless tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}<h3>WARNING</h3>\n{% endunless %}end",
+    "liquid": "{% assign tested1 = false %}{% if variables.paid and variables.paid != 0 %}{% assign tested1 = true %}{% if variables.paid == empty %}{% assign tested1_json = variables.paid | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% unless tested1 %}<h3>WARNING</h3>\n{% endunless %}end",
     "expected": "end"
   },
   {
@@ -121,7 +121,7 @@
         "email": "jean@example.com"
       }
     },
-    "liquid": "<div class=\"entry\">\n  <h1>{{ variables.title | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</h1>\n\n{% assign tested1 = variables.author | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}  <h2>By {{ variables.author.firstName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.author.lastName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</h2>\n  <p>Email: {{ variables.author.email | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>\n{% endif %}</div>\n",
+    "liquid": "<div class=\"entry\">\n  <h1>{{ variables.title | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</h1>\n\n{% assign tested1 = false %}{% if variables.author or variables.author == 0 %}{% assign tested1 = true %}{% if variables.author == empty %}{% assign tested1_json = variables.author | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}  <h2>By {{ variables.author.firstName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.author.lastName | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</h2>\n  <p>Email: {{ variables.author.email | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>\n{% endif %}</div>\n",
     "expected": "<div class=\"entry\">\n  <h1>My first post!</h1>\n\n  <h2>By Jean Valjean</h2>\n  <p>Email: jean@example.com</p>\n</div>\n"
   },
   {
@@ -152,7 +152,7 @@
     "variables": {
       "x": ""
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}{% assign tested2 = variables.x | json %}{% unless tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}!{% endunless %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}{% assign tested2 = false %}{% if variables.x and variables.x != 0 %}{% assign tested2 = true %}{% if variables.x == empty %}{% assign tested2_json = variables.x | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% unless tested2 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -162,7 +162,7 @@
     "variables": {
       "x": 0
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}{% assign tested2 = variables.x | json %}{% unless tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}!{% endunless %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}{% assign tested2 = false %}{% if variables.x and variables.x != 0 %}{% assign tested2 = true %}{% if variables.x == empty %}{% assign tested2_json = variables.x | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% unless tested2 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -172,7 +172,7 @@
     "variables": {
       "x": []
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}{% assign tested2 = variables.x | json %}{% unless tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}!{% endunless %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}{% assign tested2 = false %}{% if variables.x and variables.x != 0 %}{% assign tested2 = true %}{% if variables.x == empty %}{% assign tested2_json = variables.x | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% unless tested2 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -182,7 +182,7 @@
     "variables": {
       "x": null
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}{% assign tested2 = variables.x | json %}{% unless tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}!{% endunless %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}{% assign tested2 = false %}{% if variables.x and variables.x != 0 %}{% assign tested2 = true %}{% if variables.x == empty %}{% assign tested2_json = variables.x | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% unless tested2 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -192,7 +192,7 @@
     "variables": {
       "x": false
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}{% assign tested2 = variables.x | json %}{% unless tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}!{% endunless %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}{% assign tested2 = false %}{% if variables.x and variables.x != 0 %}{% assign tested2 = true %}{% if variables.x == empty %}{% assign tested2_json = variables.x | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% unless tested2 %}!{% endunless %}",
     "expected": "no!"
   },
   {
@@ -200,7 +200,7 @@
     "engine": "handlebars",
     "template": "{{#if x}}yes{{else}}no{{/if}}",
     "variables": {},
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "no"
   },
   {
@@ -210,7 +210,7 @@
     "variables": {
       "x": "0"
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -220,7 +220,7 @@
     "variables": {
       "x": 1
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -232,7 +232,7 @@
         "a"
       ]
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -244,7 +244,7 @@
         "a": 1
       }
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -254,7 +254,7 @@
     "variables": {
       "x": " "
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -334,7 +334,7 @@
         "c"
       ]
     },
-    "liquid": "{% assign item1_is_object = variables.xs | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.xs %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ forloop.index0 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% assign tested1 = forloop.first | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}F{% endif %}{% assign tested2 = forloop.last | json %}{% if tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}L{% endif %},{% endfor %}",
+    "liquid": "{% assign item1_is_object = variables.xs | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.xs %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{{ forloop.index0 | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% assign tested1 = false %}{% if forloop.first and forloop.first != 0 %}{% assign tested1 = true %}{% if forloop.first == empty %}{% assign tested1_json = forloop.first | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}F{% endif %}{% assign tested2 = false %}{% if forloop.last and forloop.last != 0 %}{% assign tested2 = true %}{% if forloop.last == empty %}{% assign tested2_json = forloop.last | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% if tested2 %}L{% endif %},{% endfor %}",
     "expected": "0F,1,2L,"
   },
   {
@@ -371,7 +371,7 @@
       },
       "t": "y"
     },
-    "liquid": "{% assign tested1 = variables.u | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}{{ variables.u.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}nobody{% endif %}|{% assign tested2 = variables.v | json %}{% if tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" %}{{ variables.v.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}nobody {{ variables.t | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.u or variables.u == 0 %}{% assign tested1 = true %}{% if variables.u == empty %}{% assign tested1_json = variables.u | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}{{ variables.u.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}nobody{% endif %}|{% assign tested2 = false %}{% if variables.v or variables.v == 0 %}{% assign tested2 = true %}{% if variables.v == empty %}{% assign tested2_json = variables.v | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% if tested2 %}{{ variables.v.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}nobody {{ variables.t | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}",
     "expected": "x|nobody y"
   },
   {
@@ -387,7 +387,7 @@
       },
       "e": "E"
     },
-    "liquid": "{% assign tested1 = variables.a | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}{% assign tested2 = variables.a.b | json %}{% if tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" %}{{ variables.a.b.c | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{{ variables.a.d | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{{ variables.e | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.a or variables.a == 0 %}{% assign tested1 = true %}{% if variables.a == empty %}{% assign tested1_json = variables.a | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}{% assign tested2 = false %}{% if variables.a.b or variables.a.b == 0 %}{% assign tested2 = true %}{% if variables.a.b == empty %}{% assign tested2_json = variables.a.b | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% if tested2 %}{{ variables.a.b.c | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{{ variables.a.d | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{{ variables.e | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}{% endif %}",
     "expected": "CDE"
   },
   {
@@ -398,7 +398,7 @@
       "a": true,
       "b": true
     },
-    "liquid": "{% assign tested1 = variables.a | json %}{% unless tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}1{% else %}{% assign tested2 = variables.b | json %}{% if tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}2{% else %}3{% endif %}{% endunless %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.a and variables.a != 0 %}{% assign tested1 = true %}{% if variables.a == empty %}{% assign tested1_json = variables.a | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% unless tested1 %}1{% else %}{% assign tested2 = false %}{% if variables.b and variables.b != 0 %}{% assign tested2 = true %}{% if variables.b == empty %}{% assign tested2_json = variables.b | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% if tested2 %}2{% else %}3{% endif %}{% endunless %}",
     "expected": "2"
   },
   {
@@ -424,7 +424,7 @@
         }
       }
     },
-    "liquid": "{% assign tested1 = variables.u | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}{{ variables.u.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.u.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.u.u2.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.u or variables.u == 0 %}{% assign tested1 = true %}{% if variables.u == empty %}{% assign tested1_json = variables.u | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}{{ variables.u.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.u.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.u.u2.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}",
     "expected": "N N X"
   },
   {
@@ -465,7 +465,7 @@
         "b"
       ]
     },
-    "liquid": "<ul>\n{% assign item1_is_object = variables.xs | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.xs %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{% assign tested1 = item1_value | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}  <li>{{ item1_value | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</li>\n{% endif %}{% endfor %}</ul>\n",
+    "liquid": "<ul>\n{% assign item1_is_object = variables.xs | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.xs %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{% assign tested1 = false %}{% if item1_value and item1_value != 0 %}{% assign tested1 = true %}{% if item1_value == empty %}{% assign tested1_json = item1_value | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}  <li>{{ item1_value | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</li>\n{% endif %}{% endfor %}</ul>\n",
     "expected": "<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>\n"
   },
   {
@@ -475,7 +475,7 @@
     "variables": {
       "x": "X"
     },
-    "liquid": "a{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}b{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}c{% endif %}d",
+    "liquid": "a{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}b{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}c{% endif %}d",
     "expected": "aXbcd"
   },
   {
@@ -722,7 +722,7 @@
     "variables": {
       "x": {}
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -732,7 +732,7 @@
     "variables": {
       "x": {}
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}in{% else %}out{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x or variables.x == 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}in{% else %}out{% endif %}",
     "expected": "in"
   },
   {
@@ -849,7 +849,7 @@
     "variables": {
       "x": 0
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}empty{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x or variables.x == 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% else %}empty{% endif %}",
     "expected": "0"
   },
   {
@@ -875,7 +875,7 @@
       ],
       "title": "root"
     },
-    "liquid": "{% assign item1_is_object = variables.xs | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.xs %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{% assign tested1 = item1_value | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}{{ variables.title | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}{% endfor %}",
+    "liquid": "{% assign item1_is_object = variables.xs | json | slice: 0 %}{% if item1_is_object == \"{\" %}{% assign item1_is_object = true %}{% else %}{% assign item1_is_object = false %}{% endif %}{% for item1 in variables.xs %}{% if item1_is_object %}{% assign item1_key = item1[0] %}{% assign item1_value = item1[1] %}{% else %}{% assign item1_key = forloop.index0 %}{% assign item1_value = item1 %}{% endif %}{% assign tested1 = false %}{% if item1_value or item1_value == 0 %}{% assign tested1 = true %}{% if item1_value == empty %}{% assign tested1_json = item1_value | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}{{ variables.title | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}{% endfor %}",
     "expected": "root"
   },
   {
@@ -928,7 +928,7 @@
         "length": 0
       }
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -938,7 +938,7 @@
     "variables": {
       "x": []
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x and variables.x != 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "no"
   },
   {
@@ -950,7 +950,7 @@
         "length": 0
       }
     },
-    "liquid": "{% assign tested1 = variables.x | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" %}yes{% else %}no{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.x or variables.x == 0 %}{% assign tested1 = true %}{% if variables.x == empty %}{% assign tested1_json = variables.x | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}yes{% else %}no{% endif %}",
     "expected": "yes"
   },
   {
@@ -963,7 +963,7 @@
         "length": 0
       }
     },
-    "liquid": "{% assign tested1 = variables.a | json %}{% if tested1 != nil and tested1 != \"false\" and tested1 != \"null\" and tested1 != '\"\"' and tested1 != \"[]\" and tested1 != \"0\" %}A{% else %}{% assign tested2 = variables.b | json %}{% if tested2 != nil and tested2 != \"false\" and tested2 != \"null\" and tested2 != '\"\"' and tested2 != \"[]\" and tested2 != \"0\" %}B{% else %}C{% endif %}{% endif %}",
+    "liquid": "{% assign tested1 = false %}{% if variables.a and variables.a != 0 %}{% assign tested1 = true %}{% if variables.a == empty %}{% assign tested1_json = variables.a | json %}{% if tested1_json != \"{}\" %}{% assign tested1 = false %}{% endif %}{% endif %}{% endif %}{% if tested1 %}A{% else %}{% assign tested2 = false %}{% if variables.b and variables.b != 0 %}{% assign tested2 = true %}{% if variables.b == empty %}{% assign tested2_json = variables.b | json %}{% if tested2_json != \"{}\" %}{% assign tested2 = false %}{% endif %}{% endif %}{% endif %}{% if tested2 %}B{% else %}C{% endif %}{% endif %}",
     "expected": "B"
   }
 ]
