@@ -581,6 +581,7 @@ jobs:
                         - 'products/batch_exports/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -600,6 +601,7 @@ jobs:
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -644,9 +646,15 @@ jobs:
                         - 'products/security/backend/logic/**'
                         - 'products/metrics/backend/temporal/**'
                         - 'products/metrics/backend/suggested_dashboards/**'
+                        - 'posthog/temporal/cimd_provisioning_review/**'
+                        - 'posthog/api/oauth/provisioning_review.py'
+                        - 'posthog/api/oauth/provisioning_review_slack.py'
+                        - 'posthog/models/oauth_provisioning_review.py'
+                        - 'posthog/egress/firecrawl/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -655,6 +663,7 @@ jobs:
                         - 'products/experiments/backend/temporal/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -664,6 +673,7 @@ jobs:
                         - 'ee/billing/salesforce_enrichment/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -676,6 +686,7 @@ jobs:
                         - 'posthog/temporal/usage_report/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -692,6 +703,7 @@ jobs:
                         - 'products/knowledge_writer/merge_check/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -707,6 +719,7 @@ jobs:
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -716,6 +729,7 @@ jobs:
                         - 'products/signals/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -725,6 +739,7 @@ jobs:
                         - '.github/workflows/container-images-cd.yml'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -746,6 +761,7 @@ jobs:
                         - 'posthog/temporal/schedule.py'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -760,6 +776,7 @@ jobs:
                         - 'posthog/temporal/common/**'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -771,6 +788,7 @@ jobs:
                         - 'posthog/models/organization_notification_lock.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -779,6 +797,7 @@ jobs:
                       # import analysis in check_python_changes_analytics_platform_temporal_worker.
                       analyticsPlatform:
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -793,6 +812,7 @@ jobs:
                         - 'products/llm_analytics/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -803,6 +823,7 @@ jobs:
                         - '!products/managed_warehouse/backend/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -830,6 +851,7 @@ jobs:
                         - 'posthog/warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
@@ -854,6 +876,7 @@ jobs:
                         - '!products/*/backend/temporal/health_checks/tests/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -864,6 +887,7 @@ jobs:
                         - 'products/logs/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -893,6 +917,7 @@ jobs:
                         - 'products/mcp_analytics/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -906,6 +931,7 @@ jobs:
                         - 'posthog/egress/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'products/*/backend/facade/temporal.py'
                         - 'posthog/clickhouse/migrations/**'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -1902,7 +1928,7 @@ jobs:
                   shared-image-force: ${{ inputs.shared-image-force || '[]' }}
                   shared-image-bootstrap: ${{ inputs.shared-image-bootstrap }}
                   shared-image-regctl: ${{ runner.temp }}/regctl
-                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":20,"concurrency":4,"channelMs":300000,"totalMs":720000}'
+                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":40,"concurrency":8,"channelMs":300000,"totalMs":720000}'
 
             - name: Retain shared-image publication evidence
               if: ${{ !cancelled() && steps.shared-image-channels.outputs.channels == 'true' }}

@@ -1851,6 +1851,10 @@
                 "count": {
                     "$ref": "#/definitions/integer"
                 },
+                "entry_span_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+                },
                 "error_count": {
                     "$ref": "#/definitions/integer"
                 },
@@ -32431,6 +32435,10 @@
                     "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
                     "type": "boolean"
                 },
+                "showSummaryOnDashboards": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "showTrendLines": {
                     "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
                     "type": "boolean"
@@ -40559,6 +40567,10 @@
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
                 },
+                "minor": {
+                    "description": "True when the monthly impact is under 1% of the ad account's monthly spend.",
+                    "type": "boolean"
+                },
                 "reason": {
                     "type": "string"
                 },
@@ -40901,7 +40913,7 @@
             "additionalProperties": false,
             "properties": {
                 "adTable": {
-                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "description": "Google Ads ad table, used to read the ad copy and landing pages of each ad group.",
                     "type": "string"
                 },
                 "campaignConversionActionTable": {
@@ -58224,6 +58236,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -58244,6 +58260,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
@@ -58266,6 +58286,10 @@
                     "type": "boolean"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
                     "type": "string"
                 }
             },

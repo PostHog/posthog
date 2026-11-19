@@ -5,6 +5,8 @@ registers them on `settings.AUTORESEARCH_TASK_QUEUE`, which the
 temporal-worker-self-driving fleet polls.
 """
 
+from collections.abc import Callable
+
 from .workflows import (
     AutoresearchCoordinatorWorkflow,
     AutoresearchInferenceWorkflow,
@@ -28,7 +30,7 @@ WORKFLOWS = [
     AutoresearchValidationWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     activity_fail_cleanup_run,
     activity_fail_lost_inference_runs,
     activity_kickoff_training,

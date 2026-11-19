@@ -376,7 +376,10 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
             const scopeGatedTool = state.findScopeGatedTool(toolName)
             if (scopeGatedTool) {
-                const error = missingToolScopeError(scopeGatedTool, state.context, state.oauthClientId)
+                const error = missingToolScopeError(scopeGatedTool, state.context, {
+                    oauthClientId: state.oauthClientId,
+                    supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
+                })
                 return handleToolError(error, toolName, state.distinctId, undefined, state.suppressAnalytics)
             }
             const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
@@ -560,6 +563,7 @@ export class ToolExecutor {
                     distinctId,
                     mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
                         .mcpClientName,
+                    appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
                 })
             }
 
@@ -992,6 +996,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
@@ -1001,6 +1006,8 @@ export class ToolExecutor {
                 ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
                 oauthClientId: state.oauthClientId,
+                // Matches challengeStepUpForGatedTool: a call through the MCP store gets no challenge.
+                supportsStepUp: state.supportsStepUp && !state.viaMcpStore,
                 metricCatalogLookup: resolveMetricCatalogMode(state.metricCatalog) === 'lookup',
                 ...(state.gatewayToolsEnabled
                     ? {

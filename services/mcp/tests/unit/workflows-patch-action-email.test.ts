@@ -29,7 +29,7 @@ function emailEndpoint(step: Step): { stored: Step; context: Context } {
         const edit = HogFlowsActionsEmailPartialUpdateBody().strict().parse(body)
         if (edit.sender === 'sandbox') {
             if (stored.email.replyTo && !edit.drop_own_sender_settings) {
-                throw new Error("The sandbox sender can't keep these settings: replyTo.")
+                throw new Error("The PostHog test sender can't keep these settings: replyTo.")
             }
             stored.type = 'email_sandbox'
             delete stored.email.replyTo
@@ -55,7 +55,13 @@ const SANDBOX_STEP: Step = { id: 'welcome', type: 'email_sandbox', email: { subj
 
 describe('workflows-patch-action-email', () => {
     it.each([
-        ['moves a step to the sandbox sender', OWN_STEP, { sender: 'sandbox' }, 'email_sandbox', { subject: 'Hi' }],
+        [
+            'moves a step to the PostHog test sender',
+            OWN_STEP,
+            { sender: 'sandbox' },
+            'email_sandbox',
+            { subject: 'Hi' },
+        ],
         [
             'drops own-sender settings when asked',
             { ...OWN_STEP, email: { ...OWN_STEP.email, replyTo: 'help@example.com' } },

@@ -32,17 +32,16 @@ logger = structlog.get_logger(__name__)
 
 FEATURE_FLAG_KEY = "llm-analytics-clustering-workflows"
 
-# Dev/test floor — only used when the feature flag payload is missing or invalid,
-# which in practice means local development or CI, where the posthoganalytics SDK
-# has no flag definitions loaded and returns None. The live allowlist of dogfooding
-# and customer teams lives in the `llm-analytics-clustering-workflows` flag payload,
-# which is the single source of truth; keep this list to bootstrap teams only.
+# Dev/test default for the legacy `guaranteed_team_ids` payload field. The parser uses
+# it when the payload is missing or invalid, which in practice means local development
+# or CI, where the posthoganalytics SDK has no flag definitions loaded and returns None.
+# Discovery does not read this field, because only projects that enabled clustering run.
 DEFAULT_GUARANTEED_TEAM_IDS: list[int] = [
     1,  # Local development
     2,  # Internal PostHog project
 ]
-# Default sample percentage for gradual rollout.
-# 0.0 = only guaranteed teams, 0.5 = 50% of remaining, 1.0 = all teams with AI events.
+# Default for the legacy `sample_percentage` payload field. Discovery does not sample
+# projects, so this value does not change which projects run.
 DEFAULT_SAMPLE_PERCENTAGE: float = 0.5
 DEFAULT_DISCOVERY_LOOKBACK_DAYS: int = 7
 
