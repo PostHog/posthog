@@ -39,6 +39,13 @@ CONSTANCE_CONFIG = {
         "Changes reach workers within about a minute and affect newly compiled queries only.",
         bool,
     ),
+    "HOGQL_FLAG_CALLS_UNION_PREAGGREGATION_ENABLED": (
+        get_from_env("HOGQL_FLAG_CALLS_UNION_PREAGGREGATION_ENABLED", True, type_cast=str_to_bool),
+        "Whether an aggregating HogQL query over the union of events and flag_evaluations aggregates inside each "
+        "branch of the union, so ClickHouse aggregates on each shard. Disable to aggregate above the union again. "
+        "Changes reach workers within about a minute and affect newly compiled queries only.",
+        bool,
+    ),
     "HOGQL_PROPERTIES_NARROWING_ENABLED": (
         get_from_env("HOGQL_PROPERTIES_NARROWING_ENABLED", True, type_cast=str_to_bool),
         "Whether a HogQL subquery exports only the keys read of the events properties blob. "
@@ -459,6 +466,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",
     "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
+    "HOGQL_FLAG_CALLS_UNION_PREAGGREGATION_ENABLED",
     "HOGQL_PROJECTION_OPTIMIZATION_ENABLED",
     "HOGQL_PROPERTIES_NARROWING_ENABLED",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",

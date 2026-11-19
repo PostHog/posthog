@@ -78,6 +78,12 @@ The setting defaults to `true` and overrides the `optimizeProjections` query mod
 Workers pick up the change within about a minute; it affects newly compiled queries, not running queries or cached results.
 Disabling these optimizations can increase query time and memory use. Set the instance setting back to `true` to restore the normal per-query behavior.
 
+## Disabling flag-calls union preaggregation
+
+Set `HOGQL_FLAG_CALLS_UNION_PREAGGREGATION_ENABLED` to `false` in Django admin's instance settings to stop aggregating inside each branch of the union of `events` and `flag_evaluations`.
+The setting defaults to `true`. When it is off, an aggregating query over the union aggregates above the union, on the node that receives the query.
+Workers pick up the change within about a minute; it affects newly compiled queries, not running queries or cached results.
+
 ## Experimental count-query batching
 
 `posthog.hogql.batch.CountBatchPlanner` builds an opt-in execution plan for a mapping of query IDs to HogQL strings.

@@ -470,6 +470,21 @@ def prepare_ast_for_printing(
 
             node = clickhouse_property_resolution(node, context)
 
+        # After property resolution, so each branch of the flag-calls union holds its final column expressions.
+        if "union" in context.flag_calls_read:
+            from posthog.models.instance_setting import (  # noqa: PLC0415 -- keeps the printer importable without Django
+                get_instance_setting,
+            )
+
+            if get_instance_setting("HOGQL_FLAG_CALLS_UNION_PREAGGREGATION_ENABLED"):
+                # Deferred to break the import cycle through the ClickHouse printer.
+                from posthog.hogql.transforms.flag_calls_union_preaggregation import (  # noqa: PLC0415
+                    preaggregate_flag_calls_union,
+                )
+
+                with context.timings.measure("flag_calls_union_preaggregation"):
+                    node = preaggregate_flag_calls_union(node, context)
+
         if context.order_events_reads_by_sort_key:
             # After property resolution, so the timestamp column is already wrapped and every table type is final.
             with context.timings.measure("events_read_in_order"):

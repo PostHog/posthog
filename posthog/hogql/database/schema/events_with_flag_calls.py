@@ -318,6 +318,57 @@ def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | N
     return None
 
 
+def union_scan(join_expr: ast.JoinExpr) -> ast.SelectQuery | None:
+    """The select that stands for `FROM posthog.events_with_flag_calls`, or None for any other FROM.
+
+    Lazy table resolution expands that table to `SELECT <columns> FROM (<events> UNION ALL ... <flag_evaluations>)`
+    and the query reads the result under the scan's alias. The alias type records that table, and only that record
+    marks the scan. The select has no clause of its own. Each of its columns reads one column of the union.
+    """
+    scan = join_expr.table
+    if not isinstance(join_expr.type, ast.SelectQueryAliasType) or not isinstance(scan, ast.SelectQuery):
+        return None
+    if not isinstance(join_expr.type.lazy_table, EventsWithFlagCallsTable):
+        return None
+    source = scan.select_from
+    union = source.table if source is not None else None
+    if (
+        source is None
+        or not isinstance(union, ast.SelectSetQuery)
+        or source.next_join is not None
+        or any(
+            value is not None
+            for value in (
+                scan.where,
+                scan.prewhere,
+                scan.having,
+                scan.qualify,
+                scan.group_by,
+                scan.order_by,
+                scan.limit,
+                scan.offset,
+                scan.limit_by,
+                scan.array_join_op,
+                scan.distinct,
+                scan.ctes,
+                scan.window_exprs,
+            )
+        )
+        or not all(isinstance(column, ast.Alias) and isinstance(column.expr, ast.Field) for column in scan.select)
+        or any(node.set_operator != "UNION ALL" for node in union.subsequent_select_queries)
+    ):
+        return None
+    for branch in union.select_queries():
+        table_type = branch.select_from.type if isinstance(branch, ast.SelectQuery) and branch.select_from else None
+        while isinstance(table_type, ast.TableAliasType):
+            table_type = table_type.table_type
+        if not (
+            isinstance(table_type, ast.TableType) and isinstance(table_type.table, (EventsTable, FlagEvaluationsTable))
+        ):
+            return None
+    return scan
+
+
 # Tables whose rows are events with the events columns. Property types, access control and time bounds treat their reads
 # as reads of events.
 EVENT_ROW_TABLES = (EventsTable, FlagEvaluationsTable, EventsWithFlagCallsTable)

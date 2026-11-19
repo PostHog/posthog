@@ -1,5 +1,5 @@
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime
 from typing import TYPE_CHECKING, ClassVar, Optional, cast
@@ -60,6 +60,11 @@ from posthog.week_start_day import WeekStartDay
 
 if TYPE_CHECKING:
     from posthog.hogql.database.postgres_table import PostgresTable
+
+
+def call_column_name(column: ast.Call, context: HogQLContext) -> str:
+    """The alias the printer gives an unaliased call in a SELECT list, which is the column name ClickHouse returns."""
+    return safe_identifier(HogQLPrinter(context=context).visit(column))
 
 
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
@@ -173,6 +178,17 @@ _JSON_FUNCTIONS_WITH_TRAILING_TYPE = frozenset({"JSONExtract", "JSONExtractKeysA
 def _group_type_index_of_blob(column_name: str) -> int | None:
     group_column_match = re.fullmatch(r"group(\d+)_properties", column_name)
     return int(group_column_match.group(1)) if group_column_match else None
+
+
+def printed_aliases(columns: Sequence[ast.Expr]) -> dict[str, ast.Alias]:
+    """The alias that the printer keeps for each alias name in a SELECT list: the last visible alias, or the last
+    hidden alias when none is visible. The printer drops every other alias of that name."""
+    found_aliases: dict[str, ast.Alias] = {}
+    for alias in reversed(columns):
+        if isinstance(alias, ast.Alias):
+            if not found_aliases.get(alias.alias, None) or not alias.hidden:
+                found_aliases[alias.alias] = alias
+    return found_aliases
 
 
 class ClickHousePrinter(BasePrinter):
@@ -1361,12 +1377,7 @@ class ClickHousePrinter(BasePrinter):
                 return column_type.name
             return None
 
-        # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
-        found_aliases: dict[str, ast.Alias] = {}
-        for alias in reversed(columns):
-            if isinstance(alias, ast.Alias):
-                if not found_aliases.get(alias.alias, None) or not alias.hidden:
-                    found_aliases[alias.alias] = alias
+        found_aliases = printed_aliases(columns)
 
         prepared_columns: list[tuple[ast.Expr, str | None]] = []
         used_aliases: set[str] = set()
@@ -1394,7 +1405,7 @@ class ClickHousePrinter(BasePrinter):
 
             if isinstance(column, ast.Call) and not dropped_hidden_alias:
                 with self.context.timings.measure("printer"):
-                    column_alias = safe_identifier(HogQLPrinter(context=self.context).visit(column))
+                    column_alias = call_column_name(column, self.context)
                 # ClickHouse rejects duplicate aliases for different expressions in the
                 # same SELECT. This can happen after "*" expansion if a subquery already
                 # exposes a generated expression name like `toDate(period_end)`.

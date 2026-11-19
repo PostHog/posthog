@@ -386,12 +386,12 @@ def _flag_called_notices(
         move_warning_by_span: dict[LiteralSpan, str] | None = None
         for candidate in candidates:
             span = LiteralSpan(start=candidate.start, end=candidate.end)
-            if span in swapped:
+            if span in read_from_both_tables:
+                both_tables_notices.append(candidate.model_copy(update={"message": both_tables_message, "url": url}))
+            elif span in swapped:
                 flag_evaluations_notices.append(
                     candidate.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
                 )
-            elif span in read_from_both_tables:
-                both_tables_notices.append(candidate.model_copy(update={"message": both_tables_message, "url": url}))
             elif only_in_flag_evaluations:
                 move_warnings.append(
                     candidate.model_copy(update={"message": FLAG_CALLED_ON_EVENTS_AFTER_MOVE_WARNING, "url": url})

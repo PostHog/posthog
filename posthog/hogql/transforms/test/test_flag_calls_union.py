@@ -796,6 +796,11 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
 
 
 class TestReadFlagCallsWithUnion(BaseTest):
+    def setUp(self):
+        super().setUp()
+        # These tests read the union's branches. Aggregating inside each branch moves the query's own clauses into them.
+        self.enterContext(override_instance_config("HOGQL_FLAG_CALLS_UNION_PREAGGREGATION_ENABLED", False))
+
     def _sql(
         self,
         query: str | ast.SelectQuery,
