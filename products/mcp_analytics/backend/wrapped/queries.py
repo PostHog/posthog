@@ -164,7 +164,7 @@ def _run(team: Team, sql: str, placeholders: dict[str, ast.Expr], name: str, fil
             filters=filters,
             # A yearly batch job. Nobody waits on screen for it.
             workload=Workload.OFFLINE,
-            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS),
+            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS, timeout_overflow_mode="throw"),
         )
     return response.results or []
 
