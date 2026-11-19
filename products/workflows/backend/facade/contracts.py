@@ -347,6 +347,10 @@ class ContactsImportAccessLost(Exception):
     """The person who started the import can't edit persons in the project anymore. Another try finds the same."""
 
 
+class ContactsCohortGone(Exception):
+    """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
+
+
 class ContactsCleanupFailed(Exception):
     """Object storage kept some of the parts an import stored."""
 
