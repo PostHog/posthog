@@ -48298,6 +48298,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `email` - email
+     * * `push` - push
+     */
+    export type ExpectedTypeEnum = typeof ExpectedTypeEnum[keyof typeof ExpectedTypeEnum];
+
+
+    export const ExpectedTypeEnum = {
+      Email: 'email',
+      Push: 'push',
+    } as const;
+
+    /**
      * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
      * @nullable
      */
@@ -72705,6 +72717,11 @@ export namespace Schemas {
          * @nullable
          */
       from_integration_id?: number | null;
+      /** The template type the caller means to make transactional. A template of another type is refused, so a push tool can't make an email template transactional, and the other way round.
+       *
+       * * `email` - email
+       * * `push` - push */
+      expected_type?: ExpectedTypeEnum;
     }
 
     /**

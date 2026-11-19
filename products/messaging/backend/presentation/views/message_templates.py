@@ -832,6 +832,12 @@ class MakeTransactionalSerializer(serializers.Serializer):
         help_text="ID of the verified email sender integration the email is sent from. Defaults to the project's "
         "default sender. Ignored for push templates.",
     )
+    expected_type = serializers.ChoiceField(
+        choices=["email", "push"],
+        required=False,
+        help_text="The template type the caller means to make transactional. A template of another type is refused, "
+        "so a push tool can't make an email template transactional, and the other way round.",
+    )
 
 
 class SendWarningSerializer(serializers.Serializer):
@@ -1604,6 +1610,11 @@ class MessageTemplatesViewSet(
     @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         template = self.get_object()
+        expected_type = request.validated_data.get("expected_type")
+        if expected_type and template.type != expected_type:
+            raise exceptions.ValidationError(
+                f"This is an {template.type} template, not a {expected_type} template.", code="template_type_mismatch"
+            )
         if template.type == "push":
             require_transactional_push_api(self.team)
         else:

@@ -1963,6 +1963,13 @@ export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod
         .describe(
             "ID of the verified email sender integration the email is sent from. Defaults to the project's default sender. Ignored for push templates."
         ),
+    expected_type: zod
+        .enum(['email', 'push'])
+        .describe('\* `email` - email\n\* `push` - push')
+        .optional()
+        .describe(
+            "The template type the caller means to make transactional. A template of another type is refused, so a push tool can't make an email template transactional, and the other way round.\n\n\* `email` - email\n\* `push` - push"
+        ),
 })
 
 /**

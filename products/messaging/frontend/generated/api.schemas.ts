@@ -1266,12 +1266,28 @@ export interface PatchedDesignPatchApi {
     operations?: DesignOperationApi[]
 }
 
+/**
+ * * `email` - email
+ * * `push` - push
+ */
+export type ExpectedTypeEnumApi = (typeof ExpectedTypeEnumApi)[keyof typeof ExpectedTypeEnumApi]
+
+export const ExpectedTypeEnumApi = {
+    Email: 'email',
+    Push: 'push',
+} as const
+
 export interface MakeTransactionalApi {
     /**
      * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender. Ignored for push templates.
      * @nullable
      */
     from_integration_id?: number | null
+    /** The template type the caller means to make transactional. A template of another type is refused, so a push tool can't make an email template transactional, and the other way round.
+     *
+     * * `email` - email
+     * * `push` - push */
+    expected_type?: ExpectedTypeEnumApi
 }
 
 export interface MessageTemplatePlacementApi {
