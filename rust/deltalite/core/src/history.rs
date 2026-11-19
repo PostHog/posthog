@@ -1396,6 +1396,9 @@ fn key_and_order_columns(
 /// rewrite may need it.
 struct FileProbe {
     file: TargetFile,
+    /// Without closed versions: the highest order value of each key in the file.
+    open: HashMap<u32, Box<[u8]>>,
+    /// With closed versions: the versions `spec` keeps.
     seen: Vec<Existing>,
     /// Index in `seen` of the lowest-order candidate per (key, source value), see
     /// [`keep_closed`].
@@ -1520,6 +1523,7 @@ async fn probe_file(
 
     let mut probe = FileProbe {
         file: f,
+        open: HashMap::new(),
         seen: Vec::new(),
         next_after: HashMap::new(),
         newer: false,
@@ -1550,6 +1554,17 @@ async fn probe_file(
                 continue;
             };
             let order = orders.row(i);
+            if !spec.closed {
+                probe.newer = probe.newer || plan.newest_order(group) > order.as_ref();
+                match probe.open.get_mut(&group) {
+                    Some(o) if **o >= *order.as_ref() => {}
+                    Some(o) => *o = order.as_ref().into(),
+                    None => {
+                        probe.open.insert(group, order.as_ref().into());
+                    }
+                }
+                continue;
+            }
             let mut e = Existing {
                 file: 0,
                 row: row_base + i as u32,
@@ -1584,12 +1599,6 @@ async fn probe_file(
                     }
                 }
                 probe.newer = true;
-            } else {
-                probe.newer = probe.newer || plan.newest_order(group) > order.as_ref();
-            }
-            if !spec.closed {
-                probe.seen.push(e);
-                continue;
             }
             match next_after {
                 None => {
@@ -1756,20 +1765,20 @@ async fn probe_files(
             .into_iter()
             .map(|(slot, at)| (at, slot))
             .collect();
-        let mut groups = Vec::with_capacity(probe.seen.len());
+        let mut groups = Vec::with_capacity(probe.seen.len() + probe.open.len());
+        if !probe.open.is_empty() && probed.open.is_empty() {
+            probed.open = vec![None; plan.groups.len()];
+        }
+        for (group, order) in probe.open {
+            groups.push(group);
+            let slot = &mut probed.open[group as usize];
+            if slot.as_ref().is_none_or(|o| order > *o) {
+                *slot = Some(order);
+            }
+        }
         for (at, mut e) in probe.seen.into_iter().enumerate() {
             e.file = index;
             groups.push(e.group);
-            if !spec.closed {
-                if probed.open.is_empty() {
-                    probed.open = vec![None; plan.groups.len()];
-                }
-                let slot = &mut probed.open[e.group as usize];
-                if slot.as_ref().is_none_or(|o| e.order > *o) {
-                    *slot = Some(e.order);
-                }
-                continue;
-            }
             match slot_of.remove(&at) {
                 None => probed.existing.push(e),
                 Some(slot) => {
