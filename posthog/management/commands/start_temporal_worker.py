@@ -13,7 +13,6 @@ from enum import StrEnum
 import structlog
 from temporalio import workflow
 
-from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.open_telemetry import initialize_otel
 
 with workflow.unsafe.imports_passed_through():
@@ -62,15 +61,10 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.internal_logs import InternalLogsSink
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
+from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
-from posthog.temporal.data_modeling import (
-    ACTIVITIES as DATA_MODELING_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_WORKFLOWS,
-    WORKFLOWS as DATA_MODELING_WORKFLOWS,
-)
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
@@ -132,14 +126,6 @@ from posthog.temporal.session_replay.rasterize_recording import (
 from posthog.temporal.session_replay.replay_count_metrics import (
     REPLAY_COUNT_METRICS_ACTIVITIES,
     REPLAY_COUNT_METRICS_WORKFLOWS,
-)
-from posthog.temporal.session_replay.surfacing_score_export_sweep import (
-    SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES,
-    SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS,
-)
-from posthog.temporal.session_replay.surfacing_scoring_sweep import (
-    SURFACING_SCORING_SWEEP_ACTIVITIES,
-    SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import (
@@ -220,6 +206,12 @@ from products.customer_analytics.backend.facade.temporal import (
 from products.data_catalog.backend.facade.temporal import (
     ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
     WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
+)
+from products.data_modeling.backend.facade.temporal import (
+    ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_WORKFLOWS,
+    WORKFLOWS as DATA_MODELING_WORKFLOWS,
 )
 from products.data_quality.backend.facade.temporal import (
     ACTIVITIES as DATA_QUALITY_ACTIVITIES,
@@ -307,10 +299,6 @@ from products.replay_vision.backend.temporal import (
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
-from products.review_hog.backend.facade.temporal import (
-    ACTIVITIES as REVIEW_HOG_ACTIVITIES,
-    WORKFLOWS as REVIEW_HOG_WORKFLOWS,
-)
 from products.security.backend.facade.temporal import (
     ACTIVITIES as SECURITY_ACTIVITIES,
     WORKFLOWS as SECURITY_WORKFLOWS,
@@ -590,15 +578,13 @@ _task_queue_specs = [
         + BUSINESS_KNOWLEDGE_WORKFLOWS
         + CONVERSATIONS_WORKFLOWS
         + CUSTOMER_ANALYTICS_WORKFLOWS
-        + KNOWLEDGE_WRITER_WORKFLOWS
-        + REVIEW_HOG_WORKFLOWS,
+        + KNOWLEDGE_WRITER_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
         + CONVERSATIONS_ACTIVITIES
         + CUSTOMER_ANALYTICS_ACTIVITIES
-        + KNOWLEDGE_WRITER_ACTIVITIES
-        + REVIEW_HOG_ACTIVITIES,
+        + KNOWLEDGE_WRITER_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -607,17 +593,13 @@ _task_queue_specs = [
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
-        + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
-        + SURFACING_SCORING_SWEEP_WORKFLOWS,
+        + REPLAY_COUNT_METRICS_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
         + COPY_RECORDING_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
-        + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES
-        + SURFACING_SCORING_SWEEP_ACTIVITIES,
+        + REPLAY_COUNT_METRICS_ACTIVITIES,
     ),
     (
         settings.REPLAY_VISION_TASK_QUEUE,
@@ -737,11 +719,15 @@ _task_queue_specs = [
 # the same queue. We aggregate with defaultdict(set) so all workflows/activities
 # registered for a shared queue name are combined, ensuring the worker registers
 # everything it should.
-_workflows: defaultdict[str, set[type[PostHogWorkflow]]] = defaultdict(set)
+_workflows: defaultdict[str, set[type]] = defaultdict(set)
 _activities: defaultdict[str, set[typing.Callable[..., typing.Any]]] = defaultdict(set)
 for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
     _workflows[task_queue_name].update(workflows_for_queue)
     _activities[task_queue_name].update(activities_for_queue)
+# A product that declares `TEMPORAL` in its facade binds its code to queues there, not in the list above.
+for binding in combined_registration().queues:
+    _workflows[binding.task_queue].update(binding.workflows)
+    _activities[binding.task_queue].update(binding.activities)
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
@@ -970,7 +956,13 @@ class Command(BaseCommand):
         # TEMPORAL_OTEL_PLUGIN_ENABLED.
         enable_otel = (
             settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True
-            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE, settings.WIZARD_TASK_QUEUE)
+            or task_queue
+            in (
+                settings.MAX_AI_TASK_QUEUE,
+                settings.TASKS_TASK_QUEUE,
+                settings.WIZARD_TASK_QUEUE,
+                settings.DATA_MODELING_TASK_QUEUE,
+            )
         ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
@@ -1042,7 +1034,10 @@ class Command(BaseCommand):
             otel_log_mirror = build_vision_log_mirror() if task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
             internal_logs = InternalLogsSink.from_settings()
             stop_log_producer = configure_logger(
-                loop=loop, otel_log_mirror=otel_log_mirror, internal_logs=internal_logs
+                loop=loop,
+                otel_log_mirror=otel_log_mirror,
+                internal_logs=internal_logs,
+                log_sources=combined_registration().log_sources,
             )
 
             logger = LOGGER.bind(
@@ -1064,15 +1059,6 @@ class Command(BaseCommand):
                 zombie_exit_grace_seconds=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS,
             )
             logger.info("Starting Temporal Worker")
-
-            if task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
-                from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup_best_effort
-
-                # Best-effort: surfacing shares this queue with the rest of the
-                # session-replay worker, so a model problem must not crash the
-                # pod. It logs and continues; scoring activities retry until the
-                # model is fixed.
-                warmup_best_effort()
 
             worker = runner.run(
                 create_worker(

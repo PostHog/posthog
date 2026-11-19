@@ -10,10 +10,10 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { customerIOImportLogic } from './customerIOImportLogic'
 import { NewCategoryModal } from './NewCategoryModal'
 import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
+import { providerImportLogic } from './providerImportLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 
@@ -21,7 +21,8 @@ export function OptOutCategories(): JSX.Element {
     const { categories, categoriesLoading, isNewCategoryModalOpen } = useValues(optOutCategoriesLogic)
     const { loadCategories, deleteCategory, closeNewCategoryModal, openNewCategoryModal } =
         useActions(optOutCategoriesLogic)
-    const { openImportModal } = useActions(customerIOImportLogic)
+    const { openImportModal } = useActions(providerImportLogic)
+    const { hasSeveralProviders } = useValues(providerImportLogic)
     const [editingCategory, setEditingCategory] = useState<MessageCategory | null>(null)
 
     useEffect(() => {
@@ -136,8 +137,12 @@ export function OptOutCategories(): JSX.Element {
                             docsURL="https://posthog.com/docs/workflows/customerio-import"
                             actionElementOverride={
                                 <>
-                                    <LemonButton type="primary" icon={<IconDownload />} onClick={openImportModal}>
-                                        Import from Customer.io
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconDownload />}
+                                        onClick={() => openImportModal()}
+                                    >
+                                        {hasSeveralProviders ? 'Import from another tool' : 'Import from Customer.io'}
                                     </LemonButton>
                                     <LemonButton type="secondary" icon={<IconPlus />} onClick={openNewCategoryModal}>
                                         Create category

@@ -21,8 +21,13 @@ mark() {
 }
 
 upload_evidence() {
-    local run
+    local run log
     mkdir -p "$evidence/run"
+    for log in "$XDG_CACHE_HOME"/posthog-scenarios/*.log; do
+        if [ -f "$log" ]; then
+            cp "$log" "$evidence/" || return 1
+        fi
+    done
     for run in "$XDG_CACHE_HOME"/posthog-scenarios/*-*-*-*-*/; do
         if [ -d "$run" ]; then
             cp -r "$run" "$evidence/run/" || return 1

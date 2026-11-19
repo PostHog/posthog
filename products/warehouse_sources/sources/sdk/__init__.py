@@ -134,7 +134,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fil
     normalize_column_name,
     normalize_delimiter,
     resolve_file_format,
-    uses_brotli_compression,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
@@ -186,6 +185,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     unbracket_host,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import PointerPath
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.added_tables import (
+    table_root_of_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     AzureBlobConfig,
     DiscoveryOptions,
@@ -647,6 +649,7 @@ __all__ = [
     "strip_oauth2_permanent_marker",
     "submit_with_context",
     "suspend_adapter_retries",
+    "table_root_of_url",
     "text_field",
     "tracked_interceptors",
     "try_resolve_parent_table",
@@ -654,6 +657,5 @@ __all__ = [
     "unreachable_vendor_message",
     "update_sync_type_config_keys",
     "url_field",
-    "uses_brotli_compression",
     "validate_via_probe",
 ]

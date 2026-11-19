@@ -43,9 +43,9 @@ file types, the commits on the default branch in the last 30 days and how many p
 last {ACTIVITY_AUTHOR_SAMPLE} commits, and the merged pull requests of all time. The figures are approximate and may
 be days old, and the order is a hint, not a ranking of relevance. Merged pull requests show where
 people review and land work. A repository with many commits but almost no merged pull requests,
-or with one author, is usually a mirror, an export, or a bot target: select it only on specific
-evidence that the work belongs there. `same files as` marks a repository whose file tree equals
-another candidate's; the one with more merged pull requests is usually the source."""
+or with one author, is usually a mirror, an export, or a bot target. `same files as `owner/repo``
+marks a copy: its file tree equals the tree of `owner/repo`, and `owner/repo` has at least as many
+merged pull requests."""
 
 
 @frozen

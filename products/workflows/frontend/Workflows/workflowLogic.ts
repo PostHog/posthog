@@ -639,7 +639,16 @@ export interface workflowLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -1583,7 +1592,16 @@ export interface workflowLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -2542,7 +2560,16 @@ export interface workflowLogicActions {
                       filters: {
                           actions?: any[] | undefined
                           events?: any[] | undefined
-                          properties?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
                       }
                       name?: string | undefined
                   }[]
@@ -2977,7 +3004,16 @@ export interface workflowLogicActions {
                       filters: {
                           actions?: any[] | undefined
                           events?: any[] | undefined
-                          properties?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
                       }
                       name?: string | undefined
                   }[]
@@ -4909,7 +4945,10 @@ export const workflowLogic = kea<workflowLogicType>([
             const keepsFormEdits = 'status' in workflow && values.hasUnsavedChanges && !!stored
             const merged = { ...(keepsFormEdits && stored ? withStagedDraft(stored) : values.workflow), ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
-                lemonToast.error('Fix all errors before enabling')
+                const names = values.actionsWithErrors.map((action) => action.name).join(', ')
+                lemonToast.error(`Fix these steps before enabling: ${names}`, {
+                    capturedMessage: 'Fix these steps before enabling',
+                })
                 actions.enableBlocked()
                 return
             }

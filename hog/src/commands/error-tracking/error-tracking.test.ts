@@ -147,6 +147,40 @@ describe('hog error-tracking upload', () => {
         })
     })
 
+    test.each(['upload', 'process'] as const)('%s - reads the paths from stdin, one per line', async (command) => {
+        const map = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
+        const folder = project({
+            'dist/a.js': 'a();\n//# debugId=11111111-2222-4333-8444-555555555555\n//# sourceMappingURL=a.js.map\n',
+            'dist/a.js.map': map,
+            'dist/b.js': 'b();\n//# debugId=66666666-7777-4888-8999-aaaaaaaaaaaa\n//# sourceMappingURL=b.js.map\n',
+            'dist/b.js.map': map,
+            'dist/c.js': 'c();\n//# sourceMappingURL=c.js.map\n',
+            'dist/c.js.map': map,
+        })
+
+        const result = await runHog(['et', command, '-', '--release-mode', 'symbol-set', '--dry-run'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+            stdin: 'dist/a.js\n\n  dist/b.js  \r\n',
+        })
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.json(UploadOutput).symbolSets.map((set) => set.path)).toEqual(['dist/a.js', 'dist/b.js'])
+    })
+
+    test('upload - fails when stdin has no paths', async () => {
+        const result = await runHog(['et', 'upload', '-', '--dry-run'], {
+            env: { CLAUDECODE: '1' },
+            cwd: project({}),
+            useDisk: true,
+            stdin: '\n  \n',
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'empty_paths' })
+    })
+
     test('--dry-run leaves bundles and maps untouched, ignore globs skip files, and unreadable folders are skipped', async () => {
         const bundle = 'a();\n//# sourceMappingURL=a.js.map\n'
         const map = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })

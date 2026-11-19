@@ -13,6 +13,11 @@ export function isPiTaskRuntime(runtime: TaskRuntimeEnumApi | undefined): boolea
 
 export interface RepositoryConfig {
     integrationId?: number
+    /**
+     * Set when the selection is a GitLab project. `repository` then holds its full path, which can be nested,
+     * and `integrationId` keeps the GitHub account so the GitHub picker is ready when the user switches back.
+     */
+    repositoryIntegrationId?: number
     /** `owner/repo` (GitHub `full_name`), same as data warehouse / Cyclotron GitHub pickers */
     repository?: string
     /** Git branch the run checks out; defaults to the repo's default branch when unset. */
@@ -77,6 +82,8 @@ export interface Task {
     runtime: TaskRuntimeEnumApi
     repository: string | null
     github_integration: number | null
+    /** GitLab integration of a task in a GitLab project. */
+    repository_integration?: number | null
     /** For signal-report-origin tasks: the inbox `SignalReport` this task ran for (set-once at creation). */
     signal_report: string | null
     json_schema: Record<string, any> | null

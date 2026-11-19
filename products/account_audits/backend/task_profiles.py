@@ -11,7 +11,14 @@ from products.tasks.backend.facade.profiles import (
     register_task_profiles,
 )
 
-ACCOUNT_AUDIT_MCP_SCOPES = ["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"]
+ACCOUNT_AUDIT_MCP_SCOPES = [
+    "user:read",
+    "query:read",
+    "insight:read",
+    "notebook:read",
+    "notebook:write",
+    "billing:read",
+]
 
 ACCOUNT_AUDIT = TaskProfile(
     key="account_audit",

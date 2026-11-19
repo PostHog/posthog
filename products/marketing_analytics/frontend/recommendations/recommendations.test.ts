@@ -8,6 +8,7 @@ import {
     reconcileResolutionOverrides,
     recommendationsShownState,
     recommendationsSource,
+    sectionRecommendations,
     summarizeImpact,
     unresolved,
     withResolutionOverrides,
@@ -86,6 +87,38 @@ describe('recommendations', () => {
                 ])
             ).toEqual(expected)
         })
+    })
+
+    describe('sectionRecommendations', () => {
+        const rows = [
+            recommendation({ key: 'big', resolution: DISMISSED }),
+            recommendation({ key: 'small', minor: true }),
+            recommendation({ rule: 'keyword_gap', key: 'gap', minor: true, resolution: DISMISSED }),
+            recommendation({ rule: 'policy_limited', key: 'policy', impact: null, minor: false }),
+        ]
+
+        it.each([
+            { name: 'with resolved rows on show', showResolved: true, keepRule: null },
+            {
+                name: 'after the last row of a minor rule is resolved',
+                showResolved: false,
+                keepRule: 'keyword_gap' as const,
+            },
+        ])(
+            'moves a rule to the minor section only when all its rows are minor, $name',
+            ({ showResolved, keepRule }) => {
+                expect(
+                    sectionRecommendations(groupRecommendations(rows, showResolved, keepRule)).map((section) => [
+                        section.category,
+                        section.groups.map((group) => group.rule),
+                    ])
+                ).toEqual([
+                    ['waste', ['spend_without_conversions']],
+                    ['fix', ['policy_limited']],
+                    ['minor', ['keyword_gap']],
+                ])
+            }
+        )
     })
 
     describe('withResolutionOverrides', () => {

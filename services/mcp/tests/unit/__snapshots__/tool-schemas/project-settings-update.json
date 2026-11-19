@@ -488,7 +488,7 @@
             ]
         },
         "id": {
-            "description": "Project ID, or `@current` to target the caller's active project.",
+            "description": "Project ID. If omitted, updates the caller's active project.",
             "maximum": 2147483647,
             "minimum": -2147483648,
             "type": "number"
@@ -4450,6 +4450,10 @@
                     "description": "Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults.",
                     "type": "boolean"
                 },
+                "email_workflow_run_link_tag_enabled": {
+                    "description": "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default.",
+                    "type": "boolean"
+                },
                 "marketing_frequency_cap_hold_hours": {
                     "anyOf": [
                         {
@@ -4541,6 +4545,5 @@
             "type": "object"
         }
     },
-    "required": ["id"],
     "type": "object"
 }

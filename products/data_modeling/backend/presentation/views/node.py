@@ -18,7 +18,6 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
@@ -31,6 +30,7 @@ from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     apply_saved_query_frequency_target,
+    assert_user_can_read_saved_query,
     cadence_changes,
     can_describe_node,
     clear_legacy_sync_interval,
@@ -39,6 +39,7 @@ from products.data_modeling.backend.facade.api import (
     get_declared_target,
     is_declared_pin,
     load_node_descriptions,
+    node_lineage,
     node_lineage_counts,
     parse_warehouse_table_id,
     run_related_node_materializations,
@@ -497,7 +498,7 @@ def _write_cadence(
         raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
     if target is not None:
         # Scheduling a view is the same grant as materializing it directly.
-        assert_user_can_read_query(saved_query.query, saved_query.team_id, cast(User, request.user))
+        assert_user_can_read_saved_query(saved_query, cast(User, request.user))
     try:
         apply_saved_query_frequency_target(
             saved_query, target, visible_names=visible_names, pinned=pinned, keep_target=keep_target
@@ -552,9 +553,9 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 
 
 # TODO: consolidate graph traversal logic. similar implementations exist in:
-# - posthog/temporal/data_modeling/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
-# - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by list endpoint
-# the temporal workflow and lineage API should migrate to Graph
+# - products/data_modeling/backend/temporal/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
+# - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by the list and lineage endpoints
+# the temporal workflow should migrate to Graph
 
 
 def _get_upstream_nodes(
@@ -938,22 +939,22 @@ class NodeViewSet(
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        hidden_types = self._hidden_node_types()
-        upstream_ids = _get_upstream_nodes(node, include_tables=True, hidden_types=hidden_types)
-        downstream_ids = _get_downstream_nodes(node, hidden_types=hidden_types)
-        all_ids = upstream_ids | downstream_ids | {str(node.id)}
+        lineage = node_lineage(self.team_id, node.id, node.dag_id, hidden_types=self._hidden_node_types())
 
         nodes = self._exclude_hidden_nodes(
-            _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
+            _node_queryset_with_latest_job().filter(id__in=lineage.node_ids, team_id=self.team_id)
         )
         edges = self._exclude_hidden_edges(
             Edge.objects.select_related("source", "target", "dag").filter(
-                team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
+                team_id=self.team_id, source_id__in=lineage.node_ids, target_id__in=lineage.node_ids
             )
         )
 
         return response.Response(
-            LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
+            LineageResponseSerializer(
+                {"nodes": nodes, "edges": edges},
+                context={**self.get_serializer_context(), "node_counts": lineage.counts},
+            ).data
         )
 
     @extend_schema(responses={200: NodeAttentionCountSerializer})
@@ -993,7 +994,7 @@ class NodeViewSet(
         # skips the check for a real node; it exists because the FK is typed as nullable.
         self._require_view_edit_access(node.saved_query)
         if node.saved_query is not None:
-            assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
+            assert_user_can_read_saved_query(node.saved_query, cast(User, req.user))
             try:
                 raise_if_manual_run_is_refused(
                     self.team_id,

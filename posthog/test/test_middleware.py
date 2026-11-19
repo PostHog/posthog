@@ -24,6 +24,7 @@ from django.test import (
 )
 from django.test.utils import CaptureQueriesContext
 from django.urls import path, resolve, reverse
+from django.utils import timezone
 
 import requests
 import structlog
@@ -54,6 +55,7 @@ from posthog.middleware import (
     user_logging_context_middleware,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import InviteExpiredException, OrganizationInvite
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
@@ -1465,6 +1467,11 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.post("/logout/")
             assert res.status_code == 302
             assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+
+            res = self.client.get(res.headers["Location"])
+            assert [str(message) for message in res.context["messages"]] == [
+                "You are now logged back in as user1@posthog.com."
+            ]
 
             # Verify we're back to original user
             res = self.client.get("/api/users/@me")
@@ -3737,6 +3744,38 @@ class TestCurrentAliasUsage(APIBaseTest):
             "scope": CurrentAliasScope.PROJECT,
             "api_key_label": "Reporting script",
         }
+
+    def test_reports_each_oauth_application_separately(self) -> None:
+        tokens = {}
+        for name in ("Reporting app", "Sync app"):
+            application = OAuthApplication.objects.create(
+                name=name,
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=f"pha_{name.split()[0].lower()}_token",
+                expires=timezone.now() + timedelta(hours=1),
+                scope="project:read",
+            )
+            tokens[token.token] = str(application.id)
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as capture:
+            self.client.get("/api/projects/@current/")
+            self.client.logout()
+            for token in [*tokens, *tokens]:
+                self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        events = self._alias_events(capture)
+        assert [
+            (event["properties"]["access_method"], event["properties"]["oauth_application_id"]) for event in events
+        ] == [("oauth", application_id) for application_id in tokens.values()]
 
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()

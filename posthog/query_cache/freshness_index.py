@@ -42,6 +42,17 @@ def get_stale_insights(*, team_id: int, limit: Optional[int] = None) -> list[str
     return [insight.decode("utf-8") for insight in insights]
 
 
+def stale_among(*, team_id: int, identifiers: set[str]) -> list[str]:
+    """The given identifiers that are stale, ordered like `get_stale_insights`: least stale first."""
+    if not identifiers:
+        return []
+    ordered = sorted(identifiers)
+    scores = redis.get_client().zmscore(_redis_key(team_id), ordered)
+    now = datetime.now(UTC).timestamp()
+    stale = [(score, identifier) for identifier, score in zip(ordered, scores) if score is not None and score <= now]
+    return [identifier for _, identifier in sorted(stale, reverse=True)]
+
+
 def clean_up_stale_insights(*, team_id: int, threshold: datetime) -> None:
     """Remove all stale insights that are older than the given timestamp."""
     redis.get_client().zremrangebyscore(_redis_key(team_id), "-inf", threshold.timestamp())

@@ -161,6 +161,13 @@ A done task refuses new runs, cloud resumes, and follow-up messages with `409`.
 `POST /api/projects/{team_id}/tasks/{task_id}/close/` moves an idle task to done.
 A task can become done only while its profile is set to `enforce` in the `tasks-task-done` feature flag payload.
 Every profile is off until the payload names it.
+With `enforce`, a task on the `review_hog`, `signals.scout_suggestions` or `conversations.support_reply` profile becomes done when a run completes.
+
+A task with a cloud run in progress refuses another run or a cloud resume with `409`.
+A run that is being canceled does not count.
+A run that is waiting for its first message does not count until a message is on its way to it.
+Neither does a run with no writes for 24 hours, which is marked failed when the next run starts.
+A scheduled run that comes due while another run is in progress still starts.
 
 ## MCP tools
 
@@ -196,15 +203,23 @@ Reports with `output_destinations.inbox: false` do not send notifications.
 Report notifications require `posthog-code-mobile-push`.
 Ordinary task notifications do not require this flag.
 
-`PATCH /api/users/@me/` sets four booleans under `notification_settings`:
+`PATCH /api/users/@me/` sets notification preference booleans under `notification_settings`:
 
-| Key                                  | Controls                 |
-| ------------------------------------ | ------------------------ |
-| `mobile_push_enabled`                | All mobile notifications |
-| `mobile_push_tasks_enabled`          | Chat and task updates    |
-| `mobile_push_reports_enabled`        | New reports              |
-| `mobile_push_report_updates_enabled` | Report updates           |
+| Key                                  | Controls                     |
+| ------------------------------------ | ---------------------------- |
+| `mobile_push_enabled`                | All mobile notifications     |
+| `mobile_push_tasks_enabled`          | Legacy Chat and Loops switch |
+| `mobile_push_chat_enabled`           | Chat notifications           |
+| `mobile_push_loops_enabled`          | Loop notifications           |
+| `mobile_push_reports_enabled`        | New reports                  |
+| `mobile_push_report_updates_enabled` | Report updates               |
 
-All four default to `true`.
+New accounts default to `true`. Chat uses `mobile_push_chat_enabled` with `mobile_push_chat_attention_enabled`, `mobile_push_chat_mentions_enabled`, `mobile_push_chat_replies_enabled`, `mobile_push_chat_completions_enabled`, and `mobile_push_chat_pr_outcomes_enabled`. Reports use `mobile_push_report_updates_enabled` with `mobile_push_report_attention_enabled`, `mobile_push_report_completions_enabled`, `mobile_push_report_pr_ready_enabled`, and `mobile_push_report_pr_outcomes_enabled`. Both a feature's parent switch and its activity switch must allow delivery. New reports use `mobile_push_reports_enabled` separately. `thread_message` carries a recipient-specific `isMention` boolean.
+
+Loops use `mobile_push_loops_enabled`, alongside each loop's delivery configuration. Existing `mobile_push_tasks_enabled` opt-outs initialize both Chat and Loops to off. A PATCH from an older client containing that legacy key still updates both feature switches, unless the request explicitly supplies an individual feature switch. Changing Chat notifications in the new app leaves loop alerts unchanged.
+
+`mobile_push_snooze_enabled` controls local snooze reminders. The mobile app checks it alongside the master switch before scheduling and cancels pending reminders when it observes an opt-out. Other devices observe changes on their next foreground refresh.
+
+Cancellation payloads identify the initiating user with `cancelledByUserId`; that user does not receive the cancellation alert. Completed non-interactive report work with an already attached, new PR awaiting review uses the PR-ready alert for eligible reviewers who allow it, sharing the normal PR deduplication key. Other recipients still receive the completion alert. Interactive runs keep completion alerts separate because PR artefacts identify the run, not the turn that produced them.
 The delivery worker checks that the account is active, along with current preferences and access, before it sends a queued notification.
 Task notifications require current viewer access to the task resource when queued and when delivered.

@@ -16,10 +16,11 @@ const ADD_FACET_GROUP_TYPES = {
 
 export interface LogsFacetRailProps {
     id: string
+    stacked?: boolean
 }
 
 /** The logs viewer's facet rail, rendered entirely from the FACETS config (see facets.ts). */
-export function LogsFacetRail({ id }: LogsFacetRailProps): JSX.Element {
+export function LogsFacetRail({ id, stacked }: LogsFacetRailProps): JSX.Element {
     const { setFacetRailCollapsed } = useActions(logsViewerConfigLogic)
     const { visibleFacets } = useValues(facetPresenceLogic({ id }))
     const { facetNameSearch } = useValues(facetRailLogic({ id }))
@@ -27,6 +28,7 @@ export function LogsFacetRail({ id }: LogsFacetRailProps): JSX.Element {
 
     return (
         <FacetRail
+            stacked={stacked}
             product="logs"
             facets={visibleFacets}
             renderFacet={(facet, hidden) => <RailFacet id={id} facet={facet} hidden={hidden} />}

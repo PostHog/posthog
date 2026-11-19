@@ -2348,17 +2348,20 @@ export namespace Schemas {
         | "preset-13"
         | "preset-14"
         | "preset-15";
+    export type YAxisPosition2 = "auto" | "left" | "right";
     export type ResultCustomizationByValue = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
         customColor: string | null;
         hidden: boolean | null;
         label: string | null;
+        yAxisPosition: YAxisPosition2 | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
         hidden: boolean | null;
+        yAxisPosition: YAxisPosition2 | null;
     }>;
     export type YAxisScaleType = "log10" | "linear";
     export type TrendsFilter = Partial<{
@@ -2693,6 +2696,7 @@ export namespace Schemas {
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         showAnnotations: boolean | null;
         showLegend: boolean | null;
+        showSummaryOnDashboards: boolean | null;
         showTrendLines: boolean | null;
         showValuesOnSeries: boolean | null;
         useUdf: boolean | null;
@@ -5068,6 +5072,7 @@ export namespace Schemas {
         barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
+        colorBarsByCategory: boolean | null;
         goalLines: Array<GoalLine> | null;
         heatmap: HeatmapSettings | null;
         leftYAxisSettings: YAxisSettings | null;
@@ -5089,6 +5094,8 @@ export namespace Schemas {
         showYAxisBorder: boolean | null;
         stackBars100: boolean | null;
         valueLabelBackground: boolean | null;
+        valueLabelBackgroundColor: string | null;
+        valueLabelColor: string | null;
         valueLabelFontSize: number | null;
         valueLabelPosition: ValueLabelPosition | null;
         valueLabelRotation: number | null;
@@ -6013,14 +6020,14 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
-         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
          */
         history_limit_days: number | null;
     };
@@ -12073,6 +12080,7 @@ export namespace Schemas {
             api_version: string | null;
             supported_api_versions: Array<string>;
             file_name: string | null;
+            supports_table_discovery: boolean;
         }> | null;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
@@ -12310,6 +12318,18 @@ export namespace Schemas {
          * Whether this source supports per-column sync selection via `enabled_columns`.
          */
         supports_column_selection: boolean;
+        /**
+         * Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern.
+         */
+        supports_adding_tables: boolean;
+        /**
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
+         */
+        table_root: string | null;
+        /**
+         * Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path.
+         */
+        supports_table_discovery: boolean;
         /**
          * The name of the file a file upload source imports. Null for other sources or when it is unknown.
          */
@@ -16577,6 +16597,9 @@ export namespace Schemas {
         supports_webhooks: boolean;
         webhook_not_registered: boolean;
         supports_column_selection: boolean;
+        supports_adding_tables: boolean;
+        table_root: string | null;
+        supports_table_discovery: boolean;
         file_name: string | null;
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
@@ -17255,6 +17278,14 @@ export namespace Schemas {
          * * `serving` - Serving
          */
         access: RealtimeCohortsAccessEnum;
+        /**
+         * How many cohorts in this project have realtime on. Null when `access` is `off`.
+         */
+        cohorts_used: number | null;
+        /**
+         * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+         */
+        max_cohorts: number | null;
     };
     export type TeamRevenueAnalyticsConfig = Partial<{
         base_currency: BaseCurrencyEnum;
@@ -17270,6 +17301,7 @@ export namespace Schemas {
         campaign_name_mappings: MarketingAnalyticsCampaignNameMappings;
         custom_source_mappings: MarketingAnalyticsCustomSourceMappings;
         campaign_field_preferences: MarketingAnalyticsCampaignFieldPreferences;
+        recommendation_conversion_actions: Array<string>;
     }>;
     export type TeamCustomerAnalyticsPinnedAccountProperty = {
         /**
@@ -17299,6 +17331,7 @@ export namespace Schemas {
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
         email_utm_tags_enabled: boolean;
         email_utm_params: EmailUtmParams;
+        email_workflow_run_link_tag_enabled: boolean;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
         replay_vision_scan_rate_limit_per_day: number | null;
@@ -17767,6 +17800,10 @@ export namespace Schemas {
          * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
+        /**
+         * Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table.
+         */
+        flag_calls_only_in_flag_evaluations: boolean;
         /**
          * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
          */

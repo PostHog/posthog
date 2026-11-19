@@ -6,8 +6,8 @@ import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { CustomerIOImportModal } from '../../OptOuts/CustomerIOImportModal'
 import { OptOutCategories } from '../../OptOuts/OptOutCategories'
+import { ProviderImportModal } from '../../OptOuts/ProviderImportModal'
 import { workflowDataSuggestionsLogic } from '../suggestions/workflowDataSuggestionsLogic'
 import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 import { OnboardingWizardStepper } from './OnboardingWizardStepper'
@@ -127,7 +127,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                 {currentStep === 'opt-outs' && (
                     <>
                         <OptOutCategories />
-                        <CustomerIOImportModal />
+                        <ProviderImportModal />
                     </>
                 )}
                 {currentStep === 'sending-rules' && <WizardSendingRulesStep />}

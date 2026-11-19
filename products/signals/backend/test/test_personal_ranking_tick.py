@@ -217,6 +217,7 @@ class TestTickPair(_TickTest):
         self.create.side_effect = lambda **_: SimpleNamespace(
             choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=self._answer()))],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+            service_tier=None,
         )
         scoped_capture = MagicMock()
         self.capture = scoped_capture.return_value.__enter__.return_value

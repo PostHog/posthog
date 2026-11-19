@@ -362,25 +362,32 @@ class TestTransactionalEmail(APIBaseTest):
                 {},
                 {"X-PostHog-Integration": "django-anymail/13.1"},
                 202,
-                "django-anymail",
+                {"client": "django-anymail", "source": "api"},
             ),
-            ("user_agent", "send_email", {}, {"User-Agent": "PostHog-Node/5.9.1 (node v22)"}, 202, "posthog-node"),
+            (
+                "user_agent",
+                "send_email",
+                {},
+                {"User-Agent": "PostHog-Node/5.9.1 (node v22)", "X-PostHog-Migrated-From": "resend"},
+                202,
+                {"client": "posthog-node", "source": "api", "migrated_from": "resend"},
+            ),
             (
                 "header_over_user_agent",
                 "send_email",
                 {},
                 {"X-PostHog-Integration": "nodemailer/5.9.1", "User-Agent": "posthog-node/5.9.1"},
                 202,
-                "nodemailer",
+                {"client": "nodemailer", "source": "api"},
             ),
-            ("neither", "send_email", {}, {}, 202, "unknown"),
+            ("neither", "send_email", {}, {}, 202, {"client": "unknown", "source": "api"}),
             (
                 "malformed_header",
                 "send_email",
                 {},
                 {"X-PostHog-Integration": "Laravel 1.4", "User-Agent": "posthog-laravel/1.4.0"},
                 202,
-                "posthog-laravel",
+                {"client": "posthog-laravel", "source": "api"},
             ),
             (
                 "template_route",
@@ -388,7 +395,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {},
                 {"X-PostHog-Integration": "symfony-mailer/7.3.0"},
                 202,
-                "symfony-mailer",
+                {"client": "symfony-mailer", "source": "api"},
             ),
             (
                 "refused_send",
@@ -396,24 +403,69 @@ class TestTransactionalEmail(APIBaseTest):
                 {"to": "not-an-address"},
                 {"X-PostHog-Integration": "django-anymail/13.1"},
                 400,
-                "django-anymail",
+                {"client": "django-anymail", "source": "api"},
+            ),
+            (
+                "mcp_tool_call",
+                "send_email",
+                {},
+                {
+                    "User-Agent": "posthog/mcp-server; version: 1.0.0",
+                    "X-PostHog-Client": "mcp",
+                    "X-PostHog-Mcp-Client-Name": "Example Agent",
+                    "X-PostHog-Mcp-Client-Version": "2.1.0",
+                    "x-posthog-intent": "Send the password reset link to someone@example.com",
+                },
+                202,
+                {
+                    "client": "posthog",
+                    "source": "mcp",
+                    "mcp_client_name": "Example Agent",
+                    "mcp_client_version": "2.1.0",
+                    "mcp_intent": None,
+                },
+            ),
+            (
+                "personal_api_key_sender",
+                "send_email",
+                {},
+                {"User-Agent": "PostHog-Node/5.9.1 (node v22)"},
+                202,
+                {"client": "posthog-node", "source": "api", "auth_method": "user", "$set": None, "$set_once": None},
+                "personal_api_key",
             ),
         ]
     )
-    def test_records_the_client_that_made_the_send(
-        self, mock_post, _flag, capture, _name, route, extra_body, headers, expected_status, expected_client
+    def test_records_the_client_and_surface_that_made_the_send(
+        self,
+        mock_post,
+        _flag,
+        capture,
+        _name,
+        route,
+        extra_body,
+        headers,
+        expected_status,
+        expected,
+        sender="project_secret_api_key",
     ):
         pipeline, analytics = FakeCdpApi(), FakeAnalytics()
         mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+        if sender == "personal_api_key":
+            client = APIClient()
+            client.credentials(
+                HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['transactional_email:write'])}"
+            )
+        else:
+            client = self._psak_client(["transactional_email:write"])
 
-        response = self._send(
-            self._psak_client(["transactional_email:write"]), route, {**self.body, **extra_body}, headers=headers
-        )
+        response = self._send(client, route, {**self.body, **extra_body}, headers=headers)
 
         assert response.status_code == expected_status, response.json()
-        assert [event["client"] for event in analytics.properties_of("transactional email api send")] == [
-            expected_client
-        ]
+        assert [
+            {key: event.get(key) for key in expected}
+            for event in analytics.properties_of("transactional email api send")
+        ] == [expected]
 
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
@@ -722,7 +774,15 @@ class TestTransactionalEmail(APIBaseTest):
         key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
         assert queue.call_args_list == ([call(args=(self.team.id, str(key.id)), retry=False)] if detection_on else [])
 
-    def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
+    @parameterized.expand(
+        [
+            ("project_path", "/api/projects/{team_id}/messaging/send/email/"),
+            ("key_scoped_path", "/api/messaging/send/email/"),
+        ]
+    )
+    def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(
+        self, mock_post, _flag, _capture, _name, path
+    ):
         self._cdp_accepts(mock_post)
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
         env_sender = Integration.objects.create(
@@ -735,15 +795,33 @@ class TestTransactionalEmail(APIBaseTest):
         }
 
         for team_id in (self.team.id, env.id, self.team.id, env.id):
-            response = clients[team_id].post(
-                f"/api/projects/{team_id}/messaging/send/email/", self._code_send(), format="json"
-            )
+            response = clients[team_id].post(path.format(team_id=team_id), self._code_send(), format="json")
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
 
         workflow_ids = [call.args[0].split("/hog_flows/")[1].split("/")[0] for call in mock_post.call_args_list]
         assert workflow_ids[0] == workflow_ids[2]
         assert workflow_ids[1] == workflow_ids[3]
         assert workflow_ids[0] != workflow_ids[1]
+
+    @parameterized.expand(
+        [
+            ("send_session", "post", "/api/messaging/send/email/", "session"),
+            ("send_personal_api_key", "post", "/api/messaging/send/email/", "personal_api_key"),
+            ("uploads_session", "post", "/api/messaging/attachments/uploads/", "session"),
+            ("status_session", "get", "/api/messaging/emails/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/", "session"),
+            ("preferences_session", "post", "/api/messaging/preferences/", "session"),
+        ]
+    )
+    def test_key_scoped_routes_refuse_credentials_that_name_no_project(
+        self, mock_post, _flag, _capture, _name, method, route, credential
+    ):
+        client = self._sender_client("personal_api_key") if credential == "personal_api_key" else APIClient()
+        if credential == "session":
+            client.force_login(self.user)
+
+        response = getattr(client, method)(route, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)

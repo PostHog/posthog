@@ -16,6 +16,7 @@ from posthog.clickhouse.client.limit import (
     ConcurrencySlot,
     RateLimit,
     get_api_team_rate_limiter,
+    get_app_telemetry_queries_rate_limiter,
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, reset_query_tags, tag_queries
@@ -284,7 +285,13 @@ class TestRateLimit(SimpleTestCase):
 
         assert total_sleep_time <= 0.5  # Should not exceed retry_timeout
 
-    @parameterized.expand([(get_api_team_rate_limiter, 0.1005), (get_materialized_endpoints_rate_limiter, 0.134)])
+    @parameterized.expand(
+        [
+            (get_api_team_rate_limiter, 0.1005),
+            (get_materialized_endpoints_rate_limiter, 0.134),
+            (get_app_telemetry_queries_rate_limiter, 0.075),
+        ]
+    )
     def test_factory_retry_policy(self, factory: Callable[[], RateLimit], expected_wait: float) -> None:
         time_helper = TimeHelper()
         limiter = replace(factory(), get_time=time_helper.get_time, sleep=time_helper.sleep, allow_team_bypass=False)

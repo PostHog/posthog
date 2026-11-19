@@ -37,7 +37,10 @@ from products.tasks.backend.logic.services.warm import SandboxWarmer
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
-from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+    CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY,
+    TaskProcessingContext,
+)
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
@@ -379,8 +382,17 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
     assert _prewarmed_resume_needs_fresh_agent(context, prepared, sandbox, used_snapshot=True) is expected
 
 
-@pytest.mark.parametrize(("value", "expected"), [(None, "v1"), ("0", "v1"), ("1", "v2")])
-def test_modal_sandbox_backend_label(monkeypatch: pytest.MonkeyPatch, value: str | None, expected: str) -> None:
+@pytest.mark.parametrize(
+    ("value", "profile_value", "expected"),
+    [(None, None, "v2"), ("0", None, "v1"), ("1", False, "v2"), (None, False, "v1")],
+)
+def test_modal_sandbox_backend_label(
+    monkeypatch: pytest.MonkeyPatch, value: str | None, profile_value: bool | None, expected: str
+) -> None:
+    monkeypatch.setattr("modal.config._profile", "test")
+    monkeypatch.setattr(
+        "modal.config._user_config", {"test": {"sandbox_v2": profile_value}} if profile_value is not None else {}
+    )
     if value is None:
         monkeypatch.delenv("MODAL_SANDBOX_V2", raising=False)
     else:
@@ -1254,11 +1266,13 @@ def _create_and_record_agent_version(
     context: TaskProcessingContext | None = None,
     prepared: PrepareSandboxForRepositoryOutput | None = None,
     snapshot_restored: bool = False,
-) -> tuple[MagicMock, list[dict[str, str]]]:
+    extra_state: dict[str, str] | None = None,
+    image_fallback: str | None = None,
+) -> tuple[MagicMock, list[dict[str, str]], CreateSandboxForRepositoryOutput]:
     context = context or _context_for_desktop_bootstrap()
-    context.state = {"await_user_message": True}
+    context.state = {"await_user_message": True, **(extra_state or {})}
     sandbox = mocker.Mock(id="sandbox-id")
-    sandbox.config.image_fallback = None
+    sandbox.config.image_fallback = image_fallback
     sandbox.config.snapshot_restored = snapshot_restored
     sandbox.config.ttl_seconds = 60
     sandbox.start_cpu_billing_sampler.return_value = True
@@ -1297,7 +1311,7 @@ def _create_and_record_agent_version(
         for call in warning.call_args_list
         if call.args[0] == "Sandbox agent version differs from the pinned version"
     ]
-    return update_state, mismatch_extras
+    return update_state, mismatch_extras, result
 
 
 @pytest.mark.parametrize(
@@ -1338,7 +1352,7 @@ def test_create_sandbox_records_installed_agent_version(
     remove_keys: list[str],
     warns: bool,
 ) -> None:
-    update_state, mismatch_extras = _create_and_record_agent_version(mocker, manifest_result, pinned)
+    update_state, mismatch_extras, _ = _create_and_record_agent_version(mocker, manifest_result, pinned)
 
     update_state.assert_called_once_with("run-id", updates=updates, remove_keys=remove_keys)
     expected_extras = (
@@ -1374,7 +1388,7 @@ def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
             used_snapshot=True,
         )
 
-    update_state, mismatch_extras = _create_and_record_agent_version(
+    update_state, mismatch_extras, _ = _create_and_record_agent_version(
         mocker, _MANIFEST_1_2_3, "1.2.4", context=context, prepared=prepared, snapshot_restored=restored
     )
 
@@ -1390,7 +1404,41 @@ def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
         assert mismatch_extras == []
 
 
-def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
+@pytest.mark.parametrize(
+    ("extra_state", "image_fallback", "expected_reason"),
+    [
+        ({"custom_image_id": "image-id"}, None, None),
+        ({"custom_image_id": "image-id"}, "custom image custom:latest unavailable -> base image", "boot_failed"),
+        (
+            {"custom_image_id": "image-id"},
+            "custom image custom:latest with local package overlay -> custom image custom:latest",
+            None,
+        ),
+        ({}, "custom image custom:latest unavailable -> base image", None),
+    ],
+    ids=["custom_image_booted", "base_image_booted", "overlay_dropped", "environment_image_fell_back"],
+)
+def test_create_records_a_per_run_custom_image_boot_fallback(
+    mocker, extra_state: dict[str, str], image_fallback: str | None, expected_reason: str | None
+) -> None:
+    context = _context_for_desktop_bootstrap(image_name="custom:latest")
+    context.use_modal_vm_sandbox = True
+
+    update_state, _, result = _create_and_record_agent_version(
+        mocker, _MANIFEST_1_2_3, "1.2.3", context=context, extra_state=extra_state, image_fallback=image_fallback
+    )
+
+    reason_writes = [
+        call.kwargs["updates"]
+        for call in update_state.call_args_list
+        if CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY in call.kwargs.get("updates", {})
+    ]
+    assert reason_writes == ([{CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: expected_reason}] if expected_reason else [])
+    assert result.custom_image_fallback_reason == expected_reason
+
+
+@pytest.mark.parametrize("observe", [False, True])
+def test_create_reads_sandbox_launch_options_from_the_run_context(mocker, observe: bool):
     # The prepare output carries no template on purpose: a prepare activity claimed by an
     # older worker during a rolling deploy returns the old shape.
     context = TaskProcessingContext(
@@ -1402,7 +1450,9 @@ def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
         github_integration_id=123,
         repository="posthog/posthog",
         distinct_id="distinct-id",
-        state={"await_user_message": True, "sandbox_template": "autoresearch_base"},
+        state={"await_user_message": True, "sandbox_template": "default_base" if observe else "autoresearch_base"},
+        use_modal_vm_sandbox=observe,
+        agent_egress_observation_config="/run/egress/observation.json" if observe else None,
     )
     create = mocker.Mock(
         side_effect=SandboxRateLimitedError("Sandbox control plane is rate limited", {"operation": "create"})
@@ -1420,4 +1470,8 @@ def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
             CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
         )
 
-    assert create.call_args.args[0].template == SandboxTemplate.AUTORESEARCH_BASE
+    config = create.call_args.args[0]
+    assert config.template == (SandboxTemplate.VM_BASE if observe else SandboxTemplate.AUTORESEARCH_BASE)
+    assert config.agent_egress_observation is observe
+    assert config.outbound_domain_allowlist is None
+    assert config.block_network is False

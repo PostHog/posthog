@@ -9,7 +9,7 @@ from typing import Any, NamedTuple, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import BooleanField, F, Func, JSONField, Q, QuerySet, Value
 
 import structlog
 import posthoganalytics
@@ -180,6 +180,18 @@ def owned_alert_destination_ids(
     )
 
 
+def lock_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> None:
+    """Locks the alert's HogFunction destinations until the caller's transaction ends, so an edit
+    through the HogFunction API waits instead of landing between a read and a write."""
+    list(
+        owned_alert_destinations_qs(
+            team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
+        )
+        .select_for_update()
+        .values_list("id", flat=True)
+    )
+
+
 def list_owned_alert_destinations(
     *,
     team_id: int,
@@ -224,12 +236,59 @@ def configured_destination_template_ids(
     return frozenset(cast(Collection[str], template_ids))
 
 
+# An `alert_id` condition on event properties. A person or group condition reads other
+# properties, so it neither binds nor excludes the alert. A missing or null type is an event
+# filter, and a missing or null operator is `exact`, as the consumer reads them.
+_EVENT_ALERT_ID = '@.key == "alert_id" && (!(exists(@.type)) || @.type == null || @.type == "event")'
+_EXACT_OPERATOR = '(!(exists(@.operator)) || @.operator == null || @.operator == "exact")'
+# The consumer compares a list value by membership, and treats an empty list as no filter.
+_VALUE_IS_AN_ID = '(@.value.type() == "string" || (@.value.type() == "array" && exists(@.value[*])))'
+_VALUE_MATCHES_THIS_ALERT = (
+    '((@.value.type() == "string" && @.value == $alert_id)'
+    ' || (@.value.type() == "array" && exists(@.value[*] ? (@ == $alert_id))))'
+)
+# Only a single string id binds a function to one alert.
+_BOUND_TO_THIS_ALERT_PATH = (
+    f'$.properties[*] ? ({_EVENT_ALERT_ID} && {_EXACT_OPERATOR} && @.value.type() == "string" && @.value == $alert_id)'
+)
+# The consumer ANDs every property filter, so a second alert_id condition that this alert fails
+# (exact on other ids, or `is_not` this one) means the function never runs for it. Conditions
+# this alert passes, such as `is_not` another id, are kept.
+_EXCLUDES_THIS_ALERT_PATH = (
+    f"$.properties[*] ? ({_EVENT_ALERT_ID} && (({_EXACT_OPERATOR} && {_VALUE_IS_AN_ID}"
+    f' && !{_VALUE_MATCHES_THIS_ALERT}) || (@.operator == "is_not" && {_VALUE_MATCHES_THIS_ALERT})))'
+)
+
+
+def _alert_id_path_exists(path: str, alert_id: str) -> Func:
+    return Func(
+        F("filters"),
+        Value(path),
+        Value({"alert_id": alert_id}, output_field=JSONField()),
+        function="jsonb_path_exists",
+        output_field=BooleanField(),
+    )
+
+
 def _active_alert_destinations_qs(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> QuerySet[HogFunction]:
-    return owned_alert_destinations_qs(
-        team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
-    ).filter(enabled=True)
+    return (
+        owned_alert_destinations_qs(
+            team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
+        )
+        .annotate(
+            bound_to_this_alert=_alert_id_path_exists(_BOUND_TO_THIS_ALERT_PATH, alert_id),
+            excludes_this_alert=_alert_id_path_exists(_EXCLUDES_THIS_ALERT_PATH, alert_id),
+        )
+        .filter(
+            bound_to_this_alert=True,
+            excludes_this_alert=False,
+            type="internal_destination",
+            filters__source="internal-events",
+            enabled=True,
+        )
+    )
 
 
 def _raise_if_alert_already_has_these_destination_configs(

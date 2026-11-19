@@ -216,7 +216,7 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
 def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> bool:
     """Whether an enabled function takes the alert's events, bound to it on any template or unbound.
 
-    Wider than `count_active_alert_destinations`, which counts only known templates bound to the alert.
+    Includes unbound functions that `count_active_alert_destinations` does not count.
     """
     bound = (
         owned_alert_destinations_qs(

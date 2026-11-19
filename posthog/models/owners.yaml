@@ -5,6 +5,11 @@ rules:
       owners: team-product-analytics
     - match: '/activity_logging/'
       owners: team-platform-features
+    # Registering an activity-log tuning module is mechanical, and the activity log's owners
+    # reviewing every product's registration would put them back in the path of every tuning
+    # change. The repo invariant test beside this file is what keeps the list honest.
+    - match: '/activity_logging/activity_log_config_registry.py'
+      owners: null
     - match: '/ai/'
       owners: team-self-driving
     - match: '/ai_events/'
@@ -17,7 +22,7 @@ rules:
       owners: conversations
     - match: '/messaging.py'
       owners: team-workflows
-    - match: ['/oauth.py', '/oauth_provisioning_review.py']
+    - match: ['/oauth.py', '/oauth_provisioning_review.py', '/oauth_activity_log_config.py']
       owners: team-growth
     - match: '/person/'
       owners: team-ingestion

@@ -57,6 +57,7 @@ from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
+from products.stamphog.backend.logic.merge_approval import approving_run_at_head
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
 from products.stamphog.backend.logic.routing.service import RoutingBusy
@@ -944,35 +945,11 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
     else:
         # Writer pin: an auto-merge fires this webhook the instant GitHub records the approval, so
         # the APPROVED run post_verdict just committed may not have replicated to the reader yet.
-        approving_run = (
-            ReviewRun.objects.for_team(team_id)
-            .using(router.db_for_write(ReviewRun))
-            .filter(
-                pull_request=pr_obj,
-                verdict=ReviewVerdict.APPROVED,
-                head_sha=pr_head_sha,
-                # A dismissed approval is no longer stamphog's verdict — a same-head re-review may
-                # have voided it and then refused, and the digest must not brand that merge approved.
-                approval_dismissed_at__isnull=True,
-            )
-            .order_by("-created_at")
-            .first()
-        )
-    if approving_run is None and pr_head_sha:
-        # A retained approval covers a head that it was never posted at (see
-        # _record_retained_head). The diff at that head is byte-identical to the approved diff, so
-        # the merge is stamphog-approved.
-        approving_run = (
-            ReviewRun.objects.for_team(team_id)
-            .using(router.db_for_write(ReviewRun))
-            .filter(
-                pull_request=pr_obj,
-                verdict=ReviewVerdict.APPROVED,
-                approval_dismissed_at__isnull=True,
-                **{f"output__{RETAINED_HEADS_KEY}__contains": [pr_head_sha]},
-            )
-            .order_by("-created_at")
-            .first()
+        # A retained approval counts too: without it every retained merge would read as unapproved
+        # and drop out of the digest for good (see _record_retained_head).
+        approving_run = approving_run_at_head(
+            ReviewRun.objects.for_team(team_id).using(router.db_for_write(ReviewRun)).filter(pull_request=pr_obj),
+            pr_head_sha,
         )
 
     approved = approving_run is not None
@@ -1872,9 +1849,9 @@ def process_inbox_pr_review(
 
 
 _MANUAL_SKIP_MESSAGES = {
-    "draft": "Stamphog does not review draft pull requests. Mark the pull request as ready for review, then request again.",
-    "bot_author": "Stamphog does not review pull requests opened by bots. This change needs a human reviewer.",
-    "untrusted_author_association": "Stamphog only reviews pull requests from members and collaborators of the repository.",
+    "draft": "Auto-approval does not review draft pull requests. Mark the pull request as ready for review, then request again.",
+    "bot_author": "Auto-approval does not review pull requests opened by bots. This change needs a human reviewer.",
+    "untrusted_author_association": "Auto-approval only reviews pull requests from members and collaborators of the repository.",
 }
 
 # Transport-level GitHub failures. StamphogGitHubError is caught next to each call instead, because a
@@ -1886,7 +1863,7 @@ def _github_unavailable(repo: str, pr_number: int) -> ReviewRequestRefusedError:
     logger.warning("stamphog_manual_review_github_failed", repository=repo, pr_number=pr_number, exc_info=True)
     return ReviewRequestRefusedError(
         ReviewRequestRefusal.GITHUB_UNAVAILABLE,
-        "Stamphog could not reach GitHub to check this request. Try again in a minute.",
+        "Auto-approval could not reach GitHub to check this request. Try again in a minute.",
     )
 
 
@@ -1913,8 +1890,8 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     if repo_config is None:
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.NOT_FOUND,
-            f"Stamphog is not connected and enabled for {repository} in this project. "
-            "Connect the repository in Stamphog settings and turn on reviews first.",
+            f"Auto-approval is not connected and enabled for {repository} in this project. "
+            "Connect the repository in the auto-approval settings and turn on reviews first.",
         )
     repo = repo_config.repository
     try:
@@ -1930,7 +1907,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     if (pr.get("state") or "") != "open":
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.NOT_REVIEWABLE,
-            f"Pull request #{pr_number} is closed, so Stamphog will not review it.",
+            f"Pull request #{pr_number} is closed, so auto-approval will not review it.",
         )
     skip_reason = _review_skip_reason(pr)
     if skip_reason is not None:
@@ -1943,7 +1920,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.NOT_REVIEWABLE,
             f"The author of pull request #{pr_number} does not have write access to {repo}, "
-            "so Stamphog will not review it.",
+            "so auto-approval will not review it.",
         )
 
     queued = _queue_review_at_head(

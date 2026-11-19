@@ -22,6 +22,7 @@ def is_releases_enabled(
     distinct_id: str,
     email: str | None,
     raise_on_error: bool = False,
+    only_evaluate_locally: bool = False,
 ) -> bool:
     try:
         enabled = posthoganalytics.feature_enabled(
@@ -30,7 +31,7 @@ def is_releases_enabled(
             groups={"organization": str(organization_id), "project": str(team_uuid)},
             person_properties={"email": email},
             group_properties={"organization": {"id": str(organization_id)}, "project": {"id": team_id}},
-            only_evaluate_locally=False,
+            only_evaluate_locally=only_evaluate_locally,
             send_feature_flag_events=False,
         )
     except Exception:

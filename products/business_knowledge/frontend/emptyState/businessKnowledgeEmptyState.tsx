@@ -32,13 +32,13 @@ export const businessKnowledgeEmptyState: SceneProductEmptyState = {
         hedgehog: HedgehogReading,
         text: {
             'needs-setup': {
-                headline: 'Give your agents the context your team already has',
-                lead: 'PostHog AI, the support agent, and agents connected through the PostHog MCP server search this knowledge before they answer. Add your pricing, policies, and product docs so their answers follow how your business works.',
+                headline: 'Give the agents you build your business knowledge',
+                lead: 'Add your docs, pricing, and policies once. Then connect a support agent, a help desk, or any other agent you build, and it answers from that knowledge. PostHog AI and the PostHog support agent use it too.',
             },
         },
         SetupCard: BusinessKnowledgeSetupCard,
         skippable: false,
-        previewLabel: 'Your agents, once they know your business',
+        previewLabel: 'Example: your agents answering from your knowledge',
         Preview: BusinessKnowledgePreview,
     },
 }

@@ -24,10 +24,13 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    DISAPPROVED,
+    LIMITED_APPROVALS,
     Ad,
     CampaignStats,
     KeywordTracking,
     OrganicQueryStats,
+    PolicyAds,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
@@ -170,6 +173,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         ranking_pages=ranking_pages,
                         keyword_tracking=self._keyword_tracking(source),
                         ads=tuple(self._ads(source)),
+                        policy_ads=tuple(self._policy_ads(source)),
                         customer_id=self._customer_id(source),
                     )
                 )
@@ -505,24 +509,46 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             return []
         rows = self._select(
             """
-            SELECT toString(ad_group_id), {headlines}, {descriptions}, {plain}
+            SELECT toString(ad_group_id), {headlines}, {descriptions}, toString(campaign_id), {final_urls}, {plain}
             FROM {table}
             WHERE ad_group_ad_status = 'ENABLED'
             """,
             source.adTable,
             headlines=self._field(source.adTable, "ad_group_ad_ad_responsive_search_ad_headlines"),
             descriptions=self._field(source.adTable, "ad_group_ad_ad_responsive_search_ad_descriptions"),
+            final_urls=self._field(source.adTable, "ad_group_ad_ad_final_urls"),
             # Expanded text ads still serve next to responsive ones, so their text is part of the ad group's copy too.
             plain=ast.Array(exprs=[self._field(source.adTable, field) for field in PLAIN_AD_TEXT_FIELDS]),
         )
         return [
             Ad(
                 ad_group_id=row[0],
-                texts=(*_asset_texts(row[1]), *_asset_texts(row[2]), *(text for text in row[3] if text)),
+                texts=(*_asset_texts(row[1]), *_asset_texts(row[2]), *(text for text in row[5] if text)),
+                campaign_id=row[3],
+                final_urls=_json_strings(row[4]),
             )
             for row in rows
             if row[0]
         ]
+
+    def _policy_ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[PolicyAds]:
+        if not source.adTable or not self._readable(source.adTable):
+            return []
+        # Counted in the query, so the row limit on the ad list never cuts a campaign's totals.
+        rows = self._select(
+            """
+            SELECT toString(campaign_id), countIf({status} = {disapproved}), countIf(has({limited}, {status}))
+            FROM {table}
+            WHERE ad_group_ad_status = 'ENABLED'
+            GROUP BY campaign_id
+            HAVING countIf({status} = {disapproved}) + countIf(has({limited}, {status})) > 0
+            """,
+            source.adTable,
+            status=self._field(source.adTable, "ad_group_ad_policy_summary_approval_status"),
+            disapproved=ast.Constant(value=DISAPPROVED),
+            limited=ast.Array(exprs=[ast.Constant(value=status) for status in sorted(LIMITED_APPROVALS)]),
+        )
+        return [PolicyAds(campaign_id=row[0], disapproved=int(row[1]), limited=int(row[2])) for row in rows]
 
     def _organic_queries(self, source: MarketingAnalyticsRecommendationsSource) -> list[OrganicQueryStats]:
         if not source.queryTable or not self._readable(source.queryTable):
@@ -609,6 +635,14 @@ def _asset_texts(value: str | None) -> tuple[str, ...]:
     except (ValueError, TypeError):
         return ()
     return tuple(text for asset in parsed if isinstance(asset, dict) and (text := asset.get("text")))
+
+
+def _json_strings(value: str | None) -> tuple[str, ...]:
+    try:
+        parsed = json.loads(value) if value else []
+    except ValueError:
+        return ()
+    return tuple(item for item in parsed if isinstance(item, str) and item) if isinstance(parsed, list) else ()
 
 
 def _parse_reasons(value: str | None) -> tuple[str, ...]:

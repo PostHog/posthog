@@ -21,6 +21,7 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import ClientCredentials, extract_client_credentials, verify_client_secret
+from posthog.api.oauth.provisioning_review import ORGANIZATION_LINK_REQUIRED_MESSAGE
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL, account_refused
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
@@ -214,7 +215,7 @@ class ProvisioningAuthentication(ActivityCredentialMixin, BaseAuthentication):
         except OAuthApplication.DoesNotExist:
             return None
 
-        if not app.is_provisioning_partner or not app.provisioning.active:
+        if not app.is_provisioning_partner or not app.provisioning_allowed:
             return None
 
         if app.is_cimd_client:
@@ -246,6 +247,19 @@ class ProvisioningAuthentication(ActivityCredentialMixin, BaseAuthentication):
         return self._resolve_partner(client_id)
 
 
+def require_usable_bearer_partner(app: OAuthApplication | None) -> OAuthApplication:
+    """The partner behind a bearer token, or a refusal that says why it cannot use the partner endpoints."""
+    if app is None or not app.is_provisioning_partner:
+        raise ProvisioningError("unauthorized", "Authentication failed", status=401)
+    if app.needs_organization_link:
+        raise ProvisioningError("unauthorized", ORGANIZATION_LINK_REQUIRED_MESSAGE, status=401)
+    if not app.provisioning.active:
+        raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
+    if app.cannot_meet_provisioning_signature:
+        raise ProvisioningError("unauthorized", PRIVATE_KEY_REQUIRED_MESSAGE, status=401)
+    return app
+
+
 class ProvisioningBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """Authenticate a provisioning partner via an OAuth bearer token, for the
     resource and deep-link endpoints.
@@ -265,14 +279,7 @@ class ProvisioningBearerAuthentication(ActivityCredentialMixin, BaseAuthenticati
         # The token must belong to an active provisioning partner's app. An app that was never
         # a partner, or has been un-flagged as one, must fail closed here rather than having
         # its outstanding access tokens still reach the resource and deep-link endpoints.
-        app = access_token.application
-        if app is None or not app.is_provisioning_partner:
-            raise ProvisioningError("unauthorized", "Authentication failed", status=401)
-
-        if not app.provisioning.active:
-            raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
-        if app.cannot_meet_provisioning_signature:
-            raise ProvisioningError("unauthorized", PRIVATE_KEY_REQUIRED_MESSAGE, status=401)
+        app = require_usable_bearer_partner(access_token.application)
         if not app.provisioning.can_provision_resources:
             raise ProvisioningError("forbidden", "Resource provisioning not enabled for this partner", status=403)
 

@@ -1959,7 +1959,6 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                     query=scanner.targeted_recordings_query(),
                     # The exposure filter's access check runs as whoever is asking Max.
                     user=self._user,
-                    sampling_mode=scanner.sampling_mode,
                     ch_user=ClickHouseUser.REPLAY_VISION,
                     budget=PREVIEW_ESTIMATE_BUDGET,
                 )

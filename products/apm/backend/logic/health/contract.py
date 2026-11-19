@@ -34,7 +34,7 @@ class HealthRow:
 @dataclass(frozen=True)
 class ServiceHealth:
     service_name: str
-    environment: str
+    environment: str | None
     health: HealthRow
     status: HealthStatus = HealthStatus.GOOD
     sparkline: tuple[int, ...] = ()
@@ -42,13 +42,20 @@ class ServiceHealth:
 
 @dataclass(frozen=True)
 class EndpointHealth:
-    """One entry span name in one service: a route, an RPC, a consumed message, or a job."""
+    """One entry span in one service: a route, an RPC, a consumed message, or a job.
+
+    The endpoint is the span name, or "<METHOD> <route>" when the span name is only an HTTP method.
+    span_name, route_attribute and route are what the tracing filters need to find the same spans.
+    """
 
     service_name: str
     endpoint: str
-    environment: str
+    environment: str | None
     health: HealthRow
     status: HealthStatus = HealthStatus.GOOD
+    span_name: str = ""
+    route_attribute: str | None = None
+    route: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,26 @@ class ServiceEdge:
     caller: str
     callee: str
     calls: int
+    error_count: int
+    p95_ms: float | None
+
+
+class DependencyKind(LabeledStrEnum):
+    SERVICE = "service"
+    DATABASE = "database"
+    QUEUE = "queue"
+    EXTERNAL = "external"
+
+
+@dataclass(frozen=True)
+class DependencyEdge:
+    """Calls from a service into a dependency: another service, or one inferred from client span attributes."""
+
+    caller: str
+    callee: str
+    inferred: bool
+    kind: DependencyKind
+    requests: int
     error_count: int
     p95_ms: float | None
 

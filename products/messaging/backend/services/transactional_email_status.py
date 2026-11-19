@@ -55,6 +55,8 @@ def is_keyed_message_id(message_id: UUID) -> bool:
     return message_id.version == 5
 
 
+# The events cluster has no email_status table, so a project that reads events_json still looks a send up here.
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def message_created_at(
     team_id: int, message_id: UUID, workload: Workload, lag_fallback_table: str | None = None
 ) -> datetime | None:

@@ -55,6 +55,7 @@ import {
     type MCPRequestContext,
     type MCPSessionContext,
 } from './mcp-context'
+import { resolveProjectSecretKeyProjectId } from './project-secret-key-project'
 import { RequestContext } from './request-context'
 import type { ToolCatalog } from './tool-catalog'
 
@@ -201,6 +202,15 @@ export class RequestStateResolver {
         const requestContext = buildMCPRequestContext(props)
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext, lookups)
 
+        const usesProjectSecretKey = classifyAuthMethod(props.apiToken) === 'project_secret_key'
+        if (usesProjectSecretKey) {
+            // The key decides the project. An ID the caller sent is dropped, so it cannot pin another one.
+            props.projectId = await resolveProjectSecretKeyProjectId(props, reqCtx.tokenCache)
+            props.organizationId = undefined
+            requestContext.projectId = props.projectId
+            requestContext.organizationId = undefined
+        }
+
         const { features, tools, organizationId, projectId, readOnly } = props
         const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
         reqCtx.setPinnedContext(pinned)
@@ -239,7 +249,6 @@ export class RequestStateResolver {
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const usesProjectSecretKey = classifyAuthMethod(props.apiToken) === 'project_secret_key'
         const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
             usesProjectSecretKey
                 ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })

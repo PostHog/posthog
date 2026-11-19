@@ -14,7 +14,8 @@ import type {
 } from 'products/surveys/frontend/generated/api.schemas'
 
 const FIRST_POLL_DELAY_MS = 2000
-const MAX_POLL_DELAY_MS = 15_000
+// Renders usually land 10-40s in, so a long gap between polls would leave a finished snapshot unseen.
+const MAX_POLL_DELAY_MS = 3000
 // The export workflow retries a failed render with backoff, so a snapshot can land minutes after the first try.
 const GIVE_UP_AFTER_MS = 5 * 60_000
 

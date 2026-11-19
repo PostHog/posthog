@@ -29,6 +29,7 @@ from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
+    SandboxNotRunningError,
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
@@ -58,15 +59,19 @@ from .local_skills import (
     snapshot_local_task_skills,
 )
 from .sandbox import (
+    LIST_DIR_MISSING_EXIT_CODE,
     WORKING_DIR,
     AgentServerResult,
     ExecutionResult,
     ExecutionStream,
     SandboxConfig,
+    SandboxDirEntry,
     SandboxStatus,
     SandboxTemplate,
     build_agent_runtime_env_prefix,
     build_subscription_flags,
+    list_dir_command,
+    parse_list_dir_output,
     parse_sandbox_repo_mount_map,
     read_pinned_agent_version,
     redact_sandbox_command,
@@ -1032,6 +1037,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
+            f"POSTHOG_AGENT_STATE_DIR={shlex.quote(f'{WORKING_DIR}/.posthog/agent-state')} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
@@ -1250,12 +1256,6 @@ class DockerSandbox(AgentServerLaunchMixin):
             self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
         )
 
-    def read_agent_server_session_init_ms(self) -> int | None:
-        return self._read_health_session_init_ms(AGENT_SERVER_PORT)
-
-    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
-        return self._read_health_boot_phases_ms(AGENT_SERVER_PORT)
-
     def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
         return self._read_health_boot_metrics(AGENT_SERVER_PORT)
 
@@ -1329,6 +1329,38 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING
+
+    def _raise_unless_running(self) -> None:
+        if not self.is_running():
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
+        self._raise_unless_running()
+        result = self.execute(list_dir_command(path, limit))
+        if result.exit_code == LIST_DIR_MISSING_EXIT_CODE:
+            return None
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Failed to list directory",
+                {"sandbox_id": self.id, "path": path, "stderr": result.stderr[:500]},
+                cause=RuntimeError(result.stderr[:500]),
+            )
+        return parse_list_dir_output(result.stdout)
+
+    def read_file(self, path: str, max_bytes: int) -> bytes | None:
+        self._raise_unless_running()
+        quoted = shlex.quote(path)
+        result = self.execute(
+            f"test -f {quoted} && test ! -L {quoted} && [ $(stat -c %s {quoted}) -le {max_bytes} ] || exit 3; "
+            f"set -o pipefail; head -c {max_bytes + 1} -- {quoted} | base64 -w0"
+        )
+        if result.exit_code != 0:
+            return None
+        return base64.b64decode(result.stdout.strip())
 
     @property
     def name(self) -> str:

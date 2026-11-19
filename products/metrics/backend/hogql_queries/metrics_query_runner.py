@@ -7,8 +7,9 @@ bypasses the facade, so the viewer, MCP tools, and insights all share one
 query path.
 """
 
-from contextlib import nullcontext
-from functools import partial
+from contextlib import AbstractContextManager, nullcontext
+from datetime import datetime
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.schema import (
@@ -28,8 +29,10 @@ from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
+from posthog.clickhouse.client.limit import QueryLane
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
@@ -76,6 +79,8 @@ from products.metrics.backend.variables import (
 
 if TYPE_CHECKING:
     from posthog.models import User
+
+DASHBOARD_V2_FEATURE_FLAG = "dashboard-v2"
 
 
 class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
@@ -154,7 +159,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         return payload
 
     def _to_request(self) -> MetricQueryRequest:
-        date_range = metrics_query_date_range(self.team, self.query.dateRange)
+        date_range = self._date_range
         clauses = tuple(
             MetricQueryClause(
                 name=clause.name,
@@ -179,15 +184,16 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                     for g in clause.groupBy or []
                 ),
                 quantile=clause.quantile,
+                apdex_threshold_ms=clause.apdexThresholdMs,
             )
             for clause in self.query.clauses
         )
         return MetricQueryRequest(
             clauses=clauses,
-            date_from=date_range.date_from(),
+            date_from=self._date_from,
             date_to=date_range.date_to(),
             interval=resolve_query_interval(
-                self.query.interval, from_query(self.query.variables), date_range.date_from(), date_range.date_to()
+                self.query.interval, from_query(self.query.variables), self._date_from, date_range.date_to()
             ),
             formula=self.query.formula,
         )
@@ -206,8 +212,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                 )
             self.query.clauses = clauses
             return run_metric_query(team=self.team, request=self._to_request())
-        date_range = metrics_query_date_range(self.team, self.query.dateRange)
-        date_from, date_to = date_range.date_from(), date_range.date_to()
+        date_from, date_to = self._date_from, self._date_range.date_to()
         interval = resolve_query_interval(self.query.interval, variables, date_from, date_to)
         if language == MetricsQueryLanguage.PROMQL:
             if not (self.query.promql or "").strip():
@@ -233,7 +238,52 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             self._load_all_options(dashboard_id)
         except ValueError as exc:
             raise ExposedHogQLError(str(exc)) from exc
+        if self._query_lane(dashboard_id) == QueryLane.TELEMETRY:
+            # The telemetry slots don't cover the events cluster, so resolve an `all` range here and the run reads its
+            # earliest event from cache.
+            try:
+                with self._earliest_event_slot(dashboard_id):
+                    _ = self._date_from
+            except ValueError as exc:
+                raise ExposedHogQLError(str(exc)) from exc
         return super()._call_with_rate_limits(dashboard_id=dashboard_id)
+
+    def _query_lane(self, dashboard_id: int | None) -> QueryLane:
+        # Stored metrics read Snuffle and the metrics tables, so the events-cluster slots protect nothing there.
+        # A derived metric scans spans or logs on the events cluster, so it keeps the analytics slots.
+        if dashboard_id is not None and self._dashboard_v2_enabled and not self._reads_derived_metrics:
+            return QueryLane.TELEMETRY
+        return QueryLane.ANALYTICS
+
+    def _earliest_event_slot(self, dashboard_id: int | None) -> AbstractContextManager[None]:
+        # `all` looks up the earliest event on the events cluster, so it takes the analytics slots.
+        if self.query.dateRange and self.query.dateRange.date_from == "all":
+            return query_concurrency_slots(self.team, dashboard_id=dashboard_id, query_lane=QueryLane.ANALYTICS)
+        return nullcontext()
+
+    @cached_property
+    def _date_range(self) -> QueryDateRange:
+        return metrics_query_date_range(self.team, self.query.dateRange)
+
+    @cached_property
+    def _date_from(self) -> datetime:
+        # Resolved once per runner: an `all` range looks up the earliest event, and a team with no events isn't cached.
+        return self._date_range.date_from()
+
+    @cached_property
+    def _reads_derived_metrics(self) -> bool:
+        return bool(derived_metric_resources(clause.metricName for clause in self.query.clauses))
+
+    @cached_property
+    def _dashboard_v2_enabled(self) -> bool:
+        # `dashboard-v2` is aggregated by project, so the distinct id doesn't decide it.
+        return posthog_feature_flag_enabled(
+            DASHBOARD_V2_FEATURE_FLAG,
+            str(getattr(self.user, "distinct_id", None) or self.team.uuid),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            only_evaluate_locally=True,
+        )
 
     def _load_all_options(self, dashboard_id: int | None = None) -> dict[str, Variable]:
         if self._loaded_variables is None:
@@ -241,11 +291,14 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             variables = from_query(self.query.variables)
             definitions = query_definitions(self.query.variables)
             if definitions and self.query.language == MetricsQueryLanguage.SQL:
-                slot = partial(query_concurrency_slots, self.team, dashboard_id=dashboard_id)
-                date_range = metrics_query_date_range(self.team, self.query.dateRange)
-                # `all` looks up the earliest event, which is a query, so it counts against the same limits.
-                with slot() if self.query.dateRange and self.query.dateRange.date_from == "all" else nullcontext():
-                    date_from, date_to = date_range.date_from(), date_range.date_to()
+                slot = partial(
+                    query_concurrency_slots,
+                    self.team,
+                    dashboard_id=dashboard_id,
+                    query_lane=self._query_lane(dashboard_id),
+                )
+                with self._earliest_event_slot(dashboard_id):
+                    date_from, date_to = self._date_from, self._date_range.date_to()
                 variables = fill_all_values(
                     team=self.team,
                     names=sql_referenced_names(self.query.sql),

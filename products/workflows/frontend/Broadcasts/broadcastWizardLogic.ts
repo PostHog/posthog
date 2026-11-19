@@ -2476,10 +2476,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.saveBroadcastFinished(saved)
 
                     // A fresh audience preview mints the confirm token the batch dispatch expects.
-                    const blastRadius = await hogFlowsUserBlastRadiusCreate(
-                        projectId,
-                        audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit)
-                    )
+                    const blastRadius = await hogFlowsUserBlastRadiusCreate(projectId, {
+                        ...audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit),
+                        refresh: true,
+                    })
 
                     // The resolver silently caps the batch at this limit, so dispatching an audience over
                     // it would confirm N recipients and deliver to the first slice. Stop at the step that

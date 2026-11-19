@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-16 10:04:51 UTC
+// Generated at: 2026-11-17 20:01:49 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -19,6 +19,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
     | 'amazon-bedrock-us-west-2'
+    | 'ambient-fp4'
     | 'ambient-fp8'
     | 'antdigital-fp8'
     | 'anthropic'
@@ -155,10 +156,13 @@ export type CanonicalProvider =
     | 'modal-fp4'
     | 'modal-mxfp4'
     | 'modal-nvfp4'
+    | 'modelrun-bf16'
+    | 'modelrun-fp4'
     | 'moonshotai'
     | 'moonshotai-highspeed'
     | 'moonshotai-mxfp4'
     | 'morph-bf16'
+    | 'morph-fast'
     | 'morph-fp8'
     | 'morph-us'
     | 'near-ai'
@@ -194,8 +198,8 @@ export type CanonicalProvider =
     | 'parasail-fp4'
     | 'parasail-fp8'
     | 'parasail-int4'
-    | 'pareto-alpha-us'
     | 'particle-ai-nvfp4'
+    | 'particle-ai-nvfp4-flex'
     | 'particle-ai-us'
     | 'particle-ai-us-flex'
     | 'perceptron'

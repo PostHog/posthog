@@ -188,10 +188,11 @@ def select_from_persons_table(
         # Skip aggregate, DISTINCT, and window-function selects too: they must see every person, and
         # the executor stamps a default LIMIT on every query, so pushing it down would cap
         # e.g. `SELECT count() FROM persons` at the page size instead of counting the whole team.
-        # HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
+        # JOIN, HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
         # rows after deduplication, so they need the full person set as well.
         can_push_to_inner = (
             node.select_from
+            and not node.select_from.next_join
             and node.select_from.type
             and hasattr(node.select_from.type, "table")
             and node.select_from.type.table

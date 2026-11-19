@@ -1,0 +1,112 @@
+name: Dependency scan
+
+on:
+    pull_request:
+        paths:
+            - '**/pnpm-lock.yaml'
+            - '**/uv.lock'
+            - '**/Cargo.lock'
+            - '**/go.mod'
+            - .github/scripts/dependency_scan.py
+            - .github/scripts/dependency_scan.py.lock
+            - .github/scripts/post-dependency-scan-section.mjs
+            - .github/workflows/dependency-scan.yml
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+    scan:
+        name: Scan changed dependencies
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        permissions: {}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  fetch-depth: 2
+                  filter: blob:none
+                  sparse-checkout: |
+                      .github/scripts/dependency_scan.py
+                      .github/scripts/dependency_scan.py.lock
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Scan added and changed packages
+              env:
+                  SARIF_FILE: dependency-scan/guarddog.sarif
+                  FINDINGS_FILE: dependency-scan/findings.json
+              run: |
+                  mkdir -p dependency-scan
+                  uv run --frozen --script .github/scripts/dependency_scan.py
+
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ !cancelled() }}
+              with:
+                  name: dependency-scan
+                  path: dependency-scan/
+                  if-no-files-found: ignore
+                  retention-days: 1
+
+    code-scanning:
+        name: Upload the scan to code scanning
+        needs: scan
+        if: github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            security-events: write
+        steps:
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: dependency-scan
+
+            - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+              with:
+                  sarif_file: guarddog.sarif
+                  category: guarddog
+
+    # hogli-lint: not-a-required-gate — reads the scan result only to pick the CI report message
+    report:
+        name: Post the scan to the CI report
+        needs: scan
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/') }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/post-dependency-scan-section.mjs
+                      frontend/bin/ci-report
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              continue-on-error: true
+              with:
+                  name: dependency-scan
+                  path: ${{ runner.temp }}/dependency-scan
+
+            - name: Post the scan to the CI report
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  FINDINGS_FILE: ${{ runner.temp }}/dependency-scan/findings.json
+                  SCAN_RESULT: ${{ needs.scan.result }}
+              run: node .github/scripts/post-dependency-scan-section.mjs
