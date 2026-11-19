@@ -1984,13 +1984,19 @@ class FeatureFlagSerializer(
         if not checked_ids:
             return
 
-        flags = FeatureFlag.objects.filter(id__in=checked_ids, team__project_id=self.context["project_id"])
-        readable_ids = set(self._readable_flags(flags).values_list("id", flat=True))
+        readable = list(
+            self._readable_flags(
+                FeatureFlag.objects.filter(id__in=checked_ids, team__project_id=self.context["project_id"])
+            )
+            .only("id", "key", "evaluation_runtime")
+            .order_by("key")
+        )
+        readable_ids = {dependency.id for dependency in readable}
         # A flag the caller cannot read looks missing. This covers a stored dependency too, but only when the
         # runtime changes: an unrelated edit does not check stored dependencies, so it saves.
         if hidden_ids := checked_ids - readable_ids:
             raise _missing_dependency_error(min(hidden_ids))
-        for dependency in flags.only("id", "key", "evaluation_runtime").order_by("key"):
+        for dependency in readable:
             if _runtime_supports_dependency(runtime, dependency.evaluation_runtime):
                 continue
             # A dependency the flag already stores fails only because this write changes the runtime.
@@ -2018,7 +2024,7 @@ class FeatureFlagSerializer(
         if view_access_control is not None:
             return view_access_control
         user = getattr(self.context.get("request"), "user", None)
-        if user is None or user.is_anonymous:
+        if user is None:
             return None
         team: Optional[Team]
         if "get_team" in self.context or "team_id" in self.context or self.instance is not None:
@@ -2031,9 +2037,7 @@ class FeatureFlagSerializer(
         """Narrow a flag queryset to the flags the caller can read, as the retrieve and keys endpoints do."""
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if user is None:
-            return queryset
-        if user.is_anonymous:
+        if user is not None and user.is_anonymous:
             return queryset.none()
         access_control = self._read_access_control
         if access_control is None:
