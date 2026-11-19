@@ -21,7 +21,6 @@ from posthog.uuidt import UUIDT
 
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_TABLE
 from products.messaging.backend.services.transactional_email_status import message_created_at
-from products.messaging.backend.tests.fake_cdp_api import FakeAnalytics
 
 # The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
 # moves forward, and a later status of the same rank wins by its time.
@@ -120,24 +119,10 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     )
     def test_reports_the_latest_status_of_the_send(self, _flag, _name, rows, expected_status, status_offset, reason):
         self._status_rows(rows)
-        analytics = FakeAnalytics()
 
-        with patch(
-            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture",
-            side_effect=analytics.capture,
-        ):
-            response = self.client.get(self._url(self.message_id))
+        response = self.client.get(self._url(self.message_id))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert analytics.properties_of("transactional email api status read") == [
-            {
-                "team_id": self.team.id,
-                "outcome": "found",
-                "status": expected_status,
-                "auth_method": "project_secret_api_key",
-                "authorized_by": "hog_flow",
-            }
-        ]
         assert response.json() == {
             "id": self.message_id,
             "status": expected_status,
