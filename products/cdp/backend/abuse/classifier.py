@@ -50,8 +50,11 @@ QUESTIONS: dict[str, DecisionQuestion] = {
     ),
     "malformed_payload": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
-        instructions=f"{_FRAMING} Does the function build malformed, oversized, or probing payloads that are meant "
-        "to break, crash, or test the limits of the systems that process them later?",
+        instructions=f"{_FRAMING} Does the function build payloads that are meant to break, crash, or test the "
+        "limits of the systems that process them later? Examples are malformed JSON, huge or deeply nested "
+        "structures, invalid encodings, and boundary or fuzzing values. Answer yes only when the structure, size, "
+        "encoding or values of the payload are chosen for that. Message text that only describes security events, "
+        "attacks, probing or abuse is ordinary content, not a probing payload.",
     ),
     "runtime_escape": DecisionQuestion(
         type=DecisionQuestionType.NOUL,

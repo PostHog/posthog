@@ -16,6 +16,7 @@ filters:
         - Dockerfile
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - 'products/*/backend/facade/temporal.py'
         - pyproject.toml
         - bin/temporal-django-worker
         - 'posthog/clickhouse/migrations/**'
@@ -27,6 +28,7 @@ filters:
         - 'products/warehouse_sources/sources/**'
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - 'products/*/backend/facade/temporal.py'
         - pyproject.toml
         - bin/temporal-django-worker
         - 'posthog/clickhouse/migrations/**'
@@ -53,6 +55,7 @@ filters:
         - 'posthog/clickhouse/**'
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - 'products/*/backend/facade/temporal.py'
         - 'posthog/settings/temporal.py'
         - posthog/schema.py
         - 'posthog/models/**'
@@ -187,6 +190,7 @@ filters:
         - 'posthog/kafka_client/routing.py'
         - 'posthog/kafka_client/topics.py'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - 'products/*/backend/facade/temporal.py'
         - 'posthog/settings/**'
         - posthog/schema.py
         - 'posthog/models/**'
@@ -215,6 +219,7 @@ filters:
         - 'posthog/clickhouse/**'
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - 'products/*/backend/facade/temporal.py'
         - posthog/schema.py
         - posthog/schema_discriminators.py
         - posthog/raw_sessions_v3_ad_ids.py
@@ -443,6 +448,7 @@ filters:
         - 'posthog/clickhouse/**'
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - 'products/*/backend/facade/temporal.py'
         - posthog/management/commands/__init__.py
         - 'posthog/settings/**'
         - ee/settings.py
@@ -769,6 +775,7 @@ filters:
         - ee/clickhouse/materialized_columns/__init__.py
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - 'products/*/backend/facade/temporal.py'
         - posthog/management/commands/__init__.py
         - 'posthog/settings/**'
         - ee/settings.py
@@ -929,6 +936,7 @@ filters:
         - 'posthog/clickhouse/**'
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - 'products/*/backend/facade/temporal.py'
         - posthog/management/commands/__init__.py
         - 'posthog/settings/**'
         - ee/settings.py

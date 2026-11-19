@@ -1,8 +1,11 @@
-import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import { useValues } from 'kea'
+
+import { Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { LANE_CARD_CLASS, ReleaseLaneCard } from './ReleaseLaneCard'
 import { Lane, SPAN_LOOK, Scale, spanWidth, x } from './releaseTracks'
 import { ReleaseSpan } from './releaseUtils'
@@ -26,15 +29,24 @@ export function ReleaseTrackSpan({
     stickyOffset?: number
     lane?: Lane
 }): JSX.Element | null {
+    const { flagActivity, failedFlagIds } = useValues(releaseCalendarLogic)
     const left = x(span.from, scale)
     const width = spanWidth(span, scale)
+    const cutLeft = dayjs(span.from).isBefore(scale.start, 'day')
+    const cutRight = left + width >= scale.days * scale.day
     if (dayjs(span.to).isBefore(scale.start, 'day')) {
         return null
     }
+    if (lane?.kind === 'flag' && flagActivity[lane.flag.id] === undefined && !failedFlagIds.includes(lane.flag.id)) {
+        return (
+            <Skeleton
+                className={cn('absolute rounded-full', cutLeft && 'rounded-l-none', cutRight && 'rounded-r-none')}
+                style={{ left, width, top, height }}
+            />
+        )
+    }
     const color = SPAN_LOOK[span.kind].color
     const compact = thin || width < NARROW
-    const cutLeft = dayjs(span.from).isBefore(scale.start, 'day')
-    const cutRight = left + width >= scale.days * scale.day
     return (
         <Tooltip trackCursorAxis="x">
             <TooltipTrigger render={<div className="absolute flex" style={{ left, width, top, height }} />}>

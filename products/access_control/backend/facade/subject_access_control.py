@@ -293,7 +293,7 @@ class SubjectAccessControl(UserAccessControl):
     def is_organization_admin(self) -> bool:
         if _suspend_org_admin.get():
             return False
-        return bool(self._subject_member and self._subject_member.level >= OrganizationMembership.Level.ADMIN)
+        return bool(self._subject_member and self._subject_member.effective_level >= OrganizationMembership.Level.ADMIN)
 
 
 def seeded_member_subjects(team: Team, memberships: Sequence[OrganizationMembership]) -> Iterator[SubjectAccessControl]:
@@ -470,6 +470,6 @@ def restricted_visible_membership_ids(organization: Organization, user: User) ->
     membership = OrganizationMembership.objects.filter(organization=organization, user_id=user.id).first()
     if membership is None:
         return set()
-    if membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return None
     return get_project_scoped_visible_membership_ids(organization, membership)

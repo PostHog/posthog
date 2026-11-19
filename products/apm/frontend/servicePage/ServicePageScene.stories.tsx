@@ -14,14 +14,49 @@ const BUCKETS = Array.from({ length: 12 }, (_, index) => new Date(WINDOW_START +
 const REQUESTS = [820, 860, 790, 910, 1040, 1210, 1180, 990, 940, 880, 860, 900]
 const ERRORS = [4, 6, 3, 5, 18, 42, 37, 9, 6, 5, 4, 6]
 
-const ERROR_MESSAGES = [
-    'upstream connect error or disconnect/reset before headers',
-    'upstream connect error or disconnect/reset before headers',
-    'upstream connect error or disconnect/reset before headers',
-    'payment provider timed out after 5000ms',
-    'payment provider timed out after 5000ms',
-    'cart not found',
+// Spans without a message fall back to the exception type, then the HTTP status code, then the span name.
+const ERROR_ATTRIBUTES: Record<string, string>[] = [
+    { 'exception.message': 'upstream connect error or disconnect/reset before headers' },
+    { 'exception.message': 'upstream connect error or disconnect/reset before headers' },
+    { 'http.response.status_code': '402' },
+    { 'http.response.status_code': '402' },
+    { 'http.response.status_code': '402' },
+    { 'exception.message': 'payment provider timed out after 5000ms' },
+    { 'exception.type': 'CartNotFoundError' },
+    {},
 ]
+
+const dependencyEdge = (
+    caller: string,
+    callee: string,
+    requests: number,
+    errorCount: number,
+    p95Ms: number,
+    kind = 'service',
+    inferred = false
+): Record<string, unknown> => ({ caller, callee, kind, inferred, requests, error_count: errorCount, p95_ms: p95Ms })
+
+const deploymentVersion = (
+    version: string,
+    firstSeenMinute: number,
+    requests: number,
+    errorRate: number,
+    p95Ms: number,
+    previous: { version: string; errorRate: number; p95Ms: number } | null,
+    active: boolean
+): Record<string, unknown> => ({
+    version,
+    first_seen: new Date(WINDOW_START + firstSeenMinute * 60 * 1000).toISOString(),
+    last_seen: new Date(WINDOW_START + 59 * 60 * 1000).toISOString(),
+    requests,
+    error_count: Math.round(requests * errorRate),
+    error_rate: errorRate,
+    p95_ms: p95Ms,
+    previous_version: previous?.version ?? null,
+    error_rate_change: previous ? errorRate - previous.errorRate : null,
+    p95_change_pct: previous ? ((p95Ms - previous.p95Ms) / previous.p95Ms) * 100 : null,
+    active,
+})
 
 const endpointRow = (
     endpoint: string,
@@ -30,10 +65,14 @@ const endpointRow = (
     errorRate: number,
     p95Ms: number,
     spanCount: number,
-    errorCount: number
+    errorCount: number,
+    route: string | null = null
 ): Record<string, unknown> => ({
     service_name: 'checkout',
-    endpoint,
+    endpoint: route ? `${endpoint} ${route}` : endpoint,
+    span_name: endpoint,
+    route_attribute: route ? 'http.route' : null,
+    route,
     environment: 'production',
     status,
     health: {
@@ -42,6 +81,7 @@ const endpointRow = (
         p95_ms: p95Ms,
         span_count: spanCount,
         error_count: errorCount,
+        apdex: 0.94,
     },
 })
 
@@ -82,10 +122,55 @@ const meta: Meta = {
                                     p95_ms: 186,
                                     span_count: 11_210,
                                     error_count: 145,
+                                    apdex: 0.91,
                                 },
                                 sparkline: REQUESTS,
                             },
                         ],
+                    },
+                ],
+                '/api/projects/:team_id/apm/dependencies/': () => [
+                    200,
+                    {
+                        edges: [
+                            dependencyEdge('web', 'checkout', 9_800, 120, 210),
+                            dependencyEdge('mobile-api', 'checkout', 1_400, 22, 240),
+                            dependencyEdge('checkout', 'payments', 5_100, 96, 180),
+                            dependencyEdge('checkout', 'postgresql', 22_400, 3, 8, 'database', true),
+                        ],
+                        truncated: false,
+                        environment: 'production',
+                        service: 'checkout',
+                    },
+                ],
+                '/api/projects/:team_id/apm/deployments/': () => [
+                    200,
+                    {
+                        results: [
+                            deploymentVersion('2.3.9', 0, 1_200, 0.011, 170, null, false),
+                            deploymentVersion(
+                                '2.4.0',
+                                12,
+                                2_000,
+                                0.01,
+                                176,
+                                { version: '2.3.9', errorRate: 0.011, p95Ms: 170 },
+                                false
+                            ),
+                            deploymentVersion(
+                                '2.4.1',
+                                31,
+                                9_000,
+                                0.0133,
+                                191,
+                                { version: '2.4.0', errorRate: 0.01, p95Ms: 176 },
+                                true
+                            ),
+                        ],
+                        service: 'checkout',
+                        environment: 'production',
+                        date_from: new Date(WINDOW_START).toISOString(),
+                        date_to: new Date(WINDOW_START + 60 * 60 * 1000).toISOString(),
                     },
                 ],
                 '/api/projects/:team_id/apm/endpoints/': () => [
@@ -94,9 +179,10 @@ const meta: Meta = {
                         environment: 'production',
                         environments: ['production', 'staging'],
                         results: [
-                            endpointRow('POST /api/checkout', 'serious', 1.42, 0.019, 282, 5_120, 96),
+                            endpointRow('POST', 'serious', 1.42, 0.019, 282, 5_120, 96, '/api/checkout'),
                             endpointRow('GET /api/cart', 'good', 1.17, 0.0074, 77, 4_210, 31),
                             endpointRow('POST /api/cart/items', 'good', 0.4, 0.0084, 99, 1_430, 12),
+                            endpointRow('DELETE', 'good', 0.02, 0, 41, 72, 0, '/api/cart/items/:id'),
                         ],
                     },
                 ],
@@ -142,7 +228,7 @@ const meta: Meta = {
                     200,
                     {
                         hasMore: false,
-                        results: ERROR_MESSAGES.map((message, index) => ({
+                        results: ERROR_ATTRIBUTES.map((attributes, index) => ({
                             uuid: `uuid-${index}`,
                             trace_id: `A1B2C3D4E5F60718293A4B5C6D7E8F9${index}`,
                             span_id: `1A2B3C4D5E6F708${index}`,
@@ -151,12 +237,12 @@ const meta: Meta = {
                             kind: 2,
                             service_name: 'checkout',
                             status_code: 2,
-                            timestamp: new Date(WINDOW_START + (55 - index * 7) * 60 * 1000).toISOString(),
-                            end_time: new Date(WINDOW_START + (55 - index * 7) * 60 * 1000 + 300).toISOString(),
+                            timestamp: new Date(WINDOW_START + (55 - index * 6) * 60 * 1000).toISOString(),
+                            end_time: new Date(WINDOW_START + (55 - index * 6) * 60 * 1000 + 300).toISOString(),
                             duration_nano: 300_000_000,
                             is_root_span: true,
                             matched_filter: true,
-                            attributes: { 'exception.message': message },
+                            attributes,
                             resource_attributes: {},
                         })),
                     },
@@ -177,6 +263,8 @@ const meta: Meta = {
                 '[data-attr="apm-service-error-trace-link"]',
                 '[data-attr="apm-service-status-code-errors"]',
                 'text=POST /api/cart/items',
+                '[data-attr="apm-service-dependencies-downstream"] >> text=payments',
+                '[data-attr="apm-service-deployments-table"] >> text=2.4.1',
             ],
         },
     },

@@ -66,6 +66,7 @@ const FIX: EvalSuggestionApi = {
     created_evaluation: null,
     target_evaluation: 'eval-1',
     target_evaluation_name: 'Scout findings are grounded',
+    fix_problem: 'no_runs',
     similar_evaluation: null,
     similar_evaluation_name: null,
     dismiss_reason: null,

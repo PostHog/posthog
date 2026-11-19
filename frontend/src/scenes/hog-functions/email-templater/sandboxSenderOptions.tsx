@@ -6,8 +6,8 @@ import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/Lemon
 import type { SandboxSenderChoice } from './SandboxSenderChoiceContext'
 
 export const SANDBOX_SENDER_VALUE = -2
-const SANDBOX_SENDER_LABEL = 'Sandbox sender'
-const SANDBOX_RECIPIENTS_NOTE = 'Only verified members of your organization receive sandbox email.'
+const SANDBOX_SENDER_LABEL = 'PostHog test sender'
+const SANDBOX_RECIPIENTS_NOTE = 'Only verified members of your organization receive email from the PostHog test sender.'
 
 export function sandboxSenderGroups(sandbox: SandboxSenderChoice | null): LemonSelectSection<number>[] {
     if (!sandbox) {
@@ -63,7 +63,7 @@ export function sandboxSenderHint(sandbox: SandboxSenderChoice | null): JSX.Elem
                     size="xsmall"
                     noPadding
                     icon={<IconInfo className="text-secondary" />}
-                    aria-label="About sandbox email recipients"
+                    aria-label="About PostHog test sender recipients"
                     data-attr="workflow-email-sandbox-recipients-help"
                     className="shrink-0"
                 />

@@ -142,4 +142,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "deleted_bid": "The bid that applies when the bump is removed.",
         },
     },
+    "Negotiations": {
+        "description": "An active offer that a buyer made on one of your shop's listings.",
+        "docs_url": "https://www.reverb-api.com/docs/offers",
+        "columns": {
+            "id": "Unique identifier for the offer.",
+            "listing_id": "Identifier of the listing the offer is for, parsed from its listing link.",
+            "created_at": "Time at which the offer was created.",
+        },
+    },
+    "Conversations": {
+        "description": "A message conversation between your shop and another Reverb user.",
+        "docs_url": "https://www.reverb-api.com/docs/manage-messages",
+        "columns": {
+            "id": "Unique identifier for the conversation, parsed from its self link.",
+            "read": "Whether you have read the conversation.",
+            "last_message": "The most recent message in the conversation.",
+            "listing": "The listing the conversation is about, if any.",
+        },
+    },
+    "ReceivedFeedback": {
+        "description": "Feedback another Reverb user left about you after an order.",
+        "docs_url": "https://www.reverb-api.com/docs/manage-feedback",
+        "columns": {
+            "id": "Unique identifier for the feedback, parsed from its self link.",
+            "rating": "Rating out of 5.",
+            "message": "Text of the feedback.",
+            "created_at": "Time at which the feedback was left.",
+        },
+    },
 }

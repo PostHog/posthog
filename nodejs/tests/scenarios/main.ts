@@ -184,7 +184,7 @@ export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: A
     let code: number = EXIT_CODE.passed
     let ran = 0
     try {
-        await runner.up()
+        await runner.up(interrupt)
         for (const loaded of cards) {
             if (interrupt.aborted) {
                 break
