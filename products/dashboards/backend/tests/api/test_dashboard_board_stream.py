@@ -226,7 +226,8 @@ class TestDashboardBoardStream(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         def always_full(*args: Any, **kwargs: Any) -> Iterator[None]:
             attempts.append(1)
             clock[0] += 20
-            raise ConcurrencyLimitExceeded("Exceeded maximum concurrency limit")
+            if attempts:
+                raise ConcurrencyLimitExceeded("Exceeded maximum concurrency limit")
             yield
 
         with (

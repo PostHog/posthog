@@ -3,6 +3,7 @@ import asyncio
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from contextlib import nullcontext
 from threading import Barrier, BoundedSemaphore, Event
+from typing import Literal
 
 from unittest.mock import Mock, patch
 
@@ -185,7 +186,9 @@ class TestDashboardQuerySharing(SimpleTestCase):
             ("sharing_rejected", "sharing", False),
         ]
     )
-    def test_counts_admitted_and_rejected_streams(self, _name: str, kind: str, has_slot: bool) -> None:
+    def test_counts_admitted_and_rejected_streams(
+        self, _name: str, kind: Literal["board", "sharing"], has_slot: bool
+    ) -> None:
         labels = {"stream": kind, "outcome": "admitted" if has_slot else "rejected"}
 
         def count() -> float:
