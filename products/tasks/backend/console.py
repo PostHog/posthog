@@ -82,7 +82,7 @@ class AgentReleasePipelineTool(ConsoleTool):
     key = RELEASE_PIPELINE_TOOL_KEY
     title = "Agent release pipeline"
     owner = AGENT_INFRASTRUCTURE
-    group = "Data"
+    group = "AI"
     description = "Follows the published agent package into sandbox images and regional custom builds."
 
     def app_page(self, request: HttpRequest) -> HttpResponse:
