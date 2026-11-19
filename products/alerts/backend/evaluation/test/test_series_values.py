@@ -323,7 +323,11 @@ class TestSeriesValuesShadowForSqlAlerts(ClickhouseTestMixin, APIBaseTest):
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
         sync_execute("SYSTEM STOP TTL MERGES sharded_series_values_preaggregated")
         self.addCleanup(sync_execute, "SYSTEM START TTL MERGES sharded_series_values_preaggregated")
-        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        clickhouse_now = sync_execute("SELECT now64(6, 'UTC')")[0][0]
+        traveller = time_machine.travel(clickhouse_now, tick=False)
+        traveller.start()
+        self.addCleanup(traveller.stop)
+        today = clickhouse_now.replace(hour=0, minute=0, second=0, microsecond=0)
         for days_ago, hour in ((6, 5), (4, 7), (4, 8), (2, 20), (1, 1), (1, 23), (0, 0)):
             _create_event(
                 team=self.team,

@@ -93,11 +93,13 @@ class TestSqlSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_matches_the_live_query_for_every_closed_bucket(self, _name: str, sql: str, value_column: str) -> None:
-        self._seed(datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0))
+        clickhouse_now = sync_execute("SELECT now64(6, 'UTC')")[0][0]
+        self._seed(clickhouse_now.replace(hour=0, minute=0, second=0, microsecond=0))
         query = HogQLQuery(query=sql)
         saved = query.model_copy(deep=True)
 
-        closed = self._closed(query, value_column)
+        with time_machine.travel(clickhouse_now, tick=False):
+            closed = self._closed(query, value_column)
 
         live = execute_hogql_query(sql, self.team)
         assert live.columns is not None
