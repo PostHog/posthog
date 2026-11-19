@@ -3,7 +3,7 @@ import posixpath
 
 from posthog.temporal.common.logger import get_logger
 
-from products.batch_exports.backend.service import BatchExportModelInput
+from products.batch_exports.backend.service import BatchExportModel, BatchExportModelInput
 from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
@@ -48,6 +48,16 @@ def get_key_prefix(
             f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
         )
         return prefix
+
+
+def render_key_prefix(prefix: str, *, at: dt.datetime, table: str) -> str:
+    """Fill a key prefix the way an S3 batch export does, with `at` as the export time and `table` as `{table}`."""
+    return get_key_prefix(
+        prefix,
+        data_interval_start=None,
+        data_interval_end=at.isoformat(),
+        batch_export_model=BatchExportModel(name=table, schema=None),
+    )
 
 
 def get_absolute_key_prefix(
