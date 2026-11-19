@@ -339,9 +339,7 @@ def abort_destinations(export_signal: ExportSignalMessage, failure_reason: str =
     A destination that failed the run with a configuration error is skipped. The same settings
     refuse the abort's connection too, so a try costs connection attempts and drops nothing.
     """
-    destinations = external_destinations_for(export_signal)
-    run_started_at = _run_started_at(export_signal) if destinations else None
-    for destination in destinations:
+    for destination in external_destinations_for(export_signal):
         if failure_reason and is_configuration_failure_of(failure_reason, destination.name):
             logger.info(
                 "destination_abort_skipped_configuration_error",
@@ -349,7 +347,8 @@ def abort_destinations(export_signal: ExportSignalMessage, failure_reason: str =
                 destination_type=destination.type,
             )
             continue
-        run_ctx = _run_context(export_signal, destination, run_started_at)
+        # Aborting writes nothing, so the run's start time is not needed.
+        run_ctx = _run_context(export_signal, destination, run_started_at=None)
         try:
             ensure_builtin_destination_writers_registered()
             writer = resolve_destination_writer(run_ctx)

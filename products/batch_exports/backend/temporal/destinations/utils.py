@@ -1,3 +1,4 @@
+import re
 import datetime as dt
 import posixpath
 from collections.abc import Mapping
@@ -12,6 +13,8 @@ from products.batch_exports.backend.temporal.destinations.constants import (
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+
+_UNFILLED_VARIABLE = re.compile(r"\{\w+\}")
 
 
 def render_key_prefix_template(prefix: str, variables: Mapping[str, str]) -> str:
@@ -56,7 +59,12 @@ def get_key_prefix(
     """Format a key prefix with template variables."""
     template_variables = get_allowed_template_variables(data_interval_start, data_interval_end, batch_export_model)
 
-    return render_key_prefix_template(prefix, template_variables)
+    rendered = render_key_prefix_template(prefix, template_variables)
+    if _UNFILLED_VARIABLE.search(rendered):
+        EXTERNAL_LOGGER.warning(
+            f"The key prefix '{prefix}' names template variables that have no value, so they are kept as typed"
+        )
+    return rendered
 
 
 def get_absolute_key_prefix(
