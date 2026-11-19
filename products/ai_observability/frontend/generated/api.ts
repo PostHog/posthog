@@ -714,8 +714,8 @@ export const getAiObservabilityTracesListUrl = (projectId: string, params?: AiOb
 }
 
 /**
- * The project's traces in a date range, newest first, a page at a time. The first page also carries how many
- * traces the selection holds.
+ * The project's traces in a date range, or one session's traces, in either order, a page at a time and in
+ * either direction. The first page of a project's list also carries how many traces the selection holds.
  */
 export const aiObservabilityTracesList = async (
     projectId: string,

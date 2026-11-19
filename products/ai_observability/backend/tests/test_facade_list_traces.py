@@ -39,9 +39,24 @@ class TestListTraces(ClickhouseTestMixin, BaseTest):
         self.events = TraceEvents(self.team, start=STARTED_AT)
 
     def _list(
-        self, *, selection: TraceSelection = SELECTION, cursor: str | None = None, limit: int = 50
+        self,
+        *,
+        selection: TraceSelection = SELECTION,
+        cursor: str | None = None,
+        before_cursor: str | None = None,
+        around: str | None = None,
+        limit: int = 50,
     ) -> contracts.TraceList:
-        return api.load_trace_list(self.team, self.user, selection, cursor=cursor, limit=limit)()
+        return api.load_trace_list(
+            self.team, self.user, selection, cursor=cursor, before_cursor=before_cursor, around=around, limit=limit
+        )()
+
+    def _seed_session(self, count: int) -> TraceSelection:
+        for index in range(count):
+            self.events.add(f"t{index + 1}", minutes=index, properties={"$ai_session_id": "session-a"})
+        self.events.add("elsewhere", minutes=count, properties={"$ai_session_id": "session-b"})
+        self.events.seed()
+        return TraceSelection(window=SELECTION.window, session_id="session-a", order="oldest_first")
 
     def test_a_row_carries_what_the_trace_read_carries(self) -> None:
         self.events.add(
@@ -116,7 +131,10 @@ class TestListTraces(ClickhouseTestMixin, BaseTest):
 
     def test_an_empty_selection_lists_nothing(self) -> None:
         assert self._list() == contracts.TraceList(
-            items=[], counts=contracts.TraceListCounts(total=0, errors=0, feedback=0), next_cursor=None
+            items=[],
+            counts=contracts.TraceListCounts(total=0, errors=0, feedback=0),
+            previous_cursor=None,
+            next_cursor=None,
         )
 
     def test_next_cursor_walks_every_trace_once(self) -> None:
@@ -209,17 +227,88 @@ class TestListTraces(ClickhouseTestMixin, BaseTest):
 
     def test_a_bad_cursor_raises_from_the_load(self) -> None:
         with pytest.raises(api.InvalidTraceCursorError):
-            api.load_trace_list(self.team, self.user, SELECTION, cursor="not-a-cursor", limit=50)
+            api.load_trace_list(
+                self.team, self.user, SELECTION, cursor="not-a-cursor", before_cursor=None, around=None, limit=50
+            )
 
     def test_a_page_loads_in_two_clickhouse_reads_and_builds_with_none(self) -> None:
         self.events.seed_traces("older", "newer")
 
         with self.capture_select_queries() as loading:
-            build = api.load_trace_list(self.team, self.user, SELECTION, cursor=None, limit=50)
+            build = api.load_trace_list(
+                self.team, self.user, SELECTION, cursor=None, before_cursor=None, around=None, limit=50
+            )
         with self.capture_select_queries() as building:
             items = build().items
 
         assert (len(loading), building, [item.id for item in items]) == (2, [], ["newer", "older"])
+
+    def test_session_list_oldest_first(self) -> None:
+        selection = self._seed_session(3)
+
+        listed = self._list(selection=selection)
+
+        assert ([item.id for item in listed.items], listed.counts) == (["t1", "t2", "t3"], None)
+
+    def test_around_opens_page_holding_trace(self) -> None:
+        selection = self._seed_session(12)
+
+        page = self._list(selection=selection, around="t6", limit=4)
+
+        assert [item.id for item in page.items] == ["t4", "t5", "t6", "t7"]
+        assert page.previous_cursor is not None and page.next_cursor is not None
+        assert [item.id for item in self._list(selection=selection, cursor=page.next_cursor, limit=2).items] == [
+            "t8",
+            "t9",
+        ]
+        before = self._list(selection=selection, before_cursor=page.previous_cursor, limit=2)
+        assert [item.id for item in before.items] == ["t2", "t3"]
+
+    @parameterized.expand(
+        [
+            ("start", "t1", ["t1", "t2", "t3", "t4"], False, True),
+            ("end", "t12", ["t10", "t11", "t12"], True, False),
+        ]
+    )
+    def test_around_at_either_end_has_one_cursor(
+        self, _name: str, trace_id: str, expected: list[str], has_previous: bool, has_next: bool
+    ) -> None:
+        selection = self._seed_session(12)
+
+        page = self._list(selection=selection, around=trace_id, limit=4)
+
+        assert [item.id for item in page.items] == expected
+        assert (page.previous_cursor is not None, page.next_cursor is not None) == (has_previous, has_next)
+
+    def test_around_with_a_single_slot_opens_on_the_trace(self) -> None:
+        selection = self._seed_session(5)
+
+        page = self._list(selection=selection, around="t3", limit=1)
+
+        assert ([item.id for item in page.items], page.previous_cursor is not None, page.next_cursor is not None) == (
+            ["t3"],
+            True,
+            True,
+        )
+
+    def test_around_a_trace_outside_the_selection_raises(self) -> None:
+        selection = self._seed_session(3)
+
+        with pytest.raises(api.TraceNotInSelectionError):
+            api.load_trace_list(
+                self.team, self.user, selection, cursor=None, before_cursor=None, around="elsewhere", limit=4
+            )
+
+    def test_previous_cursor_null_on_first_page(self) -> None:
+        self.events.seed_traces("older", "newer")
+
+        listed = self._list()
+
+        assert listed.previous_cursor is None
+
+    def test_only_one_of_cursor_before_cursor_and_around(self) -> None:
+        with pytest.raises(api.InvalidTraceSelectionError):
+            api.load_trace_list(self.team, self.user, SELECTION, cursor="x", before_cursor=None, around="t1", limit=4)
 
 
 def _chat(question: str, answer: str) -> dict[str, object]:

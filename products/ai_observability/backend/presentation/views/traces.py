@@ -42,6 +42,18 @@ class TraceAvailabilitySerializer(serializers.Serializer):
     )
 
 
+SESSION_SCOPE_FILTERS_MESSAGE = "A session reads on its own. Remove the list filters."
+SESSION_SCOPE_EXCLUDED_PARAMS = (
+    "properties",
+    "search",
+    "view",
+    "person_id",
+    "group_key",
+    "group_type_index",
+    "filter_test_accounts",
+)
+
+
 class TraceListQuerySerializer(serializers.Serializer):
     date_from = serializers.CharField(
         required=False,
@@ -94,9 +106,30 @@ class TraceListQuerySerializer(serializers.Serializer):
         help_text=f"The index of the group type that group_key belongs to, from 0 to {GROUP_TYPES_LIMIT - 1}. "
         "Send it with group_key.",
     )
+    session_id = serializers.CharField(
+        required=False,
+        max_length=400,
+        help_text="Lists only the traces of the session with this id. A session reads on its own, so it can't be sent "
+        "with the properties, search, view, person, group or test account parameters.",
+    )
+    order = serializers.ChoiceField(
+        choices=api.TRACE_ORDERS,
+        default="newest_first",
+        help_text="Which trace comes first: the newest or the oldest. Defaults to the newest.",
+    )
     cursor = serializers.CharField(
         required=False,
         help_text="The nextCursor of the previous page, to read the page after it. Leave it out for the first page.",
+    )
+    before_cursor = serializers.CharField(
+        required=False,
+        help_text="The previousCursor of a page, to read the page before it. Send only one of cursor, beforeCursor "
+        "and around.",
+    )
+    around = serializers.CharField(
+        required=False,
+        help_text="A trace id, to read the page that holds that trace with the traces before it. Send only one of "
+        "cursor, beforeCursor and around.",
     )
     limit = serializers.IntegerField(
         min_value=1,
@@ -166,9 +199,11 @@ class TraceViewSet(TraceResourceViewSet):
         operation_id="ai_observability_traces_list",
     )
     def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        """The project's traces in a date range, newest first, a page at a time. The first page also carries how many
-        traces the selection holds."""
+        """The project's traces in a date range, or one session's traces, in either order, a page at a time and in
+        either direction. The first page of a project's list also carries how many traces the selection holds."""
         query = request.validated_query_data
+        if "session_id" in query and any(name in request.query_params for name in SESSION_SCOPE_EXCLUDED_PARAMS):
+            return Response({"detail": SESSION_SCOPE_FILTERS_MESSAGE}, status=status.HTTP_400_BAD_REQUEST)
         if filters_need_query_scope(query.get("properties", ())) and scopes_caller_lacks(request, [QUERY_SCOPE]):
             raise PermissionDenied(QUERY_SCOPE_REQUIRED)
         user = request_user(request)
@@ -177,13 +212,20 @@ class TraceViewSet(TraceResourceViewSet):
             build = self._read(
                 request,
                 lambda _user, _hint: api.load_trace_list(
-                    self.team, user, selection, cursor=query.get("cursor"), limit=query["limit"]
+                    self.team,
+                    user,
+                    selection,
+                    cursor=query.get("cursor"),
+                    before_cursor=query.get("before_cursor"),
+                    around=query.get("around"),
+                    limit=query["limit"],
                 ),
             )
         except (
             api.InvalidTraceWindowError,
             api.InvalidTraceCursorError,
             api.InvalidTraceSelectionError,
+            api.TraceNotInSelectionError,
             ExposedHogQLError,
             ExposedCHQueryError,
         ) as error:
@@ -193,8 +235,17 @@ class TraceViewSet(TraceResourceViewSet):
 
     def _selection(self, request: ValidatedRequest) -> api.TraceSelection:
         query = request.validated_query_data
+        window = api.resolve_trace_window(self.team, query.get("date_from"), query.get("date_to"))
+        if "session_id" in query:
+            return api.TraceSelection(
+                window=window,
+                include_support_traces=is_impersonated(request),
+                session_id=query["session_id"],
+                order=query["order"],
+            )
         return api.TraceSelection(
-            window=api.resolve_trace_window(self.team, query.get("date_from"), query.get("date_to")),
+            window=window,
+            order=query["order"],
             properties=query.get("properties", ()),
             filter_test_accounts=query["filter_test_accounts"],
             include_support_traces=is_impersonated(request),

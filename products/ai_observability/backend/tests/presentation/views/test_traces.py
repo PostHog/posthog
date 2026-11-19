@@ -362,6 +362,69 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("properties", {"properties": json.dumps([{"type": "event", "key": "plan", "value": "pro"}])}),
+            ("search", {"search": "invoice"}),
+            ("blank search", {"search": ""}),
+            ("view", {"view": "errors"}),
+            ("person", {"person_id": "00000000-0000-4000-8000-0000000000aa"}),
+            ("group", {"group_key": "acme", "group_type_index": 1}),
+            ("test accounts on", {"filter_test_accounts": "true"}),
+            ("test accounts off", {"filter_test_accounts": "false"}),
+        ]
+    )
+    def test_session_scope_rejects_list_filters(self, _name: str, params: dict[str, str | int]) -> None:
+        response = self._get({"session_id": "session-a", **params})
+
+        assert (response.status_code, response.json()) == (
+            400,
+            {"detail": "A session reads on its own. Remove the list filters."},
+        )
+
+    @parameterized.expand(
+        [
+            ("session", {"session_id": "session-a", "around": "elsewhere"}, "The trace is not in this session."),
+            ("list", {"around": "elsewhere"}, "The trace is not in this list."),
+        ]
+    )
+    def test_around_unknown_trace_is_400(self, _name: str, params: dict[str, str | int], detail: str) -> None:
+        self.events.add("inside", properties={"$ai_session_id": "session-a"})
+        self.events.add("elsewhere", minutes=1, properties={"$ai_session_id": "session-b"})
+        self.events.seed()
+
+        response = self._get(params if "session_id" in params else {**params, "view": "errors"})
+
+        assert (response.status_code, response.json()) == (400, {"detail": detail})
+
+    def test_a_session_reads_oldest_first_around_a_trace_and_both_ways(self) -> None:
+        for index in range(6):
+            self.events.add(f"t{index}", minutes=index, properties={"$ai_session_id": "session-a"})
+        self.events.seed()
+        session = {"session_id": "session-a", "order": "oldest_first"}
+
+        around = self._get({**session, "around": "t3", "limit": 2}).json()
+        previous = self._get({**session, "before_cursor": around["previousCursor"], "limit": 2}).json()
+        following = self._get({**session, "cursor": around["nextCursor"], "limit": 2}).json()
+
+        assert [[item["id"] for item in page["items"]] for page in (around, previous, following)] == [
+            ["t2", "t3"],
+            ["t0", "t1"],
+            ["t4", "t5"],
+        ]
+        assert (around["counts"], previous["previousCursor"], following["nextCursor"]) == (None, None, None)
+
+    @parameterized.expand(
+        [
+            ("cursor and before cursor", {"cursor": "a", "before_cursor": "b"}),
+            ("cursor and around", {"cursor": "a", "around": "t"}),
+            ("before cursor and around", {"before_cursor": "b", "around": "t"}),
+            ("unknown order", {"order": "sideways"}),
+        ]
+    )
+    def test_conflicting_paging_is_a_400(self, _name: str, params: dict[str, str | int]) -> None:
+        assert self._get(params).status_code == 400
+
+    @parameterized.expand(
+        [
             (
                 "metric attribute filter",
                 [{"type": "metric_attribute", "key": "x", "value": "y", "operator": "exact"}],

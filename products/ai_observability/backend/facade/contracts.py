@@ -543,8 +543,11 @@ class TraceListCounts(Contract):
 
 
 class TraceList(Contract):
-    items: list[TraceListItem] = Field(description="A page of traces, newest first.")
-    counts: TraceListCounts | None = Field(description="The selection's counts, on the first page only.")
+    items: list[TraceListItem] = Field(description="A page of traces, in the requested order.")
+    counts: TraceListCounts | None = Field(
+        description="The selection's counts, on the first page only. Null for a session."
+    )
+    previous_cursor: str | None = Field(description="The cursor of the page before this one, or null on the first.")
     next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
 
 

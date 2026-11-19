@@ -6,7 +6,8 @@
                                 1) AS page,
          count() AS total,
          countIf(has_error) AS errors,
-         countIf(has_feedback) AS feedback
+         countIf(has_feedback) AS feedback,
+         countIf(0) AS has_outside
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS trace_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_timestamp,

@@ -127,6 +127,7 @@ from ..logic.traces.trace_selection import (
     MAX_PROPERTY_FILTERS as MAX_PROPERTY_FILTERS,
     QUERY_SCOPED_FILTERS as QUERY_SCOPED_FILTERS,
     QUICK_FILTERS as QUICK_FILTERS,
+    TRACE_ORDERS as TRACE_ORDERS,
     InvalidTraceCursorError as InvalidTraceCursorError,
     InvalidTraceSelectionError as InvalidTraceSelectionError,
     InvalidTraceWindowError as InvalidTraceWindowError,
@@ -140,7 +141,12 @@ from ..logic.traces.trace_selection import (
     encode_cursor,
     resolve_window,
 )
-from ..logic.traces.trace_selection_queries import SelectionCounts, load_selection_page
+from ..logic.traces.trace_selection_queries import (
+    SelectionCounts,
+    SelectionPage,
+    load_selection_page,
+    load_trace_position,
+)
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.turn import Turn, missing_reason, preview
 from ..logic.traces.usage import Usage
@@ -149,6 +155,10 @@ from . import contracts
 
 
 class TraceNotFoundError(Exception):
+    pass
+
+
+class TraceNotInSelectionError(Exception):
     pass
 
 
@@ -205,22 +215,71 @@ def resolve_trace_window(team: Team, date_from: str | None, date_to: str | None)
 
 
 def load_trace_list(
-    team: Team, user: User, selection: TraceSelection, *, cursor: str | None, limit: int
+    team: Team,
+    user: User,
+    selection: TraceSelection,
+    *,
+    cursor: str | None,
+    before_cursor: str | None,
+    around: str | None,
+    limit: int,
 ) -> Callable[[], contracts.TraceList]:
-    """Loads a page of the selected traces, newest first, and returns the step that builds it into the list, each
-    trace read the way `get_trace` reads it. Counts come with the first page only. Raises `InvalidTraceCursorError`
-    for a cursor this read did not hand out, before any read.
+    """Loads a page of the selected traces in the selection's order, and returns the step that builds it into the list,
+    each trace read the way `get_trace` reads it. `cursor` reads the page after it, `before_cursor` the page before
+    it, and `around` the page that holds that trace with about half the page before it. Counts come with the first
+    page of an unscoped list only.
+
+    Raises `InvalidTraceSelectionError` when more than one of the three is sent, `InvalidTraceCursorError` for a
+    cursor this read did not hand out, and `TraceNotInSelectionError` for an `around` trace the selection does not
+    hold, all before the page is read.
 
     The step reads the traces' review states from Postgres and builds each trace, but runs no ClickHouse query. So a
     caller that holds a query concurrency slot for the load can release the slot before it runs the step.
     """
-    after = decode_cursor(cursor) if cursor is not None else None
-    page = load_selection_page(team, user, selection, bounds=TracePageBounds(after=after, before=None), limit=limit)
+    if sum(value is not None for value in (cursor, before_cursor, around)) > 1:
+        raise InvalidTraceSelectionError("Send only one of cursor, before_cursor and around.")
+    if around is not None:
+        page = _load_page_around(team, user, selection, around, limit)
+    elif before_cursor is not None:
+        page = load_selection_page(
+            team, user, selection, bounds=TracePageBounds(after=None, before=decode_cursor(before_cursor)), limit=limit
+        )
+    else:
+        after = decode_cursor(cursor) if cursor is not None else None
+        page = load_selection_page(team, user, selection, bounds=TracePageBounds(after=after, before=None), limit=limit)
     loaded = _load_page_rows(team, user, page.positions)
+    is_first_page = cursor is None and before_cursor is None and around is None
     return lambda: contracts.TraceList(
         items=_list_items(team, user, selection.window, page.positions, loaded),
-        counts=_to_list_counts(page.counts) if cursor is None else None,
+        counts=_to_list_counts(page.counts) if is_first_page and selection.session_id is None else None,
+        previous_cursor=encode_cursor(page.positions[0]) if page.has_before else None,
         next_cursor=encode_cursor(page.positions[-1]) if page.has_more else None,
+    )
+
+
+def _load_page_around(team: Team, user: User, selection: TraceSelection, trace_id: str, limit: int) -> SelectionPage:
+    position = load_trace_position(team, user, selection, trace_id)
+    if position is None:
+        scope = "session" if selection.session_id is not None else "list"
+        raise TraceNotInSelectionError(f"The trace is not in this {scope}.")
+    before_count = limit // 2
+    # A page of one slot still reads one trace before, to bound the forward read and to know there is a page before.
+    before = load_selection_page(
+        team, user, selection, bounds=TracePageBounds(after=None, before=position), limit=max(before_count, 1)
+    )
+    kept = before.positions[len(before.positions) - before_count :] if before_count else ()
+    forward = load_selection_page(
+        team,
+        user,
+        selection,
+        bounds=TracePageBounds(after=before.positions[-1] if before.positions else None, before=None),
+        limit=limit - len(kept),
+    )
+    return SelectionPage(
+        positions=(*kept, *forward.positions),
+        has_more=forward.has_more,
+        has_before=before.has_before or len(kept) < len(before.positions),
+        counts=forward.counts,
     )
 
 

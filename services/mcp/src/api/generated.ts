@@ -125116,10 +125116,12 @@ export namespace Schemas {
     }
 
     export interface TraceList {
-      /** A page of traces, newest first. */
+      /** A page of traces, in the requested order. */
       items: TraceListItem[];
-      /** The selection's counts, on the first page only. */
+      /** The selection's counts, on the first page only. Null for a session. */
       counts: TraceListCounts | null;
+      /** The cursor of the page before this one, or null on the first. */
+      previousCursor: string | null;
       /** The cursor of the next page, or null on the last one. */
       nextCursor: string | null;
     }
@@ -135445,6 +135447,16 @@ export namespace Schemas {
 
     export type AiObservabilityTracesListParams = {
     /**
+     * A trace id, to read the page that holds that trace with the traces before it. Send only one of cursor, beforeCursor and around.
+     * @minLength 1
+     */
+    around?: string;
+    /**
+     * The previousCursor of a page, to read the page before it. Send only one of cursor, beforeCursor and around.
+     * @minLength 1
+     */
+    before_cursor?: string;
+    /**
      * The nextCursor of the previous page, to read the page after it. Leave it out for the first page.
      * @minLength 1
      */
@@ -135482,6 +135494,14 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Which trace comes first: the newest or the oldest. Defaults to the newest.
+     *
+     * * `newest_first` - newest_first
+     * * `oldest_first` - oldest_first
+     * @minLength 1
+     */
+    order?: AiObservabilityTracesListOrder;
+    /**
      * Lists only traces whose events belong to the person with this UUID.
      */
     person_id?: string;
@@ -135495,6 +135515,12 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Lists only the traces of the session with this id. A session reads on its own, so it can't be sent with the properties, search, view, person, group or test account parameters.
+     * @minLength 1
+     * @maxLength 400
+     */
+    session_id?: string;
+    /**
      * Lists only traces with an error, or only traces with user feedback. The counts ignore it.
      *
      * * `errors` - errors
@@ -135503,6 +135529,14 @@ export namespace Schemas {
      */
     view?: AiObservabilityTracesListView;
     };
+
+    export type AiObservabilityTracesListOrder = typeof AiObservabilityTracesListOrder[keyof typeof AiObservabilityTracesListOrder];
+
+
+    export const AiObservabilityTracesListOrder = {
+      NewestFirst: 'newest_first',
+      OldestFirst: 'oldest_first',
+    } as const;
 
     export type AiObservabilityTracesListView = typeof AiObservabilityTracesListView[keyof typeof AiObservabilityTracesListView];
 
