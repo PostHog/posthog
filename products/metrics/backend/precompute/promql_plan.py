@@ -93,6 +93,10 @@ _DURATION_UNITS = {
 _ESCAPES = {"\\": "\\", '"': '"', "'": "'", "n": "\n", "t": "\t", "r": "\r"}
 _SORTS = frozenset({"sort", "sort_desc"})
 _RANKS = frozenset({"topk", "bottomk"})
+# A planned shape nests at most a sort around one rank, so deeper wrappers only cost parser recursion.
+_MAX_WRAPPERS = 2
+# Every stored label set is checked against every matcher, so a long matcher list costs work per entry.
+_MAX_MATCHERS = 20
 
 
 @lru_cache(maxsize=256)
@@ -230,6 +234,8 @@ def _selector(parser: _Parser) -> _Selector:
                 except re2.error:
                     raise _Unsupported
             matchers.append(Matcher(label=label, op=op, value=value))
+            if len(matchers) > _MAX_MATCHERS:
+                raise _Unsupported
             if not parser.at("}"):
                 parser.take(",")
         parser.take("}")
@@ -266,12 +272,14 @@ def _sum(parser: _Parser, function: str) -> _Selector:
     )
 
 
-def _sum_over_time(parser: _Parser) -> PromQLLeafQuery:
+def _sum_over_time(parser: _Parser, wrappers: int = 0) -> PromQLLeafQuery:
     token = parser.peek()
+    if token is not None and (token.text in _SORTS or token.text in _RANKS) and wrappers >= _MAX_WRAPPERS:
+        raise _Unsupported
     if token is not None and token.text in _SORTS:
         parser.take()
         parser.take("(")
-        inner = _sum_over_time(parser)
+        inner = _sum_over_time(parser, wrappers + 1)
         parser.take(")")
         return inner
     if token is not None and token.text in _RANKS:
@@ -281,7 +289,7 @@ def _sum_over_time(parser: _Parser) -> PromQLLeafQuery:
         if not k.isdigit() or int(k) < 1:
             raise _Unsupported
         parser.take(",")
-        inner = _sum_over_time(parser)
+        inner = _sum_over_time(parser, wrappers + 1)
         parser.take(")")
         if inner.rank is not None:
             raise _Unsupported
