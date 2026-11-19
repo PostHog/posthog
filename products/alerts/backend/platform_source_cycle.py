@@ -704,6 +704,9 @@ def _decide(
     )
     if entitlement_error:
         return _broken(check, snapshot, alert, now=now, message=entitlement_error)
+    # As production: a project past its plan's alert limit runs only its newest alerts, and the rest stay enabled.
+    if alert.is_over_plan_limit(alert.team.organization):
+        return _skipped(check, snapshot, now=now)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
     if calls_ai_gateway(alert.detector_config) != uses_llm_detector:

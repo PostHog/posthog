@@ -416,6 +416,57 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
+    def plan_alert_limit(cls, organization: Organization) -> int | None:
+        """How many alerts each project may have on the organization's plan, or None for no limit."""
+        alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
+        if alerts_feature:
+            return alerts_feature.get("limit")
+        return cls.ALERTS_ALLOWED_ON_FREE_TIER
+
+    @classmethod
+    def enable_limit_error(cls, *, team_id: int, organization: Organization, exclude_id: str) -> str | None:
+        """Return an error message if turning on the alert `exclude_id` would take the team past its plan's
+        alert limit, else None. Only the team's other enabled alerts count."""
+        limit = cls.plan_alert_limit(organization)
+        if limit is None or cls._counted(team_id, enabled_only=True, exclude_id=exclude_id) < limit:
+            return None
+        return f"Your plan allows {limit} enabled alerts per project. Disable another alert to enable this one."
+
+    @classmethod
+    def alerts_kept_by_plan_limit(cls, team_id: int, organization: Organization) -> frozenset[UUID] | None:
+        """The ids of the team's enabled alerts its plan keeps running, or None, without a query, when the
+        plan has no limit.
+
+        The limit is enforced on writes, so a project that moves to a smaller plan can hold more enabled
+        alerts than it allows. The newest ones up to the limit keep running, and both evaluation stacks skip
+        the rest until the project has room again. Every insight row counts, and so does every platform
+        alert with no insight row, as in `_counted`."""
+        limit = cls.plan_alert_limit(organization)
+        if limit is None:
+            return None
+        # Deferred for the same reason as in `_counted`.
+        from products.alerts_platform.backend.facade.api import newest_enabled_configurations  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+
+        rows = (
+            cls.objects.filter(team_id=team_id, enabled=True)
+            .order_by("-created_at", "-id")
+            .values_list("created_at", "id")[:limit]
+        )
+        native = newest_enabled_configurations(
+            team_id=team_id, source_kind=SourceKind.INSIGHT, native_only=True, limit=limit
+        )
+        newest = sorted([*rows, *native], reverse=True)[:limit]
+        return frozenset(alert_id for _, alert_id in newest)
+
+    def is_over_plan_limit(self, organization: Organization) -> bool:
+        """Whether this enabled alert is skipped because its project has more enabled alerts than its plan allows."""
+        if not self.enabled:
+            return False
+        kept = self.alerts_kept_by_plan_limit(self.team_id, organization)
+        return kept is not None and self.id not in kept
+
+    @classmethod
     def team_alert_count(cls, team_id: int) -> int:
         """Every insight alert of a team, as the limits count them."""
         return cls._counted(team_id)
@@ -446,23 +497,33 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
-    def _counted(cls, team_id: int, *, active_real_time: bool = False, exclude_id: str | None = None) -> int:
+    def _counted(
+        cls,
+        team_id: int,
+        *,
+        active_real_time: bool = False,
+        enabled_only: bool = False,
+        exclude_id: str | None = None,
+    ) -> int:
         """The team's insight alerts: each insight row, and each platform alert with no insight row."""
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
         from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
 
+        enabled_only = enabled_only or active_real_time
         rows = cls.objects.filter(team_id=team_id)
         if active_real_time:
-            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
+            rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME)
+        if enabled_only:
+            rows = rows.filter(enabled=True)
         if exclude_id:
             rows = rows.exclude(pk=exclude_id)
         native = count_configurations(
             team_id=team_id,
             source_kind=SourceKind.INSIGHT,
             native_only=True,
-            enabled_only=active_real_time,
+            enabled_only=enabled_only,
             check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
             # An alert with no insight row carries its platform alert's id.
             exclude_id=UUID(exclude_id) if exclude_id else None,
@@ -571,25 +632,35 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         calculation_interval: str | AlertCalculationInterval | None,
         enabled: bool,
         existing: AlertConfiguration,
-    ) -> str | None:
-        """The real-time limit an update would break, or None. `existing` is the alert as it was before
-        the update.
+    ) -> AlertLimitRefusal | None:
+        """The plan limit an update would break, or None: the alert limit for an update that turns the
+        alert on, and the real-time limit. `existing` is the alert as it was before the update.
 
         Call it inside the update's transaction, after the update has written the alert and its platform
         copy: the platform takes a copy's row lock before this lock, so taking this one first could
-        deadlock with it. An update that adds an active real-time alert holds the team's insight alert
-        lock until the transaction ends, so two updates cannot both pass the count. Any other update
-        takes no lock."""
-        if not cls._adds_active_real_time(
+        deadlock with it. An update that turns an alert on or adds an active real-time alert holds the
+        team's insight alert lock until the transaction ends, so two updates cannot both pass the count.
+        Any other update takes no lock."""
+        turns_on = enabled and not existing.enabled
+        adds_real_time = cls._adds_active_real_time(
             calculation_interval=calculation_interval, enabled=enabled, existing=existing
-        ):
+        )
+        if not turns_on and not adds_real_time:
             return None
         # Deferred for the same reason as in `_counted`.
         from products.alerts_platform.backend.facade.api import hold_cap_lock  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
 
         hold_cap_lock(team_id=team_id, source_kind=SourceKind.INSIGHT)
-        return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk))
+        if turns_on and (
+            message := cls.enable_limit_error(team_id=team_id, organization=organization, exclude_id=str(existing.pk))
+        ):
+            return AlertLimitRefusal(field="enabled", message=message)
+        if adds_real_time and (
+            message := cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk))
+        ):
+            return AlertLimitRefusal(field="calculation_interval", message=message)
+        return None
 
     @staticmethod
     def _adds_active_real_time(

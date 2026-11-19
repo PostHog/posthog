@@ -188,6 +188,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "insight": mock.ANY,
             "insight_display_name": mock.ANY,
             "llm_detector_available": None,
+            "over_plan_limit": False,
             "pagerduty_available": False,
             "destination_count": 0,
             "insight_short_id": mock.ANY,
@@ -909,6 +910,77 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.status_code == 400, response.json()
         assert response.json()["attr"] == field
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
+
+    def _alerts_in_creation_order(self, count: int) -> list[AlertConfiguration]:
+        alerts = [create_insight_alert(self.team, created_by=self.user) for _ in range(count)]
+        for minutes, alert in enumerate(alerts):
+            AlertConfiguration.objects.filter(pk=alert.pk).update(
+                created_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=minutes)
+            )
+        return alerts
+
+    def test_turning_on_an_alert_is_refused_while_the_plan_limit_is_full(self) -> None:
+        disabled = create_insight_alert(self.team, created_by=self.user, enabled=False)
+        running = self._alerts_in_creation_order(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER)
+        url = f"/api/projects/{self.team.id}/alerts/{disabled.id}"
+
+        refused = self.client.patch(url, {"enabled": True}, format="json")
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.content
+        assert refused.json()["attr"] == "enabled"
+        disabled.refresh_from_db()
+        assert disabled.enabled is False
+
+        turned_off = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{running[0].id}", {"enabled": False}, format="json"
+        )
+        assert turned_off.status_code == status.HTTP_200_OK, turned_off.content
+        allowed = self.client.patch(url, {"enabled": True}, format="json")
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
+        assert allowed.json()["over_plan_limit"] is False
+
+    def test_turning_on_an_alert_another_update_overtook_after_validation_is_refused_under_the_lock(self) -> None:
+        alert = create_insight_alert(self.team, created_by=self.user, enabled=False)
+        # Validation sees room; by the time the update holds the lock, another alert took the last slot.
+        with mock.patch.object(
+            AlertConfiguration, "enable_limit_error", side_effect=[None, None, "Your plan's limit is reached."]
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{alert.id}", {"enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "enabled"
+        alert.refresh_from_db()
+        assert alert.enabled is False
+
+    def test_an_alert_past_the_plan_limit_saves_edits_and_shows_it_is_not_running(self) -> None:
+        oldest, *newer = self._alerts_in_creation_order(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER + 1)
+
+        renamed = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{oldest.id}", {"name": "Renamed"}, format="json"
+        )
+
+        assert renamed.status_code == status.HTTP_200_OK, renamed.content
+        assert (renamed.json()["name"], renamed.json()["enabled"], renamed.json()["over_plan_limit"]) == (
+            "Renamed",
+            True,
+            True,
+        )
+        listed = self.client.get(f"/api/projects/{self.team.id}/alerts").json()["results"]
+        assert {alert["id"]: alert["over_plan_limit"] for alert in listed} == {
+            str(oldest.id): True,
+            **{str(alert.id): False for alert in newer},
+        }
+
+    def test_a_plan_without_an_alert_limit_ranks_no_alerts(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ALERTS, "name": "Alerts"}]
+        self.organization.save()
+        oldest, *_ = self._alerts_in_creation_order(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER + 1)
+
+        with self.assertNumQueries(0):
+            assert AlertConfiguration.alerts_kept_by_plan_limit(self.team.id, self.organization) is None
+            assert oldest.is_over_plan_limit(self.organization) is False
 
     def test_alert_is_deleted_on_insight_update(self) -> None:
         another_insight = self.client.post(

@@ -561,6 +561,43 @@ class TestPrepareAlert:
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(entitled.id)))
         assert result.action == PrepareAction.EVALUATE
 
+    async def test_alerts_past_the_plan_limit_are_skipped_until_the_plan_has_room(self, ateam, aorganization) -> None:
+        limit = AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER
+        with time_machine.travel("2024-06-03T10:00:00Z", tick=False):
+            alerts = [await _create_alert(ateam) for _ in range(limit + 2)]
+            newest_disabled = await _create_alert(ateam, enabled=False)
+
+            @sync_to_async
+            def _set_creation_order() -> None:
+                for minutes, created in enumerate([*alerts, newest_disabled]):
+                    AlertConfiguration.objects.filter(pk=created.pk).update(
+                        created_at=datetime(2024, 6, 1, tzinfo=UTC) + timedelta(minutes=minutes)
+                    )
+
+            await _set_creation_order()
+            env = ActivityEnvironment()
+            results = [await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id))) for a in alerts]
+
+        assert [(result.action, result.reason) for result in results] == [
+            (PrepareAction.SKIP, SkipReason.OVER_PLAN_LIMIT),
+            (PrepareAction.SKIP, SkipReason.OVER_PLAN_LIMIT),
+            *[(PrepareAction.EVALUATE, None)] * limit,
+        ]
+        oldest = await sync_to_async(AlertConfiguration.objects.get)(pk=alerts[0].pk)
+        assert (oldest.enabled, oldest.state) == (True, AlertState.NOT_FIRING)
+        assert oldest.next_check_at is not None and oldest.next_check_at > datetime(2024, 6, 3, 10, tzinfo=UTC)
+        assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration_id=oldest.id).exists)()
+
+        @sync_to_async
+        def _upgrade() -> None:
+            aorganization.available_product_features = [{"key": AvailableFeature.ALERTS, "name": "Alerts"}]
+            aorganization.save()
+
+        await _upgrade()
+        with time_machine.travel(oldest.next_check_at + timedelta(minutes=1), tick=False):
+            result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(oldest.id)))
+        assert result.action == PrepareAction.EVALUATE
+
 
 @pytest.mark.asyncio
 @pytest.mark.django_db

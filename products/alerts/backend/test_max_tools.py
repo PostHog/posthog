@@ -541,6 +541,22 @@ class TestUpsertAlertTool(BaseTest):
         assert "limit of 1 real-time alerts" in content.lower()
         assert artifact["error"] == "plan_limit_reached"
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_rejects_enabling_an_alert_while_the_plan_limit_is_full(self):
+        insight = await self._create_insight()
+        await self._create_alert(insight, name="Active")
+        disabled = await self._create_alert(insight, name="Disabled", enabled=False)
+        tool = self._setup_tool()
+
+        with mock.patch.object(AlertConfiguration, "ALERTS_ALLOWED_ON_FREE_TIER", 1):
+            content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
+
+        assert "allows 1 enabled alerts" in content.lower()
+        assert artifact["error"] == "plan_limit_reached"
+        await disabled.arefresh_from_db()
+        assert disabled.enabled is False
+
     @parameterized.expand([("disabled", False), ("concurrently_disabled", True)])
     @pytest.mark.django_db
     @pytest.mark.asyncio

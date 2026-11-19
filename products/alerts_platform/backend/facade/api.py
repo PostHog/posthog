@@ -429,6 +429,17 @@ def count_configurations(
     )
 
 
+def newest_enabled_configurations(
+    *, team_id: int, source_kind: SourceKind, native_only: bool, limit: int
+) -> list[tuple[datetime, UUID]]:
+    """The creation time and id of a team's newest enabled alerts of a kind on the platform, newest first,
+    at most `limit`. For a source that ranks its alerts against a plan limit. With `native_only`, only the
+    ones with no source row."""
+    return platform_reads.newest_enabled_configurations(
+        team_id=team_id, source_kind=source_kind.value, native_only=native_only, limit=limit
+    )
+
+
 def hold_cap_lock(*, team_id: int, source_kind: SourceKind) -> None:
     """The lock the platform holds while a source checks its caps, for a source creating an alert
     outside the platform. Call it inside the create's transaction."""

@@ -838,6 +838,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "checks run as the creator. Only computed when retrieving a single alert; null elsewhere."
         ),
     )
+    over_plan_limit = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether this enabled alert is skipped because the project has more enabled alerts than its plan "
+            "allows. The newest enabled alerts, up to the plan's limit, keep running. The rest resume when the "
+            "plan allows more alerts or other alerts are disabled."
+        ),
+    )
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -937,6 +945,19 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         except LLMDetectorUnavailableError:
             return None
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_over_plan_limit(self, obj: AlertConfiguration) -> bool:
+        if not obj.enabled:
+            return False
+        # Ranked once per team for a whole list, since every alert of a team shares one ranking.
+        kept_by_team = self.context.setdefault("alerts_kept_by_plan_limit", {})
+        if obj.team_id not in kept_by_team:
+            get_organization = self.context.get("get_organization")
+            organization = get_organization() if get_organization else obj.team.organization
+            kept_by_team[obj.team_id] = AlertConfiguration.alerts_kept_by_plan_limit(obj.team_id, organization)
+        kept = kept_by_team[obj.team_id]
+        return kept is not None and obj.id not in kept
+
     class Meta:
         model = AlertConfiguration
         fields = [
@@ -947,6 +968,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "insight_short_id",
             "insight_display_name",
             "llm_detector_available",
+            "over_plan_limit",
             "pagerduty_available",
             "destination_count",
             "name",
@@ -1239,7 +1261,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         # Again under the lock, because `validate` counted without it and another update can race. After
         # `write_moved_alert_edit`, because the platform locks a copy before this lock, and an update
         # that took them the other way round could deadlock with it.
-        self._recheck_real_time_limit(instance, previous)
+        self._recheck_plan_limits(instance, previous)
 
         instance.report_updated(
             self.context["request"].user,
@@ -1354,7 +1376,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 rescheduled=rescheduled,
             )
         # After the platform locked its copy, as in `update`.
-        self._recheck_real_time_limit(instance, previous)
+        self._recheck_plan_limits(instance, previous)
         updated = AlertConfiguration.from_platform_view(view, team_id=instance.team_id) if view is not None else None
         if updated is None:
             raise Http404
@@ -1393,15 +1415,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             id=instance.id, calculation_interval=instance.calculation_interval, enabled=instance.enabled
         )
 
-    def _recheck_real_time_limit(self, instance: AlertConfiguration, previous: AlertConfiguration) -> None:
-        if msg := AlertConfiguration.update_limit_error(
+    def _recheck_plan_limits(self, instance: AlertConfiguration, previous: AlertConfiguration) -> None:
+        if refusal := AlertConfiguration.update_limit_error(
             team_id=instance.team_id,
             organization=self.context["get_organization"](),
             calculation_interval=instance.calculation_interval,
             enabled=instance.enabled,
             existing=previous,
         ):
-            raise ValidationError({"calculation_interval": [msg]})
+            raise ValidationError({refusal.field: [refusal.message]})
 
     def validate_schedule_start_time(self, value: str | None) -> str | None:
         try:

@@ -516,7 +516,7 @@ class UpsertAlertTool(MaxTool):
                 existing=previous,
             ):
                 transaction.set_rollback(True)
-                return _SaveRefusal(message=limit_error, error_code="plan_limit_reached")
+                return _SaveRefusal(message=limit_error.message, error_code="plan_limit_reached")
         return None
 
     def _admission_refusal(
@@ -649,7 +649,7 @@ class UpsertAlertTool(MaxTool):
                 existing=previous,
             ):
                 transaction.set_rollback(True)
-                return _SaveRefusal(message=limit_error, error_code="plan_limit_reached")
+                return _SaveRefusal(message=limit_error.message, error_code="plan_limit_reached")
         return None
 
     @staticmethod

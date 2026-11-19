@@ -515,6 +515,19 @@ def count_configurations(
     return configurations.count()
 
 
+def newest_enabled_configurations(
+    *, team_id: int, source_kind: str, native_only: bool, limit: int
+) -> list[tuple[datetime, UUID]]:
+    """The creation time and id of a team's newest enabled alerts of a kind, newest first, at most `limit`.
+    With `native_only`, only the ones with no source row."""
+    configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind, enabled=True
+    )
+    if native_only:
+        configurations = configurations.filter(legacy_configuration_id__isnull=True)
+    return list(configurations.order_by("-created_at", "-id").values_list("created_at", "id")[:limit])
+
+
 def get_configuration(
     *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, lock: bool = False
 ) -> PlatformAlertConfigurationView | None:

@@ -147,10 +147,16 @@ def validate_alert_write(
             {"investigation_gates_notifications": ["Notification gating requires investigation_agent_enabled=true."]}
         )
 
-    # Only a create adds an alert; a takeover is a POST that enables an existing one.
+    # Only a create adds an alert. Turning an existing one on, a takeover included, needs a free slot among
+    # the enabled ones.
     if instance is None:
         if msg := AlertConfiguration.check_alert_limit(team.id, organization):
             raise AlertWriteRefused({"alert": [msg]})
+    elif attrs.get("enabled") is True and not instance.enabled:
+        if msg := AlertConfiguration.enable_limit_error(
+            team_id=team.id, organization=organization, exclude_id=str(instance.id)
+        ):
+            raise AlertWriteRefused({"enabled": [msg]})
 
     existing_enabled = instance.enabled if instance else True
     if msg := AlertConfiguration.real_time_alert_validation_error(

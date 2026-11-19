@@ -993,6 +993,40 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("behind_newer_insight_alerts_on_the_free_plan", "row", [], False),
+            ("behind_newer_alerts_with_no_insight_row_on_the_free_plan", "native", [], False),
+            ("on_a_plan_without_an_alert_limit", "row", [{"key": AvailableFeature.ALERTS, "name": "Alerts"}], True),
+        ]
+    )
+    def test_an_alert_past_the_plan_limit_is_skipped_without_a_query_and_stays_enabled(
+        self, _name: str, newer: str, features: list[dict[str, str]], queried: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            *features,
+        ]
+        self.organization.save()
+        oldest = self._alert()
+        AlertConfiguration.objects.filter(pk=oldest.pk).update(created_at=CUTOFF - timedelta(days=30))
+        configuration = self._copy(oldest)
+        for _ in range(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER):
+            if newer == "row":
+                self._alert()
+            else:
+                self._copy(None, legacy_configuration_id=None, next_check_at=CUTOFF + timedelta(days=1))
+
+        outcome, query = self._evaluate(configuration, result=AlertEvaluationResult(value=1.0, breaches=[]))
+
+        assert outcome is not None
+        assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.disable, query.called) == (
+            AlertEventKind.CHECK,
+            "not_firing",
+            False,
+            queried,
+        )
+
+    @parameterized.expand(
+        [
             ("bad_query_shape", AlertExtractionError("bad query shape"), False),
             ("ai_detector_without_a_creator", LLMDetectorMisconfiguredError("no creator"), False),
             ("owner_left_or_lost_access", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON), False),
