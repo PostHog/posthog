@@ -1,8 +1,48 @@
 diff --git a/src/middlewares.js b/src/middlewares.js
-index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..bcc89f98661aa662fca0a7ff43bc557f060622e3 100644
+index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..dcd7a9231f8cc7b7c7268c9b0aceb02de3238b86 100644
 --- a/src/middlewares.js
 +++ b/src/middlewares.js
-@@ -234,12 +234,22 @@
+@@ -18,6 +18,7 @@
+ const path = require('path');
+ const bytes = require('bytes');
+ const zlib = require('fast-zlib');
++const { constants: { MAX_LENGTH } } = require('buffer');
+ const typeis = require('type-is');
+ const querystring = require('fast-querystring');
+ const { AsyncResource } = require('async_hooks');
+@@ -125,17 +126,18 @@
+     }
+ }
+ 
+-function createInflate(contentEncoding) {
++function createInflate(contentEncoding, limit) {
+     const encoding = (contentEncoding || 'identity').toLowerCase();
++    const options = { maxOutputLength: Math.min(limit + 1, MAX_LENGTH) };
+     switch(encoding) {
+         case 'identity':
+             return;
+         case 'deflate':
+-            return new zlib.Inflate();
++            return new zlib.Inflate(options);
+         case 'gzip':
+-            return new zlib.Gunzip();
++            return new zlib.Gunzip(options);
+         case 'br':
+-            return new zlib.BrotliDecompress();
++            return new zlib.BrotliDecompress(options);
+         default:
+             return false;
+     }
+@@ -226,7 +228,7 @@
+             let inflate;
+             let totalSize = 0;
+             if(options.inflate) {
+-                inflate = createInflate(req.headers['content-encoding']);
++                inflate = createInflate(req.headers['content-encoding'], options.limit);
+                 if(inflate === false) {
+                     return next(new Error('Unsupported content encoding'));
+                 }
+@@ -234,12 +236,26 @@
  
              req.bodyRead = true;
  
@@ -20,13 +60,17 @@ index 36ed48e2f18c27f7acc339806ad7f85640a72f3b..bcc89f98661aa662fca0a7ff43bc557f
 +                        buf = inflate.process(buf);
 +                    } catch(e) {
 +                        stopped = true;
++                        if(e.code === 'ERR_BUFFER_TOO_LARGE') {
++                            res.status(413);
++                            return next(new Error('Request entity too large'));
++                        }
 +                        res.status(400);
 +                        return next(Object.assign(e, { status: 400, type: 'encoding.malformed' }));
 +                    }
                  }
  
                  // shallow copy, to avoid shared references for large bodies.
-@@ -247,11 +257,15 @@
+@@ -247,11 +263,15 @@
  
                  totalSize += buf.length;
                  if(totalSize > options.limit) {
