@@ -1,0 +1,39 @@
+name: Ordered image alias alerts
+
+on:
+    workflow_run:
+        workflows:
+            - Container Images CD
+            - Build and deploy node container image
+            - Build and deploy rust container images
+            - Credentials Service Container Image CD
+        types: [completed]
+        branches: [master]
+
+permissions:
+    contents: read
+    actions: read
+
+jobs:
+    notify:
+        name: Notify on ordered image alias failures
+        if: >-
+            vars.CD_DEPLOY_ENABLED == 'true'
+            && github.event.workflow_run.event == 'push'
+            && github.event.workflow_run.head_repository.full_name == github.repository
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/scripts/ordered-image-alias-alerts.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Check ordered tagging history
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_CLOUD_PLATFORM_BOT_TOKEN }}
+              with:
+                  github-token: ${{ github.token }}
+                  script: await require('./.github/scripts/ordered-image-alias-alerts.js')({ context, github })
