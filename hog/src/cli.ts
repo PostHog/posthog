@@ -444,7 +444,8 @@ function feedbackCommand(route: ResolvedRoute, failure: HogError): string | unde
     return `hog feedback ${area}"<what happened>"`
 }
 
-// posthog-cli commands that hog groups under a new name, with the flags that changed.
+// posthog-cli commands that hog groups under a new name, with the flags that changed. It helps people and
+// agents move off posthog-cli, so delete it when posthog-cli stops working on 2027-02-27.
 const RENAMED: Readonly<Record<string, { to: string; hint: string }>> = {
     sourcemap: {
         to: 'error-tracking inject|upload|process',
