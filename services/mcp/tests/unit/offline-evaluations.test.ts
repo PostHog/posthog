@@ -28,7 +28,6 @@ async function getTool(context: Context, name: string): Promise<Tool> {
     const tools = await getToolsFromContext(context, {
         tools: [name],
         featureFlags: {
-            'ai-observability-offline-evaluation-mutations': true,
             'ai-observability-composite-validation': true,
         },
     })

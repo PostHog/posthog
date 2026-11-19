@@ -1021,7 +1021,6 @@ tools:
             idempotent: true
         title: Delete offline experiment item
         description: Delete the selected item through the direct project API.
-        feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-item-get:
         operation: ai_observability_offline_experiments_items_retrieve
         enabled: true
@@ -1077,7 +1076,6 @@ tools:
             idempotent: true
         title: Delete offline experiment item payload
         description: Delete the selected item payload through the direct project API.
-        feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-item-payload-get:
         operation: ai_observability_offline_experiments_items_payload_retrieve
         enabled: true
@@ -1108,7 +1106,6 @@ tools:
             idempotent: true
         title: Update offline experiment item payload
         description: Update fields in an item's payload within 30 days of its original acceptance.
-        feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-item-result-list:
         operation: ai_observability_offline_experiments_items_results_list
         enabled: true
@@ -1145,7 +1142,6 @@ tools:
             idempotent: true
         title: Update offline experiment item
         description: Edit an offline item's case, trial, model, or trace reference.
-        feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-list:
         operation: ai_observability_offline_experiments_list
         enabled: true
@@ -1205,7 +1201,6 @@ tools:
             idempotent: true
         title: Delete offline experiment result
         description: Delete the selected result through the direct project API.
-        feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-result-payload-delete:
         operation: ai_observability_offline_experiments_results_payload_destroy
         enabled: false
@@ -1219,7 +1214,6 @@ tools:
             idempotent: true
         title: Delete offline experiment result payload
         description: Delete the selected result payload through the direct project API.
-        feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-result-payload-get:
         operation: ai_observability_offline_experiments_results_payload_retrieve
         enabled: true
@@ -1252,7 +1246,6 @@ tools:
             idempotent: true
         title: Update offline experiment result payload
         description: Update fields in a result's payload within 30 days of its original acceptance.
-        feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-result-update:
         operation: ai_observability_offline_experiments_results_partial_update
         enabled: true
@@ -1265,7 +1258,6 @@ tools:
             idempotent: true
         title: Update offline experiment result
         description: Update a reported score. The server recalculates its existing composite results.
-        feature_flag: ai-observability-offline-evaluation-mutations
     llma-offline-experiment-scorer-summary-list:
         operation: ai_observability_offline_experiments_scorer_summaries_list
         enabled: true

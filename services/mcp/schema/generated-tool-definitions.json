@@ -10833,8 +10833,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "ai-observability-offline-evaluation-mutations"
+        }
     },
     "llma-offline-experiment-item-result-list": {
         "description": "List a single item's results with their exact immutable scorer configurations. Optionally filter by scorer definition or version UUIDs. Execution status ok can still be a failing score under the pinned passing rule. Reasoning is available separately through result-payload-get. Preserve count and next_cursor and keep filters unchanged when paging.",
@@ -10868,8 +10867,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "ai-observability-offline-evaluation-mutations"
+        }
     },
     "llma-offline-experiment-list": {
         "description": "List stored offline experiment executions in the current project/environment. Filter by execution dates, suite, dataset revision, application/model/prompt versions, source, tags, or upload status. Pass tags as a JSON array of names and tag_match as any (OR) or all (AND). Lists include all statuses by default; use statuses=completed for closed runs. Scorer filters additionally require llm_analytics:read. Counts cover only authorized results; null counts mean unavailable, not zero. Returns count, next_cursor, and results; continue with cursor and unchanged filters.",
@@ -10933,8 +10931,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "ai-observability-offline-evaluation-mutations"
+        }
     },
     "llma-offline-experiment-result-update": {
         "description": "Update a reported score. The server recalculates its existing composite results.",
@@ -10951,8 +10948,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "ai-observability-offline-evaluation-mutations"
+        }
     },
     "llma-offline-experiment-scorer-summary-list": {
         "description": "Read server-computed summaries over all experiment results, grouped by exact immutable scorer version, independently of item pagination. Pass rates divide passing scores by successful results only; errors, skipped, not-applicable, and missing results are separate. Numeric/categorical scores without a passing rule have null pass rates. Repeated trials each contribute an item. Page with next_cursor and unchanged filters.",

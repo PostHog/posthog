@@ -88,7 +88,6 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         return {"id": str(uuid4()), "name": "Answer quality", "started_at": timezone.now().isoformat()}
 
     def _mutable_run(self) -> tuple[str, str, str, dict]:
-        self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
         self._authenticate("session")
         experiment = self._experiment_body()
         self.assertEqual(self.client.post(self._endpoint(), experiment).status_code, 201)
@@ -116,16 +115,6 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         response = self.client.post(self._endpoint(exp_id, "upload"), body)
         self.assertEqual(response.status_code, 200, response.data)
         return exp_id, item_id, str(response.data["results"][0]["id"]), body
-
-    def test_mutation_flag_off_keeps_items_readable(self) -> None:
-        experiment_id, item_id, _, _ = self._mutable_run()
-        url = self._endpoint(experiment_id, f"items/{item_id}")
-        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
-            item = self.client.get(url)
-            self.assertEqual(item.status_code, 200)
-            revision = item.data["revision"]
-            self.assertEqual(self.client.patch(url, {"revision": revision, "trial": "changed"}).status_code, 403)
-            self.assertEqual(self.client.delete(f"{url}?revision={revision}").status_code, 403)
 
     def test_update_closed_score_recomputes_composite_and_preserves_upload_receipt(self) -> None:
         exp_id, item_id, result_id, body = self._mutable_run()

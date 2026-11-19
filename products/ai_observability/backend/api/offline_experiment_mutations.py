@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.auth import is_mcp_request
 from posthog.event_usage import report_user_action
-from posthog.permissions import PostHogFeatureFlagPermission, is_service_auth
+from posthog.permissions import is_service_auth
 
 from products.ai_observability.backend.api.analytics import report_on_commit
 from products.ai_observability.backend.api.offline_experiment_reads import (
@@ -109,11 +109,6 @@ class OfflineResultPayloadUpdateSerializer(OfflineUpdateSerializer):
 
 
 class OfflineExperimentMutationViewSet(OfflineExperimentReadViewSet):
-    permission_classes = [*OfflineExperimentReadViewSet.permission_classes, PostHogFeatureFlagPermission]
-    posthog_feature_flag = {
-        "ai-observability-offline-evaluation-mutations": sorted(MUTATION_ACTIONS),
-    }
-
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
         if self.action in MUTATION_ACTIONS:
             scopes = ["evaluation:write"]

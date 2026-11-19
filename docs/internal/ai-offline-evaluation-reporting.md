@@ -560,7 +560,6 @@ An item and its payload share a revision, as do a result and its payload.
 Recreating an item starts it at a higher revision than its deleted copy. A delayed edit or delete using the old revision returns HTTP 409.
 
 These operations require an evaluation editor with `evaluation:write`. Result operations and item deletion also require `llm_analytics:read` and access to the affected scorers and composite inputs.
-Enable `ai-observability-offline-evaluation-mutations` for a project after all ingestion servers in its region support original upload receipts after edits.
 MCP marks all four updates as destructive because they can overwrite stored data. The CLI requires `--confirm` for these updates. Deletes are available only through the direct API.
 An ingestion-only key can still acknowledge an original upload after an edit. That retry returns the original outcome.
 Calculating a new composite from an edited input, or retrying that calculation, requires stored-result read access.
