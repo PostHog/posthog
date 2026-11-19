@@ -69,23 +69,29 @@ _CHANGE_UNITS = {
 
 
 def bucket_size_for(window: TraceWindow) -> BucketSize:
-    return BucketSize.HOUR if window.end - window.start <= HOURLY_BUCKET_MAX_SPAN else BucketSize.DAY
+    return (
+        BucketSize.HOUR
+        if window.end.astimezone(UTC) - window.start.astimezone(UTC) <= HOURLY_BUCKET_MAX_SPAN
+        else BucketSize.DAY
+    )
 
 
 def bucket_starts(window: TraceWindow, size: BucketSize) -> list[datetime]:
     zone = window.start.tzinfo
     if size == BucketSize.HOUR:
         first = window.start.replace(minute=0, second=0, microsecond=0)
-        step = timedelta(hours=1)
-        next_start = lambda moment: (moment.astimezone(UTC) + step).astimezone(zone)  # noqa: E731
+
+        def next_start(moment: datetime) -> datetime:
+            return (moment.astimezone(UTC) + timedelta(hours=1)).astimezone(zone)
     else:
         first = window.start.replace(hour=0, minute=0, second=0, microsecond=0)
-        next_start = lambda moment: datetime.combine(  # noqa: E731
-            moment.date() + timedelta(days=1), moment.time(), tzinfo=zone
-        )
+
+        def next_start(moment: datetime) -> datetime:
+            return datetime.combine(moment.date() + timedelta(days=1), moment.time(), tzinfo=zone)
+
     starts = []
     moment = first
-    while moment < window.end:
+    while moment.astimezone(UTC) < window.end.astimezone(UTC):
         starts.append(moment)
         moment = next_start(moment)
     return starts

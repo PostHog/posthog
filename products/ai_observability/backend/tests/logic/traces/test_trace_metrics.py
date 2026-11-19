@@ -145,3 +145,16 @@ def test_day_buckets_start_at_midnight_in_the_window_zone_across_dst() -> None:
     assert [s.replace(tzinfo=None) for s in starts] == [datetime(2026, 10, d) for d in (24, 25, 26, 27)]
     assert all(s.tzinfo == zone for s in starts)
     assert starts[2].astimezone(UTC) - starts[1].astimezone(UTC) == timedelta(hours=25)
+
+
+def test_hour_buckets_stay_one_real_hour_apart_across_dst() -> None:
+    zone = ZoneInfo("Europe/Madrid")
+    window = TraceWindow(
+        start=datetime(2026, 10, 25, 0, 30, tzinfo=zone),
+        end=datetime(2026, 10, 25, 5, 0, tzinfo=zone),
+    )
+    starts = bucket_starts(window, BucketSize.HOUR)
+    assert all(s.tzinfo == zone for s in starts)
+    gaps = {(b.astimezone(UTC) - a.astimezone(UTC)) for a, b in zip(starts, starts[1:])}
+    assert gaps == {timedelta(hours=1)}
+    assert len(starts) == 6
