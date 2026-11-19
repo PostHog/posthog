@@ -20,9 +20,8 @@ from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource, Subject
-from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.presentation.querysets import filter_projects
 from products.dashboards.backend.facade.api import dashboards_by_last_access
 
 logger = structlog.get_logger(__name__)
@@ -280,15 +279,10 @@ def _get_accessible_team_ids(organization: Organization, user: User) -> list[int
     Fails closed: if access control filtering raises unexpectedly, we log and return an empty
     list rather than falling back to all org teams (which would leak cross-team data).
     """
-    queryset = organization.teams.all()
     try:
-        visible = authorization.list_objects(
-            resource=Resource(type=ResourceType.PROJECT, organization_id=organization.id),
-            action=Action.VIEW,
-            subject=Subject(user_id=user.pk),
+        queryset = filter_projects(
+            organization.teams.all(), organization_id=organization.id, subject=Subject(user_id=user.pk)
         )
-        team_ids = [int(team_id) for team_id in visible.ids]
-        queryset = queryset.exclude(id__in=team_ids) if visible.excluded else queryset.filter(id__in=team_ids)
     except Exception:
         logger.exception(
             "welcome.access_control_filter_failed",

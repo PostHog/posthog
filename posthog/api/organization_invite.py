@@ -40,7 +40,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     UserCanInvitePermission,
-    can_in_organization,
     request_subject,
 )
 from posthog.rate_limit import (
@@ -53,7 +52,7 @@ from posthog.tasks.email import send_invite
 from products.access_control.backend.facade.user_access_control import ordered_access_levels
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import CheckRequest, Resource
-from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.facade.enums import Action
 
 logger = structlog.get_logger(__name__)
 
@@ -155,7 +154,7 @@ def _highest_level_held(
     http_request: request.Request, organization_id: UUID | str
 ) -> Optional[OrganizationMembership.Level]:
     """The highest membership level the user holds in the organization, or None for a non-member."""
-    organization = Resource(type=ResourceType.ORGANIZATION, id=str(organization_id))
+    organization = Resource.organization(organization_id)
     subject = request_subject(http_request)
     held = authorization.check(
         [CheckRequest(resource=organization, action=action, subject=subject) for action in _LEVEL_ACTIONS.values()]
@@ -165,7 +164,7 @@ def _highest_level_held(
 
 def _project_access_level(http_request: request.Request, team: Team) -> str:
     """The user's access level on the project, as one of the project access levels."""
-    project = Resource(type=ResourceType.PROJECT, id=str(team.pk))
+    project = Resource.project(team.pk)
     subject = request_subject(http_request)
     can_view, can_edit = authorization.check(
         [
@@ -308,7 +307,11 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 raise exceptions.ValidationError(team_error)
 
             # Org admins/owners can invite with any level
-            if can_in_organization(self.context["request"], organization, Action.EDIT):
+            if authorization.check(
+                resource=Resource.organization(organization.id),
+                action=Action.EDIT,
+                subject=request_subject(self.context["request"]),
+            ):
                 continue
 
             access_level = self._inviter_project_access_level(team)
@@ -604,9 +607,10 @@ class OrganizationInviteViewSet(
         # Delegation invites grant ADMIN-level access on accept, so the caller must themselves
         # hold ADMIN or higher. Without this check, regular members could escalate an unrelated
         # account to admin via a delegation invite on orgs that allow members to invite.
-        if not can_in_organization(request, self.organization, Action.VIEW):
+        resource, subject = Resource.organization(self.organization.id), request_subject(request)
+        if not authorization.check(resource=resource, action=Action.VIEW, subject=subject):
             raise exceptions.PermissionDenied("You must be a member of the organization to delegate setup.")
-        if not can_in_organization(request, self.organization, Action.EDIT):
+        if not authorization.check(resource=resource, action=Action.EDIT, subject=subject):
             raise exceptions.PermissionDenied(
                 "Only organization admins can delegate setup, as delegation grants admin access."
             )

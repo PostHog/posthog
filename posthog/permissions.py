@@ -1698,7 +1698,7 @@ class UserCanInvitePermission(BasePermission):
         if not org_invite_settings_available:
             return True
 
-        if can_in_required_organization(request, organization, Action.EDIT):
+        if _can_in_required_organization(request, organization, Action.EDIT):
             return True
 
         return bool(organization.members_can_invite)
