@@ -56538,8 +56538,8 @@
     "workflows-enable": {
         "name": "workflows-enable",
         "kind": "http",
-        "requires": ["hook:workflows/enableHooks"],
-        "hooks": "workflows/enableHooks",
+        "requires": ["hook:workflows/testSenderNoteHooks"],
+        "hooks": "workflows/testSenderNoteHooks",
         "uiApp": "workflow",
         "request": {
             "method": "PATCH",
@@ -57375,8 +57375,8 @@
     "workflows-publish": {
         "name": "workflows-publish",
         "kind": "http",
-        "requires": ["hook:workflows/publishNoteHooks"],
-        "hooks": "workflows/publishNoteHooks",
+        "requires": ["hook:workflows/testSenderNoteHooks"],
+        "hooks": "workflows/testSenderNoteHooks",
         "uiApp": null,
         "request": {
             "method": "POST",

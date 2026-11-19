@@ -579,7 +579,7 @@ tools:
             The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's
             message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email
             describes how.
-        hooks: workflows/publishNoteHooks
+        hooks: workflows/testSenderNoteHooks
         response:
             exclude:
                 - workflow.actions.*.config.inputs
@@ -611,7 +611,7 @@ tools:
             This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message.
             Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how.
         ui_app: workflow
-        hooks: workflows/enableHooks
+        hooks: workflows/testSenderNoteHooks
         response:
             exclude:
                 - actions.*.config.inputs

@@ -19,8 +19,8 @@ import hooks_workflowsCreate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsGet from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsUpdate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggestionCreateHooks'
-import hooks_workflowsEnable from '@/tools/workflows/enableHooks'
-import hooks_workflowsPublish from '@/tools/workflows/publishNoteHooks'
+import hooks_workflowsPublish from '@/tools/workflows/testSenderNoteHooks'
+import hooks_workflowsEnable from '@/tools/workflows/testSenderNoteHooks'
 
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
