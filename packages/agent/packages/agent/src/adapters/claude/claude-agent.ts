@@ -3492,6 +3492,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       settingsManager,
       onModeChange: this.createOnModeChange(),
       onPostHogResourceUsed: this.createOnPostHogResourceUsed(),
+      onMemoryRead: (read) => {
+        void this.client
+          .extNotification(POSTHOG_NOTIFICATIONS.MEMORY_READ, {
+            sessionId: this.sessionId,
+            ...read,
+          })
+          .catch((error) => {
+            this.logger.warn("Failed to report memory read", { error });
+          });
+      },
       onProcessSpawned: this.options?.onProcessSpawned,
       onProcessExited: this.options?.onProcessExited,
       onStartupOutput: (stdout) => initialization.observe(stdout),

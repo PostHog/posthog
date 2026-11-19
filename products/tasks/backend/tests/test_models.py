@@ -2332,6 +2332,39 @@ class TestTaskRun(TestCase):
         self.assertEqual(log_entries[0]["type"], "info")
         self.assertEqual(log_entries[0]["message"], "First log entry")
 
+    MEMORY_READ_ENTRY: ClassVar[dict[str, Any]] = {
+        "type": "notification",
+        "notification": {
+            "method": "_posthog/memory_read",
+            "params": {
+                "slug": "-tmp-workspace",
+                "file": "feedback_test_runner.md",
+                "tool": "Bash",
+                "toolCallId": "toolu_1",
+                "agentId": "agent_1",
+            },
+        },
+    }
+
+    def _append_memory_read_twice(self, environment: str) -> list[dict[str, Any]]:
+        run = TaskRun.objects.create(task=self.task, team=self.team, environment=environment)
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            run.append_log([self.MEMORY_READ_ENTRY, {"type": "info", "message": "unrelated"}])
+            run.append_log([self.MEMORY_READ_ENTRY])
+        return [dict(c.kwargs) for c in mock_capture.call_args_list if c.kwargs.get("event") == "agent_memory_read"]
+
+    def test_append_log_captures_a_memory_read_with_a_retry_stable_uuid(self):
+        first, retry = self._append_memory_read_twice(TaskRun.Environment.CLOUD)
+
+        self.assertEqual(first["uuid"], retry["uuid"])
+        self.assertEqual(
+            {key: first["properties"][key] for key in ("slug", "file", "tool", "agent_id")},
+            {"slug": "-tmp-workspace", "file": "feedback_test_runner.md", "tool": "Bash", "agent_id": "agent_1"},
+        )
+
+    def test_append_log_ignores_memory_reads_from_local_runs(self):
+        self.assertEqual(self._append_memory_read_twice(TaskRun.Environment.LOCAL), [])
+
     def test_append_log_multiple_entries(self):
         run = TaskRun.objects.create(
             task=self.task,

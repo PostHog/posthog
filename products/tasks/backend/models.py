@@ -189,6 +189,8 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
 
 PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
 MAX_PENDING_FOLLOWUP_MESSAGES = 20
+MEMORY_READ_METHOD = "_posthog/memory_read"
+MAX_MEMORY_READ_FIELD_CHARS = 200
 MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
 MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
 
@@ -3404,6 +3406,7 @@ class TaskRun(models.Model):
         is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
 
         self._mirror_logs_to_posthog_logs(entries)
+        self._capture_memory_reads(entries)
 
         if is_new_file and ttl_days is not None:
             try:
@@ -3471,6 +3474,36 @@ class TaskRun(models.Model):
                 state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
 
         self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
+    def _capture_memory_reads(self, entries: list[dict]) -> None:
+        if self.environment != self.Environment.CLOUD:
+            return
+        for entry in entries:
+            notification = entry.get("notification")
+            if not isinstance(notification, dict) or notification.get("method") != MEMORY_READ_METHOD:
+                continue
+            params = notification.get("params")
+            if not isinstance(params, dict):
+                continue
+            slug, file, tool, tool_call_id = (params.get(key) for key in ("slug", "file", "tool", "toolCallId"))
+            if not (
+                isinstance(slug, str)
+                and isinstance(file, str)
+                and isinstance(tool, str)
+                and isinstance(tool_call_id, str)
+            ):
+                continue
+            agent_id = params.get("agentId")
+            self.capture_event(
+                "agent_memory_read",
+                {
+                    "slug": slug[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "file": file[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "tool": tool[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "agent_id": agent_id[:MAX_MEMORY_READ_FIELD_CHARS] if isinstance(agent_id, str) else None,
+                },
+                event_uuid=str(uuid.uuid5(self.id, f"{tool_call_id}:{slug}:{file}")),
+            )
 
     def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
         """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
