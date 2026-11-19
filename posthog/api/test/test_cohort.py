@@ -6583,6 +6583,37 @@ email@example.org,
         static_cohort.refresh_from_db()
         self.assertEqual(static_cohort.errors_calculating, expected_errors)
 
+    def test_add_persons_returns_503_with_retry_after_when_replace_holds_quorum_lock(self) -> None:
+        from posthog.errors import InternalCHQueryError
+        from products.cohorts.backend.models.util import CLICKHOUSE_QUORUM_LOCKED_CODE
+
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Replacing Cohort",
+            is_static=True,
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        person = create_person(team=self.team, distinct_ids=["locked-add"])
+        flush_persons_and_events()
+        locked = InternalCHQueryError("quorum for previous write", code=CLICKHOUSE_QUORUM_LOCKED_CODE)
+
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", side_effect=locked),
+            patch("products.cohorts.backend.models.util.time.sleep"),
+            patch("posthog.tasks.calculate_cohort.schedule_static_cohort_count_refresh"),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
+                {"person_ids": [str(person.uuid)]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE, response.json())
+        self.assertEqual(response["Retry-After"], "20")
+        self.assertIn("This cohort is being replaced. Try again shortly.", response.json()["detail"])
+        self.assertEqual(count_cohort_members(self.team.pk, static_cohort.pk, consistency="strong"), 0)
+
     @patch("posthog.tasks.calculate_cohort.schedule_static_cohort_count_refresh")
     def test_add_persons_during_a_replace_keeps_the_replace_running(self, mock_schedule_refresh: MagicMock) -> None:
         # An add during a replace writes a fresh ClickHouse row so the prune keeps the person. If one add-persons call

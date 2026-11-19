@@ -27,7 +27,7 @@ from pydantic import (
     model_validator,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -143,6 +143,7 @@ from products.cohorts.backend.models.dependencies import (
 from products.cohorts.backend.models.leaf_shape import FilterShapeHashes
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    StaticCohortQuorumLocked,
     close_open_population_attempts,
     cohort_filters_have_values,
     get_all_cohort_dependencies,
@@ -713,6 +714,16 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class StaticCohortReplacingUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "static_cohort_replacing"
+    default_detail = (
+        "This cohort is being replaced. Try again shortly. "
+        "Members from earlier batches in this request may already be added."
+    )
+    wait = 20
 
 
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
@@ -3192,6 +3203,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # Clear stale error state after a successful add when no population is running, so a failed static
             # cohort does not keep its error banner or block Workflows broadcasts.
             Cohort.objects.filter(pk=cohort.pk, team_id=self.team_id, is_calculating=False).update(errors_calculating=0)
+        except StaticCohortQuorumLocked as err:
+            raise StaticCohortReplacingUnavailable() from err
         finally:
             try:
                 if cohort._replace_in_flight():

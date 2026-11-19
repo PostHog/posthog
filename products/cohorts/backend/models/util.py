@@ -102,18 +102,25 @@ CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE = 319
 _T = TypeVar("_T")
 
 
-def _retry_quorum_read(read_fn: Callable[[], _T]) -> _T:
-    """Retry a sequentially consistent read on replica-not-in-quorum (289) before surfacing to the task."""
-    for wait_seconds in STATIC_COHORT_READ_BACK_WAITS_SECONDS:
+def _retry_on_clickhouse_code(fn: Callable[[], _T], *, code: int, waits: Sequence[float]) -> _T:
+    """Retry ``fn`` after each wait in ``waits`` while it raises a ClickHouse error matching ``code``."""
+    for wait_seconds in waits:
         try:
-            return read_fn()
+            return fn()
         except Exception as err:
-            # Sequential consistency turns a replica that has not yet fetched the quorum part into error 289
-            # instead of a stale partial result; waiting briefly avoids restarting the whole population task.
-            if getattr(err, "code", None) != CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE:
+            if getattr(err, "code", None) != code:
                 raise
             time.sleep(wait_seconds)
-    return read_fn()
+    return fn()
+
+
+def _retry_quorum_read(read_fn: Callable[[], _T]) -> _T:
+    """Retry a sequentially consistent read on replica-not-in-quorum (289) before surfacing to the task."""
+    return _retry_on_clickhouse_code(
+        read_fn,
+        code=CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE,
+        waits=STATIC_COHORT_READ_BACK_WAITS_SECONDS,
+    )
 
 
 COHORT_QUERY_TIMEOUT_SETTINGS = {
@@ -881,7 +888,11 @@ STATIC_COHORT_ASYNC_INSERT_MAX_ROWS = 100
 # UNSATISFIED_QUORUM_FOR_PREVIOUS_WRITE. With insert_quorum_parallel=0, a quorum insert fails up front while another
 # quorum insert to the table still waits for its quorum, before it writes anything, so retrying it can't duplicate rows.
 CLICKHOUSE_QUORUM_LOCKED_CODE = 286
-QUORUM_LOCK_RETRY_WAITS_SECONDS = (0.5, 1.5)
+# Adds wait up to ~20 s for an active replace's quorum insert to finish before failing retryably with 503.
+QUORUM_LOCK_RETRY_WAITS_SECONDS = (0.5, 1.5, 3, 5, 10)
+# Short in-process retries for a replace insert colliding with a quick quorum add; prolonged contention falls through
+# to the Celery task retry, which mints a fresh marker instead of burning the task's time limit re-running SELECT.
+REPLACE_INSERT_QUORUM_LOCK_RETRY_WAITS_SECONDS = (1, 3)
 
 
 def insert_static_cohort(
@@ -891,7 +902,8 @@ def insert_static_cohort(
 
     With ``quorum``, the rows are written as a synchronous quorum insert, never buffered, so a sequentially
     consistent read that follows either sees them or fails. A replace's prune reads that way, so an add made
-    during a replace uses it. A quorum lock held by another insert is waited out and retried.
+    during a replace uses it. A quorum lock held by another insert is waited out and retried, raising
+    ``StaticCohortQuorumLocked`` before any Postgres write if the retry budget is exhausted.
     """
     tag_queries(
         product=ProductKey.COHORTS,
@@ -911,14 +923,25 @@ def insert_static_cohort(
         for person_uuid in person_uuids
     ]
     if quorum:
-        for wait_seconds in (*QUORUM_LOCK_RETRY_WAITS_SECONDS, None):
-            try:
-                sync_execute(INSERT_PERSON_STATIC_COHORT, persons, settings=REPLACE_INSERT_QUORUM_SETTINGS)
-                return
-            except Exception as err:
-                if wait_seconds is None or getattr(err, "code", None) != CLICKHOUSE_QUORUM_LOCKED_CODE:
-                    raise
-                time.sleep(wait_seconds)
+        try:
+            _retry_on_clickhouse_code(
+                lambda: sync_execute(INSERT_PERSON_STATIC_COHORT, persons, settings=REPLACE_INSERT_QUORUM_SETTINGS),
+                code=CLICKHOUSE_QUORUM_LOCKED_CODE,
+                waits=QUORUM_LOCK_RETRY_WAITS_SECONDS,
+            )
+            return
+        except Exception as err:
+            if getattr(err, "code", None) == CLICKHOUSE_QUORUM_LOCKED_CODE:
+                logger.warning(
+                    "static_cohort_quorum_lock_exhausted",
+                    cohort_id=cohort_id,
+                    team_id=team_id,
+                    person_count=len(persons),
+                )
+                raise StaticCohortQuorumLocked(
+                    f"ClickHouse quorum lock held across retries while adding to static cohort {cohort_id}"
+                ) from err
+            raise
     # wait_for_async_insert returns only after the buffer is flushed, so a failed write still raises and a
     # following membership read sees the row.
     insert_settings = (
@@ -1457,31 +1480,48 @@ def insert_actors_into_cohort_by_query(
         if kept_marker is not None
         else ({"replace_offset": REPLACE_ROW_OFFSET} if replace_marker is None else {})
     )
-    written = sync_execute(
-        insert_sql.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query, kept_filter=kept_filter),
-        {
-            **kept_params,
-            "cohort_id": cohort.pk,
-            "_timestamp": replace_marker if replace_marker is not None else population_timestamp_now(),
-            "team_id": team_id,
-            # Only the replace insert reads it; the append insert writes 0.
-            **({"_offset": REPLACE_ROW_OFFSET} if replace_marker is not None else {}),
-            **context.values,
-            **params,
-        },
-        settings={
-            **COHORT_QUERY_TIMEOUT_SETTINGS,
-            **COHORT_QUERY_SPILL_SETTINGS,
-            # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
-            # trims it so the query can be embedded), so the native read settings travel on the INSERT.
-            **events_read_settings(context.uses_new_events_schema()),
-            # Flush Distributed writes from a satellite cluster synchronously so quorum reads on data see every row.
-            **({**REPLACE_INSERT_QUORUM_SETTINGS, "insert_distributed_sync": 1} if replace_marker is not None else {}),
-        },
-        workload=Workload.OFFLINE,
-        ch_user=ClickHouseUser.COHORTS,
-        team_id=team_id,
-    )
+    def _execute_insert() -> Any:
+        return sync_execute(
+            insert_sql.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query, kept_filter=kept_filter),
+            {
+                **kept_params,
+                "cohort_id": cohort.pk,
+                "_timestamp": replace_marker if replace_marker is not None else population_timestamp_now(),
+                "team_id": team_id,
+                # Only the replace insert reads it; the append insert writes 0.
+                **({"_offset": REPLACE_ROW_OFFSET} if replace_marker is not None else {}),
+                **context.values,
+                **params,
+            },
+            settings={
+                **COHORT_QUERY_TIMEOUT_SETTINGS,
+                **COHORT_QUERY_SPILL_SETTINGS,
+                # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
+                # trims it so the query can be embedded), so the native read settings travel on the INSERT.
+                **events_read_settings(context.uses_new_events_schema()),
+                # Flush Distributed writes from a satellite cluster synchronously so quorum reads on data see every row.
+                **(
+                    {**REPLACE_INSERT_QUORUM_SETTINGS, "insert_distributed_sync": 1}
+                    if replace_marker is not None
+                    else {}
+                ),
+            },
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.COHORTS,
+            team_id=team_id,
+        )
+
+    if replace_marker is not None:
+        # With insert_quorum_parallel=0, code 286 fails before writing anything, so retrying in place cannot
+        # duplicate rows. Code 319 (unknown insert status) is deliberately not retried here because a part may have
+        # committed; letting it reach the task retry mints a fresh marker instead.
+        written = _retry_on_clickhouse_code(
+            _execute_insert,
+            code=CLICKHOUSE_QUORUM_LOCKED_CODE,
+            waits=REPLACE_INSERT_QUORUM_LOCK_RETRY_WAITS_SECONDS,
+        )
+    else:
+        written = _execute_insert()
     # sync_execute returns the written row count for an insert that wrote rows, and an empty result otherwise.
     return written if isinstance(written, int) else 0
 
@@ -1762,6 +1802,10 @@ class PopulationClaimIncomplete(Exception):
 
 class ReplaceDisabled(Exception):
     """The static cohort replace feature flag was turned off before the replace changed membership."""
+
+
+class StaticCohortQuorumLocked(Exception):
+    """Another ClickHouse quorum insert held the static cohort table lock past the add retry budget."""
 
 
 def is_static_cohort_replace_enabled(team: Team) -> bool:

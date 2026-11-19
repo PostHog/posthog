@@ -4,6 +4,7 @@ from typing import Any, cast
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from redis.exceptions import LockError
 from rest_framework import serializers, status, viewsets
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -11,7 +12,11 @@ from rest_framework.response import Response
 from posthog.auth import InternalAPIUser
 from posthog.redis import get_client
 
-from products.cohorts.backend.facade.api import add_person_to_static_cohort, get_cohort_ref
+from products.cohorts.backend.facade.api import (
+    StaticCohortQuorumLocked,
+    add_person_to_static_cohort,
+    get_cohort_ref,
+)
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_static_cohort_ids
 from products.workflows.backend.facade.service_jwt import WORKFLOW_ADD_TO_STATIC_COHORT_PURPOSE
 from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication
@@ -24,6 +29,13 @@ class WorkflowStaticCohortMemberJWTAuthentication(WorkflowStepJWTAuthentication)
 class WorkflowStaticCohortMemberRequestSerializer(serializers.Serializer):
     cohort_id = serializers.IntegerField(min_value=1, help_text="ID of the static cohort to add the person to.")
     person_uuid = serializers.UUIDField(help_text="UUID of the person the workflow run is for.")
+
+
+class WorkflowStaticCohortReplacingUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "static_cohort_replacing"
+    default_detail = "This cohort is being replaced. Try again shortly."
+    wait = 20
 
 
 class WorkflowStaticCohortMemberResponseSerializer(serializers.Serializer):
@@ -63,7 +75,7 @@ class WorkflowStaticCohortMemberViewSet(viewsets.GenericViewSet):
             ),
             503: OpenApiResponse(
                 response=WorkflowStaticCohortMemberResponseSerializer,
-                description="Another run is adding the same person. The caller retries.",
+                description="Another run is adding the same person or the cohort is being replaced. The caller retries.",
             ),
         },
         summary="Add a workflow person to a static cohort",
@@ -94,15 +106,18 @@ class WorkflowStaticCohortMemberViewSet(viewsets.GenericViewSet):
             return _respond("The cohort was deleted or isn't static.", status.HTTP_409_CONFLICT)
 
         # The insert checks for an existing member and then writes, so two runs for the same person must not
-        # overlap. Otherwise both see no member and the person is stored twice.
+        # overlap. Otherwise both see no member and the person is stored twice. The 60 s timeout outlives the
+        # ~20 s quorum-lock retry budget plus person resolution and Postgres writes.
         lock = get_client().lock(
-            f"workflow-static-cohort-member:{team_id}:{cohort_id}:{person_uuid}", timeout=30, blocking_timeout=5
+            f"workflow-static-cohort-member:{team_id}:{cohort_id}:{person_uuid}", timeout=60, blocking_timeout=5
         )
         try:
             with lock:
                 added = add_person_to_static_cohort(team_id=team_id, cohort_id=cohort_id, person_uuid=person_uuid)
         except LockError:
             return _respond("Another run is adding this person. Trying again.", status.HTTP_503_SERVICE_UNAVAILABLE)
+        except StaticCohortQuorumLocked as err:
+            raise WorkflowStaticCohortReplacingUnavailable() from err
         if not added:
             return _respond("This person doesn't have a profile yet, so they weren't added.", status.HTTP_404_NOT_FOUND)
         return _respond("The person is in the static cohort.")

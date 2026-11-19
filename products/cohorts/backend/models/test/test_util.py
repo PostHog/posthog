@@ -42,11 +42,14 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode
 from products.cohorts.backend.models.util import (
     CLICKHOUSE_QUORUM_LOCKED_CODE,
+    CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,
     COHORT_QUERY_TIMEOUT_SECONDS,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX,
     ERROR_CODE_MESSAGES,
     PRUNE_DELETE_CHUNK,
+    QUORUM_LOCK_RETRY_WAITS_SECONDS,
+    REPLACE_INSERT_QUORUM_LOCK_RETRY_WAITS_SECONDS,
     REPLACE_INSERT_QUORUM_SETTINGS,
     REPLACE_READ_SETTINGS,
     STATIC_COHORT_READ_BACK_WAITS_SECONDS,
@@ -54,8 +57,10 @@ from products.cohorts.backend.models.util import (
     PopulationClaimIncomplete,
     PopulationMarkerClockSkew,
     PopulationSuperseded,
+    StaticCohortQuorumLocked,
     StaticCohortReadBackIncomplete,
     _copy_static_cohort_rows_to_pg,
+    _retry_on_clickhouse_code,
     _recalculate_cohortpeople_for_team,
     _recalculate_cohortpeople_for_team_hogql,
     _sanitize_query_for_cohort,
@@ -1812,6 +1817,108 @@ class TestAddDuringReplace(BaseTest):
             insert_static_cohort([uuid4()], 1, team_id=self.team.pk, quorum=True)
 
         self.assertEqual(mock_sync_execute.call_count, 2)
+
+    def test_retry_on_clickhouse_code_gives_up_after_last_wait_and_skips_other_codes(self) -> None:
+        locked = InternalCHQueryError("quorum for previous write", code=CLICKHOUSE_QUORUM_LOCKED_CODE)
+        fn = MagicMock(side_effect=[locked, locked, locked])
+        with (
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+            self.assertRaises(InternalCHQueryError),
+        ):
+            _retry_on_clickhouse_code(fn, code=CLICKHOUSE_QUORUM_LOCKED_CODE, waits=(0.5, 1.5))
+
+        self.assertEqual(fn.call_count, 3)
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [0.5, 1.5])
+
+        unknown = InternalCHQueryError("unknown insert status", code=CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE)
+        other_fn = MagicMock(side_effect=[unknown])
+        with (
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+            self.assertRaises(InternalCHQueryError),
+        ):
+            _retry_on_clickhouse_code(other_fn, code=CLICKHOUSE_QUORUM_LOCKED_CODE, waits=(0.5, 1.5))
+
+        self.assertEqual(other_fn.call_count, 1)
+        mock_sleep.assert_not_called()
+
+    def test_a_quorum_add_raises_retryable_error_when_lock_outlives_waits_and_does_not_retry_319(self) -> None:
+        locked = InternalCHQueryError("quorum for previous write", code=CLICKHOUSE_QUORUM_LOCKED_CODE)
+        attempts = len(QUORUM_LOCK_RETRY_WAITS_SECONDS) + 1
+        with (
+            patch(
+                "products.cohorts.backend.models.util.sync_execute",
+                side_effect=[locked] * attempts,
+            ) as mock_sync_execute,
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+            patch("products.cohorts.backend.models.util.logger.warning") as mock_warning,
+            self.assertRaises(StaticCohortQuorumLocked),
+        ):
+            insert_static_cohort([uuid4()], 1, team_id=self.team.pk, quorum=True)
+
+        self.assertEqual(mock_sync_execute.call_count, attempts)
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], list(QUORUM_LOCK_RETRY_WAITS_SECONDS))
+        mock_warning.assert_called_once_with(
+            "static_cohort_quorum_lock_exhausted",
+            cohort_id=1,
+            team_id=self.team.pk,
+            person_count=1,
+        )
+
+        unknown = InternalCHQueryError("unknown insert status", code=CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE)
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", side_effect=[unknown]) as mock_sync_execute,
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+            self.assertRaises(InternalCHQueryError),
+        ):
+            insert_static_cohort([uuid4()], 1, team_id=self.team.pk, quorum=True)
+
+        self.assertEqual(mock_sync_execute.call_count, 1)
+        mock_sleep.assert_not_called()
+
+    def test_replace_insert_retries_286_only_on_quorum_branch_and_not_319(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace 286 retry",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons"},
+        )
+        marker = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        locked = InternalCHQueryError("quorum for previous write", code=CLICKHOUSE_QUORUM_LOCKED_CODE)
+        with (
+            patch(
+                "products.cohorts.backend.models.util.sync_execute",
+                side_effect=[locked, locked, 5],
+            ) as mock_sync_execute,
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+        ):
+            written = insert_cohort_query_actors_into_ch(cohort, team=self.team, replace_marker=marker)
+
+        self.assertEqual(written, 5)
+        self.assertEqual(mock_sync_execute.call_count, 3)
+        self.assertEqual(
+            [c.args[0] for c in mock_sleep.call_args_list], list(REPLACE_INSERT_QUORUM_LOCK_RETRY_WAITS_SECONDS)
+        )
+
+        unknown = InternalCHQueryError("unknown insert status", code=CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE)
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", side_effect=[unknown]) as mock_sync_execute,
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+            self.assertRaises(InternalCHQueryError),
+        ):
+            insert_cohort_query_actors_into_ch(cohort, team=self.team, replace_marker=marker)
+
+        self.assertEqual(mock_sync_execute.call_count, 1)
+        mock_sleep.assert_not_called()
+
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", side_effect=[locked]) as mock_sync_execute,
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
+            self.assertRaises(InternalCHQueryError),
+        ):
+            insert_cohort_query_actors_into_ch(cohort, team=self.team)
+
+        self.assertEqual(mock_sync_execute.call_count, 1)
+        mock_sleep.assert_not_called()
 
     def test_append_query_after_failed_first_replace_ignores_lingering_replace_row(self) -> None:
         run = uuid4().hex[:8]

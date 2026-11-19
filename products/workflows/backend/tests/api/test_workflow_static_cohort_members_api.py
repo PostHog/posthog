@@ -3,6 +3,7 @@ from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -97,3 +98,24 @@ class TestWorkflowStaticCohortMembersAPI(ClickhouseTestMixin, APIBaseTest):
         assert (
             count_cohort_members(team_id=self.team.id, cohort_id=cohort_id or self.cohort.id, consistency="strong") == 0
         )
+
+    def test_returns_503_with_retry_after_when_replace_holds_quorum_lock(self) -> None:
+        from posthog.errors import InternalCHQueryError
+        from products.cohorts.backend.models.cohort import CohortPopulationMode
+        from products.cohorts.backend.models.util import CLICKHOUSE_QUORUM_LOCKED_CODE
+
+        Cohort.objects.filter(id=self.cohort.id).update(
+            is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
+        )
+        locked = InternalCHQueryError("quorum for previous write", code=CLICKHOUSE_QUORUM_LOCKED_CODE)
+
+        with (
+            patch("products.cohorts.backend.models.util.sync_execute", side_effect=locked),
+            patch("products.cohorts.backend.models.util.time.sleep"),
+        ):
+            response = self._post()
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert response["Retry-After"] == "20"
+        assert response.json()["detail"] == "This cohort is being replaced. Try again shortly."
+        assert count_cohort_members(team_id=self.team.id, cohort_id=self.cohort.id, consistency="strong") == 0

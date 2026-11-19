@@ -19,6 +19,7 @@ from posthog.models.team import Team
 from posthog.tasks.calculate_cohort import insert_cohort_from_query, schedule_static_cohort_count_refresh
 
 from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode, CohortType, ImportResolution
+from products.cohorts.backend.models.util import StaticCohortQuorumLocked as StaticCohortQuorumLocked
 
 
 def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
