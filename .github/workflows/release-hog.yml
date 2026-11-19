@@ -1242,6 +1242,16 @@ jobs:
             - name: Ensure modern npm (OIDC support)
               run: npm install -g npm@11.6.4
 
+            - name: Notify Slack - Publishing to npm
+              if: needs.release.outputs.slack-ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.release.outputs.slack-ts }}
+                  message: 'Publishing hog ${{ needs.release.outputs.version }} to npm. npm takes a few minutes to serve a new version, so the GitHub release, the manifest and Homebrew wait until `npm install` gets it.'
+
             # Before the GitHub release, the manifest and Homebrew, so nothing names this version before npm
             # can install it. npm accepts a publish minutes before it serves the file, and an install in
             # between skips the missing platform package, an optional dependency, without an error. So the
@@ -1307,6 +1317,16 @@ jobs:
                       exit 1
                   fi
                   echo "npm install hog@$VERSION runs hog $installed"
+
+            - name: Notify Slack - npm installs the release
+              if: needs.release.outputs.slack-ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.release.outputs.slack-ts }}
+                  message: 'npm installs hog ${{ needs.release.outputs.version }}. Moving the GitHub release, the manifest and Homebrew to it.'
 
             - name: Get the hog releaser token
               id: app-token
