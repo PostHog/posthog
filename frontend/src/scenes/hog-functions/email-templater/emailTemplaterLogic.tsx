@@ -718,7 +718,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setIsSaveTemplateModalOpen: (_, { isOpen }) => isOpen,
             },
         ],
-        // A canvas edit the email couldn't take in. Whatever saves the email checks it, so it never saves an older one.
         latestEditUnsaved: [
             false,
             {
