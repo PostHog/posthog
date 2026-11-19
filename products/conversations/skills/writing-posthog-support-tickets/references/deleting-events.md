@@ -28,6 +28,7 @@ Write it in HogQL against `events`:
 - Pin both time bounds to UTC, such as `timestamp >= toDateTime('2026-10-01 00:00:00', 'UTC')`. A bound without a timezone is read in the project's timezone, so copying it unconverted deletes a different set of events.
 - End with a fixed time in the past, using `<`. Never use `now()`, because the deletion runs days later.
 - When the person gives no start, start at the day of the project's first event, and say so. When a bound they give is approximate, ask them for the exact time. Do not pick one for them.
+- When they ask for every event of some persons or IDs, the dates they mention describe the data, not the scope. Start at the project's first event, end at a fixed time before today, and say so. If they gave their own count, say whether the query's count matches it.
 - Name the events with `event = '...'` or `event IN (...)`. If every event in the window should go, leave out the event condition and say so.
 - Filter on the property that identifies the scope, such as `properties.$host` for one web app.
 - Keep to conditions on `events`. `JOIN`, `LIMIT` and `HAVING` do not map onto the deletion request.

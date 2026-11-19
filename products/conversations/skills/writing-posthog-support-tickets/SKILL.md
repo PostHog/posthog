@@ -83,13 +83,13 @@ Error:
 ```
 
 - **Request** is the whole ask, so support knows what to do from this one section.
-  - Open with what happened, in one sentence, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day".
+  - Open with what happened, or what they plan to do, in one sentence, with the numbers and dates, such as "Our project used 6 PostHog AI credits on Oct 16, 2026, but nobody on our team has a chat from that day".
   - For an action, add it in one sentence, such as "Please delete the 3,817 events the query below returns".
   - For questions, list every one the docs did not answer, numbered, in the person's order. Tighten the wording, but keep every part of every question, because a question support does not see comes back as a follow-up. Keep the person's exact words for a term or a quote that matters.
   - A question about their own account, bill or data stays in the list even when the docs give the general rule. Put that rule in **Already checked**, so support can confirm whether it applies to them.
   - A question the docs answer fully leaves the list. Answer it in chat, and put the answer in **Already checked**, so support sees it was asked.
 - **Already checked** keeps their steps ("I tried") apart from yours ("<your name> checked"), so support knows which ones happened in their app.
-  - Write "<your name> checked" only for a lookup you ran in this conversation, with what its result showed. A number the person gave you is theirs, so it goes in **Request**, not here.
+  - Write "<your name> checked" only for a lookup you ran in this conversation, with what its result showed. A number the person gave you is theirs, so it goes in **Request** or **Details**, not here.
   - When the docs had nothing, or only a heading, write "Docs: nothing found for <what you searched>".
 - Copy IDs, queries and errors exactly.
 - Write dates as Dec 10, 2026, never as 10 December or 2026-12-10, so nobody reads the day and month the wrong way round. A query keeps its own date format.
@@ -105,7 +105,8 @@ Cut these before you hand it over:
 
 Never include credentials of any kind, such as personal API keys, `phx_` and `phs_` tokens, cookies, auth headers or passwords.
 Credentials often hide in error text, so read the error before you paste it, and say when you replaced something.
-Leave out personal data about their users beyond one distinct ID or person link, and never include another customer's data.
+Leave out personal data about their users beyond what the request needs, such as one distinct ID or person link, or the IDs a deletion query names.
+Never include another customer's data.
 
 ## 4. Hand it over
 
@@ -121,7 +122,7 @@ Say which details or links you could not find, so they can add them before they 
 ## Before you hand it over, check
 
 - The docs did not already answer it.
-- Every link came from a tool result, or from `posthog:docs-search` as it is.
+- Every link came from a tool result, from `posthog:docs-search` as it is, or from the person.
 - A request of a kind in the table has every required detail.
 - **Request** has every question the docs did not answer, with every part, and only PostHog can answer it or do what it asks.
 - Each "<your name> checked" line is a lookup you ran in this conversation.
