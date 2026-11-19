@@ -3558,7 +3558,6 @@ class TestUserReportCreateAPI(APIBaseTest):
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        self.flag_mock = patch("products.signals.backend.views.feature_enabled_or_false", return_value=True).start()
         patch(CAPTURE_INTERNAL_PATH).start()
         self.addCleanup(patch.stopall)
 
@@ -3641,14 +3640,6 @@ class TestUserReportCreateAPI(APIBaseTest):
         with _safe_judge() as judge, patch(EMBED_PATH):
             response = self.client.post(self._url(), self._payload(), format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        judge.assert_not_awaited()
-        assert not SignalReport.objects.filter(team=self.team).exists()
-
-    def test_create_is_refused_while_the_flag_is_off(self) -> None:
-        self.flag_mock.return_value = False
-        with _safe_judge() as judge, patch(EMBED_PATH):
-            response = self.client.post(self._url(), self._payload(), format="json")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
         judge.assert_not_awaited()
         assert not SignalReport.objects.filter(team=self.team).exists()
 

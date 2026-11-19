@@ -86,7 +86,6 @@ from posthog.permissions import (
     get_authenticator_scopes,
     is_service_auth,
 )
-from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -1423,7 +1422,6 @@ class SignalReportFeedbackResponseSerializer(serializers.Serializer):
 # Whole PR-refund feature gate. Checked server-side (not just in the UI) and keyed on the
 # organization, matching the refund window (the org's billing period).
 SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
-USER_REPORT_CREATE_FEATURE_FLAG = "inbox-reports-create-mcp"
 
 
 # User-facing message for each shared `refund_ineligibility_reason` the refund action rejects on
@@ -3401,23 +3399,6 @@ class SignalReportViewSet(
             return [UserReportCreateBurstThrottle()]
         return super().get_throttles()
 
-    def _user_report_create_enabled(self, user: User) -> bool:
-        # Fails closed: a flag-service error must not open report filing to a member who is not opted in.
-        try:
-            return feature_enabled_or_false(
-                USER_REPORT_CREATE_FEATURE_FLAG,
-                str(user.distinct_id),
-                groups={"organization": str(self.organization.id), "project": str(self.team.uuid)},
-                group_properties={
-                    "organization": {"id": str(self.organization.id)},
-                    "project": {"id": str(self.team.uuid)},
-                },
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            logger.warning("signals.reports.create.flag_check_failed", team_id=self.team.id, exc_info=True)
-            return False
-
     @validated_request(
         request_serializer=EmitReportRequestSerializer,
         responses={
@@ -3432,8 +3413,8 @@ class SignalReportViewSet(
             400: OpenApiResponse(description="Invalid report shape (empty title, summary, or evidence)."),
             403: OpenApiResponse(
                 description=(
-                    "The caller is not a person, is a task sandbox, report filing is not enabled, or the "
-                    "organization has not approved AI data processing."
+                    "The caller is not a person, is a task sandbox, or the organization has not approved AI "
+                    "data processing."
                 )
             ),
             429: OpenApiResponse(description="The caller filed the daily maximum of reports for this project."),
@@ -3454,8 +3435,6 @@ class SignalReportViewSet(
         # A task-bound token authenticates as its acting member, so the user check above does not refuse it.
         if is_sandbox_origin_request(request):
             raise exceptions.PermissionDenied("A task sandbox cannot file an inbox report.")
-        if not self._user_report_create_enabled(user):
-            raise exceptions.PermissionDenied("Filing inbox reports is not enabled for this project.")
         author = UserReportAuthor(
             user_id=user.id,
             user_distinct_id=str(user.distinct_id),
