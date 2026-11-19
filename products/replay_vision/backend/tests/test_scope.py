@@ -240,6 +240,29 @@ class TestScopesTheMirrorWroteBeforeBalance(BaseTest):
         assert settings is not None
         self.assertFalse(settings.balance)
 
+    def test_a_scope_that_already_carries_balance_is_left_alone(self) -> None:
+        # Every row saved once this ships carries the key, so the fill is skipped without deriving
+        # anything. That is the common path after the migration, and the one that costs nothing.
+        scanner = _make_scanner(
+            self.team,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": 9, "variants": ["control", "test"]},
+        )
+        ReplayScanner.all_origins.filter(pk=scanner.pk).update(
+            scope={
+                "kind": "experiment",
+                "experiment_id": 9,
+                "variants": ["control", "test"],
+                "balance": False,
+                "start_on_launch": False,
+            }
+        )
+        scanner.refresh_from_db()
+
+        settings = settings_of(scanner)
+        assert settings is not None
+        self.assertFalse(settings.balance)
+
     def test_a_scope_set_by_hand_keeps_its_own_default(self) -> None:
         # Only a blob this row's own mirror owns is filled. A scope that disagrees with the older
         # store was set deliberately, and a `balance` left at its default there means True.
