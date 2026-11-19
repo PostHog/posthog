@@ -80,7 +80,7 @@ function DashboardV2(): JSX.Element {
             <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2__canvas">
                 {mounted && width > 0 && (
                     <TileGrid
-                        key={activeTab.id}
+                        key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
                         gridId={activeTab.id}
                         tiles={tiles}
                         cols={GRID.columns}
