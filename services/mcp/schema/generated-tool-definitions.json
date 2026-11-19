@@ -1583,7 +1583,7 @@
         "feature_flag": "anomalies-search"
     },
     "anomaly-search": {
-        "description": "Find which series of the project's saved product analytics insights (trends) were anomalous in a date range, from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by scored buckets in the range). Read it against `baseline_rate`, the same rate over the 30 days before the range: a series that is usually quiet and now flags matters more than one that always flags. Read it together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored history of every series of that insight, and the insight's own query (for example query-trends on the insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the project turned scoring off in its self-driving settings; `message` says which. `scoring_enabled: true` does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range) is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first; pass `order: recent` for the newest flagged bucket first. Pass `search` to keep only insights whose name contains the text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly search is not available for this project.",
+        "description": "Find which series of the project's saved product analytics insights (trends) were anomalous in a date range, from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by scored buckets in the range). Read it against `baseline_rate`, the same rate over the 30 days before the range: a series that is usually quiet and now flags matters more than one that always flags. Read it together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored history of every series of that insight, and the insight's own query (for example query-trends on the insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the project turned scoring off in its self-driving settings; `message` says which. `scoring_enabled: true` does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range) is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first; pass `order: recent` for the series flagged the fewest buckets ago first, so an hourly series flagged in the latest hour ties a daily series flagged in the latest day. Pass `search` to keep only insights whose name contains the text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly search is not available for this project.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search anomalous insight series",
@@ -13865,7 +13865,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "releases-area"
+        "feature_flag": "release-objects"
     },
     "release-delete": {
         "description": "Delete a release. Its feature flags, experiments and early access features are not changed. Confirm with the user first.",
@@ -13881,7 +13881,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "releases-area"
+        "feature_flag": "release-objects"
     },
     "release-get": {
         "description": "Get one release by ID with its owner, linked feature flag IDs, broadcasts, surveys and insights. Read it before `release-update` when you change linked flags, because that call replaces the whole list.",
@@ -13897,7 +13897,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "releases-area"
+        "feature_flag": "release-objects"
     },
     "release-merge": {
         "description": "Merge other releases into this one: it gains their linked flags, broadcasts, surveys and insights, and the merged releases are deleted. This cannot be undone, so confirm the releases with the user first.",
@@ -13913,7 +13913,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "releases-area"
+        "feature_flag": "release-objects"
     },
     "release-update": {
         "description": "Change a release's name, description or owner, or the feature flags, broadcasts, surveys and insights it links. Each linked list you send replaces the current one, so to add a flag, read the release with `release-get` and send its current `feature_flag_ids` plus the new ID. Flags the caller cannot see stay linked. If the flag already has a release of its own, merge that release in with `release-merge` instead of linking the flag twice.",
@@ -13929,7 +13929,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "releases-area"
+        "feature_flag": "release-objects"
     },
     "releases-list": {
         "description": "List the project's releases, newest first. A release groups the feature flags, experiments, early access features, surveys and broadcasts that ship one change, so people can follow its rollout in one place. Pass `search` to match part of a name, `owner` to filter by owner user IDs, and `feature_flag_id` to find the releases that link one flag. Page with `next_cursor`. Use `release-get` for a release's linked objects.",
@@ -13945,7 +13945,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "releases-area"
+        "feature_flag": "release-objects"
     },
     "releases-suggest-for-flag": {
         "description": "For one feature flag, list the releases that already link it (`current`) and up to 5 existing releases it probably belongs to (`suggestions`), each with the words it matched. `auto_release` says whether the project puts each new flag in a release of its own about a minute after it is created. Call it after creating a flag, or before creating a release for one. When there are suggestions, ask the user whether to add the flag to one of them. Do not add it without asking.",
@@ -13961,7 +13961,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "releases-area"
+        "feature_flag": "release-objects"
     },
     "reminder-create": {
         "description": "Create a reminder for yourself. Set team to scope it to a project. Use a one-off reminder by setting scheduled_at (a future ISO 8601 time), or a recurring reminder by setting recurrence_interval (daily/weekly/monthly/yearly) OR cron_expression (5-field, max 4 fires/day). Set timezone to the user's IANA timezone so wall-clock times resolve correctly. Optionally attach a resource the reminder is about via resource_type + resource_id (e.g. a dashboard) — the notification will link to it. Reminders fire as in-app notifications when due. Proactively offer to create a reminder when the user mentions needing periodic checks, monitoring, recurring reviews, or follow-ups on a metric, dashboard, or task — reminders are how they get recurring in-app notifications without manual polling.",
@@ -15975,7 +15975,7 @@
         "feature_flag": "workflows-bulk-suppressions-mcp"
     },
     "suppressions-remove": {
-        "description": "Remove up to 100 addresses from the project's suppression list, so workflows can email them again. Remove only the addresses the user asked for. Sending to an address that bounced or reported spam can hurt the project's sender reputation, so check the source with suppressions-list first and tell the user what it was. An address that reported spam is removed only with confirm_complaints set to true; without it, the call removes nothing and returns 400. The response lists the removed addresses and the ones that were not on the list. Repeating a call is safe.",
+        "description": "Remove up to 100 addresses from the project's suppression list, so workflows can email them again. Remove only the addresses the user asked for. Sending to an address that bounced or reported spam can hurt the project's sender reputation, so check the source with suppressions-list first and tell the user what it was. Before you remove more than one address, show the user the addresses you will remove, with their sources, and remove them only after the user confirms that list. An address that reported spam is removed only with confirm_complaints set to true; without it, the call removes nothing and returns 400. The response lists the removed addresses and the ones that were not on the list. Repeating a call is safe.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "Remove email addresses from the suppression list",

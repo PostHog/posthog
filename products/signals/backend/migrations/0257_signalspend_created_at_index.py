@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("posthog", "1446_organizationprovisioning_partner_paid_since"),
-        ("signals", "0255_monitoring_cancelled_check_count"),
+        ("signals", "0256_signal_source_filter_state_fingerprint"),
     ]
 
     operations = [
