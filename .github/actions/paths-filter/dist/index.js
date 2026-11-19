@@ -43180,7 +43180,10 @@ async function proveRun(input, api, current, before) {
     for (const sha of candidates) {
         if (sha !== before) {
             const differing = await differingFrom(input, api, current, sha);
-            if (!Array.isArray(differing) || differing.length > 0) {
+            if (!Array.isArray(differing)) {
+                return { ...differing, earlierHeads: heads.listed };
+            }
+            if (differing.length > 0) {
                 continue;
             }
         }

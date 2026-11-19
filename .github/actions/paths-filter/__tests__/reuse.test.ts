@@ -354,6 +354,29 @@ describe('reuse of an earlier passing result', () => {
     }
   )
 
+  test('an earlier head that cannot be compared stops the search before an older green head', async () => {
+    const OLDEST_HEAD = 'e'.repeat(40)
+
+    const decision = await evaluate(
+      input(),
+      api({
+        branchHeads: async () => [CURRENT_HEAD, PREVIOUS_HEAD, EARLIER_HEAD, OLDEST_HEAD],
+        filesAt: async (_base, sha) => {
+          if (sha === PREVIOUS_HEAD) {
+            return files({...appFile, sha: 'app-broken'})
+          }
+          return sha === EARLIER_HEAD ? null : files(appFile)
+        },
+        checkRuns: runsByHead({
+          [EARLIER_HEAD]: {[GATE]: [{...green, conclusion: 'failure'}]},
+          [OLDEST_HEAD]: {[GATE]: [green], [PROOF]: [green]}
+        })
+      })
+    )
+
+    expect(decision).toMatchObject({reuse: false, reason: 'file-list-truncated', detail: EARLIER_HEAD})
+  })
+
   test('a superseded previous head does not stop the search for the head that ran', async () => {
     const decision = await evaluate(
       input(),
