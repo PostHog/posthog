@@ -130,7 +130,7 @@ pub struct Settings {
     pub mode: Mode,
     pub window: Duration,
     pub value_limit: u64,
-    pub min_share: f64,
+    pub min_new_share: f64,
     pub candidate_min_new_series: u32,
     pub max_candidates: usize,
     pub max_candidates_per_token: usize,
@@ -186,7 +186,8 @@ impl Sketch {
 struct KeySketch {
     sketch: Sketch,
     name: Box<str>,
-    flagged: bool,
+    rows: u64,
+    new_rows: u64,
 }
 
 struct Candidate {
@@ -195,18 +196,8 @@ struct Candidate {
     family: Box<str>,
     window: i64,
     qualified_window: i64,
-    series: Sketch,
     keys: HashMap<(Scope, u64), KeySketch>,
-}
-
-impl Candidate {
-    fn roll(&mut self, window: i64) {
-        if self.window != window {
-            self.window = window;
-            self.series = Sketch::new();
-            self.keys.clear();
-        }
-    }
+    flagged: Vec<(Scope, u64)>,
 }
 
 struct NewSeriesCount {
@@ -216,7 +207,7 @@ struct NewSeriesCount {
 }
 
 struct RowHashes<'a> {
-    series: u64,
+    new_series: bool,
     values: Vec<(Scope, u64, u64, &'a str)>,
 }
 
@@ -341,7 +332,13 @@ impl LabelCardinality {
                 groups.entry(metric_key).or_default().push(index);
             }
         }
-        self.measure(rows, groups, source, window);
+        self.measure(
+            rows,
+            &new_flags(rows.len(), new_rows),
+            groups,
+            source,
+            window,
+        );
     }
 
     fn reserve_tracking(&self, token_hash: u64) -> bool {
@@ -393,8 +390,8 @@ impl LabelCardinality {
             family: truncated(family_name).into(),
             window,
             qualified_window: window,
-            series: Sketch::new(),
             keys: HashMap::new(),
+            flagged: Vec::new(),
         };
         if let dashmap::Entry::Vacant(slot) = self.candidates.entry(metric_key) {
             slot.insert(Mutex::new(candidate));
@@ -411,7 +408,13 @@ impl LabelCardinality {
         }
     }
 
-    pub fn observe(&self, token: &str, rows: &[KafkaMetricRow], source: &Source) {
+    pub fn observe(
+        &self,
+        token: &str,
+        rows: &[KafkaMetricRow],
+        new_rows: &[usize],
+        source: &Source,
+    ) {
         if self.settings.mode == Mode::Off || self.candidates.is_empty() {
             return;
         }
@@ -428,12 +431,22 @@ impl LabelCardinality {
                 groups.entry(metric_key).or_default().push(index);
             }
         }
-        self.measure(rows, groups, source, window);
+        if groups.is_empty() {
+            return;
+        }
+        self.measure(
+            rows,
+            &new_flags(rows.len(), new_rows),
+            groups,
+            source,
+            window,
+        );
     }
 
     fn measure(
         &self,
         rows: &[KafkaMetricRow],
+        new_series: &[bool],
         groups: HashMap<u64, Vec<usize>>,
         source: &Source,
         window: i64,
@@ -446,28 +459,29 @@ impl LabelCardinality {
             for chunk in indices.chunks(MEASURE_CHUNK_ROWS) {
                 let hashes: Vec<RowHashes> = chunk
                     .iter()
-                    .map(|&index| self.row_hashes(&rows[index], source))
+                    .map(|&index| self.row_hashes(&rows[index], new_series[index], source))
                     .collect();
                 let Ok(mut candidate) = slot.try_lock() else {
                     contended += 1;
                     continue;
                 };
-                candidate.roll(window);
+                self.roll(&mut candidate, window);
                 for row in hashes {
                     self.feed(&mut candidate, row);
                 }
             }
-            if let Ok(mut candidate) = slot.try_lock() {
-                self.evaluate(&mut candidate);
-            };
         }
         if contended > 0 {
             counter!("capture_metrics_label_cardinality_batches_contended").increment(contended);
         }
     }
 
-    fn row_hashes<'r>(&self, row: &'r KafkaMetricRow, source: &Source) -> RowHashes<'r> {
-        let mut series = value_hash(&row.service_name);
+    fn row_hashes<'r>(
+        &self,
+        row: &'r KafkaMetricRow,
+        new_series: bool,
+        source: &Source,
+    ) -> RowHashes<'r> {
         let mut values = Vec::new();
         for (scope, map) in [
             (Scope::Attribute, &row.attributes),
@@ -481,23 +495,23 @@ impl LabelCardinality {
                     continue;
                 }
                 let key = key_hash(name);
-                let hash = value_hash(value);
-                series = series.wrapping_add(pair_hash(scope, key, hash));
                 if !self.protected.contains(&(scope, key)) {
-                    values.push((scope, key, hash, name.as_str()));
+                    values.push((scope, key, value_hash(value), name.as_str()));
                 }
             }
         }
-        RowHashes { series, values }
+        RowHashes { new_series, values }
     }
 
     fn feed(&self, candidate: &mut Candidate, row: RowHashes) {
-        candidate.series.insert(row.series);
         let max_keys = self.settings.max_keys_per_candidate;
+        let new_rows = u64::from(row.new_series);
         let mut keys_full = 0u64;
         for (scope, key, hash, name) in row.values {
             if let Some(entry) = candidate.keys.get_mut(&(scope, key)) {
                 entry.sketch.insert(hash);
+                entry.rows += 1;
+                entry.new_rows += new_rows;
                 continue;
             }
             if candidate.keys.len() >= max_keys {
@@ -511,7 +525,8 @@ impl LabelCardinality {
                 KeySketch {
                     sketch,
                     name: truncated(name).into(),
-                    flagged: false,
+                    rows: 1,
+                    new_rows,
                 },
             );
         }
@@ -520,26 +535,35 @@ impl LabelCardinality {
         }
     }
 
+    /// Judges a window only when it is complete. Every series is new at the start of a window,
+    /// so a partial window shows a new-series share near 1 for real labels too.
+    fn roll(&self, candidate: &mut Candidate, window: i64) {
+        if candidate.window == window {
+            return;
+        }
+        self.evaluate(candidate);
+        candidate.window = window;
+        candidate.keys.clear();
+    }
+
     fn evaluate(&self, candidate: &mut Candidate) {
-        let series = candidate.series.estimate();
-        for ((scope, _), entry) in candidate.keys.iter_mut() {
-            if entry.flagged {
-                continue;
-            }
+        candidate.flagged.clear();
+        for ((scope, key), entry) in &candidate.keys {
             let distinct = entry.sketch.estimate();
             if distinct < self.settings.value_limit
-                || (distinct as f64) < self.settings.min_share * series as f64
+                || (entry.new_rows as f64) < self.settings.min_new_share * entry.rows as f64
             {
                 continue;
             }
-            entry.flagged = true;
+            candidate.flagged.push((*scope, *key));
             warn!(
                 token = %candidate.token,
                 metric = %candidate.family,
                 scope = ?scope,
                 key = %entry.name,
                 distinct_values = distinct,
-                distinct_series = series,
+                rows = entry.rows,
+                new_series_rows = entry.new_rows,
                 mode = self.settings.mode.as_str(),
                 "High cardinality metric label flagged"
             );
@@ -555,6 +579,7 @@ impl LabelCardinality {
         let window = self.window_index(now);
         self.candidates.retain(|_, candidate| {
             let candidate = candidate.get_mut().unwrap_or_else(PoisonError::into_inner);
+            self.roll(candidate, window);
             if candidate.qualified_window >= window - 1 {
                 return true;
             }
@@ -605,14 +630,6 @@ fn token_key(token: &str) -> u64 {
     hasher.finish()
 }
 
-fn pair_hash(scope: Scope, key_hash: u64, value_hash: u64) -> u64 {
-    let mut hasher = SipHasher13::new();
-    hasher.write_u8(scope as u8);
-    hasher.write(&key_hash.to_le_bytes());
-    hasher.write(&value_hash.to_le_bytes());
-    hasher.finish()
-}
-
 fn key_hash(key: &str) -> u64 {
     let mut hasher = SipHasher13::new_with_keys(0, 1);
     hasher.write(key.as_bytes());
@@ -630,6 +647,16 @@ fn value_hash(value: &str) -> u64 {
     let mut hasher = SipHasher13::new();
     hasher.write(value.as_bytes());
     hasher.finish()
+}
+
+fn new_flags(len: usize, new_rows: &[usize]) -> Vec<bool> {
+    let mut flags = vec![false; len];
+    for &index in new_rows {
+        if let Some(flag) = flags.get_mut(index) {
+            *flag = true;
+        }
+    }
+    flags
 }
 
 fn unix_now() -> i64 {
@@ -659,7 +686,7 @@ mod tests {
             mode,
             window: Duration::from_secs(1800),
             value_limit: LIMIT,
-            min_share: 0.5,
+            min_new_share: 0.5,
             candidate_min_new_series: 10,
             max_candidates: 100,
             max_candidates_per_token: 100,
@@ -727,14 +754,36 @@ mod tests {
         (0..rows.len()).collect()
     }
 
+    fn end_window(detector: &LabelCardinality, now: &AtomicI64) {
+        let next = now.load(Ordering::SeqCst) + settings(Mode::Shadow).window.as_secs() as i64;
+        now.store(next, Ordering::SeqCst);
+        detector.prune(next);
+    }
+
+    fn rows_with(
+        name: &str,
+        key: &str,
+        values: impl Iterator<Item = String>,
+    ) -> Vec<KafkaMetricRow> {
+        let timestamp = Utc::now().timestamp_millis();
+        let series = values
+            .map(|value| TimeSeries {
+                labels: vec![label("__name__", name), label(key, &value)],
+                samples: vec![Sample {
+                    value: 1.0,
+                    timestamp,
+                }],
+            })
+            .collect();
+        write_timeseries_to_kafka_rows(series, &[]).0
+    }
+
     fn rule_keys(detector: &LabelCardinality) -> HashSet<(u64, Scope, u64)> {
         let mut flagged = HashSet::new();
         for entry in detector.candidates.iter() {
             let candidate = entry.value().lock().unwrap();
-            for ((scope, key), sketch) in &candidate.keys {
-                if sketch.flagged {
-                    flagged.insert((*entry.key(), *scope, *key));
-                }
+            for (scope, key) in &candidate.flagged {
+                flagged.insert((*entry.key(), *scope, *key));
             }
         }
         flagged
@@ -766,10 +815,15 @@ mod tests {
 
     #[test]
     fn flags_only_the_key_that_drives_series_growth() {
-        let (detector, _) = detector(Mode::Shadow);
+        let (detector, now) = detector(Mode::Shadow);
         let rows = remote_write_rows(1000, true);
         detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
-        detector.observe(TOKEN, &rows, &rw());
+        detector.observe(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        assert!(
+            rule_keys(&detector).is_empty(),
+            "a partial window is not judged"
+        );
+        end_window(&detector, &now);
 
         assert_eq!(
             rule_keys(&detector),
@@ -781,67 +835,39 @@ mod tests {
     }
 
     #[test]
-    fn a_key_with_many_values_but_a_small_share_of_series_is_not_flagged() {
-        let (detector, _) = detector(Mode::Shadow);
-        let timestamp = Utc::now().timestamp_millis();
-        let series: Vec<TimeSeries> = (0..4000)
-            .map(|i| TimeSeries {
-                labels: vec![
-                    label("__name__", "jobs_total"),
-                    label("user_id", &format!("u{}", i / 4)),
-                    label("instance", &format!("i{i}")),
-                ],
-                samples: vec![Sample {
-                    value: 1.0,
-                    timestamp,
-                }],
-            })
-            .collect();
-        let (rows, _) = write_timeseries_to_kafka_rows(series, &[]);
-        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
-        detector.observe(TOKEN, &rows, &rw());
+    fn a_key_whose_series_repeat_is_not_flagged() {
+        let (detector, now) = detector(Mode::Shadow);
+        let pods = rows_with("requests", "pod", (0..1000).map(|i| format!("p{i}")));
+        detector.note_new_series(TOKEN, &pods, &all_rows_new(&pods), &rw());
+        for _ in 0..3 {
+            detector.observe(TOKEN, &pods, &[], &rw());
+        }
+        for batch in 0..4 {
+            let ids = rows_with(
+                "jobs",
+                "request_id",
+                (0..1000).map(|i| format!("r{batch}-{i}")),
+            );
+            detector.observe(TOKEN, &ids, &all_rows_new(&ids), &rw());
+            detector.note_new_series(TOKEN, &ids, &all_rows_new(&ids), &rw());
+        }
+        end_window(&detector, &now);
 
         assert_eq!(
             rule_keys(&detector),
-            HashSet::from([
-                rule_key("jobs_total", Scope::Attribute, "instance"),
-                rule_key("jobs_total", Scope::Resource, "service.instance.id"),
-            ])
+            HashSet::from([rule_key("jobs", Scope::Attribute, "request_id")])
         );
     }
 
     #[test]
     fn histogram_components_split_across_requests_count_as_one_series() {
-        let (detector, _) = detector(Mode::Shadow);
+        let (detector, now) = detector(Mode::Shadow);
         let (rows, _) = write_timeseries_to_kafka_rows(histogram_series(1000, true), &[]);
         detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
-        detector.observe(TOKEN, &rows, &rw());
+        detector.observe(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&detector, &now);
 
         assert!(rule_keys(&detector).contains(&rule_key("latency", Scope::Attribute, "user_id")));
-    }
-
-    #[test]
-    fn le_on_a_gauge_counts_toward_its_series() {
-        let (detector, _) = detector(Mode::Shadow);
-        let timestamp = Utc::now().timestamp_millis();
-        let series: Vec<TimeSeries> = (0..4000)
-            .map(|i| TimeSeries {
-                labels: vec![
-                    label("__name__", "queue_depth"),
-                    label("user_id", &format!("u{}", i / 4)),
-                    label("le", &format!("{}", i % 4)),
-                ],
-                samples: vec![Sample {
-                    value: 1.0,
-                    timestamp,
-                }],
-            })
-            .collect();
-        let (rows, _) = write_timeseries_to_kafka_rows(series, &[]);
-        detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
-        detector.observe(TOKEN, &rows, &rw());
-
-        assert!(rule_keys(&detector).is_empty());
     }
 
     #[test]
@@ -891,7 +917,7 @@ mod tests {
 
             let window = settings(Mode::Shadow).window.as_secs() as i64;
             now.store(START + 2 * window, Ordering::SeqCst);
-            detector.observe(TOKEN, &first, &rw());
+            detector.observe(TOKEN, &first, &[], &rw());
             detector.prune(START + 2 * window);
 
             let second = named_rows(&["second".to_string()], 20);
@@ -907,7 +933,7 @@ mod tests {
 
     #[test]
     fn service_name_is_never_flagged() {
-        let (detector, _) = detector(Mode::Shadow);
+        let (detector, now) = detector(Mode::Shadow);
         let timestamp = Utc::now().timestamp_millis();
         let series: Vec<TimeSeries> = (0..1000)
             .map(|i| TimeSeries {
@@ -923,17 +949,19 @@ mod tests {
             .collect();
         let (rows, _) = write_timeseries_to_kafka_rows(series, &[]);
         detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
-        detector.observe(TOKEN, &rows, &rw());
+        detector.observe(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&detector, &now);
 
         assert!(rule_keys(&detector).is_empty());
     }
 
     #[test]
     fn the_batch_that_admits_a_candidate_is_measured() {
-        let (detector, _) = detector(Mode::Shadow);
+        let (detector, now) = detector(Mode::Shadow);
         let rows = remote_write_rows(1000, true);
-        detector.observe(TOKEN, &rows, &rw());
+        detector.observe(TOKEN, &rows, &all_rows_new(&rows), &rw());
         detector.note_new_series(TOKEN, &rows, &all_rows_new(&rows), &rw());
+        end_window(&detector, &now);
 
         assert!(rule_keys(&detector).contains(&rule_key("latency", Scope::Attribute, "user_id")));
     }
@@ -984,7 +1012,7 @@ mod tests {
 
     #[test]
     fn the_admitting_batch_is_measured_in_full() {
-        let (detector, _) = detector(Mode::Shadow);
+        let (detector, now) = detector(Mode::Shadow);
         let timestamp = Utc::now().timestamp_millis();
         let series: Vec<TimeSeries> = (0..4000)
             .map(|i| TimeSeries {
@@ -1003,6 +1031,7 @@ mod tests {
         // The gate already knows three of each user's four series.
         let new_rows: Vec<usize> = (0..rows.len()).step_by(4).collect();
         detector.note_new_series(TOKEN, &rows, &new_rows, &rw());
+        end_window(&detector, &now);
 
         assert!(!rule_keys(&detector).contains(&rule_key(
             "jobs_total",
@@ -1013,12 +1042,12 @@ mod tests {
 
     #[test]
     fn a_burst_right_after_admission_is_evaluated() {
-        let (detector, _) = detector(Mode::Shadow);
+        let (detector, now) = detector(Mode::Shadow);
         let small = remote_write_rows(20, true);
         detector.note_new_series(TOKEN, &small, &all_rows_new(&small), &rw());
-        assert!(rule_keys(&detector).is_empty());
-
-        detector.observe(TOKEN, &remote_write_rows(1000, true), &rw());
+        let burst = remote_write_rows(1000, true);
+        detector.observe(TOKEN, &burst, &all_rows_new(&burst), &rw());
+        end_window(&detector, &now);
         assert!(rule_keys(&detector).contains(&rule_key("latency", Scope::Attribute, "user_id")));
     }
 
