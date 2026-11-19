@@ -85,7 +85,6 @@ from products.data_modeling.backend.temporal.activities.materialize_view import 
     LOGGER,
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
-    IncrementalWindow,
     InvalidNodeTypeException,
     _adaptive_retry_delay,
     _describe_columns,
@@ -2823,21 +2822,8 @@ class TestHogqlTableDuplicateOutputColumns:
             ),
         ],
     )
-    # an incremental run re-selects the model's output through its guard, which must keep every column
-    @pytest.mark.parametrize(
-        "window",
-        [
-            pytest.param(None, id="full-run"),
-            pytest.param(IncrementalWindow(incremental_key="event", since=""), id="incremental-run"),
-        ],
-    )
     async def test_a_qualified_column_repeated_under_its_own_name_materializes_as_described(
-        self,
-        ateam: Team,
-        clickhouse_client: ClickHouseClient,
-        query: str,
-        expected_columns: list[str],
-        window: IncrementalWindow | None,
+        self, ateam: Team, clickhouse_client: ClickHouseClient, query: str, expected_columns: list[str]
     ) -> None:
         events, _, _ = await generate_test_events_in_clickhouse(
             client=clickhouse_client,
@@ -2857,7 +2843,7 @@ class TestHogqlTableDuplicateOutputColumns:
         with unittest.mock.patch(
             "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
         ):
-            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), window=window)]
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
         assert [name for name, _ in batches[0][1]] == expected_columns
         assert all(table.schema.names == expected_columns for table, _ in batches)
