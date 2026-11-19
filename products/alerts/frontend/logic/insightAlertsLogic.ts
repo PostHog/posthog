@@ -31,8 +31,8 @@ export interface InsightAlertsLogicProps {
     insightId: number
     insightLogicProps: InsightLogicProps
     /**
-     * When true, skip the afterMount alerts API fetch and the per-alert destination-count fetch — a dashboard
-     * mounts one of these logics per tile, so those requests N+1 on load. Inline `insight.alerts` (prefetched by
+     * When true, skip the afterMount alerts API fetch: a dashboard mounts one of these logics per tile, so that
+     * request would N+1 on load. Inline `insight.alerts` (prefetched by
      * the dashboard endpoints) still hydrates, so saved display options like alert threshold lines can render.
      * Call `loadAlerts()` when surfacing UI that needs fresh data (e.g. before `ManageAlertsModal` opens).
      */
@@ -402,9 +402,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         // If the insight has an alerts property (even if empty), use it - this means the backend sent us the alerts data
         if (values.insight?.alerts && Array.isArray(values.insight.alerts)) {
             if (props.deferInitialAlertsLoad) {
-                // Hydrate without loadAlertsSuccess: its listener fetches destination counts per
-                // insight, which dashboards must not fan out on mount. Threshold lines only need
-                // the alerts themselves; ManageAlertsModal loads the rest when opened.
+                // Hydrate without loadAlertsSuccess. Threshold lines only need the alerts themselves;
+                // ManageAlertsModal loads fresh alerts when opened.
                 actions.setAlertsFromInsight(values.insight.alerts)
             } else {
                 actions.loadAlertsSuccess(values.insight.alerts)
