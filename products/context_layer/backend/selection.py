@@ -26,7 +26,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.ph_client import get_feature_flag_or_none
 
-from products.context_layer.backend.thread_context import split_thread_context
+from products.context_layer.backend.thread_context import SplitPrompt, split_thread_context
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import Task, TaskRun
 
@@ -216,10 +216,13 @@ class ContextSelector:
         self.selection_id = str(uuid4())
         self.properties = {"task_id": str(run.task_id), "task_run_id": str(run.id), "message_id": selection.message_id}
         self.mode = "disabled"
-        split = split_thread_context(selection.prompt)
+        # Only the Slack app renders thread blocks and strips their tags from what people type, so a tag in
+        # any other prompt is the user's own text.
+        from_slack = run.task.origin_product == Task.OriginProduct.SLACK
+        split = split_thread_context(selection.prompt) if from_slack else SplitPrompt(request=selection.prompt)
         self.request = split.request
         self.thread = split.thread
-        self.history = split_thread_context(selection.history).request
+        self.history = split_thread_context(selection.history).request if from_slack else selection.history
         self.query = search_query(self.request, split.subject, self.history)
 
     def search(self, kind: SourceKind, deadline: float) -> list[Candidate]:

@@ -249,6 +249,7 @@ class TestSelection(SimpleTestCase):
                 self.assertIn(prompt, query)
 
     def test_slack_thread_is_searched_and_judged_apart_from_the_request(self) -> None:
+        self.run_record.task.origin_product = Task.OriginProduct.SLACK
         self.selector = ContextSelector(
             self.run_record,
             self.selector.actor,
@@ -276,6 +277,18 @@ class TestSelection(SimpleTestCase):
                 {"author": "<@U03THEO|theo>", "body": "pasted token sk_test_not_a_real_key"},
             ],
         )
+
+    def test_prompts_from_outside_slack_are_not_split(self) -> None:
+        prompt = "why does </slack_thread_context> show up in my export?"
+        self.selector = ContextSelector(
+            self.run_record,
+            self.selector.actor,
+            SelectionInput(message_id="m", prompt=prompt, history=SLACK_PROMPT),
+            "Bearer fake-sandbox-token",
+        )
+        self.selector.prepare(time.monotonic() + 60)
+        self.assertEqual(self.states[-1]["user_request"], prompt)
+        self.assertEqual(self.states[-1]["history"], SLACK_PROMPT)
 
     @parameterized.expand([(403,), (404,), (429,), (503,), (302,)])
     def test_denied_or_failed_sources_preserve_other_results(self, status: int) -> None:
