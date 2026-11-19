@@ -1,7 +1,7 @@
 """Errors the Postgres destination raises.
 
-Batch exports decides which errors not to retry by the class name, so keep the names it
-already lists (for example `PostgreSQLConnectionError` or `MissingPrimaryKeyError`).
+Callers decide which errors not to retry by the class name, so keep the names stable
+(for example `PostgreSQLConnectionError` or `MissingPrimaryKeyError`).
 """
 
 from products.warehouse_destinations.backend.facade.contracts import DestinationConfigurationError, DestinationError

@@ -38,7 +38,7 @@ class _ClientInputs(typing.Protocol):
 
 
 class _InlineInputs:
-    """Connection details stored on the destination itself, as legacy batch exports do."""
+    """Connection details stored inline on the connection, used when there is no integration."""
 
     def __init__(self, connection: DestinationConnection) -> None:
         self._connection = connection

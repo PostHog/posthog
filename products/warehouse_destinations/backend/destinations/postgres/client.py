@@ -1,7 +1,6 @@
 """The Postgres client that the destination runs on.
 
-A copy of the batch exports `PostgreSQLClient`, with an injected logger. The host checks, the
-SSRF guard and the TLS handling do not change.
+The logger is injected. The client checks the host, guards against SSRF and handles TLS.
 """
 
 import re

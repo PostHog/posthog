@@ -11,8 +11,6 @@ import collections.abc
 import multiprocessing as mp
 import concurrent.futures
 
-from django.conf import settings
-
 import brotli
 import orjson
 import psycopg
@@ -24,6 +22,7 @@ from psycopg import sql
 
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.warehouse_destinations.backend.core import defaults
 from products.warehouse_destinations.backend.core.metrics import ExecutionTimeRecorderFactory, NoOpExecutionTimeRecorder
 from products.warehouse_destinations.backend.core.table import (
     Field,
@@ -69,7 +68,7 @@ def get_json_stream_transformer(
     include_inserted_at: bool = False,
     compression: str | None = None,
     max_file_size_bytes: int = 0,
-    max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
+    max_workers: int = defaults.TRANSFORMER_MAX_WORKERS,
 ) -> ChunkTransformerProtocol:
     if compression == "brotli":
         return JSONLBrotliStreamTransformer(
@@ -95,7 +94,7 @@ class JSONLStreamTransformer:
         compression: str | None = None,
         include_inserted_at: bool = False,
         max_file_size_bytes: int = 0,
-        max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
+        max_workers: int = defaults.TRANSFORMER_MAX_WORKERS,
     ) -> None:
         self.include_inserted_at = include_inserted_at
         self.compression = compression
@@ -166,7 +165,7 @@ class JSONLBrotliStreamTransformer:
         self,
         include_inserted_at: bool = False,
         max_file_size_bytes: int = 0,
-        max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
+        max_workers: int = defaults.TRANSFORMER_MAX_WORKERS,
     ) -> None:
         self.include_inserted_at = include_inserted_at
         self.max_file_size_bytes = max_file_size_bytes
@@ -427,7 +426,7 @@ class ParquetStreamTransformer:
         self.execution_time_recorder = execution_time_recorder or NoOpExecutionTimeRecorder
 
         if max_buffered_arrow_bytes is None:
-            max_buffered_arrow_bytes = settings.BATCH_EXPORT_PARQUET_MAX_BUFFERED_ARROW_BYTES
+            max_buffered_arrow_bytes = defaults.PARQUET_MAX_BUFFERED_ARROW_BYTES
         if max_file_size_bytes:
             max_buffered_arrow_bytes = min(max_buffered_arrow_bytes, max_file_size_bytes)
         self.max_buffered_arrow_bytes = max_buffered_arrow_bytes

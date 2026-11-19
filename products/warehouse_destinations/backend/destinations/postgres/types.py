@@ -1,8 +1,7 @@
 """Map Arrow types onto Postgres column types.
 
-STRICT keeps the batch exports mapping, which raises on any type outside the event and person
-shapes. PERMISSIVE keeps the warehouse sources mapping, which stores every type somehow: nested
-values go to JSONB and unknown types go to TEXT.
+STRICT raises on any type outside the event and person shapes. PERMISSIVE stores every type
+somehow: nested values go to JSONB and unknown types go to TEXT.
 """
 
 import re

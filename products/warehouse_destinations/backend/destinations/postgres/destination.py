@@ -24,13 +24,12 @@ import datetime as dt
 import contextlib
 import collections.abc
 
-from django.conf import settings
-
 import pyarrow as pa
 from psycopg import sql
 
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.warehouse_destinations.backend.core import defaults
 from products.warehouse_destinations.backend.core.json_type import JsonType
 from products.warehouse_destinations.backend.core.transformer import CSVStreamTransformer
 from products.warehouse_destinations.backend.destinations.postgres.client import (
@@ -180,7 +179,7 @@ class PostgresDestination:
         self._upload_chunk_size_bytes = (
             upload_chunk_size_bytes
             if upload_chunk_size_bytes is not None
-            else settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES
+            else defaults.POSTGRES_UPLOAD_CHUNK_SIZE_BYTES
         )
         self._client: PostgreSQLClient | None = None
 

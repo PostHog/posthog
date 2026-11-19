@@ -1,7 +1,6 @@
 """Public contracts for warehouse destinations.
 
-Batch exports and warehouse source writers both use these types to write Arrow
-record batches into a destination. No Django imports here.
+Callers use these types to write Arrow record batches into a destination. No Django imports here.
 """
 
 from collections.abc import AsyncIterable, Mapping
@@ -27,7 +26,7 @@ class DestinationConnection:
 
     `config` holds settings that are not secret, for example host, port,
     database, schema or has_self_signed_cert. `credentials` holds inline secrets.
-    Legacy batch exports use them when `integration_id` is None.
+    The destination uses them when `integration_id` is None.
     """
 
     destination_type: str

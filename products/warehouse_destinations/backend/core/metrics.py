@@ -1,7 +1,7 @@
 """Timing hooks that callers inject into the transformers.
 
-Batch exports pass their `ExecutionTimeRecorder` class as the factory. It records a
-histogram and logs on exit. Without a factory, the transformers record nothing.
+A caller passes a factory that builds a recorder for each timed block. Without a factory,
+the transformers record nothing.
 """
 
 import types
