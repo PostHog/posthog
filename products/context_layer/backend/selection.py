@@ -20,7 +20,7 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, normalize_search_term
-from posthog.llm.system_one import NoulAnswer, NoulQuestion
+from posthog.llm.system_one import JsonValue, NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
@@ -39,7 +39,11 @@ MAX_PROMPT_CHARS = 20_000
 MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
-CONFIG_VERSION = "context-selection-v13"
+CONFIG_VERSION = "context-selection-v14"
+# The Slack app renders the thread in a tagged block before the request. Thread participants' text sits inside
+# the block, so a tag they forge comes before the real closing tag, and the request is the text after the last one.
+_SLACK_THREAD_CLOSINGS = ("</slack_thread_context>", "</slack_thread_context_update>")
+_SLACK_EMPTY_REQUEST = "Task from Slack"
 type SourceKind = Literal["skill", "metric", "certification", "relationship", "business_knowledge"]
 SOURCE_ENDPOINTS: dict[SourceKind, tuple[str, int]] = {
     "skill": ("llm_skills/search/", 10),
@@ -199,9 +203,19 @@ class ContextSelector:
         self.selection_id = str(uuid4())
         self.properties = {"task_id": str(run.task_id), "task_run_id": str(run.id), "message_id": selection.message_id}
         self.mode = "disabled"
+        self.request = selection.prompt
+        self.thread = ""
+        if run.task.origin_product == Task.OriginProduct.SLACK:
+            prompt = selection.prompt
+            cut = max((prompt.rfind(tag) + len(tag) for tag in _SLACK_THREAD_CLOSINGS if tag in prompt), default=0)
+            if cut:
+                request = prompt[cut:].strip()
+                # A mention without text leaves only the Slack app's placeholder title, which is nothing to search on.
+                self.request = "" if request == _SLACK_EMPTY_REQUEST else request
+                self.thread = prompt[:cut]
         history = normalize_search_term(selection.history)
         request_budget = MAX_SEARCH_LENGTH * 3 // 4 if history else MAX_SEARCH_LENGTH
-        self.query = normalize_search_term(selection.prompt)[-request_budget:]
+        self.query = normalize_search_term(self.request)[-request_budget:]
         if history:
             self.query += "\n" + history[-(MAX_SEARCH_LENGTH - len(self.query) - 1) :]
 
@@ -337,11 +351,15 @@ class ContextSelector:
             },
         )
 
+    def decision_state(self) -> dict[str, JsonValue]:
+        state: dict[str, JsonValue] = {"user_request": self.request, "history": self.selection.history}
+        if self.thread:
+            state["thread"] = self.thread
+        return state
+
     def gate(self, deadline: float) -> float:
         client = self.decision_client(deadline, "gate")
-        answer = client.decide(
-            state={"user_request": self.selection.prompt, "history": self.selection.history}, questions={"useful": GATE}
-        ).answers["useful"]
+        answer = client.decide(state=self.decision_state(), questions={"useful": GATE}).answers["useful"]
         if not isinstance(answer, NoulAnswer):
             raise ValueError("invalid_selector_answer")
         return answer.probability
@@ -353,8 +371,7 @@ class ContextSelector:
         client = self.decision_client(deadline, "rerank")
         answers = client.decide(
             state={
-                "user_request": self.selection.prompt,
-                "history": self.selection.history,
+                **self.decision_state(),
                 "candidates": {key: asdict(candidate) for key, candidate in keyed.items()},
             },
             questions={
