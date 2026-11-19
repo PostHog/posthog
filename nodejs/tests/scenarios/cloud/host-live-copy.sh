@@ -77,6 +77,7 @@ trap finish TERM
 while kill -0 "$wrapper" 2>/dev/null; do
     kill -0 "$runner" 2>/dev/null || finish
     copy
+    kill -0 "$wrapper" 2>/dev/null || break
     sleep "$interval" </dev/null >/dev/null 2>&1 &
     wait $!
 done

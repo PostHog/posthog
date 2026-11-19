@@ -45,9 +45,10 @@ case $target in
 */live.jsonl)
     [ -z "\${FAKE_LIVE_FAILS:-}" ] || exit 1
     [ -z "\${FAKE_LIVE_DELAY:-}" ] || sleep "$FAKE_LIVE_DELAY"
-    if [ "\${FAKE_LIVE_HANGS:-}" = every ] || { [ "\${FAKE_LIVE_HANGS:-}" = first ] && [ ! -e "$FAKE_S3.hanging" ]; }; then
+    if [ "\${FAKE_LIVE_HANGS:-}" = every ] || { [ "\${FAKE_LIVE_HANGS:-}" = first ] && [ -z "$(ls "$FAKE_S3.held" 2>/dev/null)" ]; }; then
         trap '' TERM
-        echo hanging >>"$FAKE_S3.hanging"
+        mkdir -p "$FAKE_S3.held"
+        cat >"$FAKE_S3.held/.part" && mv "$FAKE_S3.held/.part" "$FAKE_S3.held/$(ls "$FAKE_S3.held" | wc -l)"
         exec sleep 1000
     fi
     ;;
@@ -137,6 +138,15 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
             }
             await new Promise((resolve) => setTimeout(resolve, 20))
         }
+    }
+
+    const held = (run: Run): string[] => {
+        const dir = path.join(run.dir, 's3.held')
+        return existsSync(dir)
+            ? readdirSync(dir)
+                  .sort((a, b) => Number(a) - Number(b))
+                  .map((name) => readFileSync(path.join(dir, name), 'utf8'))
+            : []
     }
 
     const copied = (run: Run): string =>
@@ -252,21 +262,24 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     })
 
     it.each([
-        ['cancels a copy in flight and makes its final copy', 'first', '60', 1, `${START}\n`],
-        ['bounds a final copy that hangs', 'every', '1', 2, undefined],
-    ])('%s when the card ends', async (_, hangs, limit, hungCopies, finalCopy) => {
-        const run = start(
-            'run',
-            {
-                FAKE_HOLD: '1',
-                FAKE_LIVE_HANGS: hangs,
-                SCENARIO_LIVE_COPY_SECONDS: '600',
-                SCENARIO_LIVE_COPY_LIMIT_SECONDS: limit,
-            },
-            { runId: RUN_ID, content: `${START}\n` }
-        )
+        [
+            'cancels a copy in flight and makes its final copy',
+            'first',
+            '60',
+            [`${START}\n`],
+            `${START}\n${TICK}\n${END}\n`,
+        ],
+        ['bounds a final copy that hangs', 'every', '1', [`${START}\n`, `${START}\n${TICK}\n${END}\n`], undefined],
+    ])('%s when the card ends', async (_, hangs, limit, heldUploads, finalCopy) => {
+        const run = start('run', {
+            FAKE_LIVE: '1',
+            FAKE_HOLD: '1',
+            FAKE_LIVE_HANGS: hangs,
+            SCENARIO_LIVE_COPY_SECONDS: '600',
+            SCENARIO_LIVE_COPY_LIMIT_SECONDS: limit,
+        })
 
-        await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
+        await until(() => held(run).length > 0, 'a hanging copy')
         release(run)
         const ended = await Promise.race([
             run.exited.then(() => true),
@@ -275,32 +288,24 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
 
         expect(ended).toBe(true)
         expect(parseJSON(readFileSync(object(run, 'host/done'), 'utf8'))).toMatchObject({ exitCode: 0, uploaded: true })
-        expect(readFileSync(path.join(run.dir, 's3.hanging'), 'utf8').split('\n').filter(Boolean)).toHaveLength(
-            hungCopies
-        )
+        expect(held(run)).toEqual(heldUploads)
         expect(existsSync(object(run, 'live.jsonl')) ? copied(run) : undefined).toBe(finalCopy)
     })
 
-    it('marks the run done without waiting for a final copy that hangs, and waits for it before it exits', async () => {
-        const run = start(
-            'run',
-            {
-                FAKE_HOLD: '1',
-                FAKE_CARD_EXIT: '1',
-                FAKE_LIVE_HANGS: 'every',
-                SCENARIO_LIVE_COPY_SECONDS: '600',
-                SCENARIO_LIVE_COPY_LIMIT_SECONDS: '60',
-            },
-            { runId: RUN_ID, content: `${START}\n` }
-        )
-        await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
+    it('marks the run done while a final copy hangs, and waits for that copy before it exits', async () => {
+        const run = start('run', {
+            FAKE_LIVE: '1',
+            FAKE_HOLD: '1',
+            FAKE_CARD_EXIT: '1',
+            FAKE_LIVE_HANGS: 'every',
+            SCENARIO_LIVE_COPY_SECONDS: '600',
+            SCENARIO_LIVE_COPY_LIMIT_SECONDS: '60',
+        })
+        await until(() => held(run).length > 0, 'a hanging copy')
 
         release(run)
+        await until(() => held(run).includes(`${START}\n${TICK}\n${END}\n`), 'the final copy to hang')
         await until(() => existsSync(object(run, 'host/done')), 'the run to be marked done')
-        await until(
-            () => readFileSync(path.join(run.dir, 's3.hanging'), 'utf8').split('\n').filter(Boolean).length === 2,
-            'the final copy to hang'
-        )
 
         expect(parseJSON(readFileSync(object(run, 'host/done'), 'utf8'))).toMatchObject({ exitCode: 1, uploaded: true })
         expect(run.wrapper.exitCode).toBeNull()
@@ -308,7 +313,7 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
 
     it('leaves no process behind when the whole run is killed during a copy', async () => {
         const run = start('run', { FAKE_HOLD: '1', FAKE_LIVE_HANGS: 'first' }, { runId: RUN_ID, content: `${START}\n` })
-        await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
+        await until(() => held(run).length > 0, 'a hanging copy')
 
         signalAll(run, 'SIGKILL')
 
@@ -318,10 +323,15 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
     it('leaves no process but the card behind once the wrapper is gone during a copy', async () => {
         const run = start(
             'run',
-            { FAKE_HOLD: '1', FAKE_LIVE_HANGS: 'first', SCENARIO_LIVE_COPY_LIMIT_SECONDS: '60' },
+            {
+                FAKE_HOLD: '1',
+                FAKE_LIVE_HANGS: 'first',
+                SCENARIO_LIVE_COPY_SECONDS: '600',
+                SCENARIO_LIVE_COPY_LIMIT_SECONDS: '60',
+            },
             { runId: RUN_ID, content: `${START}\n` }
         )
-        await until(() => existsSync(path.join(run.dir, 's3.hanging')), 'a hanging copy')
+        await until(() => held(run).length > 0, 'a hanging copy')
 
         run.wrapper.kill('SIGKILL')
 
