@@ -44,6 +44,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookSyncResult,
     make_tracked_session,
     retry_with_deadline,
+    to_epoch,
 )
 from products.warehouse_sources.sources.sdk.internals import table_from_py_list
 
@@ -146,11 +147,8 @@ def _to_epoch(value: Any) -> Optional[int]:
         return value
     if isinstance(value, float):
         return int(value)
-    if isinstance(value, datetime):
-        dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-        return int(dt.timestamp())
-    if isinstance(value, date):
-        return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp())
+    if isinstance(value, datetime | date):
+        return to_epoch(value)
     try:
         return int(float(value))
     except (TypeError, ValueError):

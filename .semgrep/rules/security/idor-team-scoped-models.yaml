@@ -1693,6 +1693,7 @@ rules:
                               AccountAuditCredential
                               |CommunitySkillVote
                               |GitHubInstallRequest
+                              |IdentityProviderEmailVerification
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1750,6 +1751,7 @@ rules:
                         AccountAuditCredential
                         |CommunitySkillVote
                         |GitHubInstallRequest
+                        |IdentityProviderEmailVerification
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig

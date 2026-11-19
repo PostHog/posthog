@@ -223,6 +223,9 @@ Output rules:
   `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}`,
   `{{window_end}}` and `{{compare_window_start}}` (the start of the comparison period) substitute to
   bare `toDateTime('…')` literals where a pattern needs a single bound.
+  When the request supplies a query to run as written and that query sets its own date bounds (e.g.
+  `created_at >= today() - INTERVAL 21 DAY`), keep those bounds exactly as written and do not add a
+  placeholder to that query: the request's range wins over the analysis window.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
   its own line, one selected column per line. Queries are shown to users verbatim.
@@ -239,7 +242,8 @@ are common LLM mistakes that HogQL rejects:
   `argMax`/`argMin`. Use a window only when you genuinely need per-row ranking.
 - Do NOT use LATERAL joins, recursive CTEs, `UNNEST`, or `ARRAY JOIN` on a subquery.
 - Window filter: write the placeholder token `{{date_range}}` verbatim where the window predicate goes.
-  Never write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for the window.
+  Never write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for the window,
+  except to keep the date bounds of a query the request supplies to run as written.
 - Time bucketing (for sub-windows WITHIN the range): `toStartOfHour(timestamp)`,
   `toStartOfDay(timestamp)`, `toStartOfWeek(timestamp)`.
 - Conditional aggregation: `countIf(cond)`, `uniqIf(field, cond)`, `sumIf(field, cond)`,

@@ -341,6 +341,9 @@ CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "a
 # registry can say where a storage table lives; whether a given deployment can reach it is
 # decided by probing the hosts, not by comparing this against the handle's cluster.
 CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
+# The cluster that stores sharded_flag_evaluations. The deletion registry builds a handle for it, like the events
+# cluster above. Probing the hosts decides whether a deployment can reach it.
+CLICKHOUSE_FLAGS_CLUSTER: str = os.getenv("CLICKHOUSE_FLAGS_CLUSTER", "flags")
 # CI uses this to run the test suite against both schemas. Production reads use the instance settings.
 CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
