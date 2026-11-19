@@ -209,7 +209,7 @@ module.exports = async (
             }
         }
     }
-    const jobs = await readJobs(run)
+    const jobs = await readJobs({ ...run, jobsAttempt: FIRST_ATTEMPT })
     const messages = await streakMessages({ run, jobs }, loadOlderRuns(actions, coordinates, run, readJobs, delay))
     if (!messages.length) {
         return

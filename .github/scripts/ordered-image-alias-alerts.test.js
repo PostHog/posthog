@@ -72,7 +72,7 @@ function fakeHistory(
                     calls.push(`list jobs ${run_id} attempt ${attempt_number} page ${page}`)
                     assert.deepEqual(repo, { owner: 'example', repo: 'images' })
                     assert.equal(attempt_number, 1)
-                    return jobsPage(attempts.get(run_id).jobs, page, per_page)
+                    return jobsPage(attempts.get(run_id)?.jobs ?? jobs.get(run_id), page, per_page)
                 },
                 async listWorkflowRuns(params) {
                     calls.push(`list runs ${params.page}`)
@@ -255,6 +255,25 @@ test('nearby completions decide their own streaks in completion order, with run 
     assert.ok(earlier[0].includes('<https://example.com/runs/101|first failure>'))
 })
 
+test('posts the third first-attempt failure once when the latest attempt has no alias conclusion', async () => {
+    const [trigger, ...predecessors] = failingHistory(3)
+    const latestJobs = { ...trigger, jobs: [{ name: ALIAS, conclusion: null }] }
+    const history = fakeHistory([latestJobs, ...predecessors], { firstAttempts: [trigger] })
+
+    const messages = await history.process(trigger.run)
+    assert.equal(messages.length, 1)
+    assert.match(messages[0], /failed in 3 consecutive runs/)
+    assert.ok(messages[0].includes('<https://example.com/runs/100|newest failure>'))
+})
+
+test('requests attempt 1 jobs for the triggering run', async () => {
+    const trigger = nodeRun(101, 'failure')
+    const history = fakeHistory([trigger])
+
+    await history.process(trigger.run)
+    assert.deepEqual(history.calls, ['list jobs 101 attempt 1 page 1', 'list runs 1'])
+})
+
 test('exits before reading history on a rerun, including a rerun that succeeded', async () => {
     const trigger = nodeRun(101, 'success')
     const history = fakeHistory([trigger, ...failingHistory(3)])
@@ -280,7 +299,7 @@ test('ignores a successful rerun event and posts one recovery on the next succes
     assert.deepEqual(await history.process(later.run), [recovery])
 })
 
-test('counts an older rerun at its first completion and makes no attempt calls for one-attempt runs', async () => {
+test('counts an older rerun at its first completion and keeps ordinary predecessors on the default route', async () => {
     const [trigger, ordinary, failed] = failingHistory(3)
     failed.run.html_url += '/attempts/1'
     failed.jobs.unshift(...Array.from({ length: 100 }, (_, i) => ({ name: `Build component ${i}`, conclusion: 'success' })))
@@ -293,7 +312,7 @@ test('counts an older rerun at its first completion and makes no attempt calls f
     assert.match(messages[0], /failed in 3 consecutive runs/)
     assert.ok(messages[0].includes('<https://example.com/runs/98/attempts/1|first failure>'))
     assert.deepEqual(history.calls, [
-        100,
+        'list jobs 100 attempt 1 page 1',
         'list runs 1',
         'get run 98 attempt 1',
         99,
@@ -307,7 +326,7 @@ test('a skipped, cancelled, or absent triggering job only needs the triggering j
         const trigger = nodeRun(101, conclusion)
         const history = fakeHistory([trigger, ...failingHistory(3)])
         assert.deepEqual(await history.process(trigger.run), [])
-        assert.deepEqual(history.calls, [101])
+        assert.deepEqual(history.calls, ['list jobs 101 attempt 1 page 1'])
     }
 })
 
@@ -319,7 +338,7 @@ test('does not read further once a success has three preceding failures', async 
     const messages = await history.process(trigger.run)
     assert.equal(messages.length, 1)
     assert.match(messages[0], /succeeded after at least 3 consecutive failures/)
-    assert.deepEqual(history.calls, [50000, 'list runs 1', 49999, 49998, 49997])
+    assert.deepEqual(history.calls, ['list jobs 50000 attempt 1 page 1', 'list runs 1', 49999, 49998, 49997])
 })
 
 test('counts a sparse streak of 13 when the preceding success is on page 2', async () => {
@@ -346,7 +365,10 @@ test('stops after ten full pages without reading the jobs of unconfirmed runs', 
     const history = fakeHistory([trigger, ...older, ...skipped, nodeRun(1000, 'success')])
 
     assert.deepEqual(await history.process(trigger.run), [])
-    assert.deepEqual(history.calls, [2000, ...Array.from({ length: 10 }, (_, i) => `list runs ${i + 1}`)])
+    assert.deepEqual(history.calls, [
+        'list jobs 2000 attempt 1 page 1',
+        ...Array.from({ length: 10 }, (_, i) => `list runs ${i + 1}`),
+    ])
 })
 
 test('withholds an alert when three failures pass the six-hour bound and the first success is beyond ten full pages', async () => {
@@ -358,7 +380,7 @@ test('withholds an alert when three failures pass the six-hour bound and the fir
 
     assert.deepEqual(await history.process(trigger.run), [])
     assert.deepEqual(history.calls, [
-        50000,
+        'list jobs 50000 attempt 1 page 1',
         'list runs 1',
         49999,
         49998,
@@ -386,7 +408,7 @@ test('cross-page completion order 1000 failure, 999 failure, 900 success, 901 fa
     const history = fakeHistory([trigger, ...older])
 
     assert.deepEqual(await history.process(trigger.run), [])
-    assert.deepEqual(history.calls.slice(0, 4), [1000, 'list runs 1', 'list runs 2', 999])
+    assert.deepEqual(history.calls.slice(0, 4), ['list jobs 1000 attempt 1 page 1', 'list runs 1', 'list runs 2', 999])
     assert.equal(history.calls.at(-1), 900)
     assert.ok(!history.calls.includes(901))
 })
@@ -413,7 +435,7 @@ test('waits at the six-hour bound for a higher-ID success on the next page', asy
     const history = fakeHistory([trigger, recentFailure, ...skipped, waitingFailure, unreadSuccess])
 
     assert.deepEqual(await history.process(trigger.run), [])
-    assert.deepEqual(history.calls, [50000, 'list runs 1', 49999, 'list runs 2', 901])
+    assert.deepEqual(history.calls, ['list jobs 50000 attempt 1 page 1', 'list runs 1', 49999, 'list runs 2', 901])
 })
 
 test('orders a later-created success after two earlier-created failures inside one page', async () => {
@@ -448,7 +470,13 @@ test('counts the alias job from page 2 and reads exactly 100 jobs in one call', 
     const messages = await history.process(trigger.run)
     assert.equal(messages.length, 1)
     assert.match(messages[0], /failed in 3 consecutive runs/)
-    assert.deepEqual(history.calls, [100, 'list jobs 100 page 2', 'list runs 1', 99, 98])
+    assert.deepEqual(history.calls, [
+        'list jobs 100 attempt 1 page 1',
+        'list jobs 100 attempt 1 page 2',
+        'list runs 1',
+        99,
+        98,
+    ])
 })
 
 test('retries a stale first page and posts once from fresh history', async () => {
@@ -459,7 +487,7 @@ test('retries a stale first page and posts once from fresh history', async () =>
     assert.equal(messages.length, 1)
     assert.match(messages[0], /failed in 3 consecutive runs/)
     assert.equal(history.delays.length, 1)
-    assert.deepEqual(history.calls, [100, 'list runs 1', 'list runs 1', 99, 98])
+    assert.deepEqual(history.calls, ['list jobs 100 attempt 1 page 1', 'list runs 1', 'list runs 1', 99, 98])
 })
 
 test('fails visibly when the first page stays stale', async () => {
@@ -469,7 +497,7 @@ test('fails visibly when the first page stays stale', async () => {
     await assert.rejects(history.process(trigger.run), /Stale Actions history: run 100 is missing from the first page/)
     assert.deepEqual(history.messages, [])
     assert.equal(history.delays.length, 1)
-    assert.deepEqual(history.calls, [100, 'list runs 1', 'list runs 1'])
+    assert.deepEqual(history.calls, ['list jobs 100 attempt 1 page 1', 'list runs 1', 'list runs 1'])
 })
 
 test('reports the HTTP status for a non-JSON Slack failure', async () => {
