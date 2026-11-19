@@ -1,6 +1,6 @@
 import re
 import hashlib
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import timedelta
 from enum import StrEnum
@@ -26,7 +26,6 @@ REVOKE_PENDING_STATE_KEY = "gateway_token_revoke_pending"
 ENDED_WITHIN = timedelta(hours=1)
 REVOKE_RETRY_WINDOW = timedelta(hours=24)
 MAX_HASHES_PER_REVOKE = 100
-MAX_TOKENS_PER_RUN = MAX_HASHES_PER_REVOKE
 _ENDED_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
 _TOKEN_HASH = re.compile(r"[0-9a-f]{64}")
 
@@ -54,24 +53,19 @@ class FencedTokens:
 def _stored_hashes(stored: object) -> tuple[str, ...]:
     if not isinstance(stored, list):
         return ()
-    hashes = [value for value in stored if isinstance(value, str) and _TOKEN_HASH.fullmatch(value)]
-    return tuple(hashes[-MAX_TOKENS_PER_RUN:])
+    return tuple(value for value in stored if isinstance(value, str) and _TOKEN_HASH.fullmatch(value))
 
 
-def record_run_gateway_token(run_id: UUID | str, token: str) -> list[str]:
+def record_run_gateway_token(run_id: UUID | str, token: str) -> None:
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    dropped: list[str] = []
 
     def remember(state: dict[str, Any]) -> None:
-        kept = [*_stored_hashes(state.get(TOKEN_HASHES_STATE_KEY)), token_hash]
-        dropped.extend(kept[:-MAX_TOKENS_PER_RUN])
-        state[TOKEN_HASHES_STATE_KEY] = kept[-MAX_TOKENS_PER_RUN:]
+        state[TOKEN_HASHES_STATE_KEY] = [*_stored_hashes(state.get(TOKEN_HASHES_STATE_KEY)), token_hash]
 
     TaskRun.mutate_state_atomic(run_id, remember)
-    return dropped
 
 
-def _forget_run_gateway_tokens(run_id: UUID, token_hashes: tuple[str, ...]) -> None:
+def _forget_run_gateway_tokens(run_id: UUID, token_hashes: list[str]) -> None:
     revoked = set(token_hashes)
 
     def forget(state: dict[str, Any]) -> None:
@@ -116,16 +110,9 @@ def ended_runs_with_tokens() -> list[EndedRunTokens]:
     ]
 
 
-def _batches(runs: list[EndedRunTokens]) -> list[list[EndedRunTokens]]:
-    batches: list[list[EndedRunTokens]] = []
-    size = 0
-    for run in runs:
-        if not batches or size + len(run.token_hashes) > MAX_HASHES_PER_REVOKE:
-            batches.append([])
-            size = 0
-        batches[-1].append(run)
-        size += len(run.token_hashes)
-    return batches
+def _batches(runs: list[EndedRunTokens]) -> list[list[tuple[EndedRunTokens, str]]]:
+    hashes = [(run, token_hash) for run in runs for token_hash in run.token_hashes]
+    return [hashes[start : start + MAX_HASHES_PER_REVOKE] for start in range(0, len(hashes), MAX_HASHES_PER_REVOKE)]
 
 
 def fence_ended_runs(revoke: Callable[[list[str]], bool]) -> list[FencedTokens]:
@@ -142,12 +129,15 @@ def fence_ended_runs(revoke: Callable[[list[str]], bool]) -> list[FencedTokens]:
         elif mode == SweepMode.SHADOW:
             counts[(run.profile or NO_PROFILE, FenceOutcome.WOULD_REVOKE)] += len(run.token_hashes)
     for batch in _batches(enforced):
-        if not revoke([token_hash for run in batch for token_hash in run.token_hashes]):
-            logger.warning("task_run_fencing_revoke_failed", runs=len(batch))
-            for run in batch:
-                _keep_for_retry(run.run_id)
+        if not revoke([token_hash for _, token_hash in batch]):
+            logger.warning("task_run_fencing_revoke_failed", hashes=len(batch))
+            for run_id in {run.run_id for run, _ in batch}:
+                _keep_for_retry(run_id)
             continue
-        for run in batch:
-            _forget_run_gateway_tokens(run.run_id, run.token_hashes)
-            counts[(run.profile or NO_PROFILE, FenceOutcome.REVOKED)] += len(run.token_hashes)
+        revoked: defaultdict[UUID, list[str]] = defaultdict(list)
+        for run, token_hash in batch:
+            revoked[run.run_id].append(token_hash)
+            counts[(run.profile or NO_PROFILE, FenceOutcome.REVOKED)] += 1
+        for run_id, token_hashes in revoked.items():
+            _forget_run_gateway_tokens(run_id, token_hashes)
     return [FencedTokens(profile=profile, outcome=outcome, count=count) for (profile, outcome), count in counts.items()]

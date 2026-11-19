@@ -15,11 +15,7 @@ from posthog.models import Organization, Team
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import FencedRunTokensRow
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.run_token_fencing import (
-    MAX_TOKENS_PER_RUN,
-    REVOKE_PENDING_STATE_KEY,
-    TOKEN_HASHES_STATE_KEY,
-)
+from products.tasks.backend.run_token_fencing import REVOKE_PENDING_STATE_KEY, TOKEN_HASHES_STATE_KEY
 from products.tasks.backend.task_profiles import USER
 from products.tasks.backend.temporal.process_task.ai_gateway_token import mint_scoped_token
 
@@ -108,16 +104,22 @@ class TestRunTokenFencing(TestCase):
         assert token is None
         assert post.call_args.kwargs["json"] == {"token": "phe_abc"}
 
-    def test_a_run_at_its_limit_revokes_the_hash_it_drops(self) -> None:
-        stored = tuple(f"{number:064d}" for number in range(MAX_TOKENS_PER_RUN))
-        run = self._run(status=TaskRun.Status.IN_PROGRESS, token_hashes=stored)
+    def test_a_run_with_more_hashes_than_one_request_takes_is_revoked_in_full(self) -> None:
+        stored = tuple(f"{number:064d}" for number in range(150))
+        run = self._run(token_hashes=stored)
 
-        with patch(GATEWAY_POST, side_effect=[_answer(201, {"token": "phe_abc"}), _answer(200)]) as post:
-            mint_scoped_token(ai_product="signals_scout", team_id=self.team.id, run_id=str(run.id))
+        with (
+            patch(FLAG_PAYLOAD, return_value={USER.key: "enforce"}),
+            patch(GATEWAY_POST, return_value=_answer(200, {"revoked": True})) as post,
+        ):
+            rows = tasks_facade.fence_ended_task_runs()
 
         run.refresh_from_db()
-        assert post.call_args.kwargs["json"] == {"token_hashes": [stored[0]]}
-        assert run.state[TOKEN_HASHES_STATE_KEY] == [*stored[1:], hashlib.sha256(b"phe_abc").hexdigest()]
+        sent = [call.kwargs["json"]["token_hashes"] for call in post.call_args_list]
+        assert [len(hashes) for hashes in sent] == [100, 50]
+        assert sorted(token_hash for hashes in sent for token_hash in hashes) == sorted(stored)
+        assert TOKEN_HASHES_STATE_KEY not in run.state
+        assert rows == [FencedRunTokensRow(profile=USER.key, outcome="revoked", count=150)]
 
     @parameterized.expand(
         [
@@ -170,11 +172,6 @@ class TestRunTokenFencing(TestCase):
             ("a_string", TOKEN_HASH, []),
             ("entries_that_are_not_hashes", ["not-a-hash", 7, None], []),
             ("one_real_hash_among_junk", ["not-a-hash", "b" * 64], ["b" * 64]),
-            (
-                "more_hashes_than_a_run_can_have",
-                [f"{number:064d}" for number in range(MAX_TOKENS_PER_RUN + 5)],
-                [f"{number:064d}" for number in range(5, MAX_TOKENS_PER_RUN + 5)],
-            ),
         ]
     )
     def test_fencing_only_trusts_stored_hashes_that_look_like_hashes(
@@ -217,5 +214,5 @@ class TestRunTokenFencing(TestCase):
         ):
             rows = tasks_facade.fence_ended_task_runs()
 
-        assert sorted(len(call.kwargs["json"]["token_hashes"]) for call in post.call_args_list) == [40, 80]
+        assert sorted(len(call.kwargs["json"]["token_hashes"]) for call in post.call_args_list) == [20, 100]
         assert rows == [FencedRunTokensRow(profile=USER.key, outcome="revoked", count=120)]
