@@ -130,6 +130,9 @@ function pickupsBetween(
         if (first < 0 || gap > 0) {
             return { unread: `no metrics from ${worker} after ${iso(first < 0 ? from : bounds[gap - 1])}` }
         }
+        if (inside.length < 2) {
+            return { unread: `no scrape of ${worker} was taken` }
+        }
         inside.slice(1).forEach((sample, i) => {
             const previous = inside[i]
             add(picked, sample.lateness, sample.startedAt === previous.startedAt ? previous.lateness : {})
@@ -241,7 +244,7 @@ function judgeStepOf(
     const window = { ...windowOf(evidence, i), last }
     const point = (): StepPoint => ({ scale, at: iso(window.from), offeredPerSecond: offeredRateOf(evidence, i) })
     if (window.to <= window.from) {
-        return { unjudged: `the drive ended before the ${scale}x step`, harnessLimit: { scale, by: 'generator' } }
+        return { unjudged: `the drive ended before the ${scale}x step` }
     }
     const overloaded = hostOverCeiling(evidence, window, scale)
     if (overloaded !== undefined) {

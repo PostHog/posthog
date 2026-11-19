@@ -114,7 +114,7 @@ const unjudged = (bar: 0 | 1, why: string): BarResult => ({
     ...HELD[bar],
     passed: false,
     unjudged: why,
-    harnessLimit: expect.objectContaining({ by: why.startsWith('the drive ended') ? 'generator' : 'run_host' }),
+    ...(!why.startsWith('the drive ended') && { harnessLimit: expect.objectContaining({ by: 'run_host' }) }),
 })
 
 describe('judgeBars', () => {
@@ -213,6 +213,21 @@ describe('judgeBars', () => {
                 ),
             },
             [HELD[0], broke(1, 10, 60, 10, 'email')],
+        ],
+        [
+            'a short step whose only scrape interval ends after it is not read as a step without pickups',
+            {
+                drive: { startedAt: T, endedAt: T + 20_000 },
+                steps: [
+                    { scale: 1, fromMs: 0, toMs: 10_000 },
+                    { scale: 10, fromMs: 10_000, toMs: 20_000 },
+                ],
+                samples: scrapedEvery5s(25, prompt, { offsetS: -4 }).filter(({ at }) => at < T || at > T + 10_000),
+            },
+            [
+                unjudged(0, 'no whole writer CPU minute in the 1x step'),
+                unjudged(1, 'no scrape of cdp-cyclotron-worker-hogflow-0 was taken in the 1x step'),
+            ],
         ],
         [
             'jobs due in the 10x step were picked up late after the drive ended',
