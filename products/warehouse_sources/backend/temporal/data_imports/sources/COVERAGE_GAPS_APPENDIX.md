@@ -8542,9 +8542,9 @@ Today (2): `Downloads`, `Versions`
 Diffed against: <https://raw.githubusercontent.com/npm/registry/master/docs/REGISTRY-API.md>
 
 - [x] `GET https://api.npmjs.org/versions/{package}/last-week` — per-version download counts - joins straight onto the Versions table already synced and is the only way to measure version adoption or upgrade lag (high)
-- [ ] `GET /-/v1/search` — search results carry npms.io quality, popularity and maintenance scores per package, unavailable from the packument (medium)
-- [ ] `GET https://api.npmjs.org/downloads/point/{period}/{pkg1},{pkg2}` — bulk point downloads for up to 128 packages in one call - same data as Downloads but far cheaper for large package lists (low)
-- [ ] `GET / (registry meta)` — registry-wide doc_count and update_seq, useful only as a sync watermark (low)
+- [x] `GET /-/v1/search` — search results carry npms.io quality, popularity and maintenance scores per package, unavailable from the packument (medium)
+- [ ] `GET https://api.npmjs.org/downloads/point/{period}/{pkg1},{pkg2}` — bulk point downloads for up to 128 packages in one call - same data as Downloads but far cheaper for large package lists (low) Skipped: period totals of the existing Downloads table, and bulk queries do not support scoped packages.
+- [ ] `GET / (registry meta)` — registry-wide doc_count and update_seq, useful only as a sync watermark (low) Skipped: the endpoint now returns an empty object, and registry-wide counters are not about the configured packages.
 
 Note: Also diffed against https://raw.githubusercontent.com/npm/registry/master/docs/download-counts.md. The public registry API is genuinely small (packument, version doc, search, meta) plus the downloads service (point, range, per-version). PostHog's Versions table comes from the packument and Downloads from /downloads/range, so 2 of roughly 4 useful data shapes are covered. Tables are static per source; the user supplies the package list, so breadth here is packages, not endpoints.
 
