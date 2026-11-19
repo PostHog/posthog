@@ -16,6 +16,7 @@ import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Ch
 import { ComposerHeader, SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
 import { SupportEditor, type SupportEditorProps, serializeToMarkdown } from '../Editor'
 import { SendMenu } from '../SendMenu/SendMenu'
+import { keepTabFocusWithin } from './keepTabFocusWithin'
 
 export interface MessageInputProps {
     onSendMessage: (
@@ -412,15 +413,16 @@ export function MessageInput({
                         : undefined
                 }
                 onKeyDown={(e) => {
-                    // Popovers portal out of this node, so the DOM check keeps their Escape from collapsing the editor.
-                    if (
-                        isExpanded &&
-                        e.key === 'Escape' &&
-                        !e.defaultPrevented &&
-                        composerRef.current?.contains(e.target as Node)
-                    ) {
+                    // Popovers portal out of this node, so the DOM check keeps their keys from reaching the overlay.
+                    const composer = composerRef.current
+                    if (!isExpanded || e.defaultPrevented || !composer?.contains(e.target as Node)) {
+                        return
+                    }
+                    if (e.key === 'Escape') {
                         e.preventDefault()
                         setIsExpanded(false)
+                    } else if (e.key === 'Tab') {
+                        keepTabFocusWithin(composer, e)
                     }
                 }}
             >
