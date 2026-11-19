@@ -140,8 +140,9 @@ class TestTransactionalEmail(APIBaseTest):
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": invocation_id})
 
     def _send(self, client: APIClient, route: str, body: dict, **kwargs: Any) -> Any:
-        if route == "send_email":
-            return client.post(self.send_email_url, self._flat(body), format="json", **kwargs)
+        if route in ("send_email", "send_email_key_scoped"):
+            url = "/api/messaging/send/email/" if route == "send_email_key_scoped" else self.send_email_url
+            return client.post(url, self._flat(body), format="json", **kwargs)
         if route == "send_email_nested":
             body = {**body, "template": {"id": str(self.template.id)}}
             return client.post(self.send_email_url, body, format="json", **kwargs)
@@ -1185,7 +1186,10 @@ class TestTransactionalEmail(APIBaseTest):
             )
             for case, scheduled_at in (("a_time", "2026-11-20T09:00:00Z"), ("an_empty_string", ""))
         ]
-        + [("template_key_on_the_key_scoped_path_a_time", "code_key_scoped", "2026-11-20T09:00:00Z")]
+        + [
+            ("template_id_on_the_key_scoped_path_a_time", "send_email_key_scoped", "2026-11-20T09:00:00Z"),
+            ("template_key_on_the_key_scoped_path_a_time", "code_key_scoped", "2026-11-20T09:00:00Z"),
+        ]
     )
     def test_a_send_refuses_a_scheduled_at_while_scheduled_sends_are_off(
         self, mock_post, flag, _capture, _name, route, scheduled_at
