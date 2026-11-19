@@ -1070,6 +1070,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+            outcome["sender_kind"] = "sandbox" if queued.sent_from_sandbox else "own_domain"
             if queued.warnings:
                 outcome["warning_codes"] = [warning.code for warning in queued.warnings]
             if attachments:
