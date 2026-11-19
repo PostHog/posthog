@@ -66,12 +66,18 @@ export const PosthogSupportDraftsCreateBody = () => zod.object({
         .optional()
         .describe('The exact error text and its top frames. Remove any credential and say that you removed it.'),
     filing_reason: zod
-        .enum(['user_asked_for_support', 'needs_posthog_staff', 'unexplained_error', 'user_disagrees_with_agent'])
+        .enum([
+            'user_asked_for_support',
+            'needs_posthog_staff',
+            'billing_question',
+            'unexplained_error',
+            'user_disagrees_with_agent',
+        ])
         .describe(
-            "\* `user_asked_for_support` - The person asked to contact PostHog support\n\* `needs_posthog_staff` - Only PostHog staff can do or see what the person needs\n\* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n\* `user_disagrees_with_agent` - The person disagrees with the agent's answer"
+            "\* `user_asked_for_support` - The person asked to contact PostHog support\n\* `needs_posthog_staff` - Only PostHog staff can do or see what the person needs\n\* `billing_question` - A billing or usage question, which PostHog answers on every plan\n\* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n\* `user_disagrees_with_agent` - The person disagrees with the agent's answer"
         )
         .describe(
-            "Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason.\n\n\* `user_asked_for_support` - The person asked to contact PostHog support\n\* `needs_posthog_staff` - Only PostHog staff can do or see what the person needs\n\* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n\* `user_disagrees_with_agent` - The person disagrees with the agent's answer"
+            "Why a human at PostHog should look at this. Your own conclusion that it is a PostHog bug is not a reason.\n\n\* `user_asked_for_support` - The person asked to contact PostHog support\n\* `needs_posthog_staff` - Only PostHog staff can do or see what the person needs\n\* `billing_question` - A billing or usage question, which PostHog answers on every plan\n\* `unexplained_error` - A reproducible error the agent confirmed but cannot explain\n\* `user_disagrees_with_agent` - The person disagrees with the agent's answer"
         ),
     agent_name: zod
         .union([

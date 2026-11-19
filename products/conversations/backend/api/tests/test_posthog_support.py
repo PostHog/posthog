@@ -49,6 +49,12 @@ class TestPostHogSupportAPI(APIBaseTest):
         assert self.client.get(f"{self.base}/drafts/{draft['id']}/").status_code == status.HTTP_403_FORBIDDEN
         assert self.client.post(f"{self.base}/drafts/{draft['id']}/claim/").status_code == status.HTTP_403_FORBIDDEN
 
+    @parameterized.expand([("needs_posthog_staff", False), ("billing_question", True)])
+    def test_only_a_billing_draft_is_marked_as_a_billing_question(self, reason: str, expected: bool) -> None:
+        response = self.client.post(f"{self.base}/drafts/", {**DRAFT_BODY, "filing_reason": reason}, format="json")
+
+        assert response.json()["billing_question"] is expected
+
     def test_only_the_claiming_browser_session_can_send_a_draft(self) -> None:
         draft_id = self._create_draft()["id"]
         claim_url = f"{self.base}/drafts/{draft_id}/claim/"

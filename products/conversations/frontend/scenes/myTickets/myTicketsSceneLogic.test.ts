@@ -239,6 +239,34 @@ describe('myTicketsSceneLogic', () => {
         sceneLogic.unmount()
     })
 
+    it('lets a free plan send an agent draft that is a billing question', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/posthog_support/drafts/:draft_id/': {
+                    id: 'draft-2',
+                    message: 'Request: Which chats used our AI credits?',
+                    ticket_context: 'Drafted by an AI agent through the PostHog MCP.',
+                    expires_at: 0,
+                    billing_question: true,
+                    review_url: '',
+                    next_step: '',
+                },
+            },
+        })
+        supportLogic.mount()
+        billingLogic.mount()
+        const sceneLogic = myTicketsSceneLogic.build()
+        sceneLogic.mount()
+
+        router.actions.push(urls.myTickets(), { support_draft: 'draft-2' })
+        await expectLogic(sceneLogic).toFinishAllListeners()
+        billingLogic.actions.loadBillingSuccess({ subscription_level: 'free' } as BillingType)
+
+        expect(sceneLogic.values.draftReviewState).toBe('ready')
+
+        sceneLogic.unmount()
+    })
+
     it.each([
         ['free', 'not_entitled'],
         ['paid', 'ready'],

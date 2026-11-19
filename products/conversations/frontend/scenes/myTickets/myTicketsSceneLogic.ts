@@ -102,6 +102,8 @@ export const myTicketsSceneLogic = kea<myTicketsSceneLogicType>([
                 message: draft.message,
                 ticket_context: draft.ticket_context,
                 ai_draft_id: draft.id,
+                // Billing questions are answered on every plan, so this lets a free plan send one
+                billing_issue: draft.billing_question,
             })
             actions.reviewDraft(draft)
         },

@@ -25,6 +25,7 @@ class FilingReason(models.TextChoices):
     # agent's own diagnosis, so an agent cannot file just because it decided the bug is ours.
     USER_ASKED_FOR_SUPPORT = "user_asked_for_support", "The person asked to contact PostHog support"
     NEEDS_POSTHOG_STAFF = "needs_posthog_staff", "Only PostHog staff can do or see what the person needs"
+    BILLING_QUESTION = "billing_question", "A billing or usage question, which PostHog answers on every plan"
     UNEXPLAINED_ERROR = "unexplained_error", "A reproducible error the agent confirmed but cannot explain"
     USER_DISAGREES_WITH_AGENT = "user_disagrees_with_agent", "The person disagrees with the agent's answer"
 

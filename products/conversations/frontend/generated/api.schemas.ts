@@ -1341,6 +1341,7 @@ export interface ZendeskImportErrorApi {
 /**
  * * `user_asked_for_support` - The person asked to contact PostHog support
  * * `needs_posthog_staff` - Only PostHog staff can do or see what the person needs
+ * * `billing_question` - A billing or usage question, which PostHog answers on every plan
  * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
  * * `user_disagrees_with_agent` - The person disagrees with the agent's answer
  */
@@ -1349,6 +1350,7 @@ export type FilingReasonEnumApi = (typeof FilingReasonEnumApi)[keyof typeof Fili
 export const FilingReasonEnumApi = {
     UserAskedForSupport: 'user_asked_for_support',
     NeedsPosthogStaff: 'needs_posthog_staff',
+    BillingQuestion: 'billing_question',
     UnexplainedError: 'unexplained_error',
     UserDisagreesWithAgent: 'user_disagrees_with_agent',
 } as const
@@ -1383,6 +1385,7 @@ export interface PostHogSupportDraftCreateApi {
      *
      * * `user_asked_for_support` - The person asked to contact PostHog support
      * * `needs_posthog_staff` - Only PostHog staff can do or see what the person needs
+     * * `billing_question` - A billing or usage question, which PostHog answers on every plan
      * * `unexplained_error` - A reproducible error the agent confirmed but cannot explain
      * * `user_disagrees_with_agent` - The person disagrees with the agent's answer */
     filing_reason: FilingReasonEnumApi
@@ -1399,6 +1402,8 @@ export interface PostHogSupportDraftApi {
     ticket_context: string
     /** Unix time after which the draft is gone if nobody sent it. */
     expires_at: number
+    /** True when the draft is a billing or usage question, which the person can send on any plan. */
+    billing_question: boolean
     /** Link the person opens in their browser to review, edit and send the ticket. */
     review_url: string
     /** What to tell the person now. */

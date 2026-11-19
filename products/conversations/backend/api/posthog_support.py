@@ -110,6 +110,9 @@ class PostHogSupportDraftSerializer(serializers.Serializer):
         help_text="Note filed under the ticket for support, saying an agent drafted it and why."
     )
     expires_at = serializers.IntegerField(help_text="Unix time after which the draft is gone if nobody sent it.")
+    billing_question = serializers.BooleanField(
+        help_text="True when the draft is a billing or usage question, which the person can send on any plan."
+    )
     review_url = serializers.CharField(
         help_text="Link the person opens in their browser to review, edit and send the ticket."
     )
@@ -154,6 +157,7 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "message": draft.message,
                 "ticket_context": draft.ticket_context,
                 "expires_at": draft.expires_at,
+                "billing_question": draft.filing_reason == FilingReason.BILLING_QUESTION,
                 "review_url": f"{settings.SITE_URL}/project/{self.team_id}/my-tickets?support_draft={draft.id}",
                 "next_step": (
                     "Nothing has been sent. Show the person the message above and give them review_url. "
