@@ -7,6 +7,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { TaskUserAvatar, taskUserName } from '~/layout/today/TaskUserAvatar'
 import { TodaySessionContextMenu } from '~/layout/today/TodaySessionContextMenu'
 import { TodaySessionDialogs } from '~/layout/today/TodaySessionDialogs'
 import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
@@ -21,7 +22,6 @@ import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import { SpaceFeedSelectCheckbox } from './SpaceFeedSelectCheckbox'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
-import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 import { useSpaceFeedBulkSelection } from './useSpaceFeedBulkSelection'
 
 interface SpaceFeedListRowProps {

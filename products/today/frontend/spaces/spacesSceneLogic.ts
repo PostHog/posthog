@@ -5,13 +5,12 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { PRESENCE_RECENT_WINDOW_MS, SpacePresence, presenceBySpace } from '~/layout/today/spacePresence'
 import { starredSpaces, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { Breadcrumb } from '~/types'
 
 import { taskChannelsContributorsRetrieve, tasksList } from 'products/tasks/frontend/generated/api'
 import { ChannelDTOApi, TaskListItemApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
-
-import { PRESENCE_RECENT_WINDOW_MS, SpacePresence, presenceBySpace } from './spacePresence'
 
 const SPACE_PRESENCE_FETCH_LIMIT = 100
 const SPACE_PRESENCE_MAX_PAGES = 10

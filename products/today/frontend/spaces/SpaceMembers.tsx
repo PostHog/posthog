@@ -27,11 +27,11 @@ import {
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { fullName } from 'lib/utils/strings'
 
+import { TaskUserAvatar } from '~/layout/today/TaskUserAvatar'
 import { membersLogic } from '~/models/membersLogic'
 
 import { spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettingsSection } from './SpaceSettingsSection'
-import { TaskUserAvatar } from './TaskUserAvatar'
 
 export function SpaceMembers({ id }: { id: string }): JSX.Element | null {
     const { space, members, membersLoading, membersUnavailable, creatorId } = useValues(spaceSceneLogic({ id }))

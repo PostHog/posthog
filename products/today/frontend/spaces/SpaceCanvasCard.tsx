@@ -3,6 +3,7 @@ import { Card, ContextMenu, ContextMenuContent, ContextMenuTrigger, Text } from 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { TaskUserAvatar, taskUserName } from '~/layout/today/TaskUserAvatar'
 import { CONTEXT_PARTS } from '~/layout/today/todayMenuParts'
 import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 
@@ -12,7 +13,6 @@ import { SpaceCanvasActions } from './SpaceCanvasActions'
 import { spaceCanvasAuthor } from './spaceCanvasDisplay'
 import { SpaceCanvasMenu } from './SpaceCanvasMenu'
 import { SpaceCanvasPreview } from './SpaceCanvasPreview'
-import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 export function SpaceCanvasCard({ spaceId, canvas }: { spaceId: string; canvas: CanvasApi }): JSX.Element {
     const author = spaceCanvasAuthor(canvas)

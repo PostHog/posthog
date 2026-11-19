@@ -5,14 +5,13 @@ import { Badge, Card, Text, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { pullRequestLinkLabel, pullRequestStateMeta } from '~/layout/today/TaskPullRequestChip'
+import { TaskPullRequest, pullRequestReference } from '~/layout/today/taskPullRequests'
+import { TaskUserAvatar, taskUserName } from '~/layout/today/TaskUserAvatar'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { TodayWorkItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
-
-import { pullRequestLinkLabel, pullRequestStateMeta } from './TaskPullRequestChip'
-import { TaskPullRequest, pullRequestReference } from './taskPullRequests'
-import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 function IconGitMerge(props: IconProps): JSX.Element {
     return (

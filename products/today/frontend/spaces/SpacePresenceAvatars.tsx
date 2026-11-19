@@ -1,8 +1,8 @@
 import { IconCrown } from '@posthog/icons'
 import { AvatarGroup, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { SpacePresence } from './spacePresence'
-import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
+import { SpacePresence } from '~/layout/today/spacePresence'
+import { TaskUserAvatar, taskUserName } from '~/layout/today/TaskUserAvatar'
 
 function personLabel(name: string, creator: boolean, live: boolean): string {
     if (creator) {

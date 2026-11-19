@@ -2,10 +2,11 @@ import { Badge, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { TASK_CHIP_CLASS } from '~/layout/today/TaskPullRequestChip'
+
 import { ArtifactIcon } from 'products/posthog_ai/frontend/api/taskArtifacts'
 
 import { TaskFile } from './taskFiles'
-import { TASK_CHIP_CLASS } from './TaskPullRequestChip'
 
 interface TaskFileChipProps {
     taskFile: TaskFile

@@ -1,8 +1,8 @@
 import { IconDocument, IconGraph, IconLineGraph, IconPalette } from '@posthog/icons'
 
-import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
+import type { TaskAvatarUser } from '~/layout/today/TaskUserAvatar'
 
-import type { TaskAvatarUser } from './TaskUserAvatar'
+import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 const TEMPLATE_ICONS: Record<string, typeof IconGraph> = {
     'web-analytics': IconLineGraph,

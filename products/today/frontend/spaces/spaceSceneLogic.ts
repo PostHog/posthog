@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sessionIdsWithPullRequests, spacePullRequests } from '~/layout/today/taskPullRequests'
 import { recentSourceOptions } from '~/layout/today/todayRecentFilters'
 import { TodayRecentSort } from '~/layout/today/todayRecentOrder'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
@@ -52,7 +53,6 @@ import {
     spaceFeedSections,
 } from './spaceFeedEntries'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
-import { sessionIdsWithPullRequests, spacePullRequests } from './taskPullRequests'
 
 const SPACE_FEED_LIMIT = 50
 

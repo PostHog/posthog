@@ -9,10 +9,10 @@ import {
     TaskRunDetailDTOApi,
     TaskUserBasicInfoApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { presenceTier } from 'products/today/frontend/spaces/spacePresence'
-import { TaskPullRequest, taskPullRequests } from 'products/today/frontend/spaces/taskPullRequests'
-import { taskUserName } from 'products/today/frontend/spaces/TaskUserAvatar'
 
+import { presenceTier } from './spacePresence'
+import { TaskPullRequest, taskPullRequests } from './taskPullRequests'
+import { taskUserName } from './TaskUserAvatar'
 import { TodayListItemDetail, TodayListItemField, listItemDetails } from './todayListAppearance'
 
 export type TodayWorkItemKind = 'session' | 'chat'

@@ -1,5 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
+import { TaskPullRequest, spacePullRequests } from '~/layout/today/taskPullRequests'
 import { DEFAULT_RECENT_FILTERS, TodayRecentFilters, filterRecentItems } from '~/layout/today/todayRecentFilters'
 import {
     TodayRecentGrouping,
@@ -10,8 +11,6 @@ import {
 import { TodayWorkItem } from '~/layout/today/todayWorkItems'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
-
-import { TaskPullRequest, spacePullRequests } from './taskPullRequests'
 
 export type SpaceFeedType = 'task' | 'canvas' | 'pr'
 

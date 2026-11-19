@@ -6,15 +6,15 @@ import { Button, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { SPACE_PRESENCE_LIMIT } from '~/layout/today/spacePresence'
+import { taskUserName } from '~/layout/today/TaskUserAvatar'
 import { TodaySpaceGlyph } from '~/layout/today/TodaySpaceGlyph'
 import { isLockedSpace, spaceLabel } from '~/layout/today/todaySpacesLogic'
 
 import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { SPACE_PRESENCE_LIMIT } from './spacePresence'
 import { SpacePresenceAvatars } from './SpacePresenceAvatars'
 import { spacesSceneLogic } from './spacesSceneLogic'
-import { taskUserName } from './TaskUserAvatar'
 
 export function SpacesIndexRow({ space }: { space: ChannelDTOApi }): JSX.Element {
     const { pendingSpaceIds, contributors, spacePresence } = useValues(spacesSceneLogic)

@@ -3,12 +3,12 @@ import { Badge, Card, Text, cn } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { TaskUserAvatar, taskUserName } from '~/layout/today/TaskUserAvatar'
 import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 import { spaceCanvasAuthor, spaceCanvasTemplateIcon } from './spaceCanvasDisplay'
-import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 interface SpaceFeedCanvasRowProps {
     canvas: CanvasApi
