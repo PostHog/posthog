@@ -3,7 +3,7 @@ import supertest from 'supertest'
 import type { Application, Request, Response } from 'ultimate-express'
 import { brotliCompressSync, deflateSync, gzipSync } from 'zlib'
 
-import { setupExpressApp } from '~/common/api/router'
+import { ModifiedRequest, setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { ServerCommands } from '~/common/utils/commands'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
@@ -22,8 +22,8 @@ describe('setupExpressApp JSON body limit', () => {
         app.post('/echo', (req: Request, res: Response) => {
             res.status(200).json({ ok: true })
         })
-        app.post('/body', (req: Request, res: Response) => {
-            res.status(200).json(req.body)
+        app.post('/body', (req: ModifiedRequest, res: Response) => {
+            res.status(200).json({ parsed: req.body, raw: req.rawBody })
         })
         server = app.listen(0, () => {})
     })
@@ -113,7 +113,7 @@ describe('setupExpressApp JSON body limit', () => {
                 malformed: [malformed.status, malformed.body],
                 next: next.status,
             }).toEqual({
-                valid: [200, parseJSON(atLimit)],
+                valid: [200, { parsed: parseJSON(atLimit), raw: atLimit }],
                 malformed: [400, { status: 'error', error: 'Malformed compressed body' }],
                 next: 200,
             })
