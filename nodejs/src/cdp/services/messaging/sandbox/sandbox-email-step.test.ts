@@ -644,7 +644,9 @@ describe('SandboxEmailSendStep', () => {
 
         expect(segments[0].logs.map(({ level, message }) => [level, message])).toContainEqual([
             'error',
-            expect.stringContaining('failed to render: The rendered sandbox email is missing a recipient, subject'),
+            expect.stringContaining(
+                'failed to render: The rendered email from the PostHog test sender is missing a recipient, subject'
+            ),
         ])
     })
 

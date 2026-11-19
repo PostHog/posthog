@@ -565,6 +565,19 @@ SKIP_AUTOSTART_DISABLED = "autostart_disabled"
 SKIP_NO_RUNNER = "no_runner"
 SKIP_FREE_TRIAL = "free_trial"
 SKIP_REPOSITORY_NOT_NAMED = "repository_not_named"
+SKIP_SOURCE_PRODUCTS_TIMEOUT_SECONDS = 3
+
+
+def _skip_source_products(team: Team, report_id: str) -> list[str]:
+    # A failed lookup sends an empty list, so a ClickHouse failure never drops the skip count.
+    try:
+        meta = fetch_source_products_for_reports(
+            team, [report_id], max_execution_time=SKIP_SOURCE_PRODUCTS_TIMEOUT_SECONDS
+        ).get(report_id)
+    except Exception:
+        logger.exception("Failed to read source products for signals_autostart_skipped", report_id=report_id)
+        return []
+    return meta.source_products if meta else []
 
 
 def _capture_autostart_skipped(
@@ -574,7 +587,8 @@ def _capture_autostart_skipped(
     reports each gate holds back is readable against the share that started.
 
     Keyed on `team.uuid` like the rest of the signal lifecycle events, so it joins the same
-    person-level funnels.
+    person-level funnels. `source_products` lets a breakdown split a skip reason by where the report
+    came from, such as `already_addressed` for reports filed from GitHub issues.
     """
     try:
         team = Team.objects.select_related("organization").filter(pk=team_id).first()
@@ -589,6 +603,7 @@ def _capture_autostart_skipped(
                 "report_id": report_id,
                 "skip_reason": skip_reason,
                 "linked_report_id": linked_report_id,
+                "source_products": _skip_source_products(team, report_id),
             },
             groups=groups(team.organization, team),
         )

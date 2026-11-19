@@ -98,12 +98,12 @@ That is not a new trust boundary: the same field already exempts a send from rec
 They are kept out of `mode="shadow"` so the shadow counts stay a true forecast of what enforce would delay.
 A project appearing there often is spending more on transactional than its tier allows, which is the signal to check the categorization or raise the tier.
 
-## Sandbox sender
+## PostHog test sender
 
-Sends through the sandbox sender (the `email_sandbox` step) never feed a project's tier.
+Sends through the PostHog test sender (the `email_sandbox` step, named the sandbox sender in code) never feed a project's tier.
 They go through a separate SES tenant and configuration set and record none of `email_sent`, `email_bounced_hard` or `email_blocked`, so the sweep never sees them.
 They never draw from the team bucket either.
-The sandbox has its own controls: recipients limited to verified organization members, a daily cap per project, suppression, the staff organization block in `/admin/workflows/sandboxsenderorganizationblock/`, and the SES tenant pause.
+The PostHog test sender has its own controls: recipients limited to verified organization members, a daily cap per project, suppression, the staff organization block in `/admin/workflows/sandboxsenderorganizationblock/`, and the SES tenant pause.
 The daily cap (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`) is a circuit breaker for the shared tenant, and editor test sends never count toward it.
 A project past `WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING` accepted emails in one UTC day (default 100), test sends included, keeps sending. The worker counts each further email that SES accepts in `cdp_sandbox_email_team_warning_total` and logs a warning with the team and organization ids.
 

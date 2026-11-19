@@ -53,7 +53,7 @@ function sandboxRecipientDisabledReason(
         return 'Loading verified members'
     }
     if (sandboxTestMembers.length === 0) {
-        return 'No one in your organization has verified their email address yet. Verify yours to send a sandbox test.'
+        return 'No one in your organization has verified their email address yet. Verify yours to send a test from the PostHog test sender.'
     }
     return testRecipient ? emailDisabledReason(testRecipient) : 'Choose a verified member of your organization'
 }
@@ -557,7 +557,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             submit: async (testInvocation: HogflowTestInvocation) => {
                 const { workflow: testedWorkflow, selectedNodeId: testedActionId, testRecipient } = values
                 if (values.sandboxTestMembers && !testRecipient) {
-                    throw new Error('A sandbox email test needs a verified member as its recipient')
+                    throw new Error('A test from the PostHog test sender needs a verified member as its recipient')
                 }
                 try {
                     const parsedGlobals = withRecipientEmail(JSON.parse(testInvocation.globals), testRecipient)
