@@ -119,6 +119,12 @@ export class KafkaProducerWrapper implements KafkaProducer {
             producer.connect(undefined, (error, data) => {
                 if (error) {
                     logger.error('⚠️', 'connect_error', { error: error })
+                    // node-rdkafka leaves a failed client's callbacks registered, which keeps the client in memory.
+                    const client = producer as unknown as {
+                        _client?: { configureCallbacks(enabled: boolean, configs: unknown): void }
+                        _cb_configs?: unknown
+                    }
+                    client._client?.configureCallbacks(false, client._cb_configs)
                     reject(error)
                 } else {
                     logger.info('📝', 'librdkafka producer connected', { error, brokers: data?.brokers })
