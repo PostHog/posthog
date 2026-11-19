@@ -680,6 +680,32 @@ describe('pinned project with switch-project (Hono)', () => {
         expect(await targets(conversation)).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
     })
 
+    it.each([undefined, CONVERSATION_A])(
+        'warns when an unknown transport session uses the default project with conversation ID %s',
+        async (conversationId) => {
+            const options = { token: `phx_transport_fallback_${conversationId}`, query: '' }
+            const conversation = { ...options, conversationId: CONVERSATION_A }
+            const switched = await callTool('switch-project', { projectId: Number(OTHER_PROJECT) }, conversation)
+            expect(switched.isError).toBeFalsy()
+
+            apiPaths.length = 0
+            const args = { query: 'SELECT 1' }
+            const fallback = await postToolCall('execute-sql', args, {
+                ...options,
+                sessionId: CONVERSATION_B,
+                conversationId,
+            })
+            const restored = await postToolCall('execute-sql', args, conversation)
+            expect(apiPaths).toEqual([pathsFor(PINNED_PROJECT, PINNED_ORG)[0], pathsFor(OTHER_PROJECT, OTHER_ORG)[0]])
+            const warning = expect.stringContaining(`default project (ID ${PINNED_PROJECT})`)
+            expect(restored.result?.content?.map(({ text }) => text)).not.toContainEqual(warning)
+            expect(fallback.result?.content?.map(({ text }) => text)).toContainEqual(warning)
+            expect(fallback.result?.content?.map(({ text }) => text)).toContainEqual(
+                expect.stringContaining('No saved project selection was found for this `Mcp-Session-Id`.')
+            )
+        }
+    )
+
     it.each(['conv-1', CONVERSATION_A.toUpperCase()])(
         'uses the SDK-normalized conversation identity for %s',
         async (supplied) => {

@@ -107,7 +107,8 @@ The shared token cache holds credential and entity metadata. Its `orgId` and `pr
 
 For sessionless clients, the server scopes selection to the SDK's echoed `conversation_id`, bound to the credential and separated from transport session IDs. The dispatcher restores echoed handles before state resolution. When the SDK mints a handle on the first tool call, the executor resolves state with that handle before running the tool. Switches require a carried session or conversation handle, including when called through `exec`. A switch without one returns an error and a new handle; the client must retry with that handle and echo it on subsequent calls. Calls without either identity start from the connection's pin or default selection.
 When a call has no project pin or either identity, its tool result names the default project ID and tells the agent to reuse the `conversation_id` from the conversation where it switched projects.
-If a supplied `conversation_id` has no saved selection and the call uses the default project, the result asks the agent to switch projects again with that ID.
+If a supplied `conversation_id` or `Mcp-Session-Id` has no saved selection and the call uses the default project, the result asks the agent to switch projects again.
+The transport session takes precedence when both handles are supplied. To use the conversation's saved selection, send its `conversation_id` without `Mcp-Session-Id`.
 Clients unable to retain handles should pin the project or organization in the connection URL. The SDK remains responsible for generating and normalizing conversation handles and producing analytics.
 
 Sessionless legacy batches resolve each call's handle and state independently before checking whether a switch is allowed. The wrapper's `sessionId` query parameter groups analytics but cannot restore selections; wrapper-only calls still receive SDK-minted conversation handles.

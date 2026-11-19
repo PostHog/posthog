@@ -265,7 +265,7 @@ export class ToolExecutor {
         const carriedContextHandle =
             hooks?.carriedContextHandle ??
             Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
-        const missingSavedSelection = carriedContextHandle && state.suppliedConversationHadNoSavedSelection === true
+        const missingSavedSelection = carriedContextHandle && state.suppliedHandleHadNoSavedSelection === true
         const carriedContextSessionKey = carriedContextHandle
             ? (state.requestContext.mcpConversationId ?? state.requestContext.mcpSessionId)
             : undefined
@@ -340,11 +340,16 @@ export class ToolExecutor {
 
         try {
             const projectId = await state.context.stateManager.getProjectId()
+            const usesTransportSession = Boolean(state.requestContext.mcpSessionId)
+            const handle = usesTransportSession ? '`Mcp-Session-Id`' : '`conversation_id`'
             const reason = missingSavedSelection
-                ? 'No saved project selection was found for this `conversation_id`.'
+                ? `No saved project selection was found for this ${handle}.`
                 : 'This request carried no usable `conversation_id` or MCP session.'
+            const switchAgain = usesTransportSession
+                ? 'Call `switch-project` in this MCP session to select a different project. To use a conversation’s saved selection, send its `conversation_id` without the session header.'
+                : 'To select a different project again, call `switch-project` with this `conversation_id`.'
             const recovery = missingSavedSelection
-                ? 'To select a different project again, call `switch-project` with this `conversation_id`.'
+                ? switchAgain
                 : 'To use a project you switched to, pass the `conversation_id` from that conversation on subsequent calls.'
             return {
                 ...result,

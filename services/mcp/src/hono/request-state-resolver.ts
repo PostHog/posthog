@@ -82,7 +82,7 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
-    suppliedConversationHadNoSavedSelection?: boolean
+    suppliedHandleHadNoSavedSelection?: boolean
     /** The client-carried handle before the SDK can mint one for this call. */
     carriedContextSessionKey?: string | undefined
     isTaskBound?: boolean | undefined
@@ -420,10 +420,7 @@ export class RequestStateResolver {
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
-            suppliedConversationHadNoSavedSelection:
-                !requestContext.mcpSessionId &&
-                Boolean(requestContext.mcpConversationId) &&
-                pinned?.hasSavedSelection === false,
+            suppliedHandleHadNoSavedSelection: pinned?.hasSavedSelection === false,
             sessionContext,
             allTools,
             scopeGatedTools,
