@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.knock.knock import (
 )
 from products.warehouse_sources.sources.knock.settings import ENDPOINTS_CONFIG
 from products.warehouse_sources.sources.knock.source import KnockSource
+from products.warehouse_sources.sources.sdk import Resource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
@@ -369,20 +370,12 @@ class TestKnockSourceTransport:
             ("chan-1", "team/jane", "msg_1"),
             ("chan/2", "team/jane", "msg_1"),
         ]
-        assert result.saved_states == [KnockResumeConfig(collection="chan-1"), KnockResumeConfig(collection="chan/2")]
-
-    def test_feed_items_resume_skips_finished_channels(self) -> None:
-        result = self._driver(in_app_feed_channel_ids="chan-1,chan-2").run(
-            "user_feed_items",
-            [
-                _page("users", [{"id": "u1"}], after=None),
-                ScriptedResponse(json={"entries": [{"id": "msg_2"}], "page_info": {"after": None}}),
-            ],
-            resume_state=KnockResumeConfig(collection="chan-2"),
-        )
-
-        assert result.raised is None
-        assert result.paths == ["/v1/users", "/v1/users/u1/feeds/chan-2"]
+        # A checkpoint would resume as an append and repeat a half-read channel, so a hand-off
+        # must restart the run as a fresh full refresh.
+        assert result.saved_states == []
+        # Only a framework `Resource` gets per-page safe points through users with empty feeds.
+        assert result.response is not None
+        assert isinstance(result.response.items(), Resource)
 
     def test_feed_items_fail_on_unknown_channel(self) -> None:
         # An unknown user gets an empty feed, so a 404 can only mean a wrong channel id. Ignoring

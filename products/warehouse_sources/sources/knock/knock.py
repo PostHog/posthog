@@ -47,8 +47,8 @@ NO_FEED_CHANNEL_IDS_ERROR = (
 @dataclasses.dataclass(frozen=True)
 class KnockResumeConfig:
     after: str | None = None
-    # Set only by the objects, audience members and user feed items tables, which walk one
-    # configured collection, audience key or channel id after another.
+    # Set only by the objects and audience members tables, which walk one configured
+    # collection or audience key after another.
     collection: str | None = None
 
 
@@ -269,35 +269,31 @@ def _keyed_items(
             resumable_source_manager.safe_point()
 
 
-def _feed_items(
-    api_key: str,
-    channel_ids: list[str],
-    team_id: int,
-    job_id: str,
-    resumable_source_manager: ResumableSourceManager[KnockResumeConfig],
-) -> Iterator[Any]:
-    start_index = 0
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None and resume_config.collection in channel_ids:
-            start_index = channel_ids.index(resume_config.collection)
+def _feed_channel_resource(api_key: str, channel_id: str, team_id: int, job_id: str) -> Resource:
+    resource = _fanout_items(
+        api_key,
+        "user_feed_items",
+        team_id,
+        job_id,
+        db_incremental_field_last_value=None,
+        should_use_incremental_field=False,
+        path_format_values={"channel_id": quote(channel_id, safe="")},
+    )
+    return cast(Resource, resource).add_map(_tag_column("channel_id", channel_id))
 
-    for channel_id in channel_ids[start_index:]:
-        # Every row of the earlier channels is already yielded, so a resume can start here.
-        resumable_source_manager.save_state(KnockResumeConfig(collection=channel_id))
-        resource = _fanout_items(
-            api_key,
-            "user_feed_items",
-            team_id,
-            job_id,
-            db_incremental_field_last_value=None,
-            should_use_incremental_field=False,
-            path_format_values={"channel_id": quote(channel_id, safe="")},
-        )
-        for page in cast(Resource, resource).add_map(_tag_column("channel_id", channel_id)):
-            yield page
-            # The page is handed on in full and nothing is buffered, so a hand-off loses no rows.
-            resumable_source_manager.safe_point()
+
+def _feed_items(api_key: str, channel_ids: list[str], team_id: int, job_id: str) -> Resource:
+    # Like the other user fan-outs, this stages no resume state, so a hand-off restarts the run as
+    # a fresh full refresh. A checkpoint per channel would resume as an append and repeat the rows
+    # of a channel that was in progress.
+    def pages() -> Iterator[Any]:
+        for channel_id in channel_ids:
+            yield from _feed_channel_resource(api_key, channel_id, team_id, job_id)
+
+    # The walk hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+    # framework's per-page safe points, also through users with an empty feed.
+    hints = _feed_channel_resource(api_key, channel_ids[0], team_id, job_id)._hints
+    return Resource(pages, name="user_feed_items", hints=hints)
 
 
 def knock_source(
@@ -319,7 +315,8 @@ def knock_source(
         channel_ids = parse_key_list(in_app_feed_channel_ids)
         if not channel_ids:
             raise ValueError(NO_FEED_CHANNEL_IDS_ERROR)
-        items = lambda: _feed_items(api_key, channel_ids, team_id, job_id, resumable_source_manager)
+        feed_resource = _feed_items(api_key, channel_ids, team_id, job_id)
+        items = lambda: feed_resource
     elif endpoint_config.fanout is not None:
         resource = _fanout_items(
             api_key, endpoint, team_id, job_id, db_incremental_field_last_value, should_use_incremental_field
