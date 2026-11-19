@@ -19,6 +19,7 @@ function DialogPrimitive({
     className,
     disablePointerDismissal = false,
     initialFocus,
+    modal = true,
 }: {
     children: React.ReactNode
     open: boolean
@@ -26,12 +27,14 @@ function DialogPrimitive({
     className?: string
     disablePointerDismissal?: boolean
     initialFocus?: React.ComponentProps<typeof Dialog.Popup>['initialFocus']
+    modal?: React.ComponentProps<typeof Dialog.Root>['modal']
 }): JSX.Element {
     return (
         <Dialog.Root
             open={open}
             onOpenChange={(open, event) => onOpenChange(open, event)}
             disablePointerDismissal={disablePointerDismissal}
+            modal={modal}
         >
             {open && (
                 <Dialog.Portal>

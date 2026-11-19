@@ -4,6 +4,12 @@ body {
     --today-frame-radius: var(--radius);
 }
 
+$today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
+
+body.has-today-phone-layout {
+    --today-tab-bar-height: #{$today-tab-bar-height};
+}
+
 .TodayAppLayout {
     --today-frame-inset: 4px;
 
@@ -195,7 +201,7 @@ body {
 .TodayAppLayout--phone {
     // Matches the pane header, so the top bar and the sidebar page share one height.
     --today-phone-header-height: 42px;
-    --today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
+    --today-tab-bar-height: #{$today-tab-bar-height};
 
     padding-top: var(--today-phone-header-height);
     padding-bottom: var(--today-tab-bar-height);
@@ -296,6 +302,10 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     border-top: 1px solid var(--border);
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
+
+    &[data-search-open='true'] {
+        z-index: calc(var(--z-modal) + 1);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

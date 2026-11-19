@@ -12,13 +12,14 @@ import { TodayTabBarTab } from './TodayTabBarTab'
 export function TodayTabBar(): JSX.Element {
     const { activePane, railPanes } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
+    const { isCommandOpen } = useValues(commandLogic)
     const { toggleCommand } = useActions(commandLogic)
 
     return (
-        <div className="TodayTabBar" data-quill>
+        <div className="TodayTabBar" data-quill data-search-open={isCommandOpen}>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
                 {railPanes.map((pane) => {
-                    const active = activePane === pane
+                    const active = !isCommandOpen && activePane === pane
                     return (
                         <TodayTabBarTab
                             key={pane}
@@ -34,7 +35,8 @@ export function TodayTabBar(): JSX.Element {
                 <TodayTabBarTab
                     label="Search"
                     icon={<IconSearch />}
-                    active={false}
+                    active={isCommandOpen}
+                    aria-current={isCommandOpen ? 'page' : undefined}
                     dataAttr="today-rail-search"
                     onClick={() => toggleCommand('nav-search-button')}
                 />
