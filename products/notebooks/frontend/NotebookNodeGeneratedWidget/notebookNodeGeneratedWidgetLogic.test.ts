@@ -555,31 +555,73 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.versions).toEqual([currentVersion])
     })
 
-    it('refreshes the signed preview URL before reloading the frame', async () => {
-        let resolveReload: (status: WidgetStatusApi) => void = () => undefined
-        jest.mocked(notebooksWidgetStatus)
-            .mockResolvedValueOnce(
-                status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-old.html' })
-            )
-            .mockImplementationOnce(
-                () =>
-                    new Promise((resolve) => {
-                        resolveReload = resolve
+    it.each(['manual', 'run all', 'source cell'] as const)(
+        'refreshes the signed preview URL after %s',
+        async (trigger) => {
+            const content: JSONContent = {
+                type: 'doc',
+                content: [
+                    {
+                        type: NotebookNodeType.SQLV2,
+                        attrs: { nodeId: 'source', returnVariable: 'revenue', code: 'SELECT {target} AS target' },
+                    },
+                ],
+            }
+            let resolveReload: (status: WidgetStatusApi) => void = () => undefined
+            jest.mocked(notebooksWidgetStatus)
+                .mockResolvedValueOnce(
+                    status({
+                        lifecycle_status: 'ready',
+                        artifact_url: 'https://example.com/widget-old.html',
+                        current_version_id: 'version-1',
+                        frame_names: ['revenue'],
                     })
+                )
+                .mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            resolveReload = resolve
+                        })
+                )
+            logic = notebookNodeGeneratedWidgetLogic({ ...props, getContent: () => content })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.nodeRunFinished('source', 'failed', content)
+            logic.actions.nodeRunFinished('unrelated', 'done', content)
+            expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
+            if (trigger === 'manual') {
+                logic.actions.refreshData()
+            } else if (trigger === 'source cell') {
+                logic.actions.nodeRunFinished('source', 'done', content)
+            } else {
+                logic.actions.runFinished({
+                    run_id: 'run-1',
+                    status: 'done',
+                    trigger: 'ui',
+                    variables: [],
+                    cell_count: 1,
+                    current_index: 1,
+                    cells: [],
+                    created_at: '2026-01-01T00:00:00Z',
+                })
+            }
+            expect(logic.values.dataRefreshInFlight).toBe(true)
+            resolveReload(
+                status({
+                    lifecycle_status: 'ready',
+                    artifact_url: 'https://example.com/widget-new.html',
+                    current_version_id: 'version-1',
+                    frame_names: ['revenue'],
+                })
             )
-        logic = notebookNodeGeneratedWidgetLogic(props)
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.refreshData()
-        expect(logic.values.dataRefreshInFlight).toBe(true)
-        resolveReload(status({ lifecycle_status: 'ready', artifact_url: 'https://example.com/widget-new.html' }))
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-new.html')
-        expect(logic.values.frameRevision).toBe(1)
-        expect(logic.values.dataRefreshInFlight).toBe(false)
-    })
+            expect(logic.values.status?.artifact_url).toBe('https://example.com/widget-new.html')
+            expect(logic.values.frameRevision).toBe(1)
+            expect(logic.values.dataRefreshInFlight).toBe(false)
+        }
+    )
 
     it('reloads the preview when a newer status request supersedes the refresh', async () => {
         let resolveRefresh: (status: WidgetStatusApi) => void = () => undefined
