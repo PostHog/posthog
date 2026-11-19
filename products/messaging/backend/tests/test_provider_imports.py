@@ -336,3 +336,14 @@ class TestOptOutCarrying(BaseTest):
         assert max(query["sql"].lower().count("@example.com") for query in queries.captured_queries) <= 4
         stored = MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier__in=addresses)
         assert stored.count() == 5
+
+    def test_finding_every_spelling_of_an_address_has_an_index(self) -> None:
+        with CaptureQueriesContext(connection) as queries:
+            imported_data.carry_opt_outs(self.team.id, ["Mixed.Case@Example.com"], created_by_id=None)
+
+        lookup = next(query["sql"] for query in queries if "LOWER(" in query["sql"])
+        assert 'LOWER("posthog_messagerecipientpreference"."identifier")' in lookup
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT indexdef FROM pg_indexes WHERE tablename = 'posthog_messagerecipientpreference'")
+            definitions = [row[0] for row in cursor.fetchall()]
+        assert any("(team_id, lower((identifier)::text))" in definition for definition in definitions)
