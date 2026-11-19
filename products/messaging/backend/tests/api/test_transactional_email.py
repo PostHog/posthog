@@ -175,16 +175,26 @@ class TestTransactionalEmail(APIBaseTest):
         if route == "send_email_list_value":
             body = {**self._flat(self.body), "scheduled_at": scheduled_at}
             return client.post(self.send_email_url, body, format="json", **headers)
-        if isinstance(scheduled_at, list) and route in ("code", "send_email", "send_email_nested", "template"):
+        if isinstance(scheduled_at, list) and route in (
+            "code",
+            "send_email",
+            "send_email_nested",
+            "send_email_escaped_key",
+            "template",
+        ):
             url = self.url if route == "template" else self.send_email_url
             body = {
                 "code": lambda: self._code_send(),
                 "send_email": lambda: self._flat(self.body),
                 "send_email_nested": lambda: {**self.body, "template": {"id": str(self.template.id)}},
+                "send_email_escaped_key": lambda: self._flat(self.body),
                 "template": lambda: self.body,
             }[route]()
             members = [f"{json.dumps(k)}:{json.dumps(v)}" for k, v in body.items() if k not in without]
-            members += [f'"scheduled_at":{json.dumps(value)}' for value in scheduled_at]
+            keys = ['"scheduled_at"'] * len(scheduled_at)
+            if route == "send_email_escaped_key":
+                keys[1] = '"sch\\u0065duled_at"'
+            members += [f"{key}:{json.dumps(value)}" for key, value in zip(keys, scheduled_at)]
             return client.post(url, "{" + ",".join(members) + "}", content_type="application/json", **headers)
         if route in ("code", "code_form", "code_key_scoped"):
             body = {k: v for k, v in self._code_send(scheduled_at=scheduled_at).items() if k not in without}
@@ -1441,6 +1451,12 @@ class TestTransactionalEmail(APIBaseTest):
                     "repeated",
                 )
                 for name, route in (("template_id_json", "send_email"), ("template_key_json", "code"))
+            ),
+            (
+                "template_id_json_the_key_escaped_the_second_time",
+                "send_email_escaped_key",
+                ["2026-11-21T09:00:00Z", "2026-11-19T09:00:00Z"],
+                "repeated",
             ),
             (
                 "nested_template_id_json_a_time_then_null",

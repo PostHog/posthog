@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import codecs
 from collections.abc import Callable, Mapping, Sequence
@@ -648,16 +649,11 @@ class _Repeated(list):
     pass
 
 
+_JSON_WHITESPACE = re.compile(r"[ \t\n\r]*")
+
+
 class _JsonObject(dict):
     repeated: dict[str, _Repeated]
-
-    @classmethod
-    def from_pairs(cls, pairs: list[tuple[str, Any]]) -> Mapping[str, Any]:
-        obj = dict(pairs)
-        if len(obj) == len(pairs):
-            return obj
-        times = _Repeated(value for key, value in pairs if key == "scheduled_at")
-        return cls.with_repeats(obj, {"scheduled_at": times} if len(times) > 1 else {})
 
     @classmethod
     def with_repeats(cls, data: Mapping[str, Any], repeated: dict[str, _Repeated]) -> Mapping[str, Any]:
@@ -667,11 +663,30 @@ class _JsonObject(dict):
         obj.repeated = repeated
         return obj
 
+    @classmethod
+    def from_parsed_object(cls, text: str, decoder: json.JSONDecoder) -> Mapping[str, Any]:
+        # `text` already parsed as one JSON object, so every member is well formed. Each value is decoded by the
+        # stock scanner and kept as the stock parser keeps it, so the walk holds no more memory than that parser.
+        skip = _JSON_WHITESPACE.match
+        obj: dict[str, Any] = {}
+        times = _Repeated()
+        end = skip(text, skip(text).end() + 1).end()
+        while text[end] != "}":
+            key, end = decoder.raw_decode(text, end)
+            value, end = decoder.raw_decode(text, skip(text, skip(text, end).end() + 1).end())
+            obj[key] = value
+            if key == "scheduled_at" and len(times) < 2:
+                times.append(value)
+            end = skip(text, end).end()
+            if text[end] == ",":
+                end = skip(text, end + 1).end()
+        return cls.with_repeats(obj, {"scheduled_at": times} if len(times) > 1 else {})
+
 
 class SendBodyJSONParser(JSONParser):
     # Python's JSON reader keeps only the last value of a repeated key, which can be an earlier send time than the
-    # one before it. A body with a top-level `scheduled_at` is parsed again keeping every value, so ScheduledAtField
-    # can refuse it. Only that pass holds every member of an object, so a send without a time costs what it did.
+    # one before it. A body with a top-level `scheduled_at` is read again member by member, so ScheduledAtField can
+    # refuse a repeated one.
     def parse(self, stream: Any, media_type: str | None = None, parser_context: Mapping[str, Any] | None = None) -> Any:
         encoding = get_encoding(parser_context or {})
         try:
@@ -682,7 +697,7 @@ class SendBodyJSONParser(JSONParser):
             if not (isinstance(data, dict) and "scheduled_at" in data):
                 return data
             del data
-            return drf_json.loads(text, parse_constant=parse_constant, object_pairs_hook=_JsonObject.from_pairs)
+            return _JsonObject.from_parsed_object(text, json.JSONDecoder(parse_constant=parse_constant))
         except ValueError as exc:
             raise ParseError(f"JSON parse error - {exc}")
 
