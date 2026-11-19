@@ -131,6 +131,13 @@ def _settings() -> HogQLGlobalSettings:
     return HogQLGlobalSettings(max_execution_time=_SENTIMENT_QUERY_SECONDS)
 
 
+def _fallback_end(window: FallbackWindow, now: datetime) -> datetime:
+    # A generation cannot be evaluated after it leaves `posthog.ai_events`. Compared before adding, because a window
+    # that ends near the last datetime would overflow.
+    evaluable_for = timedelta(days=AI_EVENTS_RETENTION_DAYS + 1)
+    return now if window.end >= now - evaluable_for else window.end + evaluable_for
+
+
 def _read_rows(
     team: Team, user: User | None, trace_ids: Sequence[str], window: FallbackWindow, now: datetime
 ) -> list[_GenerationSentimentRow]:
@@ -161,7 +168,7 @@ def _read_rows(
                     (_EVALUATION_EVENT,),
                     FallbackWindow(
                         start=window.start,
-                        end=min(now, window.end + timedelta(days=AI_EVENTS_RETENTION_DAYS + 1)),
+                        end=_fallback_end(window, now),
                     ),
                 ),
             )
