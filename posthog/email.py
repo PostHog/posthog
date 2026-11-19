@@ -130,7 +130,6 @@ EMAIL_SEND_DROPPED_COUNTER = Counter(
     labelnames=["transport"],
 )
 
-# Routes Cloud's SMTP emails through the Workflows email-from-code API, per recipient and template.
 SMTP_EMAILS_VIA_WORKFLOWS_FLAG = "smtp-emails-via-workflows"
 
 # Matches how long the send API keeps an idempotency key, which outlasts every Celery retry.
