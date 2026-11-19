@@ -91,7 +91,8 @@ tools:
             operations.
     groups-types-update-metadata:
         operation: projects_groups_types_update_metadata_for_agents_partial_update
-        enabled: true
+        enabled: false
+        disabled_reason: Enable once the update_metadata_for_agents route is serving in production, so the tool does not reach clients before its endpoint.
         scopes:
             - group:write
         annotations:
