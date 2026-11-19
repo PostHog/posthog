@@ -237,7 +237,8 @@ mod tests {
         assert_eq!(
             PersonField::ALL.len(),
             9,
-            "PersonField::ALL count doesn't match Person proto field count — \
+            "PersonField::ALL count doesn't match the Person proto's maskable field count \
+             (every field except is_deleted, which masks neither select nor clear) — \
              did you add a field to the Person proto without updating PersonField?"
         );
         let mut person = populated_person();
@@ -311,6 +312,8 @@ mod tests {
     #[case::no_read_options(None, true)]
     #[case::empty_mask(Some(vec![]), true)]
     #[case::mask_includes_properties(Some(vec!["properties"]), true)]
+    #[case::retired_properties_last_updated_at(Some(vec!["properties_last_updated_at"]), false)]
+    #[case::retired_properties_last_operation(Some(vec!["properties_last_operation"]), false)]
     #[case::mask_with_only_non_property_fields(Some(vec!["id", "uuid"]), false)]
     fn person_needs_properties_reflects_whether_mask_requests_property_fields(
         #[case] mask_fields: Option<Vec<&str>>,
