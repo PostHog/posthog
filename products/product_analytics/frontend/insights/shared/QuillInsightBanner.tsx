@@ -22,7 +22,6 @@ export interface QuillInsightBannerProps {
     'data-attr'?: string
 }
 
-/** The insight page's banner props on top of the quill `Callout`. The action is a router link. */
 export function QuillInsightBanner({
     tone,
     children,
@@ -45,7 +44,7 @@ export function QuillInsightBanner({
                 </CalloutActions>
             )}
             {onClose && (
-                <CalloutClose onClick={onClose}>
+                <CalloutClose tooltip="Dismiss" onClick={onClose}>
                     <IconX />
                 </CalloutClose>
             )}
