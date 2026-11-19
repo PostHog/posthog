@@ -39411,6 +39411,10 @@ export namespace Schemas {
       edges: DependencyEdge[];
       /** True when more edges matched than the response holds. */
       truncated: boolean;
+      /** True when the window held more traces than the sample reads, so the counts cover only the sampled traces. */
+      sampled: boolean;
+      /** How many whole traces the edges were computed from. */
+      trace_count: number;
       /**
          * The environment filter the edges were computed for: null for every environment, empty for spans with no environment.
          * @nullable
@@ -39444,7 +39448,7 @@ export namespace Schemas {
     }
 
     export interface DeploymentVersion {
-      /** The service.version resource attribute. */
+      /** The version, read from the attribute named by version_source. */
       version: string;
       /** First span of this version in the window. */
       first_seen: string;
@@ -39483,9 +39487,26 @@ export namespace Schemas {
       active: boolean;
     }
 
+    /**
+     * * `service.version` - Service Version
+     * * `k8s.replicaset.name` - K8S Replicaset Name
+     */
+    export type VersionSourceEnum = typeof VersionSourceEnum[keyof typeof VersionSourceEnum];
+
+
+    export const VersionSourceEnum = {
+      Serviceversion: 'service.version',
+      K8sreplicasetname: 'k8s.replicaset.name',
+    } as const;
+
     export interface DeploymentsResponse {
       /** One row per version, oldest first. */
       results: DeploymentVersion[];
+      /** The resource attribute the versions come from: service.version when the service sets it, else k8s.replicaset.name, which changes on every Kubernetes rollout. Null when the spans carry neither.
+       *
+       * * `service.version` - Service Version
+       * * `k8s.replicaset.name` - K8S Replicaset Name */
+      version_source: VersionSourceEnum | null;
       /** The service the versions belong to. */
       service: string;
       /**
@@ -42362,6 +42383,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `scheduled` - Scheduled
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     */
+    export type EmailSendStatusEnum = typeof EmailSendStatusEnum[keyof typeof EmailSendStatusEnum];
+
+
+    export const EmailSendStatusEnum = {
+      Scheduled: 'scheduled',
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -42428,16 +42471,17 @@ export namespace Schemas {
     export interface EmailStatus {
       /** The `message_id` that the send returned. */
       id: string;
-      /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+      /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
        *
+       * * `scheduled` - Scheduled
        * * `queued` - Queued
        * * `failed` - Failed
        * * `sent` - Sent
        * * `delivered` - Delivered
        * * `bounced` - Bounced
        * * `complained` - Complained */
-      status: EmailDeliveryStatusEnum;
-      /** When the send was queued. */
+      status: EmailSendStatusEnum;
+      /** When PostHog accepted the send. */
       created_at: string;
       /** When the email reached its current status. */
       status_at: string;
@@ -42913,6 +42957,11 @@ export namespace Schemas {
       span_count: number;
       /** Requests with an error status in the window. */
       error_count: number;
+      /**
+         * Apdex score from 0 to 1 with a 500 ms threshold: satisfied requests plus half the tolerating ones (up to 2 s), over all requests. Errors count as frustrated.
+         * @nullable
+         */
+      apdex: number | null;
     }
 
     export interface EndpointHealth {
@@ -116515,7 +116564,7 @@ export namespace Schemas {
       /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
       text?: string;
       /**
-         * Addresses replies to the email your code rendered go to.
+         * Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and says so in the response's `warnings`.
          * @maxItems 10
          */
       reply_to?: string[];
@@ -116539,7 +116588,7 @@ export namespace Schemas {
       /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
       sensitive?: boolean;
       /**
-         * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+         * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
          * @maxLength 1024
          */
       from?: string;

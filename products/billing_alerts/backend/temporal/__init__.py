@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from products.billing_alerts.backend.temporal.activities import (
     discover_due_billing_alerts_activity,
     evaluate_billing_alert_batch_activity,
@@ -23,7 +25,7 @@ __all__ = [
     "WORKFLOWS",
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[Callable[..., object]] = [
     discover_due_billing_alerts_activity,
     evaluate_billing_alert_batch_activity,
 ]

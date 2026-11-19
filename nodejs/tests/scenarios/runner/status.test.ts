@@ -138,6 +138,7 @@ describe('statusOf', () => {
                     {
                         name: 'pickup_p99_under',
                         unit: 's',
+                        limit: 5,
                         passed: false,
                         breakingPoint: { scale: 10, at: at(30), offeredPerSecond: 12.34, key: 'hogflow', value: 10 },
                     },
@@ -153,6 +154,7 @@ describe('statusOf', () => {
                     {
                         name: 'writer_cpu_under',
                         unit: '%',
+                        limit: 70,
                         passed: false,
                         unjudged: 'no writer CPU reading off a run host in the 1x step',
                     },

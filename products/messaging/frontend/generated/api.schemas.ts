@@ -72,6 +72,7 @@ export interface AttachmentUploadsResponseApi {
 }
 
 /**
+ * * `scheduled` - Scheduled
  * * `queued` - Queued
  * * `failed` - Failed
  * * `sent` - Sent
@@ -79,9 +80,10 @@ export interface AttachmentUploadsResponseApi {
  * * `bounced` - Bounced
  * * `complained` - Complained
  */
-export type EmailDeliveryStatusEnumApi = (typeof EmailDeliveryStatusEnumApi)[keyof typeof EmailDeliveryStatusEnumApi]
+export type EmailSendStatusEnumApi = (typeof EmailSendStatusEnumApi)[keyof typeof EmailSendStatusEnumApi]
 
-export const EmailDeliveryStatusEnumApi = {
+export const EmailSendStatusEnumApi = {
+    Scheduled: 'scheduled',
     Queued: 'queued',
     Failed: 'failed',
     Sent: 'sent',
@@ -93,16 +95,17 @@ export const EmailDeliveryStatusEnumApi = {
 export interface EmailStatusApi {
     /** The `message_id` that the send returned. */
     id: string
-    /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+    /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
      *
+     * * `scheduled` - Scheduled
      * * `queued` - Queued
      * * `failed` - Failed
      * * `sent` - Sent
      * * `delivered` - Delivered
      * * `bounced` - Bounced
      * * `complained` - Complained */
-    status: EmailDeliveryStatusEnumApi
-    /** When the send was queued. */
+    status: EmailSendStatusEnumApi
+    /** When PostHog accepted the send. */
     created_at: string
     /** When the email reached its current status. */
     status_at: string
@@ -215,7 +218,7 @@ export interface SendEmailApi {
     /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
     text?: string
     /**
-     * Addresses replies to the email your code rendered go to.
+     * Addresses replies to the email your code rendered go to. The PostHog test sender ignores them and says so in the response's `warnings`.
      * @maxItems 10
      */
     reply_to?: string[]
@@ -239,7 +242,7 @@ export interface SendEmailApi {
     /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
     sensitive?: boolean
     /**
-     * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+     * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`.
      * @maxLength 1024
      */
     from?: string
@@ -1347,6 +1350,25 @@ export interface CodeEmailSourceCandidatesApi {
     /** False when part of the search did not finish, such as a repository GitHub could not search or a file it could not read, so a file may be missing from `candidates`. */
     complete: boolean
 }
+
+/**
+ * * `queued` - Queued
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ */
+export type EmailDeliveryStatusEnumApi = (typeof EmailDeliveryStatusEnumApi)[keyof typeof EmailDeliveryStatusEnumApi]
+
+export const EmailDeliveryStatusEnumApi = {
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
 
 export interface TransactionalEmailLogEntryApi {
     /** The `message_id` that the send returned. */
