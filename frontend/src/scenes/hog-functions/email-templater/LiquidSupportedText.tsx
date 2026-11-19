@@ -80,8 +80,7 @@ export function LiquidSupportedText({
                     onChange={onChange}
                     onMount={onEditorMount}
                     allowManualResize={!plain}
-                    minHeight={plain ? '34px' : undefined}
-                    maxHeight={plain ? '34px' : undefined}
+                    {...(plain ? { minHeight: '34px', maxHeight: '34px' } : {})}
                     options={
                         plain
                             ? {

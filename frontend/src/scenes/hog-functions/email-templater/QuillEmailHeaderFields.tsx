@@ -24,6 +24,7 @@ import {
     SelectValue,
 } from '@posthog/quill'
 
+import { closesIntoLemonPopover } from 'lib/components/QuillSurface/closesIntoLemonPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -318,7 +319,16 @@ function SenderField(): JSX.Element {
 
     const customize =
         selected.length || custom ? (
-            <Popover open={customOpen} onOpenChange={setCustomOpen}>
+            <Popover
+                open={customOpen}
+                onOpenChange={(open, details) => {
+                    if (closesIntoLemonPopover(open, details)) {
+                        details.cancel()
+                        return
+                    }
+                    setCustomOpen(open)
+                }}
+            >
                 <PopoverTrigger render={<LinkAction />} data-attr="email-from-custom-sender">
                     {custom ? 'Edit name and address' : 'Change name or address'}
                 </PopoverTrigger>
