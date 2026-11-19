@@ -27,7 +27,7 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
-import { editHrefAnchors, insertBeforeBodyEnd } from './helpers/href-anchors'
+import { AnchorEdit, HrefAnchor, editHrefAnchors } from './helpers/href-anchors'
 import { hasClickTrackingOptOutAttribute } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { SnsEnvelope } from './helpers/sns-envelope'
@@ -211,7 +211,7 @@ export const addTrackingToEmail = (
     // a click-tracking redirect unless the send turns clicks on. Opens and deliveries are still tracked.
     const allLinksOptedOut = !(invocation.state?.send?.tracking.clicks ?? !isSensitiveMessage(invocation))
 
-    html = editHrefAnchors(html, (anchor) => {
+    const editAnchor = (anchor: HrefAnchor): AnchorEdit | null => {
         const linkIndex = anchorIndex++
         // The anchor scan skips `javascript:` hrefs, but a browser also strips leading whitespace and control
         // characters before it reads the scheme.
@@ -245,11 +245,9 @@ export const addTrackingToEmail = (
             return null
         }
         return { name: 'href', value: signer.redirectUrl(trackingInvocation, anchor.href, isTest) }
-    })
+    }
 
-    html = insertBeforeBodyEnd(html, openPixelTag(trackingUrl))
-
-    return html
+    return editHrefAnchors(html, editAnchor, openPixelTag(trackingUrl))
 }
 
 const REDIRECT_CONFIRMATION_PAGE_HEADERS = {

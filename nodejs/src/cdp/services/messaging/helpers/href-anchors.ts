@@ -1,4 +1,4 @@
-import { QuoteType, Tokenizer } from 'htmlparser2'
+import { DefaultTreeAdapterMap, parse, parseFragment } from 'parse5'
 
 import { escapeHtml } from './escape-html'
 
@@ -32,186 +32,178 @@ type ScannedAttribute = {
 }
 
 type ScannedTag = {
+    start: number
+    // The attributes a browser keeps: the first of each name.
     attributes: ScannedAttribute[]
+    // The last attribute written in the tag, a dropped repeat included.
+    last: SourceAttribute | undefined
     // Where an added attribute goes: the `>`, or the `/` of a self-closing `/>`.
     insertAt: number
 }
 
-type Scan = {
-    anchors: ScannedTag[]
-    // The `<` of the first `</body>` end tag outside comments, or -1.
-    bodyEnd: number
-}
+type Node = DefaultTreeAdapterMap['node']
+type Element = DefaultTreeAdapterMap['element']
 
 const JAVASCRIPT_SCHEME = /^javascript:/i
 
 const isSpace = (char: string): boolean =>
     char === ' ' || char === '\t' || char === '\n' || char === '\f' || char === '\r'
 
-// HTML folds only ASCII letters in names. `toLowerCase` would also fold the Kelvin sign into `k`.
-const asciiLowercase = (text: string): string => text.replace(/[A-Z]/g, (char) => char.toLowerCase())
+// Email clients run no scripts, so `<noscript>` content is read as markup.
+const PARSE_OPTIONS = { sourceCodeLocationInfo: true, scriptingEnabled: false } as const
 
-const noop = (): void => {}
+// A same-length stand-in for `<!--` inside a comment, where it is text. `<_` opens no tag.
+const COMMENT_OPENING = '<!--'
+const COMMENT_OPENING_AS_TEXT = '<_--'
 
-// The tokenizer misreads three short forms a browser reads: it runs a comment past `--!>`, and it runs `<!>` and
-// `<!->` on to the next `>`. Each rewrite keeps the length and adds no space or `>`, so offsets still point into
-// `html` and no attribute boundary moves. `--->` can close a comment a browser keeps open, as in `<!--!>`, which
-// only scans more markup. Inside a comment, `<!--` is text.
-const BROWSER_ONLY_ENDINGS = /--!>|<!-?>/g
+type SourceAttribute = Omit<ScannedAttribute, 'name' | 'value'>
 
-const alignWithBrowser = (markup: string, inComment: boolean): string => {
-    const aligned = markup.replace(BROWSER_ONLY_ENDINGS, (ending) =>
-        ending === '--!>' ? '--->' : `<?${ending.slice(2)}`
+// Splits a start tag into its attributes as the HTML tokenizer does, repeats included. `close` is the tag's `>`.
+const readSourceAttributes = (html: string, tagStart: number, close: number): SourceAttribute[] => {
+    const attributes: SourceAttribute[] = []
+    let cursor = tagStart + 1
+    while (cursor < close && !isSpace(html[cursor]) && html[cursor] !== '/') {
+        cursor++
+    }
+    while (cursor < close) {
+        if (isSpace(html[cursor]) || html[cursor] === '/') {
+            cursor++
+            continue
+        }
+        const start = cursor
+        // A name may start with `=`; any later `=` starts its value.
+        cursor++
+        while (cursor < close && !isSpace(html[cursor]) && html[cursor] !== '/' && html[cursor] !== '=') {
+            cursor++
+        }
+        const rawName = html.slice(start, cursor)
+        let end = cursor
+        while (cursor < close && isSpace(html[cursor])) {
+            cursor++
+        }
+        const hasValue = cursor < close && html[cursor] === '='
+        let quoted = false
+        let valueStart = end
+        if (hasValue) {
+            cursor++
+            while (cursor < close && isSpace(html[cursor])) {
+                cursor++
+            }
+            const quote = html[cursor]
+            quoted = cursor < close && (quote === '"' || quote === "'")
+            valueStart = quoted ? cursor + 1 : cursor
+            cursor = valueStart
+            if (quoted) {
+                // parse5 found the tag's `>` after this value, so the closing quote comes before it.
+                const closingQuote = html.indexOf(quote, valueStart)
+                cursor = closingQuote < 0 || closingQuote > close ? close : closingQuote + 1
+            } else {
+                while (cursor < close && !isSpace(html[cursor])) {
+                    cursor++
+                }
+            }
+            end = cursor
+        }
+        attributes.push({ rawName, hasValue, quoted, start, valueStart, end })
+    }
+    return attributes
+}
+
+// parse5 keeps the first attribute of each name and keys their locations by lowercased source name, so in source
+// order the two lists pair up by index. Only where each one starts is taken from parse5, because a location
+// ends at the name when no space follows the value.
+const readAnchor = (html: string, base: number, element: Element, inComment: boolean): ScannedTag | null => {
+    const location = element.sourceCodeLocation?.startTag
+    // An anchor the parser reopens after a misnested end tag has no location: it is the same link again.
+    if (!location) {
+        return null
+    }
+    const start = base + location.startOffset
+    const close = base + location.endOffset - 1
+    const source = readSourceAttributes(html, start, close)
+    const byStart = new Map(source.map((attribute) => [attribute.start, attribute]))
+    const attributes: ScannedAttribute[] = []
+    // Sorted, because an object lists integer-like keys such as `4` first.
+    const locations = Object.entries(element.sourceCodeLocation?.attrs ?? {}).sort(
+        ([, a], [, b]) => a.startOffset - b.startOffset
     )
-    return inComment ? aligned.replaceAll('<!--', '_!--') : aligned
+    locations.forEach(([name, attributeLocation], index) => {
+        const attribute = byStart.get(base + attributeLocation.startOffset)
+        if (!attribute) {
+            return
+        }
+        let value = element.attrs[index]?.value ?? ''
+        if (inComment && html.slice(attribute.start, attribute.end).includes(COMMENT_OPENING)) {
+            value = value.replaceAll(COMMENT_OPENING_AS_TEXT, COMMENT_OPENING)
+        }
+        attributes.push({ ...attribute, name, value })
+    })
+    const last = source[source.length - 1]
+    const selfClosing = html[close - 1] === '/' && (!last || last.end < close)
+    return { start, attributes, last, insertAt: selfClosing ? close - 1 : close }
 }
 
-// A browser reads these elements' content as text up to their end tag, which a `/` may also end, as in
-// `</style/>`. The tokenizer reads only some of them that way, so the scan skips to the end tag itself.
-const RAW_TEXT_ELEMENTS = new Set(['iframe', 'noembed', 'noframes', 'script', 'style', 'textarea', 'title', 'xmp'])
-const rawTextEndTags = new Map<string, RegExp>()
-
-const rawTextEnd = (markup: string, name: string, from: number): number => {
-    let endTag = rawTextEndTags.get(name)
-    if (!endTag) {
-        endTag = new RegExp(`</${name}(?=[\\t\\n\\f\\r />])`, 'gi')
-        rawTextEndTags.set(name, endTag)
+// Collects the opening `<a>` tags a browser reads, in source order. Comment content is read as markup too, because
+// Outlook renders the links inside its `<!--[if mso]>` blocks. That read takes a `<!--` as text, so each character
+// is parsed at most twice however many comments a comment opens.
+const scanAnchors = (html: string, root: Node, base: number, inComment: boolean, anchors: ScannedTag[]): void => {
+    const pending: Node[] = [root]
+    while (pending.length > 0) {
+        const node = pending.pop()!
+        if (node.nodeName === '#comment') {
+            if (!inComment) {
+                scanComment(html, node as DefaultTreeAdapterMap['commentNode'], anchors)
+            }
+            continue
+        }
+        if (node.nodeName === 'a') {
+            const anchor = readAnchor(html, base, node as Element, inComment)
+            if (anchor) {
+                anchors.push(anchor)
+            }
+        }
+        if ('childNodes' in node) {
+            // A loop, not a spread: a spread passes every child as an argument, and a body can hold more than V8 takes.
+            for (const child of node.childNodes) {
+                pending.push(child)
+            }
+        }
+        if (node.nodeName === 'template') {
+            pending.push((node as DefaultTreeAdapterMap['template']).content)
+        }
     }
-    endTag.lastIndex = from
-    return endTag.exec(markup)?.index ?? markup.length
 }
 
-// Collects the opening `<a>` tags of `html[from, to)` in document order. Comment content is scanned as markup
-// too, because Outlook renders the links inside its `<!--[if mso]>` blocks. That scan reads a `<!--` as text, so
-// each character is scanned at most twice however many comments a comment opens.
-const scanAnchorTags = (html: string, from: number, to: number, scan: Scan, inComment = false): void => {
-    const markup = alignWithBrowser(html.slice(from, to), inComment)
-    let resumeAt = 0
-    while (resumeAt < markup.length) {
-        resumeAt = scanUntilRawText(html, from, markup, resumeAt, scan, inComment)
+const scanComment = (html: string, comment: DefaultTreeAdapterMap['commentNode'], anchors: ScannedTag[]): void => {
+    const location = comment.sourceCodeLocation
+    if (!location || !html.startsWith(COMMENT_OPENING, location.startOffset)) {
+        return
     }
+    const raw = html.slice(location.startOffset, location.endOffset)
+    const contentStart = location.startOffset + COMMENT_OPENING.length
+    const contentEnd = location.endOffset - (raw.endsWith('--!>') ? 4 : raw.endsWith('-->') ? 3 : 0)
+    if (contentEnd <= contentStart) {
+        return
+    }
+    const content = html.slice(contentStart, contentEnd).replaceAll(COMMENT_OPENING, COMMENT_OPENING_AS_TEXT)
+    scanAnchors(html, parseFragment(content, PARSE_OPTIONS), contentStart, true, anchors)
+}
+
+type Scan = {
+    anchors: ScannedTag[]
+    // The `<` of the body end tag a browser reads last, or -1.
+    bodyEnd: number
 }
 
 const scanHtml = (html: string): Scan => {
-    const scan: Scan = { anchors: [], bodyEnd: -1 }
-    scanAnchorTags(html, 0, html.length, scan)
-    return scan
-}
-
-// Scans `markup` from `start` and returns where to go on: past the next raw-text element, or the end.
-const scanUntilRawText = (
-    html: string,
-    from: number,
-    markup: string,
-    scanStart: number,
-    scan: Scan,
-    inComment: boolean
-): number => {
-    const offset = from + scanStart
-    let tagName = ''
-    let isAnchor = false
-    let attributes: ScannedAttribute[] = []
-    let attribute: ScannedAttribute | null = null
-    let resumeAt = -1
-
-    const scanInner = (start: number, end: number, endOffset: number): void => {
-        if (!inComment) {
-            scanAnchorTags(html, offset + start, offset + end - endOffset, scan, true)
-        }
-    }
-    const closeTag = (insertAt: number): void => {
-        if (isAnchor) {
-            scan.anchors.push({ attributes, insertAt })
-        }
-        isAnchor = false
-    }
-
-    const tokenizer = new Tokenizer(
-        { decodeEntities: true },
-        {
-            onopentagname(start, end) {
-                tagName = asciiLowercase(html.slice(offset + start, offset + end))
-                isAnchor = tagName === 'a'
-                attributes = []
-            },
-            onattribname(start, end) {
-                const rawName = html.slice(offset + start, offset + end)
-                attribute = {
-                    name: asciiLowercase(rawName),
-                    rawName,
-                    value: '',
-                    hasValue: false,
-                    quoted: false,
-                    start: offset + start,
-                    valueStart: offset + end,
-                    end: offset + end,
-                }
-            },
-            onattribdata(start, end) {
-                attribute!.value += html.slice(offset + start, offset + end)
-            },
-            onattribentity(codepoint) {
-                attribute!.value += String.fromCodePoint(codepoint)
-            },
-            onattribend(quote, end) {
-                attribute!.hasValue = quote !== QuoteType.NoValue
-                attribute!.quoted = quote === QuoteType.Single || quote === QuoteType.Double
-                if (attribute!.hasValue) {
-                    let valueStart = html.indexOf('=', attribute!.end) + 1
-                    while (isSpace(html[valueStart])) {
-                        valueStart++
-                    }
-                    attribute!.valueStart = attribute!.quoted ? valueStart + 1 : valueStart
-                }
-                attribute!.end = offset + end
-                attributes.push(attribute!)
-                attribute = null
-            },
-            onopentagend(end) {
-                closeTag(offset + end)
-                if (tagName === 'plaintext') {
-                    resumeAt = markup.length
-                } else if (RAW_TEXT_ELEMENTS.has(tagName)) {
-                    resumeAt = rawTextEnd(markup, tagName, scanStart + end + 1)
-                }
-                if (resumeAt >= 0) {
-                    tokenizer.pause()
-                }
-            },
-            onselfclosingtag(end) {
-                let slash = offset + end - 1
-                while (isSpace(html[slash])) {
-                    slash--
-                }
-                closeTag(slash)
-            },
-            oncomment: scanInner,
-            oncdata: scanInner,
-            onclosetag(start, end) {
-                // The tokenizer skips spaces after `</`, where a browser reads a comment instead.
-                const tagStart = offset + start - 2
-                const isBodyEnd =
-                    !inComment &&
-                    scan.bodyEnd < 0 &&
-                    html.startsWith('</', tagStart) &&
-                    asciiLowercase(html.slice(offset + start, offset + end)) === 'body'
-                if (isBodyEnd) {
-                    scan.bodyEnd = tagStart
-                }
-            },
-            ondeclaration: noop,
-            onend: noop,
-            onprocessinginstruction: noop,
-            ontext: noop,
-            ontextentity: noop,
-        }
-    )
-    tokenizer.write(markup.slice(scanStart))
-    if (resumeAt >= 0) {
-        return resumeAt
-    }
-    tokenizer.end()
-    return markup.length
+    const document = parse(html, PARSE_OPTIONS)
+    const anchors: ScannedTag[] = []
+    scanAnchors(html, document, 0, false, anchors)
+    // Tree order is not source order: a link written inside a table moves before it.
+    anchors.sort((a, b) => a.start - b.start)
+    const root = document.childNodes.find((node): node is Element => node.nodeName === 'html')
+    const body = root?.childNodes.find((node): node is Element => node.nodeName === 'body')
+    return { anchors, bodyEnd: body?.sourceCodeLocation?.endTag?.startOffset ?? -1 }
 }
 
 const firstByName = (attributes: ScannedAttribute[]): Map<string, ScannedAttribute> => {
@@ -225,13 +217,28 @@ const firstByName = (attributes: ScannedAttribute[]): Map<string, ScannedAttribu
 }
 
 // Calls `edit` for each anchor with a usable href, in document order, and applies the edit it returns to the
-// opening tag. The rest of the email stays byte for byte as written.
-export const editHrefAnchors = (html: string, edit: (anchor: HrefAnchor) => AnchorEdit | null): string => {
-    const tags = scanHtml(html).anchors
+// opening tag. `beforeBodyEnd` goes before the body end tag a browser reads, not a `</body>` inside an attribute, a
+// comment or raw text; an email without one gets none. The rest of the email stays byte for byte as written.
+export const editHrefAnchors = (
+    html: string,
+    edit: (anchor: HrefAnchor) => AnchorEdit | null,
+    beforeBodyEnd?: string
+): string => {
+    const { anchors: tags, bodyEnd } = scanHtml(html)
 
     const pieces: string[] = []
     let copiedUpTo = 0
+    // The body end tag sits outside every anchor tag, so it never splits an edit.
+    let bodyEndPending = beforeBodyEnd !== undefined && bodyEnd >= 0
+    const insertBodyEndMarkup = (): void => {
+        pieces.push(html.slice(copiedUpTo, bodyEnd), beforeBodyEnd!)
+        copiedUpTo = bodyEnd
+        bodyEndPending = false
+    }
     for (const tag of tags) {
+        if (bodyEndPending && tag.start > bodyEnd) {
+            insertBodyEndMarkup()
+        }
         const attributes = firstByName(tag.attributes)
         const href = attributes.get('href')
         if (!href || !href.hasValue || (!href.quoted && href.value === '')) {
@@ -255,8 +262,8 @@ export const editHrefAnchors = (html: string, edit: (anchor: HrefAnchor) => Anch
             copiedUpTo = existing.end
             continue
         }
-        const last = tag.attributes[tag.attributes.length - 1]
-        if (last?.hasValue && !last.quoted && last.value === '') {
+        const last = tag.last
+        if (last?.hasValue && !last.quoted && last.valueStart === last.end) {
             // `title=>` followed by ` name` would make `name` the value of `title`, so the empty value gets quotes.
             pieces.push(html.slice(copiedUpTo, last.start), `${last.rawName}="" ${written}`)
         } else {
@@ -270,13 +277,9 @@ export const editHrefAnchors = (html: string, edit: (anchor: HrefAnchor) => Anch
         // From the `/` of a self-closing `/>`, which closes an SVG link.
         copiedUpTo = tag.insertAt
     }
+    if (bodyEndPending) {
+        insertBodyEndMarkup()
+    }
     pieces.push(html.slice(copiedUpTo))
     return pieces.join('')
-}
-
-// Inserts `markup` before the body end tag a browser reads, not a `</body>` inside an attribute or a comment. An
-// email without one is returned as written.
-export const insertBeforeBodyEnd = (html: string, markup: string): string => {
-    const { bodyEnd } = scanHtml(html)
-    return bodyEnd < 0 ? html : html.slice(0, bodyEnd) + markup + html.slice(bodyEnd)
 }

@@ -1772,9 +1772,6 @@ importers:
       generic-pool:
         specifier: ^3.7.1
         version: 3.9.0
-      htmlparser2:
-        specifier: ^9.1.0
-        version: 9.1.0
       https-proxy-agent:
         specifier: ^7.0.6
         version: 7.0.6(supports-color@10.2.2)
@@ -1826,6 +1823,9 @@ importers:
       p-limit:
         specifier: 3.1.0
         version: 3.1.0
+      parse5:
+        specifier: ^7.1.2
+        version: 7.1.2
       pg:
         specifier: ^8.23.0
         version: 8.23.0
@@ -2004,9 +2004,6 @@ importers:
       oxlint-tsgolint:
         specifier: 7.0.2005
         version: 7.0.2005
-      parse5:
-        specifier: ^7.1.2
-        version: 7.1.2
       pino-pretty:
         specifier: ^13.2.0
         version: 13.2.0

@@ -445,6 +445,36 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com/" clicktracking="offline" ses:tags="phl:0">a</a>',
                 ],
                 [
+                    'an opted-out link after a comment that opens with !>, which stays open',
+                    '<!--!><a title=" --><a href="https://example.com/" data-ph-no-track>a</a>',
+                    '<!--!><a title=" --><a href="https://example.com/" data-ph-no-track ses:no-track>a</a>',
+                ],
+                [
+                    'an opted-out link after an end tag holding a quoted >',
+                    `<a href="https://example.com/a">a</a title="><a title='"><a href="https://example.com/b" data-ph-no-track>b</a>`,
+                    `<a href="https://example.com/a" ses:tags="phl:0">a</a title="><a title='"><a href="https://example.com/b" data-ph-no-track ses:no-track>b</a>`,
+                ],
+                [
+                    'a CDATA section in HTML, which ends at the first >',
+                    '<![CDATA[note><a href="https://example.com/">a</a>',
+                    '<![CDATA[note><a href="https://example.com/" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'a link written as text inside a self-closed textarea',
+                    '<textarea/><a href="https://example.com/a"></textarea><a href="https://example.com/b">b</a>',
+                    '<textarea/><a href="https://example.com/a"></textarea><a href="https://example.com/b" ses:tags="phl:0">b</a>',
+                ],
+                [
+                    'an opt-out before a numeric attribute name',
+                    '<a clicktracking="off" 4 href="https://example.com/">a</a>',
+                    '<a clicktracking="off" 4 href="https://example.com/" ses:no-track>a</a>',
+                ],
+                [
+                    'a repeated href left empty at the end of the tag',
+                    '<a href="https://example.com/" href= >a</a>',
+                    '<a href="https://example.com/" href="" ses:tags="phl:0">a</a>',
+                ],
+                [
                     'a quoted href that closes inside the next tag, as a browser reads it',
                     '<a href="https://example.com/>a</a><a href="https://example.com/b">b</a>',
                     '<a href="https://example.com/>a</a><a href="https://example.com/b" ses:tags="phl:0">b</a>',
@@ -452,6 +482,14 @@ describe('EmailTrackingService', () => {
             ])('tags the anchors in %s', (_name, body, tagged) => {
                 const out = sesTrack(`<body>${body}</body>`)
                 expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${tagged}`)
+            })
+
+            it('places the pixel before a body end tag written with a slash', () => {
+                const out = sesTrack('<body><a href="https://example.com/">a</a></body/>')
+                expect(out.startsWith('<body><a href="https://example.com/" ses:tags="phl:0">a</a><img src="')).toBe(
+                    true
+                )
+                expect(out.endsWith('style="display: none;" /></body/>')).toBe(true)
             })
 
             it('leaves an email whose quoted href never closes as written, with no pixel inside the href', () => {
