@@ -293,8 +293,8 @@ A field added to the engine context belongs in the fingerprint, or a stale verdi
   `not_in_channel` and retries the post once. The join is attempted, never gated on the scope:
   `conversations.join` needs `channels:join`, and whether an install granted it is invisible to the
   person who set the digest up, so asking Slack is the only way to find out. A refused join fails
-  the run with an error naming the invite, which is a signal in the digests scene and self-heals the
-  moment somebody adds the app.
+  the run with an error naming the invite, which is a signal in the recent digests list and
+  self-heals the moment somebody adds the app.
 - A declared channel that does not resolve is a dead end, never a retry with the audience slug —
   the slug is the wrong name the declaration exists to correct.
 - Retrieving one review run returns the reviewer's parsed reasoning (`reasoning`, `showstoppers`, `review_body`, `change_summary`) to anyone who can read the run.

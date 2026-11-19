@@ -295,6 +295,7 @@ async fn process_request_inner(
                         property_overrides.group_properties,
                         property_overrides.groups,
                         property_overrides.hash_key,
+                        property_overrides.known_absent,
                         context.request_id,
                         context.request_entered_at,
                         request.is_flags_disabled(),

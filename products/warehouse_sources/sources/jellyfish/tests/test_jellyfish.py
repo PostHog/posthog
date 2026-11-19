@@ -148,6 +148,14 @@ class TestGetRowsMonthWindowed:
 
         assert [c["params"]["start_date"] for c in calls] == ["2026-02-01", "2026-03-01"]
 
+    @pytest.mark.parametrize("endpoint", ["allocations_by_team", "allocations_by_investment_category_team"])
+    def test_team_breakdowns_send_required_hierarchy_level(self, endpoint: str, monkeypatch: Any) -> None:
+        calls = _install_fake_fetch(monkeypatch, lambda path, params: [{"fte": 1.0}])
+        _collect(endpoint, _FakeResumableManager(), date(2026, 3, 10), monkeypatch)
+
+        assert len(calls) == 24
+        assert all(c["params"]["team_hierarchy_level"] == "1" for c in calls)
+
 
 class TestGetRowsFanOut:
     @staticmethod
@@ -250,6 +258,26 @@ class TestGetRowsEntityFanOut:
         assert manager.saved[2] == JellyfishResumeConfig(
             next_window_start="2024-05-01", completed_parent_ids=["11", "12"], current_parent_id="13"
         )
+
+    def test_team_sprint_summary_requests_one_wide_window_per_team(self, monkeypatch: Any) -> None:
+        def responder(path: str, params: dict[str, Any]) -> Any:
+            if path == "teams/list_teams":
+                return {"teams": [{"id": 1, "children": [{"id": 2}]}]}
+            return [{"sprint_name": f"Sprint {params['team_id']}", "issue_count": 4}]
+
+        calls = _install_fake_fetch(monkeypatch, responder)
+        rows = _collect("team_sprint_summary", _FakeResumableManager(), date(2026, 3, 10), monkeypatch)
+
+        sprint_calls = [c for c in calls if c["path"] == "metrics/team_sprint_summary"]
+        # The endpoint takes no `unit`, and sprints carry their own dates, so no window is stamped.
+        assert [c["params"] for c in sprint_calls] == [
+            {"format": "json", "team_id": team_id, "start_date": "2024-04-01", "end_date": "2026-03-10"}
+            for team_id in ("1", "2")
+        ]
+        assert rows == [
+            {"sprint_name": "Sprint 1", "issue_count": 4, "team_id": "1"},
+            {"sprint_name": "Sprint 2", "issue_count": 4, "team_id": "2"},
+        ]
 
     def test_scope_history_fans_out_over_deliverables_in_every_work_category(self, monkeypatch: Any) -> None:
         def responder(path: str, params: dict[str, Any]) -> Any:

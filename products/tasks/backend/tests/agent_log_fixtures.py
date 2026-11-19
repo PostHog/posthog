@@ -8,6 +8,8 @@ shape that _check_logs recognizes.
 import json
 from dataclasses import dataclass
 
+from products.tasks.backend.storage import TaskRunLog
+
 
 def _agent_message_line(text: str) -> str:
     return json.dumps(
@@ -192,3 +194,7 @@ class FakeTaskRun:
     error_message: str | None = None
     state: dict[str, object] | None = None
     finish_report: str | None = None
+
+    @property
+    def log(self) -> TaskRunLog:
+        return TaskRunLog(key=self.log_url)

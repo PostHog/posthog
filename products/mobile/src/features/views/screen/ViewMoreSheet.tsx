@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect } from 'react'
+import { type ReactElement, type ReactNode, useEffect } from 'react'
 import { Text, View } from 'react-native'
 import { openPostHogUrl } from '@/lib/sessionHandoff'
 
@@ -14,6 +14,7 @@ import { radii, type } from '@/ui/tokens'
 import { trackViewMoreOpened, trackViewOpenedInWeb } from '../analytics'
 
 interface ViewMoreSheetProps {
+    children?: ReactNode
     visible: boolean
     onClose: () => void
     /** The view's web page. Undefined in demo mode, which has no project on the web. */
@@ -24,7 +25,14 @@ interface ViewMoreSheetProps {
 }
 
 /** The view's More menu. The web has the full editor, so the menu hands off to it. */
-export function ViewMoreSheet({ visible, onClose, webUrl, viewType, navPin }: ViewMoreSheetProps): ReactElement {
+export function ViewMoreSheet({
+    children,
+    visible,
+    onClose,
+    webUrl,
+    viewType,
+    navPin,
+}: ViewMoreSheetProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const safe = webUrl ? safeHttpsUrl(webUrl) : undefined
@@ -42,6 +50,7 @@ export function ViewMoreSheet({ visible, onClose, webUrl, viewType, navPin }: Vi
             testID="view-more-sheet"
         >
             <View style={styles.rows}>
+                {children}
                 {navPin ? (
                     <Pressable44
                         onPress={() => {

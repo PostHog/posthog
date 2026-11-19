@@ -373,6 +373,7 @@ from posthog.schema_enums import (
     WindowDays as WindowDays,
     XScale as XScale,
     YAxisPosition as YAxisPosition,
+    YAxisPosition2 as YAxisPosition2,
     YAxisScaleType as YAxisScaleType,
 )
 
@@ -3445,6 +3446,7 @@ class ResultCustomizationBase(BaseModel):
     )
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByPosition(BaseModel):
@@ -3454,6 +3456,7 @@ class ResultCustomizationByPosition(BaseModel):
     assignmentBy: Literal["position"] = "position"
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByValue(BaseModel):
@@ -3465,6 +3468,7 @@ class ResultCustomizationByValue(BaseModel):
     customColor: str | None = None
     hidden: bool | None = None
     label: str | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class RetentionValue(BaseModel):
@@ -4115,6 +4119,12 @@ class AggregatedSpanRow(BaseModel):
     )
     avg_duration_nano: float
     count: int
+    entry_span_count: int | None = Field(
+        default=None,
+        description=(
+            "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+        ),
+    )
     error_count: int
     health_reason: str | None = Field(
         default=None,
@@ -7397,7 +7407,7 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     )
     adTable: str | None = Field(
         default=None,
-        description="Google Ads ad table, used to read the ad copy of each ad group.",
+        description=("Google Ads ad table, used to read the ad copy and landing pages of each ad group."),
     )
     campaignConversionActionTable: str | None = Field(
         default=None,
@@ -10276,6 +10286,10 @@ class AssistantDataVisualizationChartSettings(BaseModel):
         description=(
             "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
         ),
+    )
+    colorBarsByCategory: bool | None = Field(
+        default=None,
+        description=("Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts."),
     )
     goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
         default=None, description="Horizontal goal lines drawn across the chart."
@@ -18108,6 +18122,10 @@ class ChartSettings(BaseModel):
         default=None,
         description=("Chart rendering style overrides (line shape). Only applies to line and area charts."),
     )
+    colorBarsByCategory: bool | None = Field(
+        default=None,
+        description="Color each X-axis category in single-series bar charts.",
+    )
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
@@ -18139,6 +18157,8 @@ class ChartSettings(BaseModel):
     showYAxisBorder: bool | None = None
     stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     valueLabelBackground: bool | None = None
+    valueLabelBackgroundColor: str | None = None
+    valueLabelColor: str | None = None
     valueLabelFontSize: float | None = None
     valueLabelPosition: ValueLabelPosition | None = None
     valueLabelRotation: float | None = None
@@ -22464,6 +22484,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
         ),
     )
     level: MarketingAnalyticsRecommendationLevel
+    minor: bool | None = Field(
+        default=None,
+        description=("True when the monthly impact is under 1% of the ad account's monthly spend."),
+    )
     reason: str
     resolution: MarketingAnalyticsRecommendationResolution | None = Field(
         default=None,
@@ -36482,6 +36506,7 @@ class FunnelsFilter(BaseModel):
             " funnels."
         ),
     )
+    showSummaryOnDashboards: bool | None = False
     showTrendLines: bool | None = Field(
         default=None,
         description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
@@ -36721,6 +36746,10 @@ class TraceSpansQuery(BaseModel):
             " from `rootSpans`, which scopes whole-trace selection. The single-trace"
             " waterfall never sets this."
         ),
+    )
+    includeEvents: bool | None = Field(
+        default=None,
+        description=("Include each span's OpenTelemetry events. The column is large, so only set this on small lists"),
     )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None

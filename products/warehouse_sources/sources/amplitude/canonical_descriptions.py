@@ -1,10 +1,10 @@
 """Canonical, documentation-sourced descriptions for Amplitude endpoints and columns.
 
 Sourced from the official Amplitude HTTP API reference (https://amplitude.com/docs/apis), covering the
-Export API (events), the Dashboard REST APIs (cohorts, annotations), and the Taxonomy API (event types,
-event properties, user properties, event categories, group properties). Keyed by the endpoint names in
-`settings.py` `AMPLITUDE_ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced Amplitude
-table. Columns absent here fall back to LLM enrichment.
+Export API (events), the Dashboard REST APIs (cohorts, annotations, retention, composition, revenue
+LTV), and the Taxonomy API (event types, event properties, user properties, event categories, group
+properties). Keyed by the endpoint names in `settings.py` `AMPLITUDE_ENDPOINTS`, which match the
+`ExternalDataSchema.name` of a synced Amplitude table. Columns absent here fall back to LLM enrichment.
 """
 
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
@@ -131,6 +131,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_array_type": "Whether the property holds an array of values.",
             "is_hidden": "Whether the property is hidden from pickers in the Amplitude UI.",
             "classifications": "Data classification labels applied to the property.",
+        },
+    },
+    "retention": {
+        "description": "Daily N-day retention of new users who return with any event, as Amplitude's Retention Analysis chart computes it. One row per cohort date and day.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/dashboard-rest",
+        "columns": {
+            "date": "Date the cohort of new users started, in the project's time zone.",
+            "day": "Number of days after the start date that the row measures (0 is the start day).",
+            "count": "Number of users in the cohort who returned on that day.",
+            "outof": "Total number of users in the cohort.",
+            "incomplete": "Whether the cohort has not yet had enough time to be retained on that day.",
+        },
+    },
+    "composition": {
+        "description": "Number of unique users per value of a built-in user property, as Amplitude's User Composition chart computes it.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/dashboard-rest",
+        "columns": {
+            "property": "Built-in user property the row breaks down (for example platform, country, version).",
+            "value": "Value of the property. `(none)` means the property was not set.",
+            "users": "Number of unique users who had this property value in the date range.",
+        },
+    },
+    "revenue_ltv": {
+        "description": "Lifetime value of new users per cohort date, as Amplitude's Revenue LTV chart computes it. One row per cohort date and metric.",
+        "docs_url": "https://amplitude.com/docs/apis/analytics/dashboard-rest",
+        "columns": {
+            "date": "Date the cohort of new users started, in the project's time zone.",
+            "metric": "Metric of the n-day values: arpu, arppu, total_revenue or paying_users.",
+            "count": "Number of users in the cohort.",
+            "paid": "Number of users in the cohort who paid.",
+            "total_amount": "Total amount the users in the cohort paid.",
+            "r1d": "Value of the metric 1 day after the cohort date. Columns r2d through r90d hold the later days.",
         },
     },
 }

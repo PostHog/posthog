@@ -43,10 +43,11 @@ def task_queue_setting_names() -> list[str]:
 
     tree = ast.parse(inspect.getsource(start_temporal_worker))
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "_task_queue_specs" for target in node.targets
-        ):
-            assert isinstance(node.value, ast.List)
+        targets = (
+            node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+        )
+        if any(isinstance(target, ast.Name) and target.id == "_task_queue_specs" for target in targets):
+            assert isinstance(node, ast.Assign | ast.AnnAssign) and isinstance(node.value, ast.List)
             return [ast.unparse(spec.elts[0]).removeprefix("settings.") for spec in node.value.elts]  # type: ignore[attr-defined]
     raise LookupError("_task_queue_specs not found in start_temporal_worker")
 
