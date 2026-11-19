@@ -56346,10 +56346,6 @@
                     "key": "content"
                 },
                 {
-                    "param": "type",
-                    "key": "type"
-                },
-                {
                     "param": "message_category",
                     "key": "message_category"
                 },
@@ -56358,7 +56354,9 @@
                     "key": "deleted"
                 }
             ],
-            "injectBody": {},
+            "injectBody": {
+                "type": "push"
+            },
             "softDelete": null,
             "transformBody": false
         },

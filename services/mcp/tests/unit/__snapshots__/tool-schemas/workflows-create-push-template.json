@@ -97,13 +97,8 @@
             },
             "maxItems": 10,
             "type": "array"
-        },
-        "type": {
-            "description": "Always push for this tool.",
-            "maxLength": 24,
-            "type": "string"
         }
     },
-    "required": ["name", "type"],
+    "required": ["name"],
     "type": "object"
 }
