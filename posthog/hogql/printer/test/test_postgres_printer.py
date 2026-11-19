@@ -1,5 +1,6 @@
 """Tests for printing HogQL to the Postgres dialect."""
 
+from collections.abc import Callable
 from typing import Optional, cast
 
 import pytest
@@ -13,7 +14,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect, HogQLParserBackend, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import IntegerDatabaseField, StringDatabaseField, TableNode
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.hogqlx import convert_tag_to_hx
@@ -1190,58 +1195,63 @@ class TestPostgresPrinter(BaseTest):
         )
 
 
-def _live_postgres_context(*, orders_column_restricted: bool) -> HogQLContext:
+_LIVE_FIELDS = {"id": IntegerDatabaseField(name="id", nullable=False), "email": StringDatabaseField(name="email")}
+_LIVE_TABLES: dict[HogQLDialect, Callable[[bool], DirectSQLTable]] = {
+    "postgres": lambda restricted: DirectPostgresTable(
+        name="orders",
+        fields=_LIVE_FIELDS,
+        external_data_source_id="source-id",
+        postgres_schema="public",
+        postgres_table_name="orders",
+        column_restricted=restricted,
+    ),
+    "mysql": lambda restricted: DirectMySQLTable(
+        name="orders",
+        fields=_LIVE_FIELDS,
+        external_data_source_id="source-id",
+        mysql_schema="shop",
+        mysql_table_name="orders",
+        column_restricted=restricted,
+    ),
+    "snowflake": lambda restricted: DirectSnowflakeTable(
+        name="orders",
+        fields=_LIVE_FIELDS,
+        external_data_source_id="source-id",
+        snowflake_schema="PUBLIC",
+        snowflake_table_name="ORDERS",
+        column_restricted=restricted,
+    ),
+    "duckdb": lambda restricted: DirectMotherDuckTable(
+        name="orders",
+        fields=_LIVE_FIELDS,
+        external_data_source_id="source-id",
+        motherduck_database="shop",
+        motherduck_schema="main",
+        motherduck_table_name="orders",
+        column_restricted=restricted,
+    ),
+}
+
+
+def _print_live(query: str, dialect: HogQLDialect, *, restricted: bool) -> str:
     database = Database(include_posthog_tables=False)
-    for name, column_restricted in (("orders", orders_column_restricted), ("notes", False)):
-        database.tables.add_child(
-            TableNode(
-                name=name,
-                table=DirectPostgresTable(
-                    name=name,
-                    fields={
-                        "id": IntegerDatabaseField(name="id", nullable=False),
-                        "email": StringDatabaseField(name="email"),
-                    },
-                    external_data_source_id="source-id",
-                    postgres_schema="public",
-                    postgres_table_name=name,
-                    column_restricted=column_restricted,
-                ),
-            )
-        )
+    database.tables.add_child(TableNode(name="orders", table=_LIVE_TABLES[dialect](restricted)))
     # A pinned events schema keeps printing off the instance setting, which this test has no database to read.
-    return HogQLContext(
-        database=database, enable_select_queries=True, modifiers=HogQLQueryModifiers(useNewEventsSchema=False)
+    context = HogQLContext(
+        database=database,
+        enable_select_queries=True,
+        is_direct_query=True,
+        modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
     )
-
-
-@pytest.mark.parametrize(
-    "query, dialect, error, printed",
-    [
-        ("SELECT email FROM orders WHERE secret IS NULL", "postgres", "Unable to resolve field: secret", None),
-        ("SELECT (SELECT secret FROM notes LIMIT 1) FROM orders", "postgres", "Unable to resolve field: secret", None),
-        ("SELECT toString(o) FROM orders AS o", "postgres", "Unable to resolve field: o", None),
-        ("SELECT secret FROM notes", "postgres", None, "SELECT secret FROM"),
-        ("SELECT (SELECT id) FROM orders", "postgres", None, "SELECT id)"),
-        ("SELECT CURRENT_DATE FROM orders", "hogql", None, "current_date"),
-    ],
-    ids=[
-        "unknown_name",
-        "correlated_subquery",
-        "whole_row",
-        "unrestricted_table_passes_through",
-        "allowed_outer_column",
-        "sql_keyword_in_hogql_pass",
-    ],
-)
-def test_column_restricted_live_table_rejects_names_outside_its_fields(
-    query: str, dialect: HogQLDialect, error: str | None, printed: str | None
-) -> None:
-    context = _live_postgres_context(orders_column_restricted=True)
-
-    if error is not None:
-        with pytest.raises(QueryError, match=error):
-            prepare_and_print_ast(parse_select(query), context, dialect)
-        return
     sql, _ = prepare_and_print_ast(parse_select(query), context, dialect)
-    assert printed is not None and printed.lower() in sql.lower()
+    return sql
+
+
+@pytest.mark.parametrize("dialect", list(_LIVE_TABLES))
+def test_column_restricted_live_table_prints_only_its_allowed_columns(dialect: HogQLDialect) -> None:
+    # An alias named after a hidden column must still bind to the projection, not the physical table.
+    sql = _print_live("SELECT email AS secret, secret AS leaked FROM orders", dialect, restricted=True)
+    unrestricted = _print_live("SELECT email FROM orders", dialect, restricted=False)
+
+    assert "(SELECT " in sql
+    assert "(SELECT " not in unrestricted

@@ -322,11 +322,14 @@ class TestRawQueryTableAccess(APIBaseTest):
 
         connect.assert_not_called()
 
+    @parameterized.expand([("active", False), ("deleted_flag_unset", None)])
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_denies_raw_query_when_a_table_hides_columns(self, connect: MagicMock) -> None:
+    def test_denies_raw_query_when_a_table_hides_columns(self, _name: str, deleted: bool | None, connect: MagicMock):
         source = self._create_source()
         self._create_table(source)
-        ExternalDataSchema.objects.create(team=self.team, source=source, name="orders", enabled_columns=["id"])
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="orders", enabled_columns=["id"], deleted=deleted
+        )
 
         with self.assertRaisesMessage(ExposedHogQLError, RAW_QUERY_COLUMN_RESTRICTED_ERROR):
             HogQLQueryExecutor(
