@@ -195,12 +195,18 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
             ((0.1, float("inf")), {SETTLED: [1.0, 2.0, 3.0]})
         ]
 
-    def test_pauses_when_one_hour_has_too_many_series(self):
+    @parameterized.expand(
+        [
+            ("one_hour", "products.metrics.backend.metric_query_runner._ROW_LIMIT", 2),
+            ("one_day_chunk", "products.metrics.backend.precompute.store.MAX_ENTRIES_PER_CHUNK", 1),
+        ]
+    )
+    def test_pauses_when_too_many_series(self, _name: str, limit_path: str, limit: int):
         self._seed_delta_counter("checkout", 1.0, SETTLED - dt.timedelta(hours=2), 2)
         self._seed_delta_counter("search", 2.0, SETTLED - dt.timedelta(hours=2), 2)
         self._create(PrecomputedMetricKind.INCREASE, "requests_total")
 
-        with patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 2):
+        with patch(limit_path, limit):
             precomputed = self._fill()
 
         assert precomputed.state == MetricPrecomputedMetric.State.PAUSED

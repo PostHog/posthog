@@ -19,6 +19,13 @@ HOUR = dt.timedelta(hours=1)
 EntryKey = tuple[tuple[str, ...], str, tuple[float, ...]]
 HourValue = float | list[float]
 
+# One chunk is one JSONB value that every pass decodes whole, so a day keeps at most this many label sets.
+MAX_ENTRIES_PER_CHUNK = 10_000
+
+
+class TooManySeriesError(Exception):
+    pass
+
 
 @dataclass(frozen=False)
 class Entry:
@@ -138,6 +145,8 @@ def write_entries(
                 },
             )
             series = _encode(day, stored)
+            if len(series) > MAX_ENTRIES_PER_CHUNK:
+                raise TooManySeriesError("one day has too many label sets; keep fewer labels")
             if chunk is None:
                 if series:
                     MetricPrecomputedChunk.objects.for_team(team_id).create(

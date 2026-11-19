@@ -26,7 +26,15 @@ from products.metrics.backend.metric_query_runner import _finite_or_none
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.models import MetricPrecomputedChunk, MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import labels_of
-from products.metrics.backend.precompute.store import HOUR, Entry, EntryKey, merge_entries, read_entries, write_entries
+from products.metrics.backend.precompute.store import (
+    HOUR,
+    Entry,
+    EntryKey,
+    TooManySeriesError,
+    merge_entries,
+    read_entries,
+    write_entries,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -41,10 +49,6 @@ PAUSE_AFTER_FAILURES = 10
 PASS_BUDGET = dt.timedelta(minutes=4)
 _LOCK_TIMEOUT_SECONDS = 10 * 60
 _RELATIVE_TOLERANCE = 1e-9
-
-
-class TooManySeriesError(Exception):
-    pass
 
 
 def _floor_hour(value: dt.datetime) -> dt.datetime:
