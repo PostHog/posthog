@@ -1075,6 +1075,16 @@ def test_bigquery_source_validate_credentials_wires_config_and_region(use_custom
                 "'projects/some-project/locations/us/sessions/sess/streams/strm'"
             )
         ),
+        # Storage Read API `create_read_session` denial when the BigQuery Storage API itself is
+        # disabled on the project, rather than a missing IAM permission — none of the permission-name
+        # keys above cover this project-level wording.
+        str(
+            PermissionDenied(
+                "BigQuery Storage API has not been used in project some-project before or it is "
+                "disabled. Enable it by visiting https://console.developers.google.com/apis/api/"
+                "bigquerystorage.googleapis.com/overview?project=some-project then retry."
+            )
+        ),
     ],
 )
 def test_non_retryable_errors_match_permission_denied(observed_error):

@@ -3,11 +3,12 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { Suspense, useEffect, useSyncExternalStore } from 'react'
+import { CSSProperties, Suspense, useEffect, useSyncExternalStore } from 'react'
 
 import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
 
 import { Logo } from 'lib/brand'
+import { imageSizeFromParams } from 'lib/components/ImageSize/imageSizeUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
@@ -23,6 +24,18 @@ import { useThemedHtml } from '~/layout/useThemedHtml'
 import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
+
+function sharedPageStyle(type: ExportType): CSSProperties | undefined {
+    if (type !== ExportType.Scene && type !== ExportType.Embed) {
+        return
+    }
+    const size = imageSizeFromParams(new URLSearchParams(window.location.search))
+    return {
+        width: size.width ?? undefined,
+        height: size.height ?? undefined,
+        ...(size.height != null ? { minHeight: 0, overflow: 'auto' } : {}),
+    }
+}
 
 const LazyDashboardScene = lazyWithRetry(() => import('./scenes/ExporterDashboardScene'))
 const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapScene'))
@@ -141,6 +154,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     'Exporter--heatmap': type === ExportType.Heatmap,
                 })}
                 ref={elementRef}
+                style={sharedPageStyle(type)}
             >
                 {dashboard ? (
                     type === ExportType.Scene ? (

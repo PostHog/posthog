@@ -414,6 +414,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Read Session User role grants both. Matched on the stable permission name rather than the
             # volatile session/stream ids.
             "bigquery.readsessions.getData": "BigQuery denied access to the Storage Read API: your service account is missing the bigquery.readsessions.getData permission needed to read data from a read session. Please grant it (for example via the BigQuery Read Session User role) on the project you're syncing, then reconnect the source.",
+            # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
+            # `bigquery.py`) when the BigQuery Storage API itself is disabled on the project the read
+            # bills to — a project-level setting, distinct from the IAM permission denials above,
+            # which all assume the API is already enabled. The google.api_core PermissionDenied
+            # stringifies as "403 BigQuery Storage API has not been used in project <id> before or it
+            # is disabled. Enable it by visiting https://console.developers.google.com/apis/api/
+            # bigquerystorage.googleapis.com/overview?project=<id> then retry. ...", so match only the
+            # stable prefix before the volatile project id. Retrying can't enable the API; the
+            # customer must enable it in the Google Cloud console.
+            "BigQuery Storage API has not been used in project": "BigQuery denied access because the BigQuery Storage API is disabled on the project your read bills to. Enable the BigQuery Storage API for that project in the Google Cloud console, then reconnect the source.",
             # Raised from query jobs when the configured dataset/table doesn't exist in the location
             # we query — the dataset was deleted or renamed, or it lives in a different region than the
             # one we run against. The google exception stringifies as "404 Not found: Dataset ... was

@@ -1,4 +1,4 @@
-import { displayTitle, headlineFor, plainText, splitLeadingNumber } from './text'
+import { compactNumber, displayTitle, headlineFor, plainText, splitLeadingNumber } from './text'
 
 describe('report text', () => {
     test.each([
@@ -32,6 +32,17 @@ describe('report text', () => {
         [null, 'Untitled report'],
     ])('displays %j without its commit prefix', (input, expected) => {
         expect(displayTitle(input, 'Untitled report')).toBe(expected)
+    })
+
+    test.each([
+        [999, '999'],
+        [1000, '1K'],
+        [1234, '1.23K'],
+        [12345, '12.3K'],
+        [999999, '1M'],
+        [1234567, '1.23M'],
+    ])('shows %d as %j, with three significant figures as on the web', (value, expected) => {
+        expect(compactNumber(value)).toBe(expected)
     })
 
     test('turns markdown into one plain line', () => {

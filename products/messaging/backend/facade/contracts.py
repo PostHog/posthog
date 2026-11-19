@@ -451,6 +451,25 @@ class TransactionalEmailResults:
     median_hours_to_convert: float | None
 
 
+@frozen
+class TransactionalEmailConversions:
+    sends: int
+    converted: int
+
+
+@frozen
+class TransactionalEmailImpact:
+    sent: int
+    delivered: int
+    opened: int
+    clicked: int
+    not_clicked: int
+    untracked: int
+    window_days: int
+    after_click: TransactionalEmailConversions | None
+    without_click: TransactionalEmailConversions | None
+
+
 class CodeEmailSourceOrigin(LabeledStrEnum):
     MANUAL = "manual", "Manual"
     DETECTED = "detected", "Detected from GitHub"

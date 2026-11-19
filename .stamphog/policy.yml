@@ -31,14 +31,20 @@ deny:
     stamphog_policy:
         match:
             extend_paths:
-                # The dependency proof publisher. A PR that edits it changes what the proof checks.
+                # These paths hold the dependency proof publisher and the setup-uv action it runs.
+                # A PR that edits either one changes what the proof checks.
                 - '^\.github/workflows/dependency-proof'
                 - '^\.github/scripts/dependency_proof/'
+                - '^\.github/scripts/dependency_scan\.py'
+                - '^\.github/actions/setup-uv/'
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
                 - 'tools/owners/'
-                - '(?:^|/)owners\.yaml$'
                 - '(?:^|/)product\.yaml$'
+            # A change that only adds lines to an owners.yaml, such as a new rule, does not match.
+            # Changing or removing a line still does.
+            edit_paths:
+                - '(?:^|/)owners\.yaml$'
     devex_guardrails:
         description: 'The guards that keep the house patterns for API codegen, egress, ingress, product isolation, migrations, URLs and startup imports.'
         rationale: 'These files define what CI blocks, so a small edit can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'
@@ -90,6 +96,18 @@ deny:
                 - '^nodejs/src/cdp/[\s\S]*(?<!\.test\.ts)\Z'
         exempt_author_teams:
             - 'team-workflows'
+    mcp_core:
+        description: 'The MCP exec tool, server instructions, core instruction templates and guidance rules.'
+        rationale: "Owner-only: stamphog approves team-context-and-mcp changes here and refuses everyone else's. These files write the text that every customer's agent reads before its first call and mid-session, and exec parses and rejects every call those agents make. A required CODEOWNERS review blocked the team on its own diffs, so this category gates other teams only. A change from outside the team needs a human approval, and services/mcp/AGENTS.md tells agents to send the author to #team-context-and-mcp first."
+        match:
+            paths:
+                - '^services/mcp/src/tools/exec(-learn)?\.ts$'
+                - '^services/mcp/src/hono/instructions\.ts$'
+                - '^services/mcp/src/lib/instructions-formatter\.ts$'
+                - '^services/mcp/src/hono/guidance/'
+                - '^services/mcp/src/templates/sections/(cli-[^/]*|exec-[^/]*|basic-functionality|compact-instructions|skills-first|tool-search)\.md$'
+        exempt_author_teams:
+            - 'team-context-and-mcp'
 deny_exceptions:
     # Connector code does OAuth and talks to the Stripe API without touching PostHog's auth system
     # or its billing.
@@ -105,6 +123,13 @@ deny_exceptions:
         - path_prefixes:
               - 'products/cdp/backend/api/test/'
               - 'products/messaging/backend/api/test/'
+    # A Rust source file named after Kubernetes is not infra code
+    infra_cicd:
+        - keyword: 'k8s'
+          path_prefixes:
+              - 'rust/'
+          extensions:
+              - '.rs'
 allow:
     extend_path_patterns:
         - '.github/CODEOWNERS'
@@ -120,3 +145,33 @@ attestations:
       paths:
           - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
       sibling_files: [max_migration.txt]
+    - name: dependency_proof
+      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. It
+      # first replays the pnpm update from the merge base, and confirms that the replay writes the
+      # same lockfile as the PR head.
+      check: 'Dependency proof'
+      app_id: 5697920
+      lifts: [deps_toolchain]
+      paths:
+          - '(?:^|/)package\.json$'
+          - '(?:^|/)pnpm-lock\.yaml$'
+          - '(?:^|/)pnpm-workspace\.yaml$'
+      # This list is a copy of PROVER_FILES in .github/scripts/dependency_proof/prove.py, so update
+      # both together. The engine ignores a proof whose marker does not pin every file listed here.
+      publisher_files:
+          - .github/actions/setup-uv/action.yml
+          - .github/scripts/dependency_proof/__init__.py
+          - .github/scripts/dependency_proof/__main__.py
+          - .github/scripts/dependency_proof/policy.py
+          - .github/scripts/dependency_proof/prove.py
+          - .github/scripts/dependency_scan.py
+          - .github/scripts/dependency_scan.py.lock
+          - .github/workflows/dependency-proof-trigger.yml
+          - .github/workflows/dependency-proof.yml
+          - .nvmrc
+# Stamphog reviews PRs from these bots. It approves one only when an attestation that declares
+# `publisher_files` proved every file the PR changes.
+bot_authors:
+    - name: renovate
+      login: 'renovate[bot]'
+      id: 29139614

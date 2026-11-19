@@ -1,5 +1,9 @@
 version: 1
 owners: []
 rules:
-    - match: ['/console/cimd_provisioning_review_tool.py', '/test_cimd_provisioning_review_tool.py']
+    - match:
+          - '/console/oauth_applications_tool.py'
+          - '/test_oauth_applications_tool.py'
+          - '/console/oauth_application_panels.py'
+          - '/test_oauth_application_console.py'
       owners: team-growth

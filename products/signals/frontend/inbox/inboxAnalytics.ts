@@ -21,6 +21,7 @@ import {
     SignalSourceProduct,
     SignalSourceType,
 } from './types'
+import type { ReportDecision } from './utils/reportDecisions'
 import { rankingPillLifts } from './utils/reportOrdering'
 import { reportPullRequests } from './utils/reportPullRequests'
 
@@ -49,9 +50,13 @@ export const INBOX_EVENTS = {
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
+    // Sent by the cloud inbox only, because the desktop inbox does not track visible time.
+    REPORT_READ: 'Inbox report read',
     REPORT_ACTION: 'Inbox report action',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
+    // Cloud-only for now.
+    REPORT_DECISION_CHANGED: 'Inbox report decision changed',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
@@ -255,7 +260,7 @@ export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'fin
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'note' | 'priority' | 'retire_note' | 'state'
+export type InboxWrite = 'claim' | 'note' | 'priority' | 'repository' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -613,6 +618,8 @@ export function captureInboxReportClosed(
     params: {
         report: SignalReport
         timeSpentMs: number
+        /** The part of `timeSpentMs` with the tab visible. A report left open in a background tab adds nothing. */
+        activeTimeMs: number
         closeMethod: InboxReportCloseMethod
     },
     /** The unload flush passes `{ send_instantly: true }` so the event leaves before the page goes. */
@@ -623,6 +630,7 @@ export function captureInboxReportClosed(
         {
             ...baseReportProperties(params.report),
             time_spent_ms: params.timeSpentMs,
+            active_time_ms: params.activeTimeMs,
             close_method: params.closeMethod,
         },
         options
@@ -645,6 +653,28 @@ export function captureInboxReportScrolled(params: {
         ...baseReportProperties(params.report),
         rank: params.rank,
         list_size: params.listSize,
+        time_since_open_ms: params.timeSinceOpenMs,
+    })
+}
+
+/**
+ * The person read the open report: they scrolled the detail pane, and the report stayed open with the
+ * tab visible for the read threshold. Fired at most once per open, while the report is still open, so
+ * it does not depend on `Inbox report closed`, which a closed tab can drop. Most opens end without an
+ * action or feedback, so this is the signal that separates a read from a bounce.
+ */
+export function captureInboxReportRead(params: {
+    report: SignalReport
+    rank: number | null
+    listSize: number | null
+    activeTimeMs: number
+    timeSinceOpenMs: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_READ, {
+        ...baseReportProperties(params.report),
+        rank: params.rank,
+        list_size: params.listSize,
+        active_time_ms: params.activeTimeMs,
         time_since_open_ms: params.timeSinceOpenMs,
     })
 }
@@ -699,6 +729,25 @@ export function captureInboxReportAction(params: {
               )
             : {}),
         ...params.extra,
+    })
+}
+
+/** `previous_set_by` tells a correction of the agent apart from a change to a person's own value. */
+export function captureInboxReportDecisionChanged(params: {
+    report: SignalReport
+    decision: ReportDecision
+    previousValue: string | null
+    newValue: string
+    previousSetBy: 'agent' | 'person' | null
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_DECISION_CHANGED, {
+        ...baseReportProperties(params.report),
+        decision: params.decision,
+        previous_value: params.previousValue,
+        new_value: params.newValue,
+        previous_set_by: params.previousSetBy,
+        surface: params.surface,
     })
 }
 

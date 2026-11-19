@@ -91,6 +91,7 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
     def _list(self, **params) -> dict:
         query = {"date_from": DATE_FROM, "date_to": DATE_TO, "environment": "prod", **params}
+        query = {key: value for key, value in query.items() if value is not None}
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/apm/services/", query)
         self.assertEqual(response.status_code, 200, response.content)
@@ -184,6 +185,89 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(worker["health"]["span_count"], 4)
         self.assertEqual(worker["health"]["error_count"], 1)
         self.assertEqual(sum(worker["sparkline"]), 4)
+
+    def _write_environment_mix(self, day: int, uuid_prefix: str) -> dict[str, str]:
+        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, day, 8, 0, 0), uuid_prefix=uuid_prefix)
+        for _ in range(2):
+            writer.span("mixed", env="prod")
+        for _ in range(3):
+            writer.span("mixed", env="staging")
+        for _ in range(4):
+            writer.span("mixed", env="default")
+        for _ in range(5):
+            writer.span("mixed")
+        writer.span("mixed", env="prod", resource={"deployment.environment": "staging"})
+        writer.insert()
+        return {"date_from": f"2026-06-{day:02d}T07:00:00Z", "date_to": f"2026-06-{day:02d}T09:00:00Z"}
+
+    def _span_count(self, data: dict) -> int:
+        return sum(row["health"]["span_count"] for row in data["results"])
+
+    def test_no_environment_reads_every_environment_and_equals_their_sum(self) -> None:
+        window = self._write_environment_mix(5, "019e8775")
+
+        everything = self._list(environment=None, **window)
+        self.assertIsNone(everything["environment"])
+        self.assertEqual(self._span_count(everything), 15)
+
+        per_environment = [self._list(environment=env or "", **window) for env in everything["environments"]]
+        self.assertEqual(sum(self._span_count(data) for data in per_environment), 15)
+
+    def test_unset_environment_is_null_and_apart_from_default(self) -> None:
+        window = self._write_environment_mix(6, "019e8776")
+
+        self.assertEqual(self._list(environment=None, **window)["environments"], [None, "default", "prod", "staging"])
+        self.assertEqual(self._span_count(self._list(environment="default", **window)), 4)
+        unset = self._list(environment="", **window)
+        self.assertEqual(unset["environment"], "")
+        self.assertEqual(self._span_count(unset), 5)
+
+    def test_a_span_with_two_environment_keys_counts_once_under_the_first(self) -> None:
+        window = self._write_environment_mix(7, "019e8777")
+
+        self.assertEqual(self._span_count(self._list(environment="prod", **window)), 3)
+        self.assertEqual(self._span_count(self._list(environment="staging", **window)), 3)
+
+    def test_root_span_fallback_is_decided_per_environment(self) -> None:
+        # Server spans in prod must not hide the root client spans that are staging's only requests.
+        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, 8, 8, 0, 0), uuid_prefix="019e8778")
+        for _ in range(2):
+            writer.span("split", kind=2, env="prod")
+        for i in range(3):
+            writer.span("split", kind=3, status_code=2 if i == 0 else 0, env="staging")
+        writer.insert()
+        window = {"date_from": "2026-06-08T07:00:00Z", "date_to": "2026-06-08T09:00:00Z"}
+
+        everything = self._list(environment=None, **window)["results"]
+        self.assertEqual([(r["health"]["span_count"], r["health"]["error_count"]) for r in everything], [(5, 1)])
+        self.assertEqual(sum(everything[0]["sparkline"]), 5)
+        staging = self._list(environment="staging", **window)["results"]
+        self.assertEqual([(r["health"]["span_count"], r["health"]["error_count"]) for r in staging], [(3, 1)])
+
+    def test_more_environments_do_not_push_later_services_past_the_sparkline_limit(self) -> None:
+        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, 9, 8, 0, 0), uuid_prefix="019e8779")
+        for env in ("prod", "staging", "dev"):
+            writer.span("a-many-envs", env=env)
+        writer.span("b-one-env", env="prod")
+        writer.insert()
+
+        with patch("products.apm.backend.logic.health.sources.SPARKLINE_ROWS_LIMIT", 2):
+            results = self._list(environment=None, date_from="2026-06-09T07:00:00Z", date_to="2026-06-09T09:00:00Z")[
+                "results"
+            ]
+
+        self.assertEqual({r["service_name"]: sum(r["sparkline"]) for r in results}, {"a-many-envs": 3, "b-one-env": 1})
+
+    def test_a_window_shorter_than_one_second_per_point_keeps_every_span_in_the_sparkline(self) -> None:
+        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, 10, 8, 0, 0), uuid_prefix="019e877a")
+        for _ in range(46):
+            writer.span("short-window", env="prod")
+        writer.insert()
+
+        (row,) = self._list(date_from="2026-06-10T08:00:00Z", date_to="2026-06-10T08:00:47Z")["results"]
+
+        self.assertEqual(row["health"]["span_count"], 46)
+        self.assertEqual(sum(row["sparkline"]), 46)
 
     def test_defaults_to_the_last_hour_when_no_range_is_given(self) -> None:
         with patch(FLAG_PATCH, return_value=True):

@@ -110,6 +110,8 @@ tools:
             recent` for the newest flagged bucket first. Pass `search` to keep only insights whose name contains the
             text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly
             search is not available for this project.
+        exclude_params:
+            - include_points
         feature_flag: anomalies-search
     inbox-my-settings-get:
         operation: users_signal_autonomy_retrieve
@@ -606,7 +608,9 @@ tools:
             carry it. This read never builds a ranking; for a newer, focused, or refreshed list, use
             inbox-reports-for-me. For reports older than a cutoff, pass `created_before` instead of reading every page.
             For the next fixable work across the project, pass `view=actionable` with `use_priority_preference=true`,
-            `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`.
+            `sort=priority`, and `limit=10`. For the work this agent claimed, pass `assignee=me`. For the reports that
+            need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to
+            keep their personal order.
 
             Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
@@ -961,6 +965,36 @@ tools:
         description: >
             Replace an inbox source config by ID. `enabled` and `config` keep their current values when omitted. Prefer
             `inbox-source-configs-partial-update` to flip `enabled` or change part of `config`.
+    inbox-source-filter-catalogs-list:
+        operation: signals_source_configs_filter_catalogs_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List inbox source filter catalogs
+        description: >
+            List the inbox sources whose records this project can filter, each with the fields a filter expression can
+            use, their types and meanings, and example expressions. A filter is a boolean expression over these fields,
+            saved in a source config's `config.hogql_filter` with `inbox-source-configs-partial-update` and
+            `config_set`. Records that fail it never reach AI processing. An empty list means no source takes a filter
+            yet.
+        feature_flag: signals-source-filters
+    inbox-source-filter-preview:
+        operation: signals_source_configs_filter_preview_create
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview an inbox source filter
+        description: >
+            Check a filter expression before you save it, and see what it does to the source's records from the last 7
+            days: how many pass, how many it excludes, and the newest records of each with their field values. Use the
+            fields from `inbox-source-filter-catalogs-list`. `status` explains an empty result, for example an invalid
+            expression or a source that has not synced. Records that pass can still be skipped later by guidance or
+            deduplication. Saves nothing.
+        feature_flag: signals-source-filters
     inbox-steering-instructions-get:
         operation: signals_config_list
         enabled: true
@@ -1698,6 +1732,20 @@ tools:
             the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows
             queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly
             team-scoped — a UUID belonging to another team returns 404.
+    scout-scratchpad-discard:
+        operation: signals_scout_scratchpad_discard
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a scout memory
+        description: >
+            Delete one scout scratchpad entry by its exact key, on behalf of the user. Use it to clean up memories that
+            are stale, wrong, or no longer match a skill, after finding the key with `scout-scratchpad-search`. Returns
+            `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers
+            the scout agents. Confirm with the user before deleting entries they have not asked you to remove.
+        feature_flag: scout-scratchpad-discard-mcp
     scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true

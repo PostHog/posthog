@@ -1,5 +1,5 @@
 import { TaskUserBasicInfoApi } from '../generated/api.schemas'
-import { lastActivityBySpace, presenceBySpace } from './spacePresence'
+import { presenceBySpace } from './spacePresence'
 
 const NOW = Date.parse('2026-09-28T18:30:00Z')
 
@@ -63,23 +63,5 @@ describe('spacePresence', () => {
             ])
         )
         expect(simplified).toEqual(expected)
-    })
-
-    test.each([
-        {
-            name: 'keeps the newest activity per space, whatever the page order',
-            tasks: [task('ada', 300), task('grace', 5), task('ada', 60, 'space-b')],
-            expected: { 'space-a': 5, 'space-b': 60 },
-        },
-        {
-            name: 'counts old activity and tasks without an author, but not archived or loose tasks',
-            tasks: [task(null, 600), task('gone', 1, 'space-a', true), task('loose', 1, null)],
-            expected: { 'space-a': 600 },
-        },
-    ])('lastActivityBySpace $name', ({ tasks, expected }) => {
-        const minutesAgo = Object.fromEntries(
-            Object.entries(lastActivityBySpace(tasks)).map(([space, at]) => [space, (NOW - Date.parse(at)) / 60_000])
-        )
-        expect(minutesAgo).toEqual(expected)
     })
 })

@@ -19,6 +19,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerDisabledReason
+from products.replay_vision.backend.scope.load import experiment_id_of
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -195,16 +196,12 @@ def readable_observation_scanner_ids(access: UserAccessControl, team_id: int) ->
     """
     scanners = list(
         access.filter_queryset_by_access_level(scanners_for_reading_observations(team_id)).only(
-            "id", "scanner_type", "scanner_config", "experiment_targeting"
+            "id", "scanner_type", "scanner_config", "experiment_targeting", "scope"
         )
     )
-    targeted = {eid for s in scanners if (eid := (s.experiment_scope() or {}).get("experiment_id")) is not None}
+    targeted = {eid for s in scanners if (eid := experiment_id_of(s)) is not None}
     accessible = accessible_experiment_ids(access, team_id, targeted)
-    return [
-        s.id
-        for s in scanners
-        if (eid := (s.experiment_scope() or {}).get("experiment_id")) is None or eid in accessible
-    ]
+    return [s.id for s in scanners if (eid := experiment_id_of(s)) is None or eid in accessible]
 
 
 def can_read_targeted_experiment(access: UserAccessControl, team_id: int, scanner: ReplayScanner) -> bool:
@@ -214,10 +211,10 @@ def can_read_targeted_experiment(access: UserAccessControl, team_id: int, scanne
     reads as not-found. Row-level history within an accessible scanner is gated separately by
     `accessible_observations`, which follows each row's snapshot. A scanner with no targeting passes.
     """
-    scope = scanner.experiment_scope()
-    if not scope or scope.get("experiment_id") is None:
+    experiment_id = experiment_id_of(scanner)
+    if experiment_id is None:
         return True
-    return is_experiment_accessible(access, team_id, scope["experiment_id"])
+    return is_experiment_accessible(access, team_id, experiment_id)
 
 
 def scanner_for_reading_observations(team_id: int, scanner_id: "str | uuid.UUID") -> ReplayScanner | None:

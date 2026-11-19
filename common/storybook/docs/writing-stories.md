@@ -166,7 +166,7 @@ parameters: {
 - `docs`, `controls`, `actions` and `options` are standard Storybook parameters for the Storybook UI. The runner ignores them.
 - `parameters.msw.mocks` works only with `mswDecorator` on the story or meta. No global decorator reads it. See [Mocking data](mocking-data.md).
 - A parameter that only one file uses, such as `narrow`, `width` or `tab`, is read by that file's own `render` or `beforeEach`. Read the file before you copy one.
-- A derived story that needs a base story's mocks imports a shared `Mocks` constant, for example `BI_MODE_WORKSHEET_MOCKS` in `SQLEditorScene.stories.tsx`. Don't read them back out of `BaseStory.parameters.msw.mocks`.
+- A derived story that needs a base story's mocks imports a shared `Mocks` constant, for example `BI_MODE_WORKSHEET_MOCKS` in `SQLEditorStoryFixtures.tsx`. Don't read them back out of `BaseStory.parameters.msw.mocks`.
 
 ## Story functions: `render`, `play`, `beforeEach`, `loaders`
 

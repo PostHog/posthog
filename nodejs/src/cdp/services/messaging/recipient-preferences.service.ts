@@ -11,6 +11,7 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { removeSuppressedRecipients } from './helpers/suppressed-recipients'
+import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
 
@@ -68,7 +69,9 @@ export class RecipientPreferencesService {
             !frequencyCap ||
             !messageAction ||
             messageAction.config.message_category_type === 'transactional' ||
-            (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true)
+            (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true) ||
+            (messageAction.type === 'function_email' &&
+                (await this.emailWorkerWillSkip(invocation, frequencyCap.teamWorkflowsConfig)))
         ) {
             return { capped: false }
         }
@@ -121,6 +124,19 @@ export class RecipientPreferencesService {
             logger.error(`Failed to check the frequency cap for team ${teamId}:`, error)
             return { capped: false }
         }
+    }
+
+    private async emailWorkerWillSkip(
+        invocation: CyclotronJobInvocationHogFunction,
+        teamWorkflowsConfig: TeamWorkflowsConfigService
+    ): Promise<boolean> {
+        const recipient = invocation.state.globals.inputs?.email?.to?.email
+        return (
+            typeof recipient !== 'string' ||
+            !recipient.trim() ||
+            parseWorkflowEmailPause(invocation.hogFunction.metadata) !== null ||
+            (await teamWorkflowsConfig.getEmailSendingSuspension(invocation.teamId)) !== null
+        )
     }
 
     private async cappedPersonId(

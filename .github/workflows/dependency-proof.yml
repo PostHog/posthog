@@ -101,6 +101,36 @@ jobs:
                   MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
               run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py prove
 
+    scan:
+        name: Scan the added packages
+        needs: identify
+        if: needs.identify.outputs.eligible == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        permissions: {}
+        outputs:
+            clean: ${{ steps.scan.outputs.clean }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/dependency_scan.py
+                      .github/scripts/dependency_scan.py.lock
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Scan the added packages
+              id: scan
+              env:
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+              run: uv run --frozen --script .github/scripts/dependency_scan.py gate
+
     # stamphog waits for a completed check on every pull request that changes a dependency file, so
     # every run posts one. A head with no eligible pull request gets a success that attests nothing.
     # A refused update gets a neutral check, and the run passes because a refusal is an answer.
@@ -108,7 +138,7 @@ jobs:
     # up red in the Actions tab.
     publish:
         name: Publish the Dependency proof check
-        needs: [identify, prove]
+        needs: [identify, prove, scan]
         if: ${{ !cancelled() }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -141,6 +171,8 @@ jobs:
                   PROVE_FILES: ${{ needs.prove.outputs.files }}
                   PROVE_BLOBS: ${{ needs.prove.outputs.blobs }}
                   PROVE_REFUSED: ${{ needs.prove.outputs.refused }}
+                  SCAN_RESULT: ${{ needs.scan.result }}
+                  SCAN_CLEAN: ${{ needs.scan.outputs.clean }}
               run: |
                   set -euo pipefail
 
@@ -152,10 +184,12 @@ jobs:
                   blobs='{}'
                   if [[ "$IDENTIFY_REFUSED" == "true" || "$PROVE_REFUSED" == "true" ]]; then
                       title="The dependency update was refused"
+                  elif [[ "$SCAN_RESULT" == "success" && "$SCAN_CLEAN" != "true" ]]; then
+                      title="The dependency scan flagged an added package"
                   elif [[ "$IDENTIFY_RESULT" == "success" && "$IDENTIFY_ELIGIBLE" == "false" ]]; then
                       conclusion=success
                       title="Nothing to attest"
-                  elif [[ "$IDENTIFY_RESULT" == "success" && "$PROVE_RESULT" == "success" ]] \
+                  elif [[ "$IDENTIFY_RESULT" == "success" && "$PROVE_RESULT" == "success" && "$SCAN_RESULT" == "success" ]] \
                       && proved_files="$(jq -ce 'select(type == "array" and length > 0 and all(.[]; type == "string"))' <<< "$PROVE_FILES")" \
                       && proved_blobs="$(jq -ce 'select(type == "object" and all(.[]; . == null or (type == "string" and test("^[0-9a-f]{40}$"))))' <<< "$PROVE_BLOBS")"; then
                       conclusion=success
@@ -183,6 +217,9 @@ jobs:
                       exit 1
                   fi
                   if [[ "$PROVE_RESULT" != "success" && "$PROVE_RESULT" != "skipped" ]]; then
+                      exit 1
+                  fi
+                  if [[ "$SCAN_RESULT" != "success" && "$SCAN_RESULT" != "skipped" ]]; then
                       exit 1
                   fi
                   [[ "${unproved:-false}" == "false" ]]

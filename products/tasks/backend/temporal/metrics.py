@@ -1,4 +1,3 @@
-import os
 import time
 import inspect
 import datetime as dt
@@ -8,6 +7,7 @@ from functools import wraps
 from typing import Any, TypeVar, cast
 
 import posthoganalytics
+from modal.config import config as modal_config
 from opentelemetry import trace
 from opentelemetry.trace import Span
 from temporalio import activity, workflow
@@ -23,6 +23,7 @@ F = TypeVar("F", bound=Callable[..., object])
 TASKS_LATENCY_HISTOGRAM_METRICS = (
     "tasks_process_sandbox_step_latency",
     "tasks_process_snapshot_create_latency",
+    "tasks_agent_memory_sync_latency",
     "tasks_boot_total_latency",
     "tasks_agent_boot_milestone_latency",
 )
@@ -182,7 +183,7 @@ def sandbox_runtime_label(use_vm_sandbox: bool) -> str:
 
 
 def modal_sandbox_backend_label() -> str:
-    return "v2" if os.environ.get("MODAL_SANDBOX_V2") == "1" else "v1"
+    return "v2" if modal_config.get("sandbox_v2") else "v1"
 
 
 def record_network_enforcement(stage: str, runtime: str, layer: str, outcome: str) -> None:
@@ -297,6 +298,39 @@ def record_snapshot_create_latency_ms(outcome: str, latency_ms: int) -> None:
             "Resume snapshot creation latency for process-task runs",
             unit="ms",
         ).record(delta)
+    except Exception:
+        pass
+
+
+def increment_agent_memory_sync(direction: str, outcome: str) -> None:
+    try:
+        _metric_meter({"direction": direction, "outcome": outcome}).create_counter(
+            "tasks_agent_memory_sync",
+            "Agent memory persist and restore outcomes for process-task runs",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def record_agent_memory_sync_latency_ms(direction: str, outcome: str, latency_ms: int) -> None:
+    try:
+        _metric_meter({"direction": direction, "outcome": outcome}).create_histogram_timedelta(
+            "tasks_agent_memory_sync_latency",
+            "Agent memory persist and restore latency for process-task runs",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=latency_ms))
+    except Exception:
+        pass
+
+
+def increment_agent_memory_files(direction: str, result: str, count: int) -> None:
+    if count <= 0:
+        return
+    try:
+        _metric_meter({"direction": direction, "result": result}).create_counter(
+            "tasks_agent_memory_files",
+            "Agent memory files written, unchanged, deleted or skipped, by reason",
+        ).add(count)
     except Exception:
         pass
 

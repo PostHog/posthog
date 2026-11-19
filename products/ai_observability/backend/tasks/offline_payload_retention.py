@@ -30,13 +30,16 @@ def expire_offline_evaluation_payloads() -> None:
             "item_payloads_expired": sweep.item_payloads_expired,
             "result_payloads_expired": sweep.result_payloads_expired,
             "payloads_expired": sweep.item_payloads_expired + sweep.result_payloads_expired,
+            "item_payload_bytes_deleted": sweep.item_payload_bytes_deleted,
+            "result_payload_bytes_deleted": sweep.result_payload_bytes_deleted,
+            "payload_bytes_deleted": sweep.item_payload_bytes_deleted + sweep.result_payload_bytes_deleted,
             "budget_exhausted": sweep.budget_exhausted,
             "duration_seconds": time.monotonic() - started,
             "$process_person_profile": False,
         }
         logger.info("offline_evaluation_payload_retention_run", **properties)
         try:
-            with ph_scoped_capture(region=get_instance_region() or "US") as capture:
+            with ph_scoped_capture(region="US", event_region=get_instance_region() or "US") as capture:
                 capture(
                     distinct_id="offline-evaluation-payload-retention",
                     event="offline evaluation payload retention run",

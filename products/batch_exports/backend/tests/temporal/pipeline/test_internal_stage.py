@@ -15,10 +15,11 @@ from django.test.utils import override_settings
 
 import pyarrow as pa
 import pytest_asyncio
+from aioresponses import aioresponses
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
@@ -34,10 +35,12 @@ from posthog.temporal.tests.utils.events import (
     insert_sessions_in_clickhouse,
 )
 
+from products.batch_exports.backend.custom_events_schema import build_events_query_schema
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     AnyBatchExportModel,
     BackfillDetails,
+    BatchExportEventsCustomModel,
     BatchExportEventsModel,
     BatchExportHogQLModel,
     BatchExportModel,
@@ -57,6 +60,8 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.record_batch_model import HogQLQueryRecordBatchModel
+from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -64,6 +69,9 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+if t.TYPE_CHECKING:
+    from pytest_django.fixtures import Settings
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -190,6 +198,107 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     else:
         mock_clickhouse_client.expect_select_from_table("events")
         assert "events_json" not in mock_clickhouse_client.calls[0].query
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+@pytest.mark.parametrize(
+    "backfill_days_ago,expected_table,reads_native_table",
+    [(3, "distributed_events_recent", False), (10, "events_json", True)],
+    ids=["legacy-recent-table", "native-table"],
+)
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for_the_table_it_reads(
+    mock_clickhouse_client,
+    interval,
+    activity_environment,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    backfill_days_ago: int,
+    expected_table: str,
+    reads_native_table: bool,
+):
+    schema = await database_sync_to_async(build_events_query_schema)(
+        ateam.pk, None, "SELECT properties.$browser AS browser FROM events"
+    )
+    model = BatchExportEventsCustomModel(
+        schema=schema,
+        filters=[{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}],
+    )
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=None,
+        include_events=None,
+        run_id=None,
+        batch_export_model=model,
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            start_at=(data_interval_end - dt.timedelta(days=backfill_days_ago)).isoformat(),
+            end_at=data_interval_end,
+            is_earliest_backfill=False,
+        ),
+        destination_default_fields=None,
+    )
+
+    await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    mock_clickhouse_client.expect_select_from_table(expected_table)
+    query = mock_clickhouse_client.calls[0].query
+    browser_field = re.search(r"SELECT\s+(.*?) AS browser,", query, re.DOTALL)
+    assert browser_field is not None, query
+    if reads_native_table:
+        assert "events.properties.`$browser`" in browser_field.group(1)
+        assert "events.properties.`$feature_flags`" in query
+        assert "JSONExtractRaw(events.properties" not in query
+    else:
+        assert browser_field.group(1).strip() == schema["fields"][0]["expression"]
+        assert "JSONExtractRaw(events.properties" in query
+        assert "$feature_flags" not in query
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+async def test_insert_into_stage_activity_fails_a_native_run_for_a_custom_schema_without_its_query(
+    mock_clickhouse_client,
+    interval,
+    activity_environment,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """A schema saved by a user with restricted properties has no query to recompile, so the native run fails clearly."""
+    schema = await database_sync_to_async(build_events_query_schema)(
+        ateam.pk, None, "SELECT properties.$browser AS browser FROM events"
+    )
+    schema.pop("hogql_query")
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=None,
+        include_events=None,
+        run_id=None,
+        batch_export_model=BatchExportEventsCustomModel(schema=schema, filters=[]),
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            start_at=(data_interval_end - dt.timedelta(days=10)).isoformat(),
+            end_at=data_interval_end,
+            is_earliest_backfill=False,
+        ),
+        destination_default_fields=None,
+    )
+
+    stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    assert stage_result.error is not None
+    assert stage_result.error.type == "CustomSchemaWithoutQueryError"
+    assert mock_clickhouse_client.calls == []
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
@@ -1357,6 +1466,107 @@ async def test_insert_into_stage_activity_applies_settings_and_log_comment(
     await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
 
     await _assert_staging_query_settings(clickhouse_client, batch_export_id)
+
+
+@pytest.mark.parametrize("export_path", ["stage", "producer"])
+@pytest.mark.parametrize("interval_minutes", [5, 60])
+@pytest.mark.parametrize(
+    "table,host,database",
+    [
+        (None, "offline", "main_db"),
+        ("events", "offline", "main_db"),
+        ("logs", "logs", "logs_db"),
+        ("posthog.metrics", "metrics", "metrics_db"),
+    ],
+    ids=["raw-sql", "events", "logs", "metrics"],
+)
+async def test_exports_route_compiled_queries_to_their_workload(
+    settings: "Settings",
+    ateam: Team,
+    auser: User,
+    export_path: str,
+    interval_minutes: int,
+    table: str | None,
+    host: str,
+    database: str,
+) -> None:
+    settings.CLICKHOUSE_DATABASE = "main_db"
+    settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
+    settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST = "http://five-minute.example.com:8123/"
+    settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
+    settings.CLICKHOUSE_LOGS_CLUSTER_HOST = "logs.example.com"
+    settings.CLICKHOUSE_LOGS_CLUSTER_SECURE = False
+    settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE = "logs_db"
+    settings.CLICKHOUSE_METRICS_CLUSTER_HOST = "metrics.example.com"
+    settings.CLICKHOUSE_METRICS_CLUSTER_SECURE = False
+    settings.CLICKHOUSE_METRICS_CLUSTER_DATABASE = "metrics_db"
+    settings.CLICKHOUSE_USER = "batch_export"
+    settings.CLICKHOUSE_PASSWORD = "batch-export-password"
+    settings.CLICKHOUSE_PASSWORD_FILE = None
+
+    start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    end = start + dt.timedelta(minutes=interval_minutes)
+    expected_host = "five-minute" if host == "offline" and interval_minutes == 5 else host
+    expected_url = f"http://{expected_host}.example.com:8123/"
+    request_url = re.compile(r"^" + re.escape(expected_url) + r"\?")
+    model = (
+        HogQLQueryRecordBatchModel(
+            team_id=ateam.pk, user_id=auser.pk, hogql_query=f"SELECT 'exported' AS value FROM {table}"
+        )
+        if table is not None
+        else None
+    )
+    raw_select = "SELECT %(value)s AS value"
+    s3_client = AsyncMock()
+    s3_client.__aenter__.return_value = s3_client
+    s3_client.list_objects_v2.return_value = {}
+    record_batch = pa.RecordBatch.from_pylist([{"value": "exported"}])
+    arrow_stream = pa.BufferOutputStream()
+    with pa.ipc.new_stream(arrow_stream, record_batch.schema) as writer:
+        writer.write_batch(record_batch)
+
+    with (
+        aioresponses() as responses,
+        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_s3_client", return_value=s3_client),
+    ):
+        responses.get(expected_url + "ping", body="Ok.")
+        responses.post(
+            request_url,
+            body=arrow_stream.getvalue().to_pybytes(),
+            headers={"X-ClickHouse-Summary": '{"written_rows":"1"}'},
+        )
+
+        if export_path == "stage":
+            written_rows = await _write_batch_export_record_batches_to_internal_stage(
+                query_or_model=model
+                or f"INSERT INTO FUNCTION s3('https://stage.example.com/export.arrow', 'ArrowStream') {raw_select}",
+                full_range=(start, end),
+                query_parameters={"value": "exported"},
+                team_id=ateam.pk,
+                batch_export_id=str(uuid.uuid4()),
+                data_interval_start=start.isoformat(),
+                data_interval_end=end.isoformat(),
+                s3_staging_folder_url="https://stage.example.com/",
+            )
+            assert written_rows == 1
+        else:
+            queue = RecordBatchQueue()
+            await ClickHouseTestProducer().produce_batch_export_record_batches_from_range(
+                query_or_model=model or raw_select,
+                full_range=(start, end),
+                queue=queue,
+                query_parameters={"value": "exported"},
+                team_id=ateam.pk,
+            )
+            assert queue.get_nowait().to_pylist() == [{"value": "exported"}]
+            assert queue.empty()
+
+        request = next(calls[0] for (method, _), calls in responses.requests.items() if method == "POST")
+        assert request.kwargs["params"]["database"] == database
+        assert request.kwargs["headers"]["X-ClickHouse-User"] == "batch_export"
+        assert b"'exported'" in request.kwargs["data"]
+        if model is not None:
+            assert json.loads(request.kwargs["params"]["log_comment"])["product"] == "batch_export"
 
 
 class TestHogQLModel:

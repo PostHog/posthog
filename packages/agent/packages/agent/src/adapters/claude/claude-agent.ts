@@ -437,6 +437,7 @@ async function fetchContextUsedTokens(
 }
 
 export interface ClaudeAcpAgentOptions {
+  logger?: Logger;
   startupLogger?: Logger;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
@@ -481,7 +482,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.toolUseCache = {};
     this.emittedToolCalls = new Set();
     this.toolUseStreamCache = new Map();
-    this.logger = new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
+    this.logger =
+      options?.logger ??
+      new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
     this.enrichment = createEnrichment(options?.posthogApiConfig);
   }
 
@@ -2522,6 +2525,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           `Conversation clear timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         );
       }
+      await this.awaitStartupControl(
+        "attribution update",
+        newQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }),
+        { sessionId: params.sessionId },
+      );
       return await this.finishClear(
         params,
         session,
@@ -2881,6 +2889,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           `Session refresh timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
         );
       }
+      await this.awaitStartupControl(
+        "attribution update",
+        newQuery.applyFlagSettings({ attribution: { commit: "", pr: "" } }),
+        { sessionId: this.sessionId },
+      );
     } catch (error) {
       // The old query is already retired and the new one is unproven, so any
       // failure here — retireQuery, timeout, or SDK init rejection — leaves
@@ -3202,6 +3215,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       | "fork"
       | "setup hooks"
       | "model switch"
+      | "attribution update"
       | "effort update"
       | "fast mode update",
     error: unknown,
@@ -3221,7 +3235,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private async awaitStartupControl(
-    step: "model switch" | "effort update" | "fast mode update",
+    step:
+      | "model switch"
+      | "attribution update"
+      | "effort update"
+      | "fast mode update",
     control: Promise<void>,
     errorData: Record<string, unknown>,
   ): Promise<void> {
@@ -3755,10 +3773,20 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const startupErrorData = { sessionId, taskId, taskRunId: meta?.taskRunId };
     let startupStep:
       | "model switch"
+      | "attribution update"
       | "effort update"
       | "fast mode update"
       | undefined;
     try {
+      startupStep = "attribution update";
+      await this.awaitStartupControl(
+        startupStep,
+        this.session.query.applyFlagSettings({
+          attribution: { commit: "", pr: "" },
+        }),
+        startupErrorData,
+      );
+
       if (isResume || resolvedModelId !== options.model) {
         startupStep = "model switch";
         try {

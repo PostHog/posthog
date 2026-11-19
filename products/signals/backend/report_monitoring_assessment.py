@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, m
 from posthog.models import User
 from posthog.temporal.oauth import resolve_scopes
 
+from products.signals.backend.agent_instructions import SignalAgentRole, resolve_custom_image_id
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import NoteArtefact
 from products.signals.backend.models import (
@@ -284,6 +285,7 @@ def poll_monitoring_assessment(
             prompt = _assessment_prompt(report, attempt, user_id)
             runtime = resolve_agent_runtime(team_id, STEP_RESEARCH)
             env_id = get_or_create_signals_sandbox_env(team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, MONITORING_ASSESSMENT)
+            custom_image_id = resolve_custom_image_id(team_id, SignalAgentRole.RESEARCH)
             created = tasks_facade.create_and_run_task(
                 team=report.team,
                 user_id=user_id,
@@ -308,6 +310,7 @@ def poll_monitoring_assessment(
                     "caller_ends_run": True,
                     "analytics_query_context": _assessment_queries(attempt),
                     "initial_prompt_override": prompt,
+                    **({"custom_image_id": custom_image_id} if custom_image_id is not None else {}),
                 },
                 sandbox_timeout_seconds=int(ASSESSMENT_TIMEOUT.total_seconds()) + 120,
                 inactivity_timeout_seconds=int(ASSESSMENT_TIMEOUT.total_seconds()),

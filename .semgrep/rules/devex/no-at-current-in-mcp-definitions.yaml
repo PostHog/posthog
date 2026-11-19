@@ -1,0 +1,23 @@
+rules:
+    - id: no-at-current-in-mcp-definitions
+      message: |
+          MCP tool definitions become the tool descriptions agents read, so an
+          agent will send `@current` if the text offers it. `@current` resolves to
+          the project or organization the user last opened, which can differ from
+          the one the agent works in, and the API is retiring it. The generated
+          schemas also type project ids as numbers, so the tool rejects it.
+
+          Name the explicit id instead: write paths as `/api/projects/{project_id}/`,
+          and point parameter descriptions at `project-get` for the active project.
+          `personal_api_keys/@current` names the key itself and is allowed.
+      languages: [generic]
+      severity: ERROR
+      paths:
+          include:
+              - '/services/mcp/definitions/*.yaml'
+              - '/products/*/mcp/*.yaml'
+      patterns:
+          - pattern-regex: '@current\b'
+          - pattern-not-regex: 'personal_api_keys/@current'
+      metadata:
+          category: best-practice

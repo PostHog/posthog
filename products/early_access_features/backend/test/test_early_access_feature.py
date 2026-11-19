@@ -1147,6 +1147,14 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert [feature["name"] for feature in searched.json()["results"]] == ["Middle"]
 
+        oldest = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?order=created_at&limit=1")
+
+        assert [feature["name"] for feature in oldest.json()["results"]] == ["Oldest"]
+
+        mine = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?created_by_id={self.user.id}")
+
+        assert mine.json()["results"] == []
+
     def test_payload_in_list_response(self):
         EarlyAccessFeature.objects.create(
             team=self.team,

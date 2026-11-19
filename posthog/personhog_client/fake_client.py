@@ -86,6 +86,9 @@ RESTORE_MAX_DISTINCT_IDS = 1000
 # The identity server's cap on person ids per lifecycle DeletePersons request.
 LIFECYCLE_DELETE_MAX_PERSON_IDS = 250
 
+# The replica's cap on person ids per InsertCohortMembers or DeleteCohortMembersByPersonIds request.
+COHORT_MEMBERS_MAX_PERSON_IDS = 10_000
+
 # team_id is narrowed to i32 server-side.
 _MAX_TEAM_ID = 2**31 - 1
 
@@ -431,16 +434,20 @@ class FakePersonHogClient:
         count = sum(1 for (cid, _) in self._cohort_members if cid in cohort_ids_set)
         return cohort_pb2.CountCohortMembersResponse(count=count)
 
+    def _remove_cohort_member(self, cohort_id: int, person_id: int) -> bool:
+        key = (cohort_id, person_id)
+        if key not in self._cohort_members:
+            return False
+        del self._cohort_members[key]
+        memberships = self._cohort_memberships.get(person_id, [])
+        self._cohort_memberships[person_id] = [m for m in memberships if m.cohort_id != cohort_id]
+        return True
+
     def delete_cohort_member(
         self, request: cohort_pb2.DeleteCohortMemberRequest, timeout: float | None = None
     ) -> cohort_pb2.DeleteCohortMemberResponse:
         self.calls.append(_Call("delete_cohort_member", request))
-        key = (request.cohort_id, request.person_id)
-        deleted = key in self._cohort_members
-        if deleted:
-            del self._cohort_members[key]
-            memberships = self._cohort_memberships.get(request.person_id, [])
-            self._cohort_memberships[request.person_id] = [m for m in memberships if m.cohort_id != request.cohort_id]
+        deleted = self._remove_cohort_member(request.cohort_id, request.person_id)
         return cohort_pb2.DeleteCohortMemberResponse(deleted=deleted)
 
     def delete_cohort_members_bulk(
@@ -460,10 +467,27 @@ class FakePersonHogClient:
             ]
         return cohort_pb2.DeleteCohortMembersBulkResponse(deleted_count=len(to_remove))
 
+    def delete_cohort_members_by_person_ids(
+        self, request: cohort_pb2.DeleteCohortMembersByPersonIdsRequest, timeout: float | None = None
+    ) -> cohort_pb2.DeleteCohortMembersByPersonIdsResponse:
+        self.calls.append(_Call("delete_cohort_members_by_person_ids", request))
+        self._validate_cohort_member_count(request.person_ids)
+        deleted = sum(1 for pid in request.person_ids if self._remove_cohort_member(request.cohort_id, pid))
+        return cohort_pb2.DeleteCohortMembersByPersonIdsResponse(deleted_count=deleted)
+
+    @staticmethod
+    def _validate_cohort_member_count(person_ids: Sequence[int]) -> None:
+        if len(person_ids) > COHORT_MEMBERS_MAX_PERSON_IDS:
+            raise _FakeRpcError(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"Maximum {COHORT_MEMBERS_MAX_PERSON_IDS} person IDs per request",
+            )
+
     def insert_cohort_members(
         self, request: cohort_pb2.InsertCohortMembersRequest, timeout: float | None = None
     ) -> cohort_pb2.InsertCohortMembersResponse:
         self.calls.append(_Call("insert_cohort_members", request))
+        self._validate_cohort_member_count(request.person_ids)
         inserted = 0
         for pid in request.person_ids:
             key = (request.cohort_id, pid)

@@ -259,6 +259,8 @@ async def _run_activity_with_output(
     metrics_enabled=True,
     repo_selection_as_of=None,
     research_kwargs=None,
+    during_research=None,
+    repo_selection=None,
 ):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
@@ -272,6 +274,8 @@ async def _run_activity_with_output(
     async def fake_run_multi_turn_research(*args, **kwargs):
         if research_kwargs is not None:
             research_kwargs.update(kwargs)
+        if during_research is not None:
+            await during_research()
         return output
 
     monkeypatch.setattr(
@@ -284,7 +288,7 @@ async def _run_activity_with_output(
                 team_id=ateam.id,
                 report_id=str(report.id),
                 signals=_build_signals(),
-                repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+                repo_selection=repo_selection or RepoSelectionResult(repository="posthog/posthog", reason="test"),
                 repo_selection_as_of=repo_selection_as_of,
             )
         )
@@ -1479,6 +1483,72 @@ async def test_run_agentic_report_activity_keeps_a_scout_repository_correction(m
         )
     )()
     assert [json.loads(selection.content)["repository"] for selection in selections] == ["acme/other"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("set_mid_run", [False, True])
+async def test_run_agentic_report_activity_keeps_decisions_a_person_set(monkeypatch, ateam, set_mid_run):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    person = await sync_to_async(User.objects.create)(email=f"person-{random.randint(1, 99999)}@example.com")
+    selection = RepoSelectionResult(
+        repository="posthog/posthog", reason="Selected by the user.", autostart_eligible=False
+    )
+
+    async def set_decisions() -> None:
+        for content in (
+            ActionabilityAssessment(
+                explanation="Needs a product call first.",
+                actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+                already_addressed=False,
+            ),
+            selection,
+        ):
+            await database_sync_to_async(SignalReportArtefact.append_status)(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                content=content,
+                attribution=ArtefactAttribution.from_user(person.id),
+                reevaluate_autostart=False,
+            )
+
+    if not set_mid_run:
+        await set_decisions()
+    output = await _run_activity_with_output(
+        monkeypatch,
+        ateam,
+        report,
+        _build_research_output(),
+        repo_selection_as_of=datetime.now(UTC),
+        during_research=set_decisions if set_mid_run else None,
+        repo_selection=selection,
+    )
+
+    latest = await database_sync_to_async(
+        lambda: {
+            artefact_type: SignalReportArtefact.objects.filter(report=report, type=artefact_type)
+            .order_by("-created_at")
+            .values_list("created_by_id", flat=True)
+            .first()
+            for artefact_type in (
+                SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            )
+        }
+    )()
+    assert latest == {
+        SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT: person.id,
+        SignalReportArtefact.ArtefactType.REPO_SELECTION: person.id,
+    }
+    assert (output.choice, output.explanation) == (
+        ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+        "Needs a product call first.",
+    )
 
 
 @pytest.mark.asyncio

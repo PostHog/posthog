@@ -53,6 +53,7 @@ import {
     type ExecInnerCallProperties,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
+import { LEARN_TOOL_NAME } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
@@ -215,7 +216,7 @@ export class ToolExecutor {
         const nameSet = new Set(state.allTools.map((t) => t.name))
         const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
-        return filteredTools.map((entry) => {
+        const tools = filteredTools.map((entry) => {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
@@ -224,6 +225,9 @@ export class ToolExecutor {
             }
             return entry
         })
+        return this.instructionsBuilder.isLearnToolEnabled(state)
+            ? [...tools, this.instructionsBuilder.buildLearnToolEntry()]
+            : tools
     }
 
     private findOriginalTool(toolName: string, state: ResolvedState): ListToolsResult['tools'][number] | undefined {
@@ -343,6 +347,20 @@ export class ToolExecutor {
                 return { content: [{ type: 'text', text: 'Tool exec not found' }], isError: true }
             }
             return this.callExecTool(callParams, state, analyticsMeta)
+        }
+
+        // Tools mode has no `exec` tool, so it lists `learn` as a tool of its own (Cursor is the main
+        // tools-mode client). The call runs the `exec learn` path so that both modes serve one skill catalog.
+        if (toolName === LEARN_TOOL_NAME && this.instructionsBuilder.isLearnToolEnabled(state)) {
+            const command = String((callParams.arguments as Record<string, unknown> | undefined)?.command ?? '').trim()
+            return this.callExecTool(
+                {
+                    ...callParams,
+                    arguments: { command: /^learn(\s|$)/.test(command) ? command : `learn ${command}` },
+                },
+                state,
+                analyticsMeta
+            )
         }
 
         if (toolName === 'render-ui') {
@@ -542,6 +560,7 @@ export class ToolExecutor {
                     distinctId,
                     mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
                         .mcpClientName,
+                    appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
                 })
             }
 
@@ -974,6 +993,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                appendTimeSeriesChartData: state.clientProfile.drawsTimeSeriesCharts(),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,

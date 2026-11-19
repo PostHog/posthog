@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isFeedReplayLayout, playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -197,12 +198,14 @@ function SessionRecordingPlayerInternal({
                         <PurePlayer noMeta={noMeta} noBorder={noBorder} />
                         {/* Fullscreen shows the player panel alone, so debug moves inside it. */}
                         {debugMode && isFullScreen && (
-                            <div data-not-quill className="contents">
-                                <PlayerSidebar
-                                    tabs={debugTabKeys(linkedIssuesAvailable)}
-                                    stacking={SessionRecordingSidebarStacking.Horizontal}
-                                />
-                            </div>
+                            <FloatingContainerContext.Provider value={playerRef.current}>
+                                <div data-not-quill className="contents">
+                                    <PlayerSidebar
+                                        tabs={debugTabKeys(linkedIssuesAvailable)}
+                                        stacking={SessionRecordingSidebarStacking.Horizontal}
+                                    />
+                                </div>
+                            </FloatingContainerContext.Provider>
                         )}
                     </ResizablePanel>
                     <ResizableHandle withHandle data-attr="watch-panel-resize-handle" />

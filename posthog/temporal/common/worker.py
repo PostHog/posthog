@@ -14,6 +14,7 @@ from temporalio.client import Plugin
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import (
+    Interceptor,
     PollerBehaviorAutoscaling,
     ResourceBasedSlotConfig,
     UnsandboxedWorkflowRunner,
@@ -40,15 +41,10 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
-from posthog.temporal.data_modeling.metrics import (
-    DATA_MODELING_DURATION_HISTOGRAM_BUCKETS,
-    DATA_MODELING_DURATION_HISTOGRAM_METRICS,
-    DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
-    DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
-)
 from posthog.temporal.mcp_analytics.intent_clustering.metrics import (
     MCPA_CLUSTERING_LATENCY_HISTOGRAM_BUCKETS,
     MCPA_CLUSTERING_LATENCY_HISTOGRAM_METRICS,
@@ -58,11 +54,6 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
     DeleteRecordingsMetricsInterceptor,
-)
-from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import (
-    SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS,
-    SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
-    SurfacingScoringMetricsInterceptor,
 )
 from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
@@ -79,6 +70,12 @@ from products.alerts_platform.backend.facade.temporal import (
     AlertsPlatformTelemetryInterceptor,
 )
 from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
+from products.data_modeling.backend.facade.temporal_metrics import (
+    DATA_MODELING_DURATION_HISTOGRAM_BUCKETS,
+    DATA_MODELING_DURATION_HISTOGRAM_METRICS,
+    DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
+    DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
+)
 from products.experiments.backend.facade.temporal import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
@@ -202,7 +199,6 @@ ALL_INTERCEPTOR_CLASSES = [
     AlertsPlatformTelemetryInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
-    SurfacingScoringMetricsInterceptor,
     EvalsMetricsInterceptor,
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
@@ -211,6 +207,16 @@ ALL_INTERCEPTOR_CLASSES = [
     LogsAlertingMetricsInterceptor,
     ExperimentsRecalculationMetricsInterceptor,
 ]
+
+
+def interceptor_classes() -> list[type[Interceptor]]:
+    return [*ALL_INTERCEPTOR_CLASSES, *combined_registration().interceptors]
+
+
+def with_declared_histograms(core_buckets: dict[str, list[float]]) -> dict[str, list[float]]:
+    # Core's buckets win, so a product declaration cannot change the buckets of a core metric.
+    declared = {histogram.metric_name: list(histogram.buckets) for histogram in combined_registration().histograms}
+    return declared | core_buckets
 
 
 @frozen
@@ -409,12 +415,6 @@ async def create_worker(
         )
         | dict(
             zip(
-                SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
                 ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS),
             )
@@ -506,6 +506,7 @@ async def create_worker(
                 itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+    histogram_bucket_overrides = with_declared_histograms(histogram_bucket_overrides)
 
     runtime = Runtime(
         telemetry=TelemetryConfig(
@@ -542,7 +543,7 @@ async def create_worker(
         plugins=plugins,
     )
     supported_interceptors = [
-        interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
+        interceptor() for interceptor in interceptor_classes() if is_task_queue_supported(task_queue, interceptor)
     ]
 
     # `activity_executor` below only serves sync activity functions, so `@asyncify` coroutines need their own.
@@ -616,7 +617,7 @@ async def create_worker(
             graceful_shutdown_timeout=graceful_shutdown_timeout or DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             interceptors=[
                 interceptor()
-                for interceptor in ALL_INTERCEPTOR_CLASSES
+                for interceptor in interceptor_classes()
                 if is_task_queue_supported(config.task_queue, interceptor)
             ],
             max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),

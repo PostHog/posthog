@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { LANE_CARD_CLASS, ReleaseLaneCard } from './ReleaseLaneCard'
-import { Lane, SPAN_LOOK, Scale, TONE_COLOR, x } from './releaseTracks'
+import { Lane, SPAN_LOOK, Scale, spanWidth, x } from './releaseTracks'
 import { ReleaseSpan } from './releaseUtils'
 
 const NARROW = 72
@@ -27,11 +27,11 @@ export function ReleaseTrackSpan({
     lane?: Lane
 }): JSX.Element | null {
     const left = x(span.from, scale)
-    const width = Math.max(x(span.to, scale) + scale.day / 2 - left, scale.day)
+    const width = spanWidth(span, scale)
     if (dayjs(span.to).isBefore(scale.start, 'day')) {
         return null
     }
-    const color = span.tone ? TONE_COLOR[span.tone] : SPAN_LOOK[span.kind].color
+    const color = SPAN_LOOK[span.kind].color
     const compact = thin || width < NARROW
     const cutLeft = dayjs(span.from).isBefore(scale.start, 'day')
     const cutRight = left + width >= scale.days * scale.day

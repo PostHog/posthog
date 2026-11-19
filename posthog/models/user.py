@@ -58,6 +58,18 @@ class Notifications(TypedDict, total=False):
     mobile_push_tasks_enabled: bool
     mobile_push_reports_enabled: bool
     mobile_push_report_updates_enabled: bool
+    mobile_push_chat_enabled: bool
+    mobile_push_loops_enabled: bool
+    mobile_push_chat_attention_enabled: bool
+    mobile_push_chat_mentions_enabled: bool
+    mobile_push_chat_replies_enabled: bool
+    mobile_push_chat_completions_enabled: bool
+    mobile_push_chat_pr_outcomes_enabled: bool
+    mobile_push_report_attention_enabled: bool
+    mobile_push_report_completions_enabled: bool
+    mobile_push_report_pr_ready_enabled: bool
+    mobile_push_report_pr_outcomes_enabled: bool
+    mobile_push_snooze_enabled: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
     data_pipeline_error_threshold: (
@@ -95,6 +107,18 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "mobile_push_tasks_enabled": True,
     "mobile_push_reports_enabled": True,
     "mobile_push_report_updates_enabled": True,
+    "mobile_push_chat_enabled": True,
+    "mobile_push_loops_enabled": True,
+    "mobile_push_chat_attention_enabled": True,
+    "mobile_push_chat_mentions_enabled": True,
+    "mobile_push_chat_replies_enabled": True,
+    "mobile_push_chat_completions_enabled": True,
+    "mobile_push_chat_pr_outcomes_enabled": True,
+    "mobile_push_report_attention_enabled": True,
+    "mobile_push_report_completions_enabled": True,
+    "mobile_push_report_pr_ready_enabled": True,
+    "mobile_push_report_pr_outcomes_enabled": True,
+    "mobile_push_snooze_enabled": True,
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
@@ -574,9 +598,12 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
     @property
     def notification_settings(self) -> Notifications:
+        saved = self.partial_notification_settings or {}
         return {
             **NOTIFICATION_DEFAULTS,
-            **(self.partial_notification_settings if self.partial_notification_settings else {}),
+            "mobile_push_chat_enabled": saved.get("mobile_push_tasks_enabled", True),
+            "mobile_push_loops_enabled": saved.get("mobile_push_tasks_enabled", True),
+            **saved,
         }
 
     def should_send_organization_member_join_email(

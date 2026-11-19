@@ -289,7 +289,7 @@ def _mark_filters_bypassed(serializer: serializers.Serializer) -> None:
 def _mark_filters_enforced_rejection(serializer: serializers.Serializer) -> None:
     """Marks a rejection as coming from a switch-gated tier, so the counter can tell it apart
     from the checks that rejected long before enforcement (cohort existence, circular
-    dependencies, regex, size cap, the early_exit gate, the serde guard). Without the split,
+    dependencies, regex, size cap, the serde guard). Without the split,
     the rejected series is dominated by those and says nothing about the flip's impact."""
     root = serializer.root if serializer.root is not None else serializer
     root._filters_enforced_rejection = True  # type: ignore[attr-defined]
@@ -333,8 +333,6 @@ def _carry_loaded_state(source: FeatureFlag, target: FeatureFlag) -> None:
 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
-
-EARLY_EXIT_FLAG = "feature-flag-early-exit"
 
 # Gates enforcement of `feature_flag:write` on cross-resource flag mutations
 # (Survey / Early Access Feature endpoints). Kept off during the migration grace
@@ -838,6 +836,19 @@ def check_flag_limits_for_team(
             f"Maximum of {count_limit:,} feature flags allowed per team. "
             f"Please delete unused flags or contact support to increase this limit."
         )
+
+
+class _JSONNullResponse(Response):
+    # DRF renders Response(None) as an empty body, and the SDKs' JSON parsers reject an empty body.
+    # This response renders the JSON literal null. Its .data stays None, so the Rust shadow comparison,
+    # which reads .data, still sees no payload.
+    def __init__(self) -> None:
+        super().__init__(None, headers={"Content-Type": "application/json"})
+
+    # django-stubs types rendered_content as str, but DRF's Response returns bytes from it.
+    @property
+    def rendered_content(self) -> bytes:  # type: ignore[override]
+        return b"null"
 
 
 # Default per-key and per-team cap for remote_config. Both throttles below respect
@@ -2486,19 +2497,6 @@ class FeatureFlagSerializer(
         if self.context["request"].method == "POST" and not merged["groups"]:
             raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
-        # Gate enabling early_exit behind the feature-flag-early-exit flag. The UI hides
-        # the toggle, but the public REST API, MCP tools, and terraform provider all reach
-        # this validator — without the gate they could persist early_exit before server-side
-        # local evaluation honors it. Only block newly turning it on: leaving an existing
-        # truthy value unchanged (or turning it off) always passes, so flags created while
-        # the feature was enabled keep working if access is later revoked.
-        early_exit = merged.get("early_exit")
-        previously_enabled = (
-            bool((self.instance.filters or {}).get("early_exit")) if self.instance is not None else False
-        )
-        if early_exit and not previously_enabled and not self._is_early_exit_enabled():
-            raise serializers.ValidationError("early_exit is not available for this organization.")
-
         # A running experiment reads its variants from this flag, so a save that drops any
         # of its variant keys (a rename counts: it's a drop plus an add) breaks the
         # experiment's exposure and results queries. Adding variants and changing rollout
@@ -2746,26 +2744,6 @@ class FeatureFlagSerializer(
                 flag_key = self._validate_flag_reference(flag_reference)
                 dependencies.add(flag_key)
         return dependencies
-
-    def _is_early_exit_enabled(self) -> bool:
-        try:
-            request = self.context.get("request")
-            if not request:
-                return False
-            user = getattr(request, "user", None)
-            if user is None or user.is_anonymous:
-                return False
-            return feature_enabled_or_false(
-                EARLY_EXIT_FLAG,
-                user.distinct_id,
-                groups={"organization": str(user.organization.id)},
-                group_properties={"organization": {"id": str(user.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            logger.exception("Failed to check early exit flag")
-            return False
 
     def _check_flag_circular_dependencies(self, filters):
         """Check for circular dependencies in feature flag conditions."""
@@ -4010,7 +3988,8 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Search by feature flag key or name (case-insensitive). "
-            "Spaces, underscores, and hyphens count as the same separator."
+            "Spaces, underscores, and hyphens count as the same separator. "
+            "The words of the term must appear together and in order, so a shorter term matches more flags."
         ),
     )
     type = serializers.ChoiceField(
@@ -4604,7 +4583,8 @@ class FeatureFlagViewSet(
                 required=False,
                 description=(
                     "Search by feature flag key or name. Case insensitive. "
-                    "Spaces, underscores, and hyphens count as the same separator."
+                    "Spaces, underscores, and hyphens count as the same separator. "
+                    "The words of the term must appear together and in order, so a shorter term matches more flags."
                 ),
             ),
             OpenApiParameter(
@@ -6680,11 +6660,13 @@ class FeatureFlagViewSet(
         # usage numbers.
         should_count = is_service_auth(request)
 
-        if not feature_flag.has_encrypted_payloads:
-            payloads = feature_flag.filters.get("payloads", {})
+        if not feature_flag.active or not feature_flag.has_encrypted_payloads:
             if should_count:
                 increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
-            return Response(payloads.get("true") or None)
+            # A disabled flag evaluates as off in local evaluation and /flags, so it serves no payload here either.
+            if not feature_flag.active:
+                return _JSONNullResponse()
+            return Response(feature_flag.filters.get("payloads", {}).get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication

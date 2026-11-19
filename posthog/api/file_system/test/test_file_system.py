@@ -39,6 +39,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -3004,6 +3005,48 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                             any(change.get("field") == field for change in changes),
                             f"Expected {field} change for {case['scope']} restore",
                         )
+
+    @parameterized.expand([("one_insight", 1), ("folder_of_insights", 2)])
+    def test_deleting_insights_removes_their_alerts_with_one_cleanup(self, _name: str, insight_count: int):
+        alerts = [
+            AlertConfiguration.objects.create(
+                team=self.team,
+                insight=Insight.objects.create(team=self.team, saved=True, name=f"Alerted {index}"),
+                name=f"Alert {index}",
+                calculation_interval="daily",
+            )
+            for index in range(insight_count)
+        ]
+        entries = [
+            self._ensure_file_system_entry(
+                file_type="insight", ref=alert.insight.short_id, fallback_name=alert.insight.short_id
+            )
+            for alert in alerts
+        ]
+        target = entries[0]
+        if insight_count > 1:
+            target = FileSystem.objects.create(
+                team=self.team, path="Alerted", depth=1, type="folder", created_by=self.user
+            )
+            for entry in entries:
+                entry.path = f"Alerted/{entry.ref}"
+                entry.depth = 2
+                entry.save()
+
+        with patch("products.alerts.backend.platform_native_cleanup.start_native_cleanup") as start_cleanup:
+            with self.captureOnCommitCallbacks(execute=True):
+                delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.pk}/")
+
+        self.assertIn(delete_response.status_code, (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT))
+        for alert in alerts:
+            self.assertTrue(Insight.objects_including_soft_deleted.get(pk=alert.insight_id).deleted)
+            self.assertFalse(AlertConfiguration.objects.filter(pk=alert.pk).exists())
+        start_cleanup.assert_called_once()
+        ((insights_by_team,), _) = start_cleanup.call_args
+        self.assertEqual(
+            {team: sorted(ids) for team, ids in insights_by_team.items()},
+            {self.team.id: sorted(alert.insight_id for alert in alerts)},
+        )
 
     def _ensure_file_system_entry(self, *, file_type: str, ref: str, fallback_name: str) -> FileSystem:
         fs_entry = (

@@ -168,6 +168,21 @@ describe('loginLogic', () => {
             expect(beginHandler).toHaveBeenCalledTimes(1)
         })
 
+        it('does not auto-trigger the passkey prompt for an email once its password login is submitted', async () => {
+            useMocks({
+                post: {
+                    '/api/login': () => [401, { code: 'code_based_verification_required', detail: 'user@example.com' }],
+                },
+            })
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            logic.actions.precheck({ email: 'user@example.com' })
+            await expectLogic(logic)
+                .toDispatchActionsInAnyOrder(['precheckSuccess', 'submitLoginFailure'])
+                .toFinishAllListeners()
+            expect(beginHandler).not.toHaveBeenCalled()
+        })
+
         it('does not auto-trigger the passkey modal on WebKit (Safari)', async () => {
             setVendor(WEBKIT_VENDOR)
             logic.actions.precheck({ email: 'user@example.com' })

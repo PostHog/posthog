@@ -244,6 +244,8 @@ class TestAccountRequests(ProvisioningTestBase):
             ("verified_ignores_radar_block", True, "block", "newuser@example.com", 200, None),
             ("verified_disposable_email", True, "allow", "newuser@mailinator.com", 403, "access_blocked"),
             ("verified_disposable_subdomain", True, "allow", "newuser@inbox.mailinator.com", 403, "access_blocked"),
+            ("verified_wildcard_dns", True, "allow", "newuser@203-0-113-7.sslip.io", 403, "access_blocked"),
+            ("unverified_wildcard_dns", False, "allow", "newuser@203.0.113.7.NIP.io", 403, "access_blocked"),
         ]
     )
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test-key")
