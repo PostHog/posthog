@@ -62,7 +62,6 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
-    // New issues whose fingerprint state this pod already produced. See `resend_new_issue_state`.
     pub new_issue_state_sent: Cache<Uuid, ()>,
     // Caches event-level release resolution (`$release_id` and the mobile app-metadata hash) so a
     // per-event lookup doesn't re-hit Postgres for the same release, including the negative result

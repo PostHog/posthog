@@ -420,8 +420,6 @@ async fn resolve_issue(
         txn.commit().await?;
         drop(conn);
 
-        // After the commit, so no transaction stays open across a Kafka produce. A failure here
-        // fails the event, and its redelivery resends through `resend_new_issue_state`.
         send_fingerprint_issue_state(
             context,
             &issue,
@@ -469,8 +467,7 @@ async fn process_event_severity(
     Ok(true)
 }
 
-/// Produces the fingerprint state of an issue created in the last few minutes, once per pod.
-/// The slow path produces it after its commit, so this is the retry when that produce fails.
+// Redelivery finds a committed issue, so retries must resend state from the fast path.
 async fn resend_new_issue_state(
     context: &AppContext,
     conn: &mut PgConnection,
