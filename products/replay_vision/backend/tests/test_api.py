@@ -579,6 +579,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         enabled = self.client.patch(scanner_url, data={"enabled": True}, format="json")
         self.assertEqual(enabled.status_code, 200, enabled.json())
         scanner.refresh_from_db()
+        assert isinstance(scanner.scope, dict)
         self.assertNotIn("start_on_launch", scanner.scope)
 
         self.client.patch(scanner_url, data={"enabled": False}, format="json")

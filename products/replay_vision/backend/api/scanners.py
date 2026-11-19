@@ -1070,14 +1070,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         of that, and the marker would outlive the enable: the owner turns the scanner on, turns it
         off again, and the launch receiver reads the stale marker and overrides them.
         """
-        if self.instance is None or not isinstance(self.instance.scope, dict):
+        if self.instance is None:
             return
-        if START_ON_LAUNCH_KEY not in self.instance.scope:
+        stored = self.instance.scope
+        if not isinstance(stored, dict) or START_ON_LAUNCH_KEY not in stored:
             return
         # Only an enable consumes the marker. A save that leaves the scanner off is still waiting.
         if not (attrs.get("enabled") and not self.instance.enabled):
             return
-        scope = attrs.get("scope") if isinstance(attrs.get("scope"), dict) else self.instance.scope
+        incoming = attrs.get("scope")
+        scope: dict[str, Any] = incoming if isinstance(incoming, dict) else stored
         attrs["scope"] = {k: v for k, v in scope.items() if k != START_ON_LAUNCH_KEY}
 
     def _validate_experiment_scanner(self, attrs: dict[str, Any]) -> None:

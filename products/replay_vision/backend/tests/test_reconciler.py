@@ -705,6 +705,7 @@ async def test_start_launched_scanners_activity(org_team) -> None:
     assert missed.enabled is True
     assert "start_on_launch" not in missed.scanner_config
     assert scoped.enabled is True
+    assert isinstance(scoped.scope, dict)
     assert "start_on_launch" not in scoped.scope
     assert still_waiting.enabled is False
     assert await _live_activity_env().run(start_launched_scanners_activity) == 0
