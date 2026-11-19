@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mcp-analytics'
 
+import { dedupeRepeatedDescriptions } from '@/hono/tool-catalog'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
@@ -2255,8 +2256,8 @@ export function createExecTool(
                         return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
                     }
 
-                    const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
-                    if (!resolved) {
+                    const found = resolveSchemaPath(fullJsonSchema, fieldPath)
+                    if (!found) {
                         const available = listAvailablePaths(fullJsonSchema)
                         throw new ExecCommandError(
                             `Unknown path "${fieldPath}". Available: ${available.join(', ')}`,
@@ -2264,6 +2265,9 @@ export function createExecTool(
                         )
                     }
 
+                    // Dedupe only the drilled slice: deduping the whole schema first strips the
+                    // description from this field when it is a later copy of a repeated subschema.
+                    const resolved = dedupeRepeatedDescriptions(found)
                     const serialized = JSON.stringify({
                         field: fieldPath,
                         schema: resolved,

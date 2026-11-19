@@ -8,7 +8,7 @@ import { formatResponse } from '@/lib/response'
 /** Codex converts a token limit to bytes at this rate, so a budget here is measured the same way. */
 const BYTES_PER_TOKEN = 4
 
-/** Below the 500,000-character hard ceiling Claude Code applies to a tool's text result. */
+/** A backstop for clients with no documented limit. Claude Code saves a result over 50,000 characters to a file instead of cutting it. */
 export const DEFAULT_MAX_RESPONSE_TOKENS = 100_000
 
 export const RESPONSE_BUDGET_KEY = '_responseBudget'
