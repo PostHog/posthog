@@ -71,6 +71,8 @@ GROUP BY day
 ```
 
 Aliases become available as their source tables enter scope. An alias used in a `JOIN ON` clause cannot depend on a table joined later.
+In a nested SELECT with its own `FROM`, scalar aliases bind to that SELECT's tables, even when an outer query uses the same table alias.
+Define table-dependent scalar aliases inside each subquery that has its own `FROM`, rather than inheriting them from an outer SELECT.
 Property references such as `properties.$browser` and `person.properties.email` also work in scalar aliases. Query preparation expands any required lazy joins.
 
 ## Embedding text

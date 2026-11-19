@@ -553,14 +553,16 @@ def _collect_join_constraint_field_roots(join_expr: ast.JoinExpr | None) -> set[
     return roots
 
 
-def _expand_cte_dependencies(roots: set[str], pending_ctes: dict[str, ast.CTE]) -> set[str]:
+def _expand_cte_dependencies(
+    roots: set[str], pending_ctes: dict[str, ast.CTE], known_dependencies: dict[str, set[str]]
+) -> set[str]:
     candidates: set[str] = set()
     queue = list(roots)
     while queue:
         name = queue.pop()
         if name in pending_ctes and name not in candidates:
             candidates.add(name)
-            for dep in _collect_field_root_names(pending_ctes[name].expr):
+            for dep in _collect_field_root_names(pending_ctes[name].expr) | known_dependencies.get(name, set()):
                 if dep in pending_ctes and dep not in candidates:
                     queue.append(dep)
     return candidates
@@ -573,6 +575,7 @@ class _PendingScalarAliasError(QueryError):
     def __init__(self, message: str, *, frame: dict[str, Any], node: ast.Field, fix: str | None):
         super().__init__(message, node=node, fix=fix)
         self.frame = frame
+        self.name = str(node.chain[0])
 
 
 class Resolver(CloningVisitor):
@@ -621,6 +624,8 @@ class Resolver(CloningVisitor):
         self._entered_root_select: bool = False
         # Separate SELECT frames prevent nested joins from consuming an outer query's deferred aliases.
         self._pending_scalar_ctes: list[dict[str, Any]] = []
+        self._scalar_cte_scopes: dict[int, tuple[ast.CTE, ast.SelectQueryType]] = {}
+        self._scalar_cte_captures: list[dict[str, Any]] = []
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -1067,6 +1072,13 @@ class Resolver(CloningVisitor):
 
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
+        capture = (
+            {"frame_index": len(self._pending_scalar_ctes) - 1, "table_bound": False}
+            if node.cte_type == "column" and self._pending_scalar_ctes
+            else None
+        )
+        if capture is not None:
+            self._scalar_cte_captures.append(capture)
         try:
             cte_expr = self._copy(node.expr)
 
@@ -1158,12 +1170,22 @@ class Resolver(CloningVisitor):
                 columns=node.columns,
             )
 
+            if capture is not None and capture["table_bound"]:
+                self._scalar_cte_scopes[id(new_node)] = (new_node, self._pending_scalar_ctes[-1]["scope"])
+
             # Add this CTE to the current scope so subsequent CTEs can reference it
             self.ctes[node.name] = new_node
 
             return new_node
         finally:
+            if capture is not None:
+                self._scalar_cte_captures.pop()
             self.cte_counter -= 1
+
+    def _record_scalar_table_reference(self) -> None:
+        for capture in self._scalar_cte_captures:
+            if not any(frame["has_from"] for frame in self._pending_scalar_ctes[capture["frame_index"] + 1 :]):
+                capture["table_bound"] = True
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         """Visit each SELECT query or subquery."""
@@ -1172,7 +1194,7 @@ class Resolver(CloningVisitor):
                 "pending": {},
                 "staged": {},
                 "published": [],
-                "failed_table_sets": defaultdict(set),
+                "dependencies": defaultdict(set),
                 "relevant_for_joins": set(),
             }
         )
@@ -1195,6 +1217,8 @@ class Resolver(CloningVisitor):
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
+        self._pending_scalar_ctes[-1]["scope"] = node_type
+        self._pending_scalar_ctes[-1]["has_from"] = node.select_from is not None
 
         parent_ctes = self.ctes
 
@@ -1210,7 +1234,7 @@ class Resolver(CloningVisitor):
                 if cte.cte_type == "column":
                     if not self._required_tables_available(
                         cte,
-                        self.scopes[-1] if self.scopes else EMPTY_SCOPE,
+                        self.scopes[-1] if self.scopes and node.select_from is None else EMPTY_SCOPE,
                         self._pending_scalar_ctes[-1]["pending"],
                     ):
                         self._pending_scalar_ctes[-1]["pending"][cte.name] = cte
@@ -1244,6 +1268,7 @@ class Resolver(CloningVisitor):
         self._pending_scalar_ctes[-1]["relevant_for_joins"] = _expand_cte_dependencies(
             _collect_join_constraint_field_roots(node.select_from),
             self._pending_scalar_ctes[-1]["pending"],
+            self._pending_scalar_ctes[-1]["dependencies"],
         )
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1].
@@ -2255,17 +2280,26 @@ class Resolver(CloningVisitor):
         scopes_before = len(self.scopes)
         cte_counter_before = self.cte_counter
         ctes_before = dict(self.ctes)
+        captures_before = [capture["table_bound"] for capture in self._scalar_cte_captures]
         try:
             return self.visit(cte)
         except _PendingScalarAliasError as error:
             if error.frame is not self._pending_scalar_ctes[-1]:
                 raise
+            frame = error.frame
+            frame["dependencies"][cte.name].add(error.name)
+            if cte.name in frame["relevant_for_joins"]:
+                frame["relevant_for_joins"].update(
+                    _expand_cte_dependencies({error.name}, frame["pending"], frame["dependencies"])
+                )
             del self.context.errors[errors_before:]
             del self.context.warnings[warnings_before:]
             del self.context.notices[notices_before:]
             del self.scopes[scopes_before:]
             self.cte_counter = cte_counter_before
             self.ctes = ctes_before
+            for capture, table_bound in zip(self._scalar_cte_captures, captures_before):
+                capture["table_bound"] = table_bound
             return None
 
     def _required_tables_available(
@@ -2277,6 +2311,10 @@ class Resolver(CloningVisitor):
         """Check whether the tables, columns, and alias references required by a scalar WITH alias
         are already available in scope, avoiding speculative attempts before those tables join."""
         if scope is None:
+            return False
+        if self._pending_scalar_ctes and any(
+            name not in self.ctes for name in self._pending_scalar_ctes[-1]["dependencies"].get(cte.name, ())
+        ):
             return False
 
         collector = FreeFieldCollector()
@@ -2343,18 +2381,12 @@ class Resolver(CloningVisitor):
             return len(frame["published"])
 
         scope = self.scopes[-1] if self.scopes else None
-        visible_tables = (
-            frozenset(scope.tables.keys()) if scope else frozenset(),
-            len(scope.anonymous_tables) if scope else 0,
-        )
-
         resolved_any = True
         while resolved_any:
             resolved_any = False
+            relevant_before = len(relevant)
             for name in list(frame["pending"].keys()):
                 if name not in relevant:
-                    continue
-                if visible_tables in frame["failed_table_sets"][name]:
                     continue
                 cte = frame["pending"][name]
                 if not self._required_tables_available(cte, scope, frame["pending"]):
@@ -2363,12 +2395,12 @@ class Resolver(CloningVisitor):
                 shadowed = self.ctes.get(name, _MISSING_CTE)
                 resolved_cte = self._try_resolve_scalar_cte(cte)
                 if resolved_cte is None:
-                    frame["failed_table_sets"][name].add(visible_tables)
                     continue
                 frame["staged"][name] = resolved_cte
                 del frame["pending"][name]
                 frame["published"].append((name, shadowed))
                 resolved_any = True
+            resolved_any = resolved_any or len(relevant) > relevant_before
 
         return len(frame["published"])
 
@@ -3028,6 +3060,14 @@ class Resolver(CloningVisitor):
         if not type:
             cte = self.ctes.get(name, None)
             if cte:
+                binding = self._scalar_cte_scopes.get(id(cte))
+                if binding is not None and self._pending_scalar_ctes:
+                    frame = self._pending_scalar_ctes[-1]
+                    if frame["has_from"] and binding[1] is not frame["scope"]:
+                        raise QueryError(
+                            f"Scalar WITH alias '{name}' references another SELECT's tables. "
+                            "Define it inside this SELECT instead."
+                        )
                 if len(node.chain) > 1:
                     raise QueryError(f"Cannot access fields on CTE {name} yet")
 
@@ -3056,6 +3096,8 @@ class Resolver(CloningVisitor):
                         else:
                             inner_type = cte.expr.type
 
+                    if binding is not None:
+                        self._record_scalar_table_reference()
                     return ast.Field(chain=node.chain, type=ast.FieldAliasType(alias=name, type=inner_type))
                 else:
                     raise ImpossibleASTError(f"Cannot use CTE {cte.name} as a value. Use it in a FROM clause instead.")
@@ -3170,6 +3212,11 @@ class Resolver(CloningVisitor):
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
+        table_reference_type = node.type
+        while isinstance(table_reference_type, ast.FieldAliasType):
+            table_reference_type = table_reference_type.type
+        if isinstance(table_reference_type, (ast.FieldType, ast.PropertyType)):
+            self._record_scalar_table_reference()
 
         if isinstance(node.type, ast.ExpressionFieldType):
             # HogQL preserves the virtual field name for display; execution dialects must expand

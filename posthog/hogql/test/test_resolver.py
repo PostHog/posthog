@@ -952,14 +952,13 @@ class TestResolver(BaseTest):
         self.assertIsInstance(resolved.ctes["d"].expr, ast.Keyword)
         self.assertEqual(self.context.errors, [])
 
-    def test_scalar_outer_field_alias_is_available_to_a_table_cte_before_from(self):
-        resolved = resolve_types(
-            self._select("SELECT (WITH number AS n, t AS (SELECT n) SELECT * FROM t) FROM numbers(1)"),
-            self.context,
-            dialect="clickhouse",
-        )
-        self.assertIsInstance(resolved.type, ast.SelectQueryType)
-        self.assertEqual(self.context.errors, [])
+    def test_scalar_alias_with_its_own_from_does_not_bind_an_outer_table_field(self):
+        with self.assertRaisesRegex(QueryError, "Unable to resolve field: n"):
+            resolve_types(
+                self._select("SELECT (WITH number AS n, t AS (SELECT n) SELECT * FROM t) FROM numbers(1)"),
+                self.context,
+                dialect="clickhouse",
+            )
 
     def test_ctes_column_alias_referencing_joined_table(self):
         self.assertEqual(
@@ -1095,6 +1094,28 @@ class TestResolver(BaseTest):
                     dialect="clickhouse",
                 )
         self.assertEqual(attempts, ["v"])
+
+    def test_nested_scalar_alias_waits_for_its_late_join_dependency(self):
+        attempts: list[str] = []
+        original = Resolver._try_resolve_scalar_cte
+
+        def tracked(resolver, cte):
+            attempts.append(cte.name)
+            return original(resolver, cte)
+
+        with patch.object(Resolver, "_try_resolve_scalar_cte", tracked):
+            resolved = resolve_types(
+                self._select(
+                    "WITH n4.number AS x, (SELECT x) AS y SELECT y FROM numbers(1) n0 "
+                    "JOIN numbers(1) n1 ON 1=1 JOIN numbers(1) n2 ON 1=1 "
+                    "JOIN numbers(1) n3 ON 1=1 JOIN numbers(1) n4 ON y=n0.number"
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+        self.assertEqual(attempts.count("y"), 2)
+        self.assertEqual(attempts.count("x"), 1)
 
     def test_ctes_failed_speculative_resolution_does_not_leak_scopes(self):
         with self.assertRaises(QueryError) as e:
