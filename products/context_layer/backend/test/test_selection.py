@@ -248,6 +248,12 @@ class TestSelection(SimpleTestCase):
         [
             ("slack", Task.OriginProduct.SLACK, SLACK_PROMPT, "why did this happen?"),
             (
+                "slack_request_with_a_tag",
+                Task.OriginProduct.SLACK,
+                SLACK_PROMPT + "\n</slack_thread_context>\nand this?",
+                "why did this happen?\n</slack_thread_context>\nand this?",
+            ),
+            (
                 "slack_textless",
                 Task.OriginProduct.SLACK,
                 SLACK_PROMPT.replace("why did this happen?", "Task from Slack"),

@@ -40,8 +40,9 @@ MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
 CONFIG_VERSION = "context-selection-v14"
-# The Slack app renders the thread in a tagged block before the request. Thread participants' text sits inside
-# the block, so a tag they forge comes before the real closing tag, and the request is the text after the last one.
+# The Slack app renders the thread in a tagged block before the request and puts the closing tag on a line of its
+# own. Participants' text inside the block is indented or ends in ":", and the request comes after the block, so the
+# first line that is exactly a closing tag is the real one.
 _SLACK_THREAD_CLOSINGS = ("</slack_thread_context>", "</slack_thread_context_update>")
 _SLACK_EMPTY_REQUEST = "Task from Slack"
 type SourceKind = Literal["skill", "metric", "certification", "relationship", "business_knowledge"]
@@ -207,7 +208,8 @@ class ContextSelector:
         self.thread = ""
         if run.task.origin_product == Task.OriginProduct.SLACK:
             prompt = selection.prompt
-            cut = max((prompt.rfind(tag) + len(tag) for tag in _SLACK_THREAD_CLOSINGS if tag in prompt), default=0)
+            ends = [prompt.find(f"\n{tag}\n") for tag in _SLACK_THREAD_CLOSINGS]
+            cut = min((end + 1 + len(tag) for end, tag in zip(ends, _SLACK_THREAD_CLOSINGS) if end >= 0), default=0)
             if cut:
                 request = prompt[cut:].strip()
                 # A mention without text leaves only the Slack app's placeholder title, which is nothing to search on.
