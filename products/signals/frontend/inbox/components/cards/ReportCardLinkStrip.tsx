@@ -150,6 +150,53 @@ function PlanSteps({
     )
 }
 
+type StripCapture = (
+    params: Omit<Parameters<typeof captureInboxReportLinkStripClicked>[0], 'report' | 'summary'>
+) => void
+
+/** The relationship the strip names, and the report its title links to, if any. */
+function stripHeading(summary: ReportLinkSummaryApi): {
+    label: string
+    target: { id: string; title: string | null } | null
+} {
+    const plan = summary.plan
+    if (summary.kind === 'plan' && plan) {
+        return { label: `Plan with ${plan.steps.length} layers`, target: null }
+    }
+    if (summary.kind === 'part_of' && plan) {
+        return {
+            label: plan.position ? `Layer ${plan.position} of ${plan.steps.length} in` : 'Part of',
+            target: plan,
+        }
+    }
+    return { label: KIND_LABEL[summary.kind as ReportLinkKindEnumApi], target: summary.report }
+}
+
+function OtherLinksMenu({
+    links,
+    capture,
+}: {
+    links: ReportLinkSummaryApi['other_links']
+    capture: StripCapture
+}): JSX.Element | null {
+    if (links.length === 0) {
+        return null
+    }
+    return (
+        <LemonMenu
+            items={links.map((link) => ({
+                label: `${KIND_LABEL[link.kind]} ${link.report.title ?? 'Untitled report'}`,
+                to: inboxReportDetailUrl(link.report.id),
+                onClick: () => capture({ target: 'other_link', linkedReportId: link.report.id, linkedKind: link.kind }),
+            }))}
+        >
+            <LemonButton size="xsmall" type="tertiary" data-attr="report-card-link-strip-more">
+                +{links.length} more
+            </LemonButton>
+        </LemonMenu>
+    )
+}
+
 /**
  * The strip across the bottom of an inbox row: the one link to another report that matters most for
  * it. A plan layer shows its plan and a button per layer; any further links sit behind "+N more".
@@ -162,24 +209,9 @@ export function ReportCardLinkStrip({
     summary: ReportLinkSummaryApi
 }): JSX.Element {
     const Icon = KIND_ICON[summary.kind]
-    const plan = summary.plan
     const isRecurrence = summary.kind === 'recurrence_of'
-
-    let label: string
-    let target: { id: string; title: string | null } | null = summary.report
-    if (summary.kind === 'plan' && plan) {
-        label = `Plan with ${plan.steps.length} layers`
-        target = null
-    } else if (summary.kind === 'part_of' && plan) {
-        label = plan.position ? `Layer ${plan.position} of ${plan.steps.length} in` : 'Part of'
-        target = plan
-    } else {
-        label = KIND_LABEL[summary.kind as ReportLinkKindEnumApi]
-    }
-
-    const capture = (
-        params: Omit<Parameters<typeof captureInboxReportLinkStripClicked>[0], 'report' | 'summary'>
-    ): void => captureInboxReportLinkStripClicked({ report, summary, ...params })
+    const { label, target } = stripHeading(summary)
+    const capture: StripCapture = (params) => captureInboxReportLinkStripClicked({ report, summary, ...params })
 
     return (
         <div
@@ -201,9 +233,9 @@ export function ReportCardLinkStrip({
                 )}
             </span>
             <span className="flex shrink-0 items-center gap-2 @lg:ml-auto">
-                {plan && (summary.kind === 'part_of' || summary.kind === 'plan') ? (
+                {summary.plan ? (
                     <PlanSteps
-                        plan={plan}
+                        plan={summary.plan}
                         currentId={report.id}
                         onOpenStep={(stepId, position) =>
                             capture({ target: 'plan_step', linkedReportId: stepId, stepPosition: position })
@@ -212,24 +244,7 @@ export function ReportCardLinkStrip({
                 ) : summary.report ? (
                     <LinkedReportState report={summary.report} />
                 ) : null}
-                {summary.other_links.length > 0 && (
-                    <LemonMenu
-                        items={summary.other_links.map((link) => ({
-                            label: `${KIND_LABEL[link.kind]} ${link.report.title ?? 'Untitled report'}`,
-                            to: inboxReportDetailUrl(link.report.id),
-                            onClick: () =>
-                                capture({
-                                    target: 'other_link',
-                                    linkedReportId: link.report.id,
-                                    linkedKind: link.kind,
-                                }),
-                        }))}
-                    >
-                        <LemonButton size="xsmall" type="tertiary" data-attr="report-card-link-strip-more">
-                            +{summary.other_links.length} more
-                        </LemonButton>
-                    </LemonMenu>
-                )}
+                <OtherLinksMenu links={summary.other_links} capture={capture} />
             </span>
         </div>
     )
