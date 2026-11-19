@@ -725,6 +725,7 @@ class AIReloadDisabledReason(models.TextChoices):
 class AICreditPurchaseStatus(models.TextChoices):
     PAID = "paid", "Paid"
     REQUIRES_ACTION = "requires_action", "Requires action"
+    PROCESSING = "processing", "Processing"
 
 
 class AICreditHistoryKind(models.TextChoices):
@@ -826,6 +827,9 @@ class AICreditHistoryEntrySerializer(serializers.Serializer):
         help_text="Pending until the credit reaches the organization's AI balance.",
     )
     receipt_url = serializers.URLField(allow_null=True, help_text="Stripe's receipt for the payment.")
+    payment_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Stripe's ID for the payment, as the purchase answer names it."
+    )
 
 
 class AICreditHistoryResponseSerializer(serializers.Serializer):
@@ -875,9 +879,16 @@ class AICreditPurchaseRequestSerializer(AICreditQuoteRequestSerializer):
 class AICreditPurchaseResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=AICreditPurchaseStatus.choices,
-        help_text="Paid, or waiting for the person to authenticate the payment with their bank.",
+        help_text="Paid, waiting for the person to authenticate the payment with their bank, or still processing. "
+        "A purchase that is still processing finishes on its own, and the history shows it.",
     )
-    total_usd = _usd_field("What the card is charged, in USD.")
+    total_usd = _usd_field("What the card is charged, in USD. Absent while the purchase is processing.", required=False)
+    payment_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Stripe's ID for the payment, which the history entry for this purchase carries. "
+        "Absent while the purchase is processing.",
+    )
     client_secret = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1754,7 +1765,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         request_serializer=AICreditPurchaseRequestSerializer,
-        responses={200: OpenApiResponse(response=AICreditPurchaseResponseSerializer)},
+        responses={
+            200: OpenApiResponse(response=AICreditPurchaseResponseSerializer),
+            202: OpenApiResponse(
+                response=AICreditPurchaseResponseSerializer,
+                description="The purchase is still processing. It finishes on its own, and the history shows it.",
+            ),
+        },
     )
     @action(
         methods=["POST"],
@@ -1774,7 +1791,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             bad_request=AICreditsNoCard,
             unavailable=AICreditsPurchaseUnfinished,
         )
-        return Response(AICreditPurchaseResponseSerializer(answer).data)
+        processing = answer.get("status") == AICreditPurchaseStatus.PROCESSING
+        return Response(
+            AICreditPurchaseResponseSerializer(answer).data,
+            status=status.HTTP_202_ACCEPTED if processing else status.HTTP_200_OK,
+        )
 
     @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(

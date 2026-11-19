@@ -196,6 +196,11 @@ export interface AICreditHistoryEntryApi {
      * @nullable
      */
     receipt_url: string | null
+    /**
+     * Stripe's ID for the payment, as the purchase answer names it.
+     * @nullable
+     */
+    payment_id?: string | null
 }
 
 export interface AICreditHistoryResponseApi {
@@ -228,6 +233,7 @@ export interface AICreditPurchaseRequestApi {
 /**
  * * `paid` - Paid
  * * `requires_action` - Requires action
+ * * `processing` - Processing
  */
 export type AICreditPurchaseStatusEnumApi =
     (typeof AICreditPurchaseStatusEnumApi)[keyof typeof AICreditPurchaseStatusEnumApi]
@@ -235,19 +241,26 @@ export type AICreditPurchaseStatusEnumApi =
 export const AICreditPurchaseStatusEnumApi = {
     Paid: 'paid',
     RequiresAction: 'requires_action',
+    Processing: 'processing',
 } as const
 
 export interface AICreditPurchaseResponseApi {
-    /** Paid, or waiting for the person to authenticate the payment with their bank.
+    /** Paid, waiting for the person to authenticate the payment with their bank, or still processing. A purchase that is still processing finishes on its own, and the history shows it.
      *
      * * `paid` - Paid
-     * * `requires_action` - Requires action */
+     * * `requires_action` - Requires action
+     * * `processing` - Processing */
     status: AICreditPurchaseStatusEnumApi
     /**
-     * What the card is charged, in USD.
+     * What the card is charged, in USD. Absent while the purchase is processing.
      * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
      */
-    total_usd: string
+    total_usd?: string
+    /**
+     * Stripe's ID for the payment, which the history entry for this purchase carries. Absent while the purchase is processing.
+     * @nullable
+     */
+    payment_id?: string | null
     /**
      * Confirm this with Stripe.js when the status is requires_action.
      * @nullable

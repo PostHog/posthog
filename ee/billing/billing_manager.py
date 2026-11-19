@@ -1125,6 +1125,7 @@ class BillingManager:
         params: dict[str, Any] | None = None,
         body: dict[str, Any] | None = None,
         timeout: tuple[int, int] = BILLING_AI_CREDITS_READ_TIMEOUT,
+        valid_codes: tuple[int, ...] = (200,),
     ) -> dict[str, Any]:
         res = http_session.request(
             method,
@@ -1134,7 +1135,7 @@ class BillingManager:
             json=body,
             timeout=timeout,
         )
-        handle_billing_service_error(res, valid_codes=(200,))
+        handle_billing_service_error(res, valid_codes=valid_codes)
         return res.json()
 
     def ai_credit_settings(self, organization: Organization) -> dict[str, Any]:
@@ -1159,8 +1160,15 @@ class BillingManager:
         )
 
     def purchase_ai_credit(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        # Billing answers 202 `processing` when its purchase runs past billing's own deadline. The purchase
+        # still finishes, and the history shows it.
         return self._ai_credits_request(
-            organization, "POST", "purchase", body=data, timeout=BILLING_AI_CREDITS_CHARGE_TIMEOUT
+            organization,
+            "POST",
+            "purchase",
+            body=data,
+            timeout=BILLING_AI_CREDITS_CHARGE_TIMEOUT,
+            valid_codes=(200, 202),
         )
 
     def purchase_credits(self, organization: Organization, data: dict[str, Any]):

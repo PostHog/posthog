@@ -1622,7 +1622,12 @@ class TestAICreditsBillingAPI(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"status": "requires_action", "total_usd": "54.13", "client_secret": "pi_1_secret"}
+        assert response.json() == {
+            "status": "requires_action",
+            "total_usd": "54.13",
+            "payment_id": "pi_1",
+            "client_secret": "pi_1_secret",
+        }
         assert mock_request.call_args.args == ("POST", f"{BILLING_SERVICE_URL}/api/ai-credits/purchase")
         assert mock_request.call_args.kwargs["json"] == {
             "amount_usd": "50.00",
@@ -1671,6 +1676,46 @@ class TestAICreditsBillingAPI(APILicensedTest):
 
         assert (response.status_code, response.json()["code"]) == (expected_status, expected_code)
         assert "billing's own words" not in response.content.decode()
+
+    @patch("ee.billing.billing_manager.http_session.request")
+    def test_a_purchase_still_processing_in_billing_answers_202(self, mock_request: MagicMock) -> None:
+        mock_request.return_value = _billing_answer(
+            202, {"status": "processing", "detail": "billing's own words about the wait"}
+        )
+
+        response = self.client.post(
+            "/api/billing/ai_credits/purchase",
+            {
+                "organization_id": str(self.organization.id),
+                "amount_usd": "50.00",
+                "total_usd": "54.13",
+                "idempotency_key": "purchase-1",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json() == {"status": "processing", "payment_id": None, "client_secret": None}
+
+    @patch("ee.billing.billing_manager.http_session.request")
+    def test_history_passes_back_the_payment_of_each_entry(self, mock_request: MagicMock) -> None:
+        entry = {
+            "created_at": "2026-11-19T15:00:00Z",
+            "kind": "purchase",
+            "amount_usd": "50.00",
+            "tax_usd": "4.13",
+            "total_usd": "54.13",
+            "status": "pending",
+            "payment_id": "pi_1",
+            "receipt_url": None,
+        }
+        mock_request.return_value = _billing_answer(200, {"results": [entry], "has_more": False})
+
+        response = self.client.get("/api/billing/ai_credits/history", {"organization_id": str(self.organization.id)})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["payment_id"] == "pi_1"
+        assert response.json()["results"][0]["status"] == "pending"
 
     @patch("ee.billing.billing_manager.http_session.request", side_effect=requests.Timeout("read timed out"))
     def test_a_purchase_billing_never_answered_asks_for_a_retry(self, mock_request: MagicMock) -> None:
