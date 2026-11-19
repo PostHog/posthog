@@ -261,10 +261,9 @@ Owned by inviteLogic's inviteTeamMembersFailure listener.
 const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
 
 /*
-Loads whose owning logic renders these GitHub error codes inline, with a link to the GitHub integration
-settings. The team's GitHub connection can't reach the PR's repository (404), or its installation is
-suspended or uninstalled (403). Both are setup states, not defects. The backend raises the codes in
-products/signals/backend/views.py.
+Loads whose owning logic renders these GitHub error codes inline, with a link to the GitHub integration settings.
+The connection can't reach the PR's repository (404), or its installation is suspended or uninstalled (403).
+Both are setup states, not defects. The backend raises the codes in products/signals/backend/views.py.
 */
 const GITHUB_SETUP_ERROR_CODES = new Set(['github_repository_inaccessible', 'github_installation_unavailable'])
 const GITHUB_SETUP_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {

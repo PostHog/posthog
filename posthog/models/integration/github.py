@@ -341,12 +341,14 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         An installation whose probe fails transiently, runs out of egress budget, or hits GitHub's
         rate limit is skipped. When no other installation covers the repository, that first error
-        is raised. A failure from a suspended or uninstalled installation is raised as
-        :class:`GitHubInstallationUnavailableError`, so a caller can ask for a reconnect.
+        is raised. When every failure came from a suspended or uninstalled installation, it is raised
+        as :class:`GitHubInstallationUnavailableError`, so a caller can ask for a reconnect. Any other
+        error wins over that one, because a retry can still reach the installation that raised it.
         """
         if not _is_safe_github_repo_path(repository):
             return None
-        exhausted: Exception | None = None
+        retryable: Exception | None = None
+        unavailable: GitHubInstallationUnavailableError | None = None
         for integration in row_writes.creator_accessor("github").list(team_id):
             github = cls(integration, source=source, priority=priority)
             try:
@@ -356,13 +358,16 @@ class GitHubIntegration(GitHubIntegrationBase):
                 # covers the repository. The first error is kept and raised only when none does,
                 # so a caller that has no reader still sees why.
                 if isinstance(e, GitHubIntegrationError) and github.installation_unavailable():
-                    exhausted = exhausted or GitHubInstallationUnavailableError(str(e), status_code=e.status_code)
-                exhausted = exhausted or e
+                    unavailable = unavailable or GitHubInstallationUnavailableError(str(e), status_code=e.status_code)
+                else:
+                    retryable = retryable or e
                 continue
             if covers:
                 return github
-        if exhausted is not None:
-            raise exhausted
+        if retryable is not None:
+            raise retryable
+        if unavailable is not None:
+            raise unavailable
         return None
 
     # The repository cache of the row, read through the SDK on first use.

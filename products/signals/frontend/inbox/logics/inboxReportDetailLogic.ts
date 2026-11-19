@@ -1216,7 +1216,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         prChecks: [
             null as readonly PullRequestCheckApi[] | null,
             {
-                loadPrChecks: async (_: void, breakpoint) => {
+                loadPrChecks: async (_: void, breakpoint): Promise<readonly PullRequestCheckApi[] | null> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -1245,7 +1245,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         prComments: [
             null as readonly PullRequestCommentApi[] | null,
             {
-                loadPrComments: async (_: void, breakpoint) => {
+                loadPrComments: async (_: void, breakpoint): Promise<readonly PullRequestCommentApi[] | null> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
