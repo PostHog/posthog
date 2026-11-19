@@ -328,6 +328,8 @@ export const emailPreviewPersonLogic = kea<emailPreviewPersonLogicType>([
                         actionId: trigger.actionId,
                         properties: trigger.properties,
                         filterTestAccounts: trigger.filterTestAccounts,
+                        // The workflow matched person filters against the person as they were at the event.
+                        modifiers: { personsOnEventsMode: 'person_id_no_override_properties_on_events' },
                         personId: chosenPerson.id,
                         after: '-30d',
                         orderBy: ['timestamp DESC'],

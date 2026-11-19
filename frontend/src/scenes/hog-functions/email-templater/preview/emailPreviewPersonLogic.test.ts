@@ -53,6 +53,7 @@ describe('emailPreviewPersonLogic', () => {
             event: 'upgraded',
             properties: [PRO_PLAN],
             filterTestAccounts: true,
+            modifiers: { personsOnEventsMode: 'person_id_no_override_properties_on_events' },
             personId: 'person-ada',
         })
     })
