@@ -135,7 +135,7 @@ jobs:
               id: payload
               env:
                   CHANNEL: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
-                  USER_GROUP: ${{ vars.SLACK_APPROVALS_HOG_GROUP_ID }}
+                  USER_GROUP: ${{ vars.SLACK_HOG_RELEASE_APPROVERS_GROUP_ID }}
                   REPOSITORY: ${{ github.repository }}
                   RUN_ID: ${{ github.run_id }}
                   LAST_TAG: ${{ steps.owners.outputs.last-tag }}
