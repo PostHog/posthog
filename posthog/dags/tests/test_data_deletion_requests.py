@@ -3217,9 +3217,17 @@ def test_deferred_event_removal_with_a_hogql_predicate_and_a_native_events_copy(
         pytest.param(
             ExecutionMode.DEFERRED,
             "properties.$browser = 'Chrome'",
-            "different cluster from its events copies",
+            "match this request but cannot be deleted: .*different cluster from its events copies",
             False,
             id="deferred_with_predicate",
+        ),
+        pytest.param(
+            ExecutionMode.DEFERRED,
+            "properties.$browser = 'Chrome' AND NOT elements_chain ILIKE '%checkout%'",
+            "match this request's team and time range. They were counted without the HogQL predicate.*"
+            "different cluster from its events copies",
+            False,
+            id="deferred_with_predicate_that_cannot_run_on_flag_evaluations",
         ),
         pytest.param(
             ExecutionMode.IMMEDIATE,

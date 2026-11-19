@@ -517,13 +517,26 @@ def assert_no_unsweepable_rows(
 
         count = count_surviving_rows(cluster, target, predicate, params)
         if count:
-            matched = (
-                f"match {counted_without_predicate}. They were counted without the HogQL predicate, so some of "
-                "them may not match it. They"
-                if counted_without_predicate
-                else "match this request but"
+            raise UnsweepableRowsError(
+                unsweepable_rows_message(
+                    f"{count} row(s)", target, reason, counted_without_predicate=counted_without_predicate
+                )
             )
-            raise UnsweepableRowsError(f"{count} row(s) in {target.read_table} {matched} cannot be deleted: {reason}")
+
+
+def unsweepable_rows_message(
+    rows: str, target: DeletionTarget, reason: str, *, counted_without_predicate: str | None = None
+) -> str:
+    """The refusal text for ``rows`` of ``target`` that a request matches but cannot delete.
+
+    ``counted_without_predicate`` is as in ``assert_no_unsweepable_rows``.
+    """
+    if counted_without_predicate:
+        return (
+            f"{rows} in {target.read_table} match {counted_without_predicate}. They were counted without the "
+            f"HogQL predicate, so some of them may not match it. They cannot be deleted: {reason}"
+        )
+    return f"{rows} in {target.read_table} match this request but cannot be deleted: {reason}"
 
 
 def assert_sweep_complete(
