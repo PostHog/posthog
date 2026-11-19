@@ -383,6 +383,22 @@ def has_reviewable_repo_config(team_id: int) -> bool:
     )
 
 
+def check_approval_gates(
+    *, team_id: int, repository: str, pr_number: int, head_sha: str
+) -> contracts.ApprovalGateCheck | None:
+    """Whether stamphog's gates send this PR head to a person, or None when that is unknown. Never raises.
+
+    PostHog Review asks before it starts an automatic review, to choose how deep that review goes.
+    The check runs the engine's gate pre-check on the PR as GitHub shows it at ``head_sha``. It
+    writes nothing to GitHub, creates no run and starts no review.
+    """
+    # Imported here so the engine runner and the Temporal constants it reads stay out of the
+    # import graph of every product that imports this facade.
+    from ..logic.approval_gates import check_approval_gates as run_check  # noqa: PLC0415
+
+    return run_check(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
+
+
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
     """One run for the API. Its `output` carries only the summary keys and `reviewer_raw`."""
     qs = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config")

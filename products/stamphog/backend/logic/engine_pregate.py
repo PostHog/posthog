@@ -38,6 +38,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.ownership.github_files import GitHubFilesFetcher, is_absent
 
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.policy_files import effective_policy_files
 
 logger = structlog.get_logger(__name__)
 
@@ -215,6 +216,23 @@ def fetch_manifest_contents(
         for path in paths
         if path in base_texts and path in head_texts
     }
+
+
+def engine_gate_inputs(
+    *, context_json: str, repository: str, policy_files: dict[str, str], folder_policy_files: object
+) -> tuple[dict, dict[str, str]]:
+    """The engine context and the tree's policy files for a gate-only run on the worker.
+
+    ``policy_files`` are the default-branch policy files as read, and ``folder_policy_files`` the
+    result of ``fetch_folder_policy_files``, where None means unknown.
+    """
+    context = json.loads(context_json)
+    # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
+    tree_files = effective_policy_files(repository, policy_files)
+    if isinstance(folder_policy_files, dict):
+        tree_files = {**tree_files, **folder_policy_files}
+        context["folder_policies_known"] = True
+    return context, tree_files
 
 
 def engine_source_files() -> dict[str, str]:

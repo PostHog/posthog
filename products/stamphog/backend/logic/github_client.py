@@ -1739,12 +1739,19 @@ class StamphogGitHubClient:
         ``exempt_author_teams`` exempts nobody, so the owning team's PRs on those paths are refused.
         The engine treats the list as complete, so every page is read.
         """
+        return self.find_user_team_slugs(org, login) or []
+
+    def find_user_team_slugs(self, org: str, login: str) -> list[str] | None:
+        """The same list as ``get_user_team_slugs``, or None when a lookup failed.
+
+        For a caller that must not read a failed lookup as "on no team".
+        """
         slugs: set[str] = set()
         after: str | None = None
         for _ in range(_MAX_PAGES):
             teams = self._team_lookup_page(org, login, after)
             if teams is None:
-                return []
+                return None
             slugs.update(
                 node["slug"] for node in teams.get("nodes") or [] if isinstance(node, dict) and node.get("slug")
             )
