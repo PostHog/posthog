@@ -301,14 +301,13 @@ def execute_precomputed_trends(runner: TrendsQueryRunner, *, run_inserts: bool) 
         date_to = runner.query_date_range.date_to()
         if reason is None and _interval(runner) == "hour" and _crosses_dst(buckets):
             reason = "dst_transition"
-        if reason is None and (not buckets or date_to is None):
+        if reason is None and not buckets:
             reason = "nothing_closed"
         if reason is None and _range_unaligned(runner, buckets, date_to):
             reason = "unaligned_range"
         if reason is not None:
             _fallback(reason)
             return None
-        assert date_to is not None
 
         now_utc = datetime.now(UTC)
         today_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
