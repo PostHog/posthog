@@ -1392,16 +1392,21 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // Team 2 has no wait_until_condition step and no event conversion goal, so its events
             // must be dropped via the in-memory cache without ever calling getTeam or converting.
             const getTeam = (matcher as any).deps.teamManager.getTeam
+            const noActionableFlowBefore = await skipCount('no_actionable_flow')
 
             const result = await (matcher as any)._parseKafkaBatch([
                 rawEvent({ team_id: 2, distinct_id: 'user-2' }),
                 rawEvent({ team_id: 1, distinct_id: 'user-1' }),
+                rawEvent({ team_id: 2, distinct_id: 'user-3' }),
+                rawEvent({ team_id: 1, distinct_id: 'user-4' }),
             ])
 
-            expect(result.map((g: HogFunctionInvocationGlobals) => g.project.id)).toEqual([1])
-            // getTeam is only reached for the actionable team, never for team 2.
+            expect(result.map((g: HogFunctionInvocationGlobals) => g.project.id)).toEqual([1, 1])
+            // getTeam is reached once for the actionable team, never for team 2.
             expect(getTeam).toHaveBeenCalledTimes(1)
             expect(getTeam).toHaveBeenCalledWith(1)
+            // Each skipped message still counts, though the team was checked once.
+            expect(await skipCount('no_actionable_flow')).toBe(noActionableFlowBefore + 2)
         })
 
         it.each(teamIdSources)(

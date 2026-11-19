@@ -791,6 +791,52 @@
             "validators": []
         }
     },
+    "accounts-custom-property-values-history": {
+        "name": "accounts-custom-property-values-history",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/accounts/{account_id}/custom_property_values/history/",
+            "pathParams": ["account_id"],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "definition",
+                    "key": "definition",
+                    "csv": false
+                },
+                {
+                    "param": "since",
+                    "key": "since",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/customer_analytics"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "accounts-custom-property-values-list": {
         "name": "accounts-custom-property-values-list",
         "kind": "http",
@@ -10329,7 +10375,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10417,7 +10463,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10527,7 +10573,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10742,7 +10788,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": {
@@ -10888,7 +10934,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -18628,6 +18674,10 @@
                 {
                     "param": "ingestion_enabled",
                     "key": "ingestion_enabled"
+                },
+                {
+                    "param": "ai_issue_summaries_enabled",
+                    "key": "ai_issue_summaries_enabled"
                 }
             ],
             "injectBody": {},
@@ -27805,6 +27855,11 @@
                     "csv": false
                 },
                 {
+                    "param": "needs_you",
+                    "key": "needs_you",
+                    "csv": false
+                },
+                {
                     "param": "offset",
                     "key": "offset",
                     "csv": false
@@ -29871,6 +29926,43 @@
             "fallbacks": [],
             "query": null,
             "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "llma-clustering-config-set-enabled": {
+        "name": "llma-clustering-config-set-enabled",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/llm_analytics/clustering_config/set_enabled/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "enabled",
+                    "key": "enabled"
+                }
+            ],
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
@@ -37624,6 +37716,11 @@
                     "csv": false
                 },
                 {
+                    "param": "series_stats",
+                    "key": "series_stats",
+                    "csv": false
+                },
+                {
                     "param": "service",
                     "key": "service",
                     "csv": false
@@ -40714,6 +40811,14 @@
                 {
                     "param": "insight_ids",
                     "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
                 }
             ],
             "injectBody": {},
@@ -40904,6 +41009,14 @@
                 {
                     "param": "insight_ids",
                     "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
                 }
             ],
             "injectBody": {},
@@ -43753,6 +43866,43 @@
             "validators": []
         }
     },
+    "scout-scratchpad-discard": {
+        "name": "scout-scratchpad-discard",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/scout/scratchpad/discard/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "key",
+                    "key": "key"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "scout-scratchpad-forget": {
         "name": "scout-scratchpad-forget",
         "kind": "http",
@@ -45989,6 +46139,10 @@
                 {
                     "param": "files",
                     "key": "files"
+                },
+                {
+                    "param": "version_description",
+                    "key": "version_description"
                 }
             ],
             "injectBody": {},

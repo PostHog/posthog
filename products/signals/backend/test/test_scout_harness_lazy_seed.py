@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import textwrap
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,6 +36,8 @@ from products.signals.backend.scout_harness.tools.structured_output import (
     _validate_records,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
+
+from ee.billing.billing_types import USAGE_TYPE_VALUES
 
 _SCHEMA_JSON = '{"type": "object", "properties": {"verdict": {"type": "string"}}}'
 
@@ -810,6 +813,23 @@ class TestShippedStructuredOutputSchemas:
         ):
             with pytest.raises(InvalidStructuredOutputError):
                 _validate_records([StructuredOutputRecord(payload=rejected)], schema)
+
+
+class TestShippedBillingScoutVocabulary:
+    def test_every_billing_usage_type_has_a_product_key_row(self) -> None:
+        # The scout prices and routes a meter only through this table, so a usage type billing adds
+        # without a row here is a meter the scout reads but can neither price nor hand off.
+        (skill,) = [s for s in discover_canonical_skills() if s.name == "signals-scout-billing"]
+        (reference,) = [f.content for f in skill.files if f.path == "references/usage-types.md"]
+        vocabulary = reference.split("## Three vocabularies for one meter", 1)[1].split("\n## ", 1)[0]
+        mapped = {
+            usage_type
+            for line in vocabulary.splitlines()
+            if line.startswith("| `")
+            for usage_type in re.findall(r"`([a-z0-9_]+)`", line.split("|")[1])
+        }
+
+        assert set(USAGE_TYPE_VALUES) - mapped == set()
 
 
 class TestDeprecationFrontmatter:

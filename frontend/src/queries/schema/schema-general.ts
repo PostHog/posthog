@@ -1642,6 +1642,8 @@ export interface ChartSettings {
     rightYAxisSettings?: YAxisSettings
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
+    /** Color each X-axis category in single-series bar charts. */
+    colorBarsByCategory?: boolean
     seriesBreakdownColumn?: string | null
     showXAxisTicks?: boolean
     showXAxisBorder?: boolean
@@ -1655,6 +1657,8 @@ export interface ChartSettings {
     showValuesOnSeries?: boolean
     valueLabelPosition?: 'end' | 'center'
     valueLabelBackground?: boolean
+    valueLabelColor?: string
+    valueLabelBackgroundColor?: string
     valueLabelFontSize?: number
     valueLabelRotation?: number
     barGap?: number
@@ -2087,6 +2091,7 @@ export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 export type ResultCustomizationBase = {
     color?: DataColorToken
     hidden?: boolean
+    yAxisPosition?: 'auto' | 'left' | 'right'
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
@@ -2214,6 +2219,8 @@ export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusion
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
+    /** @default false */
+    showSummaryOnDashboards?: boolean
     /** @default [] */
     exclusions?: FunnelExclusion[]
     /** @default vertical */
@@ -5780,6 +5787,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     prefetchSpans?: integer
     /** Omit the per-span `attributes` map from results to keep payloads compact */
     excludeAttributes?: boolean
+    /** Include each span's OpenTelemetry events. The column is large, so only set this on small lists */
+    includeEvents?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -5807,6 +5816,8 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
+    /** Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results. */
+    entry_span_count?: integer
     /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
     sessions?: integer
     users?: integer
@@ -9170,7 +9181,7 @@ export interface MarketingAnalyticsRecommendationsSource {
     searchTermKeywordTable?: string
     /** Google Ads search term table for Performance Max campaigns. */
     performanceMaxSearchTermTable?: string
-    /** Google Ads ad table, used to read the ad copy of each ad group. */
+    /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
     adTable?: string
     /** Google Ads daily campaign conversions split by conversion action. */
     campaignConversionActionTable?: string
@@ -9317,6 +9328,8 @@ export interface MarketingAnalyticsRecommendation {
     impact?: number | null
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
+    /** True when the monthly impact is under 1% of the ad account's monthly spend. */
+    minor?: boolean
     currency?: string | null
     /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
     steps?: MarketingAnalyticsRecommendationStep[]
