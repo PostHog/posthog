@@ -168,6 +168,7 @@ describe('MessageTemplate', () => {
         async (_, sensitive, label, offered) => {
             useMocks({
                 get: {
+                    '/api/projects/:team_id/': TAGGING_OFF_TEAM,
                     '/api/environments/:team_id/messaging_templates/:id/': { ...PASSWORD_RESET_WITH_DRAFT, sensitive },
                     '/api/projects/:team_id/transactional_email_log/impact/': IMPACT,
                 },

@@ -15,6 +15,7 @@ import {
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -62,6 +63,8 @@ export interface emailImpactLogicValues {
     linkTagging: LinkTagging
     replayEnabled: boolean
     steps: ImpactStep[] | null
+    storedLinkTagging: boolean | null
+    storedLinkTaggingLoading: boolean
     untrackedNote: string | null
 }
 
@@ -74,7 +77,6 @@ export interface emailImpactLogicActions {
         currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
-    refreshCurrentTeam: () => any // teamLogic
     loadImpact: (_: void) => void
     loadImpactFailure: (
         error: string,
@@ -88,6 +90,21 @@ export interface emailImpactLogicActions {
         payload?: void
     ) => {
         impact: TransactionalEmailImpactApi | null
+        payload?: void
+    }
+    loadStoredLinkTagging: (_: void) => void
+    loadStoredLinkTaggingFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadStoredLinkTaggingSuccess: (
+        storedLinkTagging: boolean | null,
+        payload?: void
+    ) => {
+        storedLinkTagging: boolean | null
         payload?: void
     }
     setAlwaysSensitive: (alwaysSensitive: boolean) => {
@@ -110,7 +127,11 @@ export interface emailImpactLogicMeta {
             impactLoading: boolean,
             impactError: string | null
         ) => ImpactFunnelState
-        linkTagging: (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean) => LinkTagging
+        linkTagging: (
+            storedLinkTagging: any,
+            currentTeam: TeamPublicType | TeamType | null,
+            alwaysSensitive: boolean
+        ) => LinkTagging
         steps: (
             impact: TransactionalEmailImpactApi | null,
             event: string | null,
@@ -165,7 +186,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Transactional', 'impact', 'emailImpactLogic', key]),
     connect(() => ({
         values: [teamLogic, ['currentTeamId', 'currentTeam']],
-        actions: [teamLogic, ['loadCurrentTeamSuccess', 'refreshCurrentTeam']],
+        actions: [teamLogic, ['loadCurrentTeamSuccess']],
     })),
     actions({
         setEvent: (event: string | null) => ({ event }),
@@ -225,6 +246,26 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 },
             },
         ],
+        storedLinkTagging: [
+            null as boolean | null,
+            {
+                loadStoredLinkTagging: async (_: void, breakpoint) => {
+                    const projectId = values.currentTeam?.project_id
+                    if (!projectId) {
+                        return values.storedLinkTagging
+                    }
+                    let project: TeamType
+                    try {
+                        // nosemgrep: prefer-codegen-api -- teamLogic reads the project the same way, and no generated function returns its workflows_config.
+                        project = await api.get(`api/projects/${projectId}`)
+                    } catch {
+                        return values.storedLinkTagging
+                    }
+                    breakpoint()
+                    return project.workflows_config?.email_workflow_run_link_tag_enabled ?? true
+                },
+            },
+        ],
     })),
     selectors({
         funnelState: [
@@ -236,11 +277,15 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
         linkTagging: [
-            (s) => [s.currentTeam, s.alwaysSensitive],
-            (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean): LinkTagging =>
+            (s) => [s.storedLinkTagging, s.currentTeam, s.alwaysSensitive],
+            (
+                storedLinkTagging: boolean | null,
+                currentTeam: TeamPublicType | TeamType | null,
+                alwaysSensitive: boolean
+            ): LinkTagging =>
                 alwaysSensitive
                     ? 'sensitive-email'
-                    : (currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
+                    : (storedLinkTagging ?? currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
                       ? 'on'
                       : 'off',
         ],
@@ -295,16 +340,18 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     }),
     afterMount(({ actions, cache }) => {
         actions.loadImpact()
-        // The link tagging setting can change in another tab, including one opened from this tab's settings link,
-        // so reload the team whenever this tab gets focus back. A later focus also repairs a reload that ran
-        // before the save finished or that failed.
+        // The link tagging setting can change in another tab, including the one this tab's settings link opens,
+        // so read it again on mount and whenever this tab gets focus back. The read stays out of teamLogic,
+        // because a slow response there would replace a newer shared team. A later focus also repairs a read
+        // that ran before the save finished or that failed.
+        actions.loadStoredLinkTagging()
         cache.disposables.add(
             () => {
-                const onFocus = (): void => actions.refreshCurrentTeam()
+                const onFocus = (): void => actions.loadStoredLinkTagging()
                 window.addEventListener('focus', onFocus)
                 return () => window.removeEventListener('focus', onFocus)
             },
-            'refreshTeamOnFocus',
+            'reloadLinkTaggingOnFocus',
             { pauseOnPageHidden: false }
         )
     }),

@@ -49,6 +49,7 @@ function StepValue({ step }: { step: ImpactStep }): JSX.Element {
                 <Link
                     className="text-xs"
                     to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
+                    target="_blank"
                     data-attr="email-impact-link-tagging-settings-link"
                 >
                     {step.missing}
