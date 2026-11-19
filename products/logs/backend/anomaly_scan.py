@@ -37,7 +37,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS
 
 from products.apm.backend.facade.api import (
@@ -282,6 +282,7 @@ def fetch_bucket_counts(
     service_name: str,
     ranges: list[TimeRange],
     max_execution_seconds: int = SCAN_MAX_EXECUTION_SECONDS,
+    user: User | None = None,
 ) -> dict[str, dict[dt.datetime, int]]:
     """5-minute bucket counts per severity for one service, restricted to the
     given timestamp ranges. Raises CHQueryErrorTooManyBytes past the budget."""
@@ -343,6 +344,7 @@ def fetch_bucket_counts(
         query_type="logs_anomaly_scan",
         query=query,
         team=team,
+        user=user,
         workload=Workload.LOGS,
         settings=_scan_settings(max_execution_seconds),
         limit_context=LimitContext.QUERY,
@@ -538,6 +540,7 @@ def run_scan(
     eval_start: dt.datetime,
     eval_end: dt.datetime,
     now: dt.datetime | None = None,
+    user: User | None = None,
 ) -> ScanResult:
     """Fetch, degrade if needed, replay the detector, and assemble the result.
 
@@ -564,7 +567,7 @@ def run_scan(
             break
         ranges = baseline_slice_ranges(attempt.eval_start, attempt.eval_end, attempt.lookback_buckets, config_probe)
         try:
-            counts = fetch_bucket_counts(team, service_name, ranges, max_execution_seconds=remaining_seconds)
+            counts = fetch_bucket_counts(team, service_name, ranges, max_execution_seconds=remaining_seconds, user=user)
         except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut, ScanFetchTruncated) as err:
             last_error = err
             continue

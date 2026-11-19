@@ -31,7 +31,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.utils import ensure_utc, relative_date_parse
 
 from products.logs.backend.series_prediction import MIN_HISTORY_WEEKS, WeeklyPredictionBand
@@ -169,6 +169,7 @@ def fetch_series_slot_rows(
     interval_minutes: int,
     series_keys: Collection[_SeriesKey] | None = None,
     max_execution_seconds: int = MAX_EXECUTION_SECONDS,
+    user: User | None = None,
 ) -> dict[_SeriesKey, _SeriesRows]:
     """One ClickHouse pass: interval rollup over the window plus baseline, folded
     by time-of-week onto the display window's slots, plus each series' lifetime
@@ -297,6 +298,7 @@ def fetch_series_slot_rows(
         query_type="logs_series_bands",
         query=query,
         team=team,
+        user=user,
         workload=Workload.LOGS,
         settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
         limit_context=LimitContext.QUERY,
@@ -624,12 +626,13 @@ def run_series_bands(
     window_start: dt.datetime,
     window_end: dt.datetime,
     interval_minutes: int = 60,
+    user: User | None = None,
 ) -> SeriesBandsResult:
     window_start = floor_to_interval(window_start, interval_minutes)
     window_end = floor_to_interval(window_end, interval_minutes)
 
     deadline = time.monotonic() + MAX_EXECUTION_SECONDS
-    slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes)
+    slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes, user=user)
     series = [
         _build_series(key, rows, window_start, window_end, interval_minutes, include_bands=False)
         for key, rows in slot_rows.items()

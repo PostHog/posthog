@@ -49,6 +49,8 @@ curl --header "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \
 
 The query only sees logs of the project in the URL. A `team_id` parameter in the query is ignored.
 
+The LogQL API requires access to every event, person, and group property in the project. If your property access is restricted, use the Logs viewer, which filters pipeline diagnostics according to your permissions.
+
 ## Grafana
 
 1. Add a **Loki** data source.

@@ -183,7 +183,7 @@ class TestRunScan(SimpleTestCase):
     def test_degrades_on_fetch_failure_and_reports_constraint(self, _name: str, error: Exception) -> None:
         calls: list[int] = []
 
-        def fake_fetch(team, service_name, ranges, max_execution_seconds=60):
+        def fake_fetch(team, service_name, ranges, max_execution_seconds=60, user=None):
             calls.append(len(ranges))
             if len(calls) == 1:
                 raise error
@@ -219,7 +219,7 @@ class TestRunScan(SimpleTestCase):
     def test_deadline_stops_the_ladder_before_remaining_rungs(self) -> None:
         calls: list[int] = []
 
-        def fake_fetch(team, service_name, ranges, max_execution_seconds=60):
+        def fake_fetch(team, service_name, ranges, max_execution_seconds=60, user=None):
             calls.append(max_execution_seconds)
             raise CHQueryErrorTooManyBytes("too many bytes", code=307)
 
@@ -253,7 +253,7 @@ class TestRunScan(SimpleTestCase):
         counts = rng.poisson(40, size=n_buckets).astype(np.float64)
         counts[lookback + 20 : lookback + 30] = 400.0  # sustained ×10 spike
 
-        def fake_fetch(team, service_name, ranges, max_execution_seconds=60):
+        def fake_fetch(team, service_name, ranges, max_execution_seconds=60, user=None):
             return {"info": {grid_start + i * BUCKET: int(counts[i]) for i in range(n_buckets) if counts[i]}}
 
         with patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", side_effect=fake_fetch):
@@ -291,7 +291,7 @@ class TestRunScan(SimpleTestCase):
         counts[lookback + 20 : lookback + 30] = 400.0  # spike opens the issue
         counts[lookback + 60] = 400.0  # lone blip long after resolution
 
-        def fake_fetch(team, service_name, ranges, max_execution_seconds=60):
+        def fake_fetch(team, service_name, ranges, max_execution_seconds=60, user=None):
             return {"info": {grid_start + i * BUCKET: int(counts[i]) for i in range(n_buckets) if counts[i]}}
 
         with patch("products.logs.backend.anomaly_scan.fetch_bucket_counts", side_effect=fake_fetch):
