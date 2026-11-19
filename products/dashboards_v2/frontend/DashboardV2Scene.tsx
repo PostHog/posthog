@@ -1,7 +1,7 @@
 import './DashboardV2.scss'
 
 import { useActions, useValues } from 'kea'
-import { type RefObject, useEffect } from 'react'
+import { type RefObject, useEffect, useMemo } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -13,6 +13,7 @@ import { DashboardV2Actions } from './components/DashboardV2Actions'
 import { DashboardV2Tabs } from './components/DashboardV2Tabs'
 import { TileGrid } from './components/TileGrid'
 import { dashboardV2Logic } from './dashboardV2Logic'
+import { stackTiles } from './layout/dashboardEdits'
 import { GRID } from './layout/dashboardTypes'
 
 export const scene: SceneExport = {
@@ -37,9 +38,18 @@ function isTyping(target: EventTarget | null): boolean {
 
 function DashboardV2(): JSX.Element {
     const { dashboard, activeTab, hasPermission } = useValues(dashboardV2Logic)
-    const { undo, redo } = useActions(dashboardV2Logic)
+    const { undo, redo, setStacked } = useActions(dashboardV2Logic)
     const canUndoRedo = hasPermission('undo')
     const { width, containerRef, mounted } = useContainerWidth()
+    const stacked = width > 0 && width < GRID.stackBelowPx
+    const tiles = useMemo(
+        () => (stacked ? stackTiles(activeTab.tiles, GRID.columns) : activeTab.tiles),
+        [stacked, activeTab.tiles]
+    )
+
+    useEffect(() => {
+        setStacked(stacked)
+    }, [stacked, setStacked])
 
     useEffect(() => {
         if (!canUndoRedo) {
@@ -73,7 +83,7 @@ function DashboardV2(): JSX.Element {
                     <TileGrid
                         key={activeTab.id}
                         gridId={activeTab.id}
-                        tiles={activeTab.tiles}
+                        tiles={tiles}
                         cols={GRID.columns}
                         width={width}
                         editable={hasPermission('placeTiles')}
