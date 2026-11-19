@@ -74,6 +74,7 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         return MetricPrecomputedMetric.objects.for_team(self.team.pk).get()
 
     def _stored(self, precomputed: MetricPrecomputedMetric) -> dict[tuple[str, ...], dict[dt.datetime, object]]:
+        assert precomputed.covered_from is not None and precomputed.covered_to is not None
         entries = read_entries(precomputed, precomputed.covered_from, precomputed.covered_to)
         return {entry.labels: dict(entry.points) for entry in entries.values()}
 
@@ -139,6 +140,7 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
 
         assert self._stored(precomputed)[("checkout",)][last_hour] == 10.0
         assert precomputed.settle_seconds > 900
+        assert precomputed.covered_to is not None
         assert precomputed.covered_to > SETTLED
 
     def test_splits_a_fill_that_returns_too_many_rows(self):
@@ -188,6 +190,7 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
         precomputed = self._fill()
 
         assert not MetricPrecomputedChunk.objects.for_team(self.team.pk).filter(day=old_day).exists()
+        assert precomputed.covered_from is not None
         assert precomputed.covered_from >= NOW - RETENTION - dt.timedelta(days=1)
 
     def test_the_scheduled_task_fills_each_team_with_an_active_metric(self):
