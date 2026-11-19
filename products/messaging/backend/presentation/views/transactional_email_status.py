@@ -103,7 +103,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             401: OpenApiResponse(description="The request has no project secret API key."),
             404: OpenApiResponse(
                 description="No email of this project has this ID, or it is older than 30 days. In the first "
-                "seconds after a send, it means the email is queued but its first status isn't recorded yet."
+                "seconds after a send, it means PostHog accepted the email but hasn't recorded its first status yet."
             ),
         },
         summary="Get a transactional email's status",
@@ -111,8 +111,8 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "Get the status of one transactional email by the `message_id` that the send returned, for 30 days after "
             "the send. Needs a project secret API key with the `transactional_email:read` scope. A key with "
             "`hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is "
-            "recorded a few seconds after the send, so a read right after a send can answer 404. Treat that 404 as "
-            "`queued` and read again a few seconds later."
+            "recorded a few seconds after the send, so a read right after a send can answer 404. Read again a few "
+            "seconds later. Until then the email waits to go out, as `queued`, or as `scheduled` for a scheduled send."
         ),
     )
     def retrieve(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
