@@ -118,6 +118,7 @@ def test_unknown_table_fails_before_network(
         ("purchase_orders", "/api/v1/purchase-orders", {"order_field": ["id"], "order_direction": ["ASC"]}),
         ("recurring_invoices", "/api/v1/recurring-invoices", {}),
         ("taxes", "/api/v1/taxes", {}),
+        ("journals", "/api/v1/journals", {}),
     ],
 )
 def test_endpoint_request_shape(
