@@ -552,6 +552,12 @@ def _expand_cte_dependencies(roots: set[str], pending_ctes: dict[str, ast.CTE]) 
 _MISSING_CTE: Any = object()
 
 
+class _PendingScalarAliasError(QueryError):
+    def __init__(self, message: str, *, frame: dict[str, Any], node: ast.Field, fix: str | None):
+        super().__init__(message, node=node, fix=fix)
+        self.frame = frame
+
+
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
@@ -598,6 +604,7 @@ class Resolver(CloningVisitor):
         self._entered_root_select: bool = False
         # Separate SELECT frames prevent nested joins from consuming an outer query's deferred aliases.
         self._pending_scalar_ctes: list[dict[str, Any]] = []
+        self._terminal_cte_errors: dict[int, object] = {}
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -620,6 +627,15 @@ class Resolver(CloningVisitor):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
         try:
+            scalar_ctes = (
+                {
+                    name: cte
+                    for name, cte in (node.initial_select_query.ctes or {}).items()
+                    if cte.cte_type == "column" and _collect_field_root_names(cte.expr)
+                }
+                if isinstance(node.initial_select_query, ast.SelectQuery)
+                else {}
+            )
             initial = self.visit(node.initial_select_query)
 
             # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
@@ -629,8 +645,16 @@ class Resolver(CloningVisitor):
 
             subsequent: list[ast.SelectSetNode] = []
             for expr in node.subsequent_select_queries:
+                select_query = expr.select_query
+                if scalar_ctes:
+                    select_query = self._copy(select_query)
+                    first_branch = select_query
+                    while isinstance(first_branch, ast.SelectSetQuery):
+                        first_branch = first_branch.initial_select_query
+                    # Lazy property bindings belong to each branch's tables, not to the first branch's resolved CTE.
+                    first_branch.ctes = {**scalar_ctes, **(first_branch.ctes or {})}
                 subsequent.append(
-                    ast.SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
+                    ast.SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(select_query))
                 )
 
             result = ast.SelectSetQuery(
@@ -1111,9 +1135,17 @@ class Resolver(CloningVisitor):
         )
         scopes_before = len(self.scopes)
         ctes_before = self.ctes
+        errors_before = len(self.context.errors)
         try:
             with self.context.entering_select(node.view_name):
-                return self._resolve_select_query(node)
+                resolved = self._resolve_select_query(node)
+            self._terminal_cte_errors.update((id(error), error) for error in self.context.errors[errors_before:])
+            return resolved
+        except QueryError as error:
+            # An outer FROM cannot repair an error in a completed inner scope, except for an outer pending alias.
+            if not isinstance(error, _PendingScalarAliasError):
+                self._terminal_cte_errors[id(error)] = error
+            raise
         finally:
             del self.scopes[scopes_before:]
             self.ctes = ctes_before
@@ -1137,7 +1169,7 @@ class Resolver(CloningVisitor):
         # First step: resolve the "WITH" CTEs onto "self.ctes" if there are any.
         # Scalar aliases can need FROM's columns; table CTEs must resolve first so FROM can reference them.
         if node.ctes:
-            self.ctes = dict(parent_ctes)
+            self.ctes = {name: cte for name, cte in parent_ctes.items() if name not in node.ctes}
             current_level_ctes = {}
             for cte in node.ctes.values():
                 if cte.cte_type == "column":
@@ -2175,8 +2207,9 @@ class Resolver(CloningVisitor):
         not in scope yet.
 
         Unresolvable fields raise QueryError in the clickhouse dialect, but only record context
-        errors in the SQL-target dialects, so both signals count as "not resolvable yet". A
-        failed attempt leaves no trace: recorded errors are dropped, scopes pushed by nested
+        errors in the SQL-target dialects. Errors from an inner SELECT are terminal unless
+        they reference an outer pending scalar alias. A deferred attempt leaves no trace:
+        recorded errors are dropped, scopes pushed by nested
         visitors are rolled back, and the CTE registration (a visit_cte side effect) is undone.
         """
         errors_before = len(self.context.errors)
@@ -2187,8 +2220,16 @@ class Resolver(CloningVisitor):
         ctes_before = dict(self.ctes)
         try:
             resolved_cte = self.visit(cte)
-        except QueryError:
+        except QueryError as error:
+            if id(error) in self._terminal_cte_errors:
+                raise
+            if isinstance(error, _PendingScalarAliasError) and error.frame is not self._pending_scalar_ctes[-1]:
+                raise
             resolved_cte = None
+        if resolved_cte is not None and any(
+            id(error) in self._terminal_cte_errors for error in self.context.errors[errors_before:]
+        ):
+            return resolved_cte
         if resolved_cte is None or len(self.context.errors) > errors_before:
             del self.context.errors[errors_before:]
             del self.context.warnings[warnings_before:]
@@ -3030,6 +3071,11 @@ class Resolver(CloningVisitor):
                 fix = function_call if node.start is not None and node.end is not None else None
             else:
                 fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
+            for frame in reversed(self._pending_scalar_ctes):
+                if name in frame["pending"]:
+                    raise _PendingScalarAliasError(
+                        f"{UNRESOLVED_FIELD_MESSAGE}: {name}{suggestion_suffix}", frame=frame, node=node, fix=fix
+                    )
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #

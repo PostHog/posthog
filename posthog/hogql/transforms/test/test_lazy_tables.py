@@ -55,6 +55,32 @@ from products.event_definitions.backend.models import PropertyDefinition
 class TestNamespacedLazyTables(SimpleTestCase):
     @parameterized.expand(
         [
+            ("persons", "WITH properties.email AS e SELECT e FROM persons UNION ALL SELECT e FROM persons", 2),
+            ("groups", "WITH properties.email AS e SELECT e FROM groups UNION ALL SELECT e FROM groups", 2),
+            (
+                "nested_union",
+                "WITH properties.email AS e SELECT e FROM persons UNION ALL (SELECT e FROM persons UNION ALL SELECT e FROM persons)",
+                3,
+            ),
+            (
+                "branch_override",
+                "WITH properties.email AS e SELECT e FROM persons UNION ALL WITH 1 AS e SELECT e FROM persons",
+                1,
+            ),
+            (
+                "alias_dependency",
+                "WITH properties.email AS e, e AS f SELECT f FROM persons UNION ALL SELECT f FROM persons",
+                2,
+            ),
+        ]
+    )
+    def test_scalar_alias_lazy_properties_are_rebound_in_union_branches(
+        self, _name: str, query: str, exports: int
+    ) -> None:
+        self.assertEqual(self._compile(query).count("AS properties___email"), exports)
+
+    @parameterized.expand(
+        [
             ("persons_star", "persons", "SELECT * FROM {table} LIMIT 1"),
             ("persons_count", "persons", "SELECT count() FROM {table}"),
             ("persons_id", "persons", "SELECT id FROM {table}"),

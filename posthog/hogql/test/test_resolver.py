@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from itertools import count
 from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
 
@@ -16,7 +17,7 @@ from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
 from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
@@ -911,6 +912,25 @@ class TestResolver(BaseTest):
         self.assertEqual(
             self._print_hogql("with toStartOfDay(timestamp) as day select day, count() from events group by day"),
             "WITH toStartOfDay(timestamp) AS day SELECT day, count() FROM events GROUP BY day LIMIT 50000",
+        )
+
+    @parameterized.expand([("clickhouse",), ("hogql",), ("postgres",)])
+    def test_nested_scalar_subquery_reports_terminal_error_without_exhausting_budget(self, dialect: HogQLDialect):
+        query = "SELECT missing"
+        for index in range(18):
+            query = f"WITH ({query}) AS x{index} SELECT x{index}"
+        with patch("posthog.hogql.compilation.time.monotonic", side_effect=count(0, 0.01)):
+            if dialect == "clickhouse":
+                with self.assertRaisesRegex(QueryError, "Unable to resolve field: missing"):
+                    resolve_types(self._select(query), self.context, dialect=dialect)
+            else:
+                resolve_types(self._select(query), self.context, dialect=dialect)
+                self.assertEqual([error.message for error in self.context.errors], ["Unable to resolve field: missing"])
+
+    def test_scalar_subquery_can_wait_for_an_outer_scalar_alias(self):
+        self.assertEqual(
+            self._print_hogql("WITH timestamp AS t, (SELECT t) AS u SELECT u FROM events"),
+            "WITH timestamp AS t, (SELECT t) AS u SELECT u FROM events LIMIT 50000",
         )
 
     def test_ctes_column_alias_referencing_joined_table(self):
