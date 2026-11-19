@@ -331,6 +331,31 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             )
         capture.assert_not_called()
 
+    def test_the_cohort_keeps_its_members_when_the_creator_lost_edit_access_to_it(self) -> None:
+        create_person(team=self.team, distinct_ids=["user-ada"], properties={"email": "ada@example.com"})
+        flush_persons_and_events()
+        staged = self._stage(["ada@example.com"])
+        assert staged.cohort_id is not None
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        # Someone else owns the cohort now and made it read-only for the project.
+        Cohort.objects.filter(id=staged.cohort_id).update(created_by=None)
+        AccessControl.objects.create(
+            team=self.team, resource="cohort", resource_id=str(staged.cohort_id), access_level="viewer"
+        )
+
+        with (
+            patch.object(provider_contacts, "replace_static_cohort_members") as replace_here,
+            self.assertRaises(ContactsImportAccessLost),
+        ):
+            provider_contacts.fill_contacts_cohort(
+                self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
+            )
+
+        replace_here.assert_not_called()
+
     @patch.object(provider_contacts, "capture_batch_internal")
     def test_a_part_resends_only_what_capture_didnt_acknowledge(self, capture: MagicMock) -> None:
         for name in ("ada", "bea"):

@@ -15,8 +15,13 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.storage import object_storage
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.cohorts.backend.facade.api import find_cohort_ref_by_description, replace_static_cohort_members
+from products.cohorts.backend.facade.api import (
+    find_cohort_ref_by_description,
+    get_cohort_ref,
+    replace_static_cohort_members,
+)
 from products.workflows.backend.facade.contracts import (
     ContactChunkOutcome,
     ContactsCaptureFailed,
@@ -245,7 +250,20 @@ def fill_contacts_cohort(
     team_id: int, cohort_id: int, storage_prefix: str, chunks: int, *, created_by_id: int | None
 ) -> ContactsCohortFilled:
     """Set the cohort's members to the list's people, once every part is in. Anyone else in the cohort leaves it."""
-    _require_creator(team_id, created_by_id)
+    creator = _check_creator(team_id, created_by_id)
+    if isinstance(creator, ProviderContactsResult):
+        raise ContactsImportAccessLost(" ".join(creator.notes))
+    cohort = get_cohort_ref(team_id=team_id, cohort_id=cohort_id)
+    ref = (
+        ObjectAccessRef(
+            resource="cohort", id=str(cohort.id), team_id=cohort.team_id, created_by_id=cohort.created_by_id
+        )
+        if cohort is not None
+        else None
+    )
+    # Replacing the members removes people too, so the creator must still be able to edit this cohort.
+    if ref is None or not creator.access.check_access_level_for_ref(ref, "editor"):
+        raise ContactsImportAccessLost("The person who started this import can't edit this cohort anymore.")
     members = [
         person["distinct_id"]
         for chunk in range(chunks)
