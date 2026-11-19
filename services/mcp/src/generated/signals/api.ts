@@ -562,6 +562,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.'
         ),
+    connected: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated ways the requesting user is connected to a report; a report matching any of them is kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. 'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me."
+        ),
     count_only: zod
         .boolean()
         .default(signalsReportsListQueryCountOnlyDefault)
@@ -727,7 +733,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
+            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, monitoring_recent, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. monitoring_recent adds the resolved and closed reports whose Monitoring ended in the last 14 days, each with its `monitoring_outcome` and the final state of every check. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
         ),
 })
 

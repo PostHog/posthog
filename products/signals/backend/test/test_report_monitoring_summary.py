@@ -107,15 +107,47 @@ def _summarize(
 class TestSummarizeMonitoring(SimpleTestCase):
     @parameterized.expand(
         [
-            ("one_off_track_outweighs_on_track", [[True], [True, False]], 2, "not_on_track", 1),
-            ("missing_reading_waits", [[True], []], 2, "awaiting_reading", 0),
-            ("all_latest_readings_pass", [[False, True], [True]], 2, "on_track", 0),
-            ("failed_measurement_keeps_last_verdict", [[True, None]], 2, "on_track", 0),
-            ("window_end_outweighs_off_track", [[False]], 8, "window_ended", 0),
+            (
+                "one_off_track_outweighs_on_track",
+                [[True], [True, False]],
+                2,
+                "not_on_track",
+                1,
+                ["on_track", "not_on_track"],
+            ),
+            ("missing_reading_waits", [[True], []], 2, "awaiting_reading", 0, ["on_track", "awaiting_reading"]),
+            ("all_latest_readings_pass", [[False, True], [True]], 2, "on_track", 0, ["on_track", "on_track"]),
+            ("failed_measurement_keeps_last_verdict", [[True, None]], 2, "on_track", 0, ["on_track"]),
+            ("window_end_outweighs_off_track", [[False]], 8, "window_ended", 0, ["not_on_track"]),
             # Final verification still decides with an errored member, so its readings still count.
-            ("errored_member_still_counts", [[True], [False]], 2, "not_on_track", 1, "errored"),
+            (
+                "errored_member_still_counts",
+                [[True], [False]],
+                2,
+                "not_on_track",
+                1,
+                ["on_track", "not_on_track"],
+                "errored",
+            ),
             # A passed final verdict outranks the interim miss before it.
-            ("final_pass_outranks_interim_failure", [[True], [False]], 2, "on_track", 0, "passed"),
+            (
+                "final_pass_outranks_interim_failure",
+                [[True], [False]],
+                2,
+                "on_track",
+                0,
+                ["on_track", "passed"],
+                "passed",
+            ),
+            (
+                "final_failure_outranks_interim_pass",
+                [[True], [True]],
+                8,
+                "window_ended",
+                1,
+                ["on_track", "failed"],
+                "failed",
+            ),
         ]
     )
     def test_state_and_lead_check(
@@ -125,6 +157,7 @@ class TestSummarizeMonitoring(SimpleTestCase):
         now_day: int,
         state: str,
         lead_index: int,
+        check_states: list[str],
         last_status: str | None = None,
     ) -> None:
         report = _report()
@@ -145,6 +178,8 @@ class TestSummarizeMonitoring(SimpleTestCase):
         assert summary.state == MonitoringSummaryState(state)
         assert summary.lead_check is not None
         assert summary.lead_check.check_id == checks[lead_index].id
+        assert [check.check_id for check in summary.checks] == [check.id for check in checks]
+        assert [check.state for check in summary.checks] == check_states
 
     @parameterized.expand([("before_the_short_window_ends", 1), ("after_the_short_window_ends", 48)])
     def test_reports_without_interim_readings_wait_for_their_final_checks(self, _name: str, now_hours: int) -> None:
@@ -169,6 +204,11 @@ class TestSummarizeMonitoring(SimpleTestCase):
         assert summary.state == MonitoringSummaryState.FINAL_CHECK_ONLY
         assert summary.lead_check is None
         assert summary.ends_at == START + timedelta(days=10)
+        assert [(check.kind, check.state) for check in summary.checks] == [
+            ("metric_threshold", "final_check_only"),
+            ("metric_threshold", "final_check_only"),
+            ("agent", "final_check_only"),
+        ]
 
     @parameterized.expand([("readable", True, "not_on_track"), ("redacted", False, "readings_hidden")])
     def test_readings_keep_this_period_only_and_hide_verdicts_from_viewers_without_access(
@@ -194,6 +234,7 @@ class TestSummarizeMonitoring(SimpleTestCase):
 
         assert summary is not None and summary.lead_check is not None
         assert summary.state == MonitoringSummaryState(state)
+        assert [check.state for check in summary.checks] == [state]
         lead = summary.lead_check
         assert [reading.measured_at for reading in lead.readings] == [
             START + timedelta(days=1),
