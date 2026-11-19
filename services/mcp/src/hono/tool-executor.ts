@@ -351,7 +351,6 @@ export class ToolExecutor {
         analyticsMeta: ToolCallAnalyticsMeta
     ): Promise<unknown> {
         if (isExecDispatcher(toolName)) {
-            // A split connection lists `exec-read` and `exec-write` only; wrappers never split, and their gates don't know `exec-write`.
             const unlisted = state.splitWrites ? toolName === EXEC_TOOL_NAME : toolName === EXEC_WRITE_TOOL_NAME
             if (state.viaMcpStore || unlisted) {
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }

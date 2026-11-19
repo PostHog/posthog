@@ -191,7 +191,6 @@ describe('ToolExecutor', () => {
                 )
             })
 
-            // It saves the regenerated summary onto the survey.
             it('refuses survey summarization through exec-read', async () => {
                 const request = vi.fn()
                 const tools = catalog
@@ -370,7 +369,6 @@ describe('ToolExecutor', () => {
             expect(result.tools.map((t) => [t.name, t.annotations?.readOnlyHint])).toEqual(expected)
         })
 
-        // Shared templates name `exec`, which a split connection does not list.
         it('points exec-read at its own name', async () => {
             const state = makeToolExecutorState([], { useSingleExec: true, splitWrites: true })
 
