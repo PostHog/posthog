@@ -37,7 +37,7 @@ METRICS_QUERY_NAME = "ai_trace_metrics"
 _METRICS_QUERY_SECONDS = 30
 _BUCKET_FUNCTIONS = {BucketSize.HOUR: "toStartOfHour", BucketSize.DAY: "toStartOfDay"}
 _TOTALS_COLUMNS = frozenset(field.name for field in fields(PeriodTotals))
-_NO_TRACES = PeriodTotals(
+NO_TRACES = PeriodTotals(
     traces=0,
     errored=0,
     cost=0.0,
@@ -187,7 +187,7 @@ def load_trace_metrics(team: Team, user: User | None, selection: TraceSelection,
     rows = _execute(team, user, _metrics_query(team, replace(selection, window=window), size))
     periods = {bool(row["in_current"]): _totals(row) for row in rows if row["is_period_total"]}
     return TraceMetricsRows(
-        current=periods.get(True, _NO_TRACES),
-        previous=periods.get(False, _NO_TRACES),
+        current=periods.get(True, NO_TRACES),
+        previous=periods.get(False, NO_TRACES),
         buckets={row["bucket"]: _totals(row) for row in rows if row["in_current"] and not row["is_period_total"]},
     )
