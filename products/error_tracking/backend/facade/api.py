@@ -24,7 +24,8 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
-from ..logic import built_in_filters, external_references, github_external_references, rules
+from ..logic import built_in_filters, external_references, github_external_references, rules, team_flags
+from ..logic.issue_summary_config import ISSUE_SUMMARY_FLAG
 from ..logic.issue_tags import (
     enabled as issue_tag_enabled,
     reader as issue_tag_reader,
@@ -279,6 +280,22 @@ def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSe
 
 def get_settings(team_id: int) -> contracts.ErrorTrackingSettings:
     return _to_settings(logic.get_or_create_settings(team_id), logic.is_exception_ingestion_enabled(team_id))
+
+
+_AI_FEATURE_FLAGS = {contracts.ErrorTrackingAIFeature.ISSUE_SUMMARIES: ISSUE_SUMMARY_FLAG}
+
+
+def available_ai_features(team_id: int) -> list[contracts.ErrorTrackingAIFeature]:
+    """The AI features whose flag is on for the project. The project's settings show only these.
+
+    This is the flag check of the backend gate, but it never falls back to a remote call, because the team serializer
+    runs it on every page load. A feature that local evaluation cannot decide is left out.
+    """
+    return [
+        feature
+        for feature, flag in _AI_FEATURE_FLAGS.items()
+        if team_flags.team_flag_enabled(flag, team_id, only_evaluate_locally=True)
+    ]
 
 
 def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contracts.ErrorTrackingSettings:
