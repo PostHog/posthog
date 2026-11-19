@@ -295,7 +295,8 @@ export function MenuItemsWithLongLabels(): JSX.Element {
                     </ButtonPrimitive>
                     <ButtonPrimitive size={size} menuItem>
                         <IconSearch />
-                        Short label
+                        With badge
+                        <span className="ml-auto h-6 rounded border px-1 text-xs">badge</span>
                     </ButtonPrimitive>
                 </div>
             ))}

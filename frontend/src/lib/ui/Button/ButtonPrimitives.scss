@@ -271,6 +271,12 @@
     }
 }
 
+// Menu rows keep their fixed rhythm: only a wrapped label grows them, not a taller trailing element such as a badge
+.button-primitive--menu-item.button-primitive--height-auto {
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
 .button-primitive--size-xxs {
     padding-right: var(--button-padding-x-xxs);
     padding-left: var(--button-padding-x-xxs);
