@@ -48,9 +48,9 @@ export type FrequencyCapCheck =
     | { capped: true; nextSlotAt: number; holdHours: number | null }
 
 // An email address names the same person in any case, so an opt-out recorded earlier in the run applies to every
-// spelling of it.
-const sameRecipient = (a: string, b: string): boolean =>
-    a === b || (a.includes('@') && a.toLowerCase() === b.toLowerCase())
+// spelling of it. Push distinct IDs and phone numbers match exactly.
+const sameRecipient = (a: string, b: string, anyCase: boolean): boolean =>
+    a === b || (anyCase && a.toLowerCase() === b.toLowerCase())
 
 export class RecipientPreferencesService {
     constructor(
@@ -264,7 +264,7 @@ export class RecipientPreferencesService {
         if (
             runOptOuts.some(
                 (optOut) =>
-                    sameRecipient(optOut.identifier, trimmedIdentifier) &&
+                    sameRecipient(optOut.identifier, trimmedIdentifier, action.type === 'function_email') &&
                     (optOut.categoryId === categoryId || optOut.categoryId === '$all')
             )
         ) {
@@ -275,6 +275,7 @@ export class RecipientPreferencesService {
             const recipient = await this.recipientsManager.get({
                 teamId: invocation.teamId,
                 identifier: identifier,
+                ...(action.type === 'function_email' ? { anyCase: true } : {}),
             })
 
             if (!recipient) {
