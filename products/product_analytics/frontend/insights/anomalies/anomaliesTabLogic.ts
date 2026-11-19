@@ -159,6 +159,20 @@ export interface anomaliesTabLogicActions {
         }
     }
     loadMoreAnomalies: () => any
+    loadMoreAnomaliesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMoreAnomaliesSuccess: (
+        anomalies: AnomalySearchResponseApi | null,
+        payload?: any
+    ) => {
+        anomalies: AnomalySearchResponseApi | null
+        payload?: any
+    }
     rateSeries: (
         series: AnomalySeriesApi,
         rating: AnomalyRowRating,
@@ -174,20 +188,6 @@ export interface anomaliesTabLogicActions {
     ) => {
         position: number
         series: AnomalySeriesApi
-    }
-    loadMoreAnomaliesFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadMoreAnomaliesSuccess: (
-        anomalies: AnomalySearchResponseApi | null,
-        payload?: any
-    ) => {
-        anomalies: AnomalySearchResponseApi | null
-        payload?: any
     }
     reportInsightOpened: (
         series: AnomalySeriesApi,
