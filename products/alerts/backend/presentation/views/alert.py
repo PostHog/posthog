@@ -182,6 +182,7 @@ from products.alerts.backend.models.alert import (
 from products.alerts_platform.backend.facade.api import (
     delete_source_destination_rows,
     list_source_destinations,
+    lock_source_configuration,
     record_source_destination,
     redact_destination_data as redact_platform_destination_data,
     standalone_destination_counts,
@@ -2866,15 +2867,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         configs: Sequence[AlertDestinationConfig],
     ) -> Response:
         user = cast(User, request.user)
-        # Counted as the alert's `destination_count` is, so a destination reset to send from its row still counts.
-        _show_destination_counts([alert])
-        if alert.destination_count >= MAX_DESTINATIONS_PER_ALERT:  # type: ignore[attr-defined]
-            raise ValidationError(
-                f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
-            )
-
         try:
             with transaction.atomic():
+                # Counted under the platform copy's lock, so two adds at once cannot both pass the cap. Counted as
+                # the alert's `destination_count` is, so a destination reset to send from its row still counts.
+                lock_source_configuration(team_id=alert.team_id, public_id=alert.id)
+                _show_destination_counts([alert])
+                if alert.destination_count >= MAX_DESTINATIONS_PER_ALERT:  # type: ignore[attr-defined]
+                    raise ValidationError(
+                        f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
+                    )
                 hog_function_ids = create_alert_destination_hog_functions(
                     list(configs),
                     team_id=alert.team_id,
