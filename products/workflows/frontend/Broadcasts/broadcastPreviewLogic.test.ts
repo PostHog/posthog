@@ -90,16 +90,14 @@ describe('broadcastPreviewLogic', () => {
 
     it('looks up preview people in the audience a saved draft resumes with', async () => {
         useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => [200, SAVED_DRAFT] } })
-        query.mockResolvedValueOnce({ results: [NO_EMAIL] }).mockResolvedValue({ results: [ADA] })
+        query.mockImplementation(async (sent: any) => ({ results: sent.properties.length ? [ADA] : [NO_EMAIL] }))
         wizard.unmount()
         wizard = broadcastWizardLogic({ id: 'broadcast-1' })
         wizard.mount()
         logic = broadcastPreviewLogic({ id: 'broadcast-1' })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadPersonsSuccess', 'loadPersonsSuccess'])
-
+        await waitFor(() => expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada']))
         expect(query.mock.lastCall?.[0].properties).toEqual(PRO_PLAN)
-        expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
     })
 
     describe('a saved broadcast with a cohort audience', () => {
