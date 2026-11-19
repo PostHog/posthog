@@ -499,7 +499,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: OpenApiResponse(response=TransactionalEmailResultsSerializer),
             403: OpenApiResponse(
                 description="The personal API key or OAuth token lacks the `hog_flow:read` or `query:read` scope, or the user "
-                "has no access to workflows in this project."
+                "has no access to workflows in this project or to querying events."
             ),
             404: OpenApiResponse(description="The project has no such workflow, or the user may not view it."),
         },
@@ -513,6 +513,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         workflow_id = str(query["workflow_id"])
         if workflow_id not in self._workflow_access().viewable_ids:
             raise NotFound()
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need access to querying events to count conversions.")
         with query_concurrency_slots(self.team):
             outcome = transactional_email_results(
                 self.team,
