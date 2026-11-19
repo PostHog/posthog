@@ -2843,6 +2843,8 @@ const api = {
                 flatSpans?: boolean
                 // true omits the per-span attribute maps — use when only scalar span fields are read.
                 excludeAttributes?: boolean
+                // true adds each span's OTel events. The column is large, so keep `limit` small.
+                includeEvents?: boolean
             },
             signal?: AbortSignal
         ): Promise<{

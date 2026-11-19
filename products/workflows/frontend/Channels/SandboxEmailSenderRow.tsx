@@ -29,7 +29,7 @@ export function SandboxEmailSenderRow(): JSX.Element | null {
                     <IconLetter className="w-8 h-8 shrink-0" />
                     <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex flex-wrap gap-2 items-center">
-                            <strong>Sandbox sender</strong>
+                            <strong>PostHog test sender</strong>
                             <span className="text-xs text-secondary truncate" translate="no" title={fromLine}>
                                 {fromLine}
                             </span>

@@ -10,6 +10,7 @@ import json
 import time
 import hashlib
 import datetime
+import itertools
 import dataclasses
 from typing import Any, Literal
 
@@ -591,6 +592,12 @@ def _capture(
         for candidate in build.candidates:
             for pool in candidate.pools:
                 pools[pool] = pools.get(pool, 0) + 1
+        needs_you_refs = {
+            candidate.ref
+            for candidate in build.candidates
+            if any(kind in _NEEDS_YOU_REASONS for kind in candidate.needs_you)
+        }
+        leading_needs_you = itertools.takewhile(lambda entry: entry.ref in needs_you_refs, build.entries)
         # The build runs in a Celery task, where the global client can drop events before it flushes.
         with ph_scoped_capture() as capture:
             capture(
@@ -620,6 +627,10 @@ def _capture(
                     "candidate_count": len(build.candidates),
                     "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
                     "folded_count": len(build.folded),
+                    # Needs you means waiting on their input or claimed by them. The leading count is the run of
+                    # such reports at the top of the list, so a list that opens with them shows up here.
+                    "needs_you_candidate_count": len(needs_you_refs),
+                    "needs_you_leading_count": sum(1 for _ in leading_needs_you),
                     # The list as stored: the ranked reports by rank, then the folded reports. A later build
                     # prunes the row, so an offline comparison of rankings and outcomes reads the order here.
                     "report_ids": [

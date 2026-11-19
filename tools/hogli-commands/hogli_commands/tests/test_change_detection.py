@@ -30,6 +30,23 @@ class TestChangedFiles:
 
         assert changed_files(base, include_worktree=False) == ["a.py", "test_a.py"]
 
+    def test_exclude_untracked_keeps_tracked_edits_and_drops_scratch_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git: Callable[..., str]
+    ) -> None:
+        monkeypatch.setattr(change_detection, "REPO_ROOT", tmp_path)
+        (tmp_path / "tracked.py").write_text("x = 1\n")
+        git(tmp_path, "init", "-q")
+        git(tmp_path, "add", "-A")
+        git(tmp_path, "commit", "-q", "-m", "init")
+        base = git(tmp_path, "rev-parse", "HEAD")
+        (tmp_path / "tracked.py").write_text("x = 2\n")
+        (tmp_path / "staged_new.py").write_text("y = 1\n")
+        git(tmp_path, "add", "staged_new.py")
+        (tmp_path / "scratch").mkdir()
+        (tmp_path / "scratch" / "notes.py").write_text("z = 1\n")
+
+        assert changed_files(base, include_untracked=False) == ["staged_new.py", "tracked.py"]
+
     @patch("hogli_commands.change_detection.subprocess.run")
     def test_combines_branch_diff_and_working_tree(self, mock_run: MagicMock) -> None:
         mock_run.side_effect = [

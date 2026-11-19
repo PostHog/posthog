@@ -275,6 +275,7 @@ class SandboxConfig(BaseModel):
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
     agent_egress_probe: bool = False
+    agent_egress_observation: bool = False
     outbound_domain_allowlist: list[str] | None = None
     network_policy_fingerprint: str | None = None
     # gVisor only. An empty domain allowlist means unrestricted network in
@@ -312,6 +313,24 @@ class SandboxConfig(BaseModel):
             or self.block_network
         ):
             raise ValueError("Egress probes require a fresh, credential-free development VM")
+        return self
+
+    @model_validator(mode="after")
+    def validate_agent_egress_observation(self) -> Self:
+        if self.agent_egress_observation and (
+            not (settings.DEBUG or settings.TEST)
+            or not self.vm_runtime
+            or self.memory_gb < 2
+            or self.agent_egress_probe
+            or self.outbound_domain_allowlist is not None
+            or self.block_network
+            or self.snapshot_id
+            or self.snapshot_external_id
+            or self.resume_snapshot_external_id
+            or self.snapshot_mount_path
+            or self.require_snapshot
+        ):
+            raise ValueError("Egress observation requires a fresh development VM with full network access")
         return self
 
     @model_validator(mode="before")
@@ -819,12 +838,6 @@ class SandboxBase(ABC):
     def exit_status(self) -> str | None:
         return None
 
-    def read_agent_server_session_init_ms(self) -> int | None:
-        return None
-
-    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
-        return {}
-
     def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
         return None, {}
 
@@ -839,15 +852,6 @@ class SandboxBase(ABC):
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         return None
-
-    def _read_health_session_init_ms(self, port: int) -> int | None:
-        try:
-            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
-            payload = json.loads(result.stdout or "{}")
-            session_init_ms = payload.get("sessionInitMs")
-            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
-        except Exception:
-            return None
 
     def _read_health_boot_metrics(self, port: int) -> tuple[int | None, dict[str, int]]:
         try:
@@ -889,28 +893,6 @@ class SandboxBase(ABC):
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
         except Exception:
             return None, {}
-
-    def _read_health_boot_phases_ms(self, port: int) -> dict[str, int]:
-        try:
-            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
-            payload = json.loads(result.stdout or "{}")
-            raw_phases = payload.get("boot", {}).get("phasesMs", {})
-            allowed_phases = {
-                "context_fetch",
-                "acp_initialize",
-                "repository_ready",
-                "session_dependencies",
-                "session_create",
-            }
-            if not isinstance(raw_phases, dict):
-                return {}
-            return {
-                phase: max(0, int(duration))
-                for phase, duration in raw_phases.items()
-                if phase in allowed_phases and isinstance(duration, int | float)
-            }
-        except Exception:
-            return {}
 
     def __enter__(self) -> Self:
         return self

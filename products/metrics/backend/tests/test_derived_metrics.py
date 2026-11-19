@@ -1,5 +1,6 @@
 import json
 import datetime as dt
+from urllib.parse import parse_qs
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -234,16 +235,29 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert _by_label(series, "service.name") == {"jobs": 1}
 
-    def test_span_attribute_group_by_and_filter(self) -> None:
+    @parameterized.expand(
+        [
+            ("span_attribute", "http.route", ("service.name", FilterOp.NEQ, "worker"), {"/a": 4, "/b": 1, "": 1}),
+            # A service without server spans counts its root spans, so its requests group as "internal".
+            ("span_kind", "span.kind", None, {"server": 6, "internal": 2}),
+            ("span_status", "service.name", ("span.status_code", FilterOp.EQ, "error"), {"web": 1, "worker": 1}),
+            ("span_kind_neq", "span.kind", ("span.kind", FilterOp.NEQ, "server"), {"internal": 2}),
+        ]
+    )
+    def test_span_group_by_and_filter(
+        self,
+        _name: str,
+        group_key: str,
+        span_filter: tuple[str, FilterOp, str] | None,
+        expected: dict[str, float],
+    ) -> None:
+        filters = (
+            () if span_filter is None else (MetricFilter(key=span_filter[0], op=span_filter[1], value=span_filter[2]),)
+        )
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
-            series = self._run(
-                REQUESTS,
-                MetricAggregation.SUM,
-                group_by=("http.route",),
-                filters=(MetricFilter(key="service.name", op=FilterOp.NEQ, value="worker"),),
-            )
+            series = self._run(REQUESTS, MetricAggregation.SUM, group_by=(group_key,), filters=filters)
 
-        assert _by_label(series, "http.route") == {"/a": 4, "/b": 1, "": 1}
+        assert _by_label(series, group_key) == expected
 
     def test_log_records_per_severity(self) -> None:
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
@@ -354,13 +368,16 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("token_without_tracing_scope", ["metrics:read"], True, 403),
-            ("token_with_tracing_scope", ["metrics:read", "tracing:read"], True, 200),
-            ("user_without_tracing_access", None, False, 403),
+            ("token_without_tracing_scope", "query", ["metrics:read"], True, 403),
+            ("token_with_tracing_scope", "query", ["metrics:read", "tracing:read"], True, 200),
+            ("user_without_tracing_access", "query", None, False, 403),
+            ("keys_token_without_tracing_scope", "attributes", ["metrics:read"], True, 403),
+            ("keys_user_without_tracing_access", "attributes", None, False, 403),
+            ("values_user_without_tracing_access", "attribute_values", None, False, 403),
         ]
     )
     def test_derived_queries_need_access_to_the_source(
-        self, _name: str, scopes: list[str] | None, has_source_access: bool, expected_status: int
+        self, _name: str, endpoint: str, scopes: list[str] | None, has_source_access: bool, expected_status: int
     ) -> None:
         if scopes is not None:
             value = generate_random_token_personal()
@@ -376,12 +393,38 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
                 side_effect=lambda resource, *_, **__: resource != "tracing" or has_source_access,
             ),
         ):
+            if endpoint == "query":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/metrics/query/",
+                    {
+                        "query": {
+                            "metricName": REQUESTS,
+                            "aggregation": "sum",
+                            "dateFrom": DATE_FROM.isoformat(),
+                            "dateTo": DATE_TO.isoformat(),
+                            "interval": "hour",
+                        }
+                    },
+                    format="json",
+                )
+            else:
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/metrics/{endpoint}/",
+                    {"metricName": REQUESTS, "key": "span.kind"},
+                )
+
+        assert response.status_code == expected_status, response.json()
+
+    def test_rest_query_sets_the_apdex_threshold(self) -> None:
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/metrics/query/",
                 {
                     "query": {
-                        "metricName": REQUESTS,
-                        "aggregation": "sum",
+                        "metricName": APDEX,
+                        "aggregation": "avg",
+                        "apdexThresholdMs": 15,
+                        "groupBy": [{"key": "service.name"}],
                         "dateFrom": DATE_FROM.isoformat(),
                         "dateTo": DATE_TO.isoformat(),
                         "interval": "hour",
@@ -390,7 +433,40 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-        assert response.status_code == expected_status, response.json()
+        assert response.status_code == 200, response.json()
+        web = next(s for s in response.json()["results"] if s["labels"] == {"service.name": "web"})
+        assert web["points"][0]["value"] == 0.5
+        # The viewer has no threshold, so the link must not chart this clause with the default one.
+        assert "clauses" not in parse_qs(response.json().get("url_params", ""))
+
+    def test_picker_suggests_span_dimensions_and_their_values(self) -> None:
+        window = {"metricName": REQUESTS, "dateFrom": DATE_FROM.isoformat(), "dateTo": DATE_TO.isoformat()}
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            keys = self.client.get(f"/api/projects/{self.team.id}/metrics/attributes/", window).json()
+            values = self.client.get(
+                f"/api/projects/{self.team.id}/metrics/attribute_values/", {**window, "key": "span.kind"}
+            ).json()
+            services = self.client.get(
+                f"/api/projects/{self.team.id}/metrics/attribute_values/", {**window, "key": "service.name"}
+            ).json()
+
+        # Keys without values in the window (service.version, http.status_code) are left out.
+        assert [(k["name"], k["value_count"]) for k in keys["results"]] == [
+            ("service.name", 4),
+            ("span.kind", 3),
+            ("span.status_code", 2),
+            ("deployment.environment", 2),
+            ("http.route", 2),
+            ("span.name", 1),
+        ]
+        assert [(v["name"], v["count"]) for v in values["results"]] == [("server", 6), ("internal", 5), ("client", 1)]
+        # Services rank by server spans first, so "worker" (3 spans, none server) comes last.
+        assert [(v["name"], v["count"]) for v in services["results"]] == [
+            ("web", 6),
+            ("jobs", 2),
+            ("api", 1),
+            ("worker", 3),
+        ]
 
     @parameterized.expand([("test_variant", "test", True), ("control_variant", "control", False)])
     @time_machine.travel(DATE_TO, tick=False)

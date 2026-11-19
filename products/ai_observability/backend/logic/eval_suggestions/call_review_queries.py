@@ -19,6 +19,8 @@ CALL_TYPE_INPUT_CHARS = 1200
 # Candidates read per picked call type. Selection skips tool-call-only outputs and caps calls per trace, so it
 # needs several times its share to choose from.
 CANDIDATES_PER_CALL_TYPE = 60
+# Calls a review's code check is counted on, per call type, so its rate rests on more than the calls the review read.
+CODE_CHECK_CALLS_PER_CALL_TYPE = 200
 MAX_INPUT_CHARS = 65536
 MAX_OUTPUT_CHARS = 16384
 # Agent tool catalogs often run to around 100 KB, and the runtime judge formats the whole catalog.
@@ -251,7 +253,11 @@ def snippet_matches(
 
 
 def load_review_calls(
-    team: Team, window: ProfileWindow, per_mille: int, call_types: Sequence[CallTypeRow]
+    team: Team,
+    window: ProfileWindow,
+    per_mille: int,
+    call_types: Sequence[CallTypeRow],
+    per_type: int = CANDIDATES_PER_CALL_TYPE,
 ) -> list[ReviewCallRow]:
     rows = run_ai_events_query(
         team,
@@ -265,9 +271,9 @@ def load_review_calls(
             "last_messages": ast.Constant(value=LAST_MESSAGES),
             "max_output": ast.Constant(value=MAX_OUTPUT_CHARS),
             "max_tools": ast.Constant(value=MAX_TOOLS_CHARS),
-            "per_type": ast.Constant(value=CANDIDATES_PER_CALL_TYPE),
+            "per_type": ast.Constant(value=per_type),
             # Without a limit, HogQL returns its default 100 rows, fewer than the candidates of two call types.
-            "max_rows": ast.Constant(value=CANDIDATES_PER_CALL_TYPE * len(call_types)),
+            "max_rows": ast.Constant(value=per_type * len(call_types)),
         },
         "EvalSuggestionsReviewCalls",
     )

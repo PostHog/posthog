@@ -130,6 +130,7 @@ const metricNamesList = (): ToolBase<ReturnType<typeof MetricNamesListSchema>, S
                 fold_histograms: params.fold_histograms,
                 limit: params.limit,
                 match: params.match,
+                series_stats: params.series_stats,
                 service: params.service,
                 sparklines: params.sparklines,
                 value: params.value,

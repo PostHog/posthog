@@ -265,6 +265,7 @@ def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSe
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
         per_issue_rate_limit_bucket_size_minutes=settings.per_issue_rate_limit_bucket_size_minutes,
+        ai_issue_summaries_enabled=settings.ai_issue_summaries_enabled,
         ingestion_enabled=ingestion_enabled,
     )
 
@@ -726,6 +727,13 @@ def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
     return _to_external_references(team_id, external_references.list_external_references(team_id=team_id))
+
+
+def list_issue_external_references(team_id: int, issue_id: UUID) -> list[contracts.ErrorTrackingExternalReference]:
+    return _to_external_references(
+        team_id,
+        external_references.list_external_references(team_id=team_id).filter(issue_id=issue_id).order_by("created_at"),
+    )
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:

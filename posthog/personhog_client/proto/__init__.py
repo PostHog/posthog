@@ -33,6 +33,8 @@ from personhog.types.v1.cohort_pb2 import (
     DeleteCohortMemberResponse,
     DeleteCohortMembersBulkRequest,
     DeleteCohortMembersBulkResponse,
+    DeleteCohortMembersByPersonIdsRequest,
+    DeleteCohortMembersByPersonIdsResponse,
     InsertCohortMembersRequest,
     InsertCohortMembersResponse,
     ListCohortMemberIdsRequest,

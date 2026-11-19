@@ -33,11 +33,9 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
-from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
-from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -56,15 +54,21 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.api import (
+    DESCRIBE_QUERY_SETTINGS,
+    THERE_IS_NO_COLUMN_ERROR_CODE,
+    DescribedColumn,
     IncrementalFilterError,
     WritePlan,
     clear_incremental_state,
+    describe_ast_settings,
     duplicate_output_columns,
     duplicate_output_columns_message,
     get_incremental_state,
     inject_incremental_filter,
     parse_model_query,
+    print_describe_variant,
     record_incremental_history,
+    rename_described_columns,
     resolve_write_plan,
     set_incremental_state,
 )
@@ -99,59 +103,11 @@ tracer = trace.get_tracer(__name__)
 
 MB_100_IN_BYTES = 100 * 1000 * 1000
 
-# ClickHouse builds every GLOBAL IN subquery as a temporary table while it plans a query, and
-# DESCRIBE plans the query too, so the schema probe scans the source tables just to return column
-# types. The probe therefore prints a copy of the query with GLOBAL IN downgraded to plain IN and
-# runs with the two settings that would add GLOBAL back pinned off (the cluster profile sets
-# distributed_product_mode=global). Joins keep their GLOBAL prefix: the resolver adds it to
-# events-to-S3 join chains to work around a ClickHouse bug, not for cost. The materialization query
-# itself is printed from the untouched AST.
-DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
-
-_LOCAL_COMPARE_OPS = {
-    ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.In,
-    ast.CompareOperationOp.GlobalNotIn: ast.CompareOperationOp.NotIn,
-}
-
-
-class _DowngradeGlobalIn(CloningVisitor):
-    def __init__(self) -> None:
-        super().__init__(clear_types=False, clear_locations=False)
-
-    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
-        cloned = super().visit_compare_operation(node)
-        cloned.op = _LOCAL_COMPARE_OPS.get(cloned.op, cloned.op)
-        return cloned
-
-
-def _print_describe_variant(
-    prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
-) -> str:
-    downgraded = _DowngradeGlobalIn().visit(prepared_query)
-    return print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
-
 
 def _print_untouched(
     prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
 ) -> str:
     return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
-
-
-def _describe_ast_settings(settings: HogQLGlobalSettings) -> dict[str, str]:
-    return {
-        name: str(value)
-        for name, value in {
-            "max_ast_elements": settings.max_ast_elements,
-            "max_expanded_ast_elements": settings.max_expanded_ast_elements,
-        }.items()
-        if value is not None
-    }
-
-
-@frozen
-class _DescribedColumn:
-    name: str
-    ch_type: str
 
 
 def _plan_prompt_jev(
@@ -185,7 +141,7 @@ async def _describe_columns(
     query_settings: dict[str, str],
     external_tables: list[ClickHouseExternalTable],
     retry_with_untouched_query: bool,
-) -> list[_DescribedColumn]:
+) -> list[DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
     try:
@@ -199,17 +155,17 @@ async def _describe_columns(
             ) as ch_response:
                 table_describe_response = await ch_response.content.read()
     except ClickHouseError as error:
-        if error.code != 8 or not retry_with_untouched_query:
+        if error.code != THERE_IS_NO_COLUMN_ERROR_CODE or not retry_with_untouched_query:
             raise
         raise ClickHouseQueryPlanningError(str(error), query=error.query, query_id=error.query_id) from error
-    columns: list[_DescribedColumn] = []
+    columns: list[DescribedColumn] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
-        columns.append(_DescribedColumn(name=column_name, ch_type=ch_type))
+        columns.append(DescribedColumn(name=column_name, ch_type=ch_type))
     return columns
 
 
-def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
+def _reject_duplicate_output_columns(columns: list[DescribedColumn]) -> None:
     duplicates = duplicate_output_columns(column.name for column in columns)
     if duplicates:
         raise DuplicateOutputColumnError(duplicates)
@@ -677,7 +633,7 @@ async def hogql_table(
 
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
-    describe_ast_settings = _describe_ast_settings(settings)
+    ast_settings = describe_ast_settings(settings)
     kill_switch_level = await database_sync_to_async_pool(resolve_kill_switch_level)(team.pk)
     if kill_switch_level in KILL_SWITCH_MAX_THREADS:
         settings.max_threads = KILL_SWITCH_MAX_THREADS[kill_switch_level]
@@ -718,7 +674,7 @@ async def hogql_table(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
+    probe = await database_sync_to_async_pool(print_describe_variant)(prepared_hogql_query, context, settings)
 
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
@@ -757,12 +713,15 @@ async def hogql_table(
     )
 
     try:
-        described_columns = await _describe_columns(
-            printed,
-            context.values,
-            {**DESCRIBE_QUERY_SETTINGS, **describe_ast_settings},
-            list(context.external_tables.values()),
-            retry_with_untouched_query=True,
+        described_columns = rename_described_columns(
+            await _describe_columns(
+                probe.sql,
+                context.values,
+                {**DESCRIBE_QUERY_SETTINGS, **ast_settings},
+                list(context.external_tables.values()),
+                retry_with_untouched_query=True,
+            ),
+            probe,
         )
     except ClickHouseQueryPlanningError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
@@ -774,7 +733,7 @@ async def hogql_table(
         described_columns = await _describe_columns(
             untouched,
             context.values,
-            describe_ast_settings,
+            ast_settings,
             list(context.external_tables.values()),
             retry_with_untouched_query=False,
         )
