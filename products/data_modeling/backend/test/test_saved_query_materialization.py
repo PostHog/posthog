@@ -6,12 +6,13 @@ from unittest.mock import AsyncMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, User
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.facade.contracts import (
@@ -281,6 +282,27 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         schedule_materialization.assert_not_called()
         assert self.saved_query.is_materialized is False
         assert self.saved_query.incremental_config is None
+
+
+class TestReadAccessCheckOnPipelineLogs(BaseTest):
+    @parameterized.expand(
+        [
+            (table, access)
+            for table in ("log_entries", "logs", "posthog.hog_invocation_results", "events")
+            for access in ("restricted", "granted")
+        ]
+    )
+    def test_restricted_members_cannot_publish_pipeline_logs(self, table: str, access: PropertyAccess) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+        saved_query = DataWarehouseSavedQuery(
+            team_id=self.team.id, name="copy", query={"kind": "HogQLQuery", "query": f"SELECT 1 FROM {table}"}
+        )
+
+        if access == "restricted" and table != "events":
+            with self.assertRaises(PermissionDenied):
+                assert_user_can_read_saved_query(saved_query, self.user)
+        else:
+            assert_user_can_read_saved_query(saved_query, self.user)
 
 
 class TestReadAccessCheckOnAnIncompleteQuery(SimpleTestCase):

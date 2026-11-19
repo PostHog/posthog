@@ -9,6 +9,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
@@ -663,6 +664,7 @@ class BatchExportSerializer(serializers.Serializer):
 )
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     path_parameters = {"pk": PathParameter(type=uuid.UUID, description="A UUID string identifying this batch export.")}
+    permission_classes = [CDPPropertyAccessPermission]
     scope_object = "batch_export"
     serializer_class = BatchExportSerializer
     pagination_class = FacadeLimitOffsetPagination

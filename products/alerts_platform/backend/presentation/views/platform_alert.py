@@ -36,6 +36,7 @@ from posthog.permissions import (
 from posthog.scopes.catalog import APIScopeObject
 from posthog.scopes.checks import scopes_not_covered
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
@@ -725,7 +726,21 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             for source_kind, resource in SOURCE_KIND_RESOURCE.items()
             if source_kind in self.open_source_kinds
             and resource_permitted(self.request, self.user_access_control, resource, access_level, scope_action)
+            and not (
+                scope_action == "write"
+                and source_kind == PlatformAlertConfigurationSourceKind.LOGS.value
+                and self._property_access_restricted
+            )
         ]
+
+    @cached_property
+    def _property_access_restricted(self) -> bool:
+        # Logs checks run without the member, so the member's property rules cannot hide pipeline logs from them.
+        return bool(
+            access_control_api.get_restricted_properties_with_group_type_index_for_team(
+                team_id=self._canonical_team_id(), user=cast(User, self.request.user)
+            )
+        )
 
     def _readable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("viewer", "read")
