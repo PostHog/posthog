@@ -2,6 +2,7 @@ import type { App } from '@modelcontextprotocol/ext-apps'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
+import { EXEC_READ_TOOL_NAME } from '../../tools/exec-names'
 import { APP_DATA_META_KEY } from '../types'
 
 interface RenderUiDataResult {
@@ -21,7 +22,7 @@ export function renderUiDataRequest(
     appKey: UiAppKey
 ): RenderUiDataRequest {
     return appKey === 'query-results'
-        ? { name: 'exec', arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
+        ? { name: EXEC_READ_TOOL_NAME, arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
         : { name: toolName, arguments: input }
 }
 

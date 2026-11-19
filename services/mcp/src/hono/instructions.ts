@@ -34,6 +34,13 @@ import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
 
+/** The shared templates name `exec`, which a split connection replaces with `exec-read`. */
+export function nameExecRead(text: string): string {
+    return text
+        .replaceAll('posthog:exec(', `posthog:${EXEC_READ_TOOL_NAME}(`)
+        .replaceAll('`exec`', `\`${EXEC_READ_TOOL_NAME}\``)
+}
+
 export type ExecToolState = Pick<
     ResolvedState,
     | 'renderUiEnabled'
@@ -94,7 +101,8 @@ export class InstructionsBuilder {
 
         const ctx = this.buildContext(state)
         if (state.useSingleExec) {
-            return this.formatter.buildExecInstructions(ctx)
+            const instructions = this.formatter.buildExecInstructions(ctx)
+            return state.splitWrites ? nameExecRead(instructions) : instructions
         }
         return this.formatter.buildToolsInstructions({ ...ctx, learnToolEnabled: this.isLearnToolEnabled(state) })
     }
@@ -150,12 +158,16 @@ export class InstructionsBuilder {
     }
 
     buildExecReadToolEntry(state: ExecToolState): McpTool {
-        const entry = this.buildExecToolEntry(state)
+        const commandReference = nameExecRead(this.buildExecCommandReference(state))
         return {
-            ...entry,
             name: EXEC_READ_TOOL_NAME,
             title: 'Read PostHog data',
-            description: `${EXEC_READ_ONLY_LEAD.trim()}\n\n${entry.description}`,
+            description: `${EXEC_READ_ONLY_LEAD.trim()}\n\n${nameExecRead(this.buildExecToolDescription(state))}`,
+            inputSchema: {
+                type: 'object',
+                properties: { command: { type: 'string', description: commandReference } },
+                required: ['command'],
+            },
             annotations: { ...EXEC_TOOL_ANNOTATIONS, readOnlyHint: true },
         }
     }

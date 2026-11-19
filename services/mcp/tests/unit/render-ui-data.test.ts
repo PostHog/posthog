@@ -37,7 +37,7 @@ describe('render-ui data loading', () => {
                 structuredContent: data,
             })
             expect(callServerTool).toHaveBeenCalledExactlyOnceWith({
-                name: 'exec',
+                name: 'exec-read',
                 arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` },
             })
         }

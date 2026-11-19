@@ -211,15 +211,15 @@ describe('ToolExecutor', () => {
                 expect(request).not.toHaveBeenCalled()
             })
 
-            it('hides exec-write from a connection that did not split', async () => {
-                const { state, request } = splitState(false)
+            it.each([
+                ['exec-write', false],
+                ['exec', true],
+            ])('hides the unlisted %s when the request split is %s', async (name, splitWrites) => {
+                const { state, request } = splitState(splitWrites)
 
-                const result = (await executor.handleToolCall(
-                    { name: 'exec-write', arguments: deleteCommand },
-                    state
-                )) as any
+                const result = (await executor.handleToolCall({ name, arguments: deleteCommand }, state)) as any
 
-                expect(result.content[0].text).toBe('Tool exec-write not found')
+                expect(result.content[0].text).toBe(`Tool ${name} not found`)
                 expect(request).not.toHaveBeenCalled()
             })
         })
@@ -368,6 +368,16 @@ describe('ToolExecutor', () => {
             const result = await executor.handleToolsList(state)
 
             expect(result.tools.map((t) => [t.name, t.annotations?.readOnlyHint])).toEqual(expected)
+        })
+
+        // Shared templates name `exec`, which a split connection does not list.
+        it('points exec-read at its own name', async () => {
+            const state = makeToolExecutorState([], { useSingleExec: true, splitWrites: true })
+
+            const [execRead] = (await executor.handleToolsList(state)).tools
+            const text = `${execRead!.description}${JSON.stringify(execRead!.inputSchema)}`
+
+            expect([text.includes('posthog:exec-read('), text.includes('posthog:exec(')]).toEqual([true, false])
         })
 
         it('marks only exec-write destructive', async () => {
