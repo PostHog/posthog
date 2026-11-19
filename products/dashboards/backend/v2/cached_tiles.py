@@ -17,7 +17,6 @@ from products.dashboards.backend.constants import MAX_CACHED_TILES_BATCH_SIZE
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.run_insights_output import parse_tile_ids
-from products.product_analytics.backend.facade.models import Insight
 
 
 class CachedTileStatus(TextChoices):
@@ -45,7 +44,7 @@ def read_cached_tiles(
     *,
     dashboard: Dashboard,
     tile_ids: list[int],
-    restricted_insight_levels: Callable[[list[tuple[DashboardTile, Insight]]], dict[int, str]],
+    restricted_insight_levels: Callable[[list[tuple[DashboardTile, Any]]], dict[int, str]],
     insight_serializer: serializers.Serializer,
     context: dict[str, Any],
 ) -> list[dict[str, Any]]:
