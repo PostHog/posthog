@@ -398,7 +398,8 @@ const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new M
     ['suppressions-add', 'arguments'],
 ])
 
-const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
+// A push send's message_data can hold a login code or a reset link too, like an email's content.
+const MESSAGE_SEND_TOOL_PREFIXES = ['workflows-send-email', 'workflows-send-push']
 
 // A start holds a vendor API key that can do anything in the customer's account, and results quote sender addresses and
 // template text. Key-based redaction misses both, also when the call arrives as an exec command string.
@@ -414,13 +415,17 @@ function isProviderImportTool(toolName: string, input: unknown): boolean {
 }
 
 function sendsEmailContent(toolName: string, input: unknown): boolean {
-    if (toolName.startsWith(EMAIL_SEND_TOOL_PREFIX)) {
+    if (MESSAGE_SEND_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
         return true
     }
     // Match the whole exec command, not its parsed inner tool: a send forwarded through
     // posthog-connection-call, or a command exec rejects, still carries the email body.
     const command = (input as { command?: unknown } | null | undefined)?.command
-    return toolName === 'exec' && typeof command === 'string' && command.includes(EMAIL_SEND_TOOL_PREFIX)
+    return (
+        toolName === 'exec' &&
+        typeof command === 'string' &&
+        MESSAGE_SEND_TOOL_PREFIXES.some((prefix) => command.includes(prefix))
+    )
 }
 
 function emailRecipientExposure(toolName: string, input: unknown): EmailRecipientExposure | undefined {
