@@ -759,6 +759,15 @@ class TestTwoFactorPolicyOfTheTargetOrganization(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
+    def test_non_member_gets_the_same_response_whatever_the_organization_policy(self) -> None:
+        responses = []
+        for enforce_2fa in (True, False):
+            organization = Organization.objects.create(name="Outside", enforce_2fa=enforce_2fa)
+            response = self.client.get(f"/api/organizations/{organization.id}/projects/")
+            responses.append((response.status_code, response.json()))
+
+        self.assertEqual(responses[0], responses[1])
+
     def test_personal_api_key_request_has_no_two_factor_check(self) -> None:
         value = self._mint_key(self.strict_team)
         self.client.logout()

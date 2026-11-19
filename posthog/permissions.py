@@ -374,8 +374,13 @@ class TwoFactorEnforcementPermission(BasePermission):
     def _enforce(request: Request, organization: Organization) -> None:
         user = cast(User, request.user)
         # `SessionAuthentication` already checked the current organization; repeating it costs queries.
-        if organization.pk != user.current_organization_id:
-            enforce_two_factor(request, user, organization)
+        if organization.pk == user.current_organization_id:
+            return
+        # Some views build their own chain without a membership check. A non-member holds nothing here
+        # that 2FA protects, and the denial would disclose this organization's policy.
+        if get_cached_organization_membership(organization.pk, user) is None:
+            return
+        enforce_two_factor(request, user, organization)
 
 
 def url_target_organization(view) -> Optional[Organization]:
