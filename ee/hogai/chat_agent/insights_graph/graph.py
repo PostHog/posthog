@@ -7,7 +7,6 @@ from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, Ass
 from ..funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from ..query_executor.nodes import QueryExecutorNode
 from ..query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
-from ..rag.nodes import InsightRagContextNode
 from ..retention.nodes import RetentionGeneratorNode, RetentionGeneratorToolsNode
 from ..sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
 from ..trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
@@ -21,14 +20,6 @@ class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
     @property
     def state_type(self) -> type[AssistantState]:
         return AssistantState
-
-    def add_rag_context(self):
-        self._has_start_node = True
-        retriever = InsightRagContextNode(self._team, self._user)
-        self.add_node(AssistantNodeName.INSIGHT_RAG_CONTEXT, retriever)
-        self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.INSIGHT_RAG_CONTEXT)
-        self._graph.add_edge(AssistantNodeName.INSIGHT_RAG_CONTEXT, AssistantNodeName.QUERY_PLANNER)
-        return self
 
     def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         trends_generator = TrendsGeneratorNode(self._team, self._user)
@@ -142,7 +133,6 @@ class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
 
     def add_query_creation_flow(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         """Add all nodes and edges EXCEPT query execution."""
-        # Semantic actions search (RAG context) is disabled — go straight to the query planner.
         self.add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
         return (
             self.add_query_planner()

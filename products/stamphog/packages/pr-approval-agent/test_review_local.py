@@ -859,6 +859,9 @@ def test_attest_confirms_only_what_the_full_review_would_approve(
 _COMPOSE_PROOF = Attestation(
     name="compose_proof", check="Compose proof", app_id=91, lifts=("infra_cicd",), paths=(r"^docker/",)
 )
+_OWNERS_PROOF = Attestation(
+    name="owners_proof", check="Owners proof", app_id=92, lifts=("ownership_files",), paths=(r"owners\.yaml$",)
+)
 
 
 @pytest.mark.parametrize(
@@ -884,6 +887,13 @@ _COMPOSE_PROOF = Attestation(
             "REFUSED",
             id="attestation-lift-not-t0",
         ),
+        pytest.param(
+            ["frontend/src/scenes/x/owners.yaml"],
+            [("Owners proof", 92, ["frontend/src/scenes/x/owners.yaml"])],
+            "T1-agent",
+            "REFUSED",
+            id="attested-addition-not-t0",
+        ),
     ],
 )
 def test_lifted_deny_requires_full_review_in_pipeline_and_pregate(
@@ -896,7 +906,7 @@ def test_lifted_deny_requires_full_review_in_pipeline_and_pregate(
 ) -> None:
     policy = replace(
         review_pr.POLICY,
-        attestations=(*review_pr.POLICY.attestations, _COMPOSE_PROOF),
+        attestations=(*review_pr.POLICY.attestations, _COMPOSE_PROOF, _OWNERS_PROOF),
         deny_exceptions={
             "billing": (DenyException(keyword="billing", path_prefixes=("apps/",), extensions=(".yaml", ".yml")),),
             "infra_cicd": (DenyException(keyword=None, path_prefixes=(".github/",), extensions=()),),

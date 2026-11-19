@@ -149,6 +149,19 @@ def filter_file_system_rows(rows: QuerySet, request: Request, project_id: int) -
     ).filter(~Q(type="canvas") | Exists(visible))
 
 
+def access_rule_target_ids(team_id: int, user_id: int | None, sandboxed: bool) -> set[str]:
+    """The canvases project access settings may find or put rules on: the ones the caller can open.
+
+    Soft-deleted canvases stay, because clearing the rule on one is the only way to remove it.
+    A sandbox token sees public canvases and its user's own, as the canvas API allows it.
+    """
+    channel_q = tasks_facade.visible_channels_q(user_id, relation="channel")
+    if sandboxed:
+        channel_q &= tasks_facade.visible_channels_q(None, relation="channel") | Q(created_by_id=user_id)
+    canvases = Canvas.objects.for_team(team_id).filter(channel_q, source_policy=Canvas.SOURCE_POLICY_STANDARD)
+    return {str(canvas_id) for canvas_id in canvases.values_list("id", flat=True)}
+
+
 def canvas_deletable_by(*, team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
     """Deleting is the creator's call alone, as in the canvas API's `CanvasAccess.DELETE`."""
     if user_id is None:

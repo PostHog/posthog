@@ -43,7 +43,7 @@ export function buildSandboxMessage({
 }): SandboxMessage {
     const senderName = `${cleanDisplayName(organizationName)} via PostHog`
     const recipientName = cleanDisplayName(email.to.name ?? '')
-    const footer = `This email was sent by ${senderName} with the PostHog sandbox sender. Organization ID: ${organizationId}.`
+    const footer = `This email was sent by ${senderName} with the PostHog test sender. Organization ID: ${organizationId}.`
     return {
         from: { address: fromAddress, name: senderName },
         to: { address: recipient, ...(recipientName ? { name: recipientName } : {}) },
