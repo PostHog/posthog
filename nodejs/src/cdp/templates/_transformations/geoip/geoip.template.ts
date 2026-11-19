@@ -77,7 +77,10 @@ fun roundCoordinate(value, precision) {
 }
 let coordinatePrecision := inputs.coordinatePrecision ?? 'full'
 if (response.location) {
-    if (coordinatePrecision != 'remove') {
+    if (coordinatePrecision == 'remove') {
+        location['latitude'] := null
+        location['longitude'] := null
+    } else {
         location['latitude'] := roundCoordinate(response.location?.latitude, coordinatePrecision)
         location['longitude'] := roundCoordinate(response.location?.longitude, coordinatePrecision)
     }
@@ -116,7 +119,7 @@ return returnEvent
             type: 'choice',
             label: 'Coordinate precision',
             description:
-                'How precise the latitude and longitude are. The setting applies to the event properties and to the person properties set from them. Person profiles that already store coordinates keep them.',
+                'How precise the latitude and longitude are on the event and on the person. Initial coordinates that a person profile already stores stay as they are.',
             default: 'full',
             required: false,
             choices: [

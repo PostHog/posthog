@@ -168,15 +168,16 @@ describe('geoip.template', () => {
         }
     )
 
-    it('leaves coordinates out of the event, $set and $set_once when set to remove them', async () => {
-        mockGlobals = tester.createGlobals({ event: { properties: { $ip: '216.160.83.56' } } })
+    it('writes null coordinates to the event, $set and $set_once when set to remove them', async () => {
+        mockGlobals = tester.createGlobals({
+            event: { properties: { $ip: '216.160.83.56', $geoip_latitude: 47.2513, $geoip_longitude: -122.3149 } },
+        })
 
         const response = await tester.invoke({ coordinatePrecision: 'remove' }, mockGlobals)
 
         expect(response.error).toBeUndefined()
         const properties = (response.execResult as any).properties
-        expect(properties).not.toHaveProperty('$geoip_latitude')
-        expect(properties).not.toHaveProperty('$geoip_longitude')
+        expect(properties).toMatchObject({ $geoip_latitude: null, $geoip_longitude: null })
         expect(properties.$set).toMatchObject({ $geoip_latitude: null, $geoip_longitude: null })
         expect(properties.$set_once).toMatchObject({
             $initial_geoip_latitude: null,
