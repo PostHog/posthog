@@ -377,6 +377,15 @@ DASHBOARD_SHARED_FIELDS = [
 
 VARIABLES_OVERRIDE_PARAM = make_variables_override_param(subject_label="dashboard", tool_name="dashboard-get")
 FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
+OMIT_TILE_RESULTS_PARAM = OpenApiParameter(
+    "omit_tile_results",
+    OpenApiTypes.BOOL,
+    description=(
+        "When true, return the layout and tile metadata without each insight tile's result, "
+        "to be read separately through cached_tiles. Only honored where cached_tiles is available. "
+        "Elsewhere, and by default, tiles carry their cached results."
+    ),
+)
 
 
 tracer = trace.get_tracer(__name__)
@@ -1355,6 +1364,7 @@ class CachedTileInsightResultSerializer(InsightSerializer):
             "resolved_compare_date_range",
             "action_names",
             "warnings",
+            "query_scan",
             "query",
         ]
         read_only_fields = fields
@@ -3532,7 +3542,7 @@ class DashboardsViewSet(
 
         return queryset
 
-    @extend_schema(parameters=[VARIABLES_OVERRIDE_PARAM, FILTERS_OVERRIDE_PARAM])
+    @extend_schema(parameters=[VARIABLES_OVERRIDE_PARAM, FILTERS_OVERRIDE_PARAM, OMIT_TILE_RESULTS_PARAM])
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
@@ -3544,6 +3554,8 @@ class DashboardsViewSet(
             record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
+        if str_to_bool(request.query_params.get("omit_tile_results")) and self._dashboard_v2_enabled(request):
+            serializer_context["omit_insight_results"] = True
         serializer = DashboardSerializer(dashboard, context=serializer_context)
         data = serializer.data
 

@@ -10258,6 +10258,8 @@ export interface CachedTileInsightResultApi {
     readonly action_names: CachedTileInsightResultApiActionNames
     /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
     readonly warnings: _InsightResultWarningsApi | null
+    /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+    readonly query_scan: unknown
     query?: _InsightQuerySchemaApi | null
 }
 
@@ -11656,6 +11658,10 @@ export type DashboardsRetrieveParams = {
      * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
      */
     include_dashboards?: boolean
+    /**
+     * When true, return the layout and tile metadata without each insight tile's result, to be read separately through cached_tiles. Only honored where cached_tiles is available. Elsewhere, and by default, tiles carry their cached results.
+     */
+    omit_tile_results?: boolean
     /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
