@@ -45,8 +45,8 @@ export interface dependenciesLogicActions {
     setEnvironment: (environment: string | null) => {
         environment: string | null
     } // applicationObservabilityLogic
-    setTimeRange: (timeRange: TimeRange) => {
-        timeRange: TimeRange
+    setTimeRange: (timeRange: TimeRange | null) => {
+        timeRange: TimeRange | null
     } // applicationObservabilityLogic
     layoutDependencies: (_: void) => void
     layoutDependenciesFailure: (

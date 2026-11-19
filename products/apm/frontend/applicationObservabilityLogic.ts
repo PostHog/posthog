@@ -84,6 +84,11 @@ function isTab(value: unknown): value is ApplicationObservabilityTab {
     return typeof value === 'string' && (TABS as string[]).includes(value)
 }
 
+// Dependencies joins every span in the window, so it starts on a shorter window than the other tabs.
+export function defaultTimeRange(tab: ApplicationObservabilityTab): TimeRange {
+    return tab === 'dependencies' ? '-15m' : '-1h'
+}
+
 function isTimeRange(value: unknown): value is TimeRange {
     // `in` also matches inherited keys like `toString`, so a `?range=toString` URL would pass.
     return typeof value === 'string' && Object.hasOwn(TIME_RANGE_LABELS, value)
@@ -104,6 +109,7 @@ export interface applicationObservabilityLogicValues {
     filteredServices: ServiceHealthApi[]
     hasLoadError: boolean
     paused: boolean
+    pickedTimeRange: TimeRange | null
     refreshing: boolean
     search: string
     selectedMapService: ServiceHealthApi | null
@@ -227,8 +233,8 @@ export interface applicationObservabilityLogicActions {
     setTab: (tab: ApplicationObservabilityTab) => {
         tab: ApplicationObservabilityTab
     }
-    setTimeRange: (timeRange: TimeRange) => {
-        timeRange: TimeRange
+    setTimeRange: (timeRange: TimeRange | null) => {
+        timeRange: TimeRange | null
     }
     showServiceEndpoints: (service: string) => {
         service: string
@@ -259,6 +265,7 @@ export interface applicationObservabilityLogicMeta {
             serviceUsageLoading: boolean
         ) => boolean
         usageRows: (serviceUsage: ServiceUsageResponseApi | null) => ServiceUsageApi[]
+        timeRange: (pickedTimeRange: any, tab: ApplicationObservabilityTab) => TimeRange
         attentionCount: (services: ServiceHealthApi[]) => number
     }
 }
@@ -297,7 +304,8 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
 
     actions({
         setEnvironment: (environment: string | null) => ({ environment }),
-        setTimeRange: (timeRange: TimeRange) => ({ timeRange }),
+        // null goes back to the active tab's default.
+        setTimeRange: (timeRange: TimeRange | null) => ({ timeRange }),
         setTab: (tab: ApplicationObservabilityTab) => ({ tab }),
         setEndpointsService: (service: string | null) => ({ service }),
         showServiceEndpoints: (service: string) => ({ service }),
@@ -312,7 +320,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
 
     reducers({
         environment: [null as string | null, { setEnvironment: (_, { environment }) => environment }],
-        timeRange: ['-1h' as TimeRange, { setTimeRange: (_, { timeRange }) => timeRange }],
+        pickedTimeRange: [null as TimeRange | null, { setTimeRange: (_, { timeRange }) => timeRange }],
         search: ['', { setSearch: (_, { search }) => search }],
         paused: [false, { setPaused: (_, { paused }) => paused }],
         tab: [
@@ -502,6 +510,10 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             (s) => [s.serviceUsage],
             (serviceUsage: ServiceUsageResponseApi | null): ServiceUsageApi[] => serviceUsage?.results ?? [],
         ],
+        timeRange: [
+            (s) => [s.pickedTimeRange, s.tab],
+            (picked: TimeRange | null, tab: ApplicationObservabilityTab): TimeRange => picked ?? defaultTimeRange(tab),
+        ],
         attentionCount: [
             (s) => [s.services],
             (services: ServiceHealthApi[]): number =>
@@ -515,7 +527,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             APPLICATION_OBSERVABILITY_PATH,
             {
                 ...(values.environment !== null ? { environment: values.environment } : {}),
-                ...(values.timeRange !== '-1h' ? { range: values.timeRange } : {}),
+                ...(values.timeRange !== defaultTimeRange(values.tab) ? { range: values.timeRange } : {}),
                 ...(values.tab !== 'services' ? { tab: values.tab } : {}),
                 ...(values.endpointsService ? { service: values.endpointsService } : {}),
                 ...(values.search ? { search: encodeSearchParam(values.search) } : {}),
@@ -545,7 +557,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         // reload exactly once either way (see the `listeners` block).
         [APPLICATION_OBSERVABILITY_PATH]: (_, searchParams) => {
             const environment = typeof searchParams.environment === 'string' ? searchParams.environment : null
-            const range = isTimeRange(searchParams.range) ? searchParams.range : '-1h'
+            const range = isTimeRange(searchParams.range) ? searchParams.range : null
             const tab = isTab(searchParams.tab) ? searchParams.tab : 'services'
             const service = typeof searchParams.service === 'string' ? searchParams.service : null
             const search = decodeSearchParam(searchParams.search)
@@ -566,16 +578,18 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             if (environment !== values.environment) {
                 actions.setEnvironment(environment)
             }
-            if (range !== values.timeRange) {
+            if ((range ?? defaultTimeRange(tab)) !== values.timeRange) {
                 actions.setTimeRange(range)
             }
         },
     })),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, selectors, cache }) => ({
         setEnvironment: () => actions.requestReload(),
         setTimeRange: () => actions.requestReload(),
-        setTab: () => actions.requestReload(false),
+        // Moving between tabs with different default windows changes what the services list covers.
+        setTab: (_, __, ___, previousState) =>
+            actions.requestReload(selectors.timeRange(previousState) !== values.timeRange),
         refresh: () => actions.requestReload(),
         // Resuming catches up on what changed while paused instead of waiting for the next poll.
         setPaused: ({ paused }) => {
