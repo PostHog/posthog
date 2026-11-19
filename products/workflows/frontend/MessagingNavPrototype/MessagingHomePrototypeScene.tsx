@@ -129,7 +129,7 @@ function InSceneSidebar({ page }: { page: MessagingPage }): JSX.Element {
     const variant = state.variant
     const activeSection = page.kind === 'section' ? page.section : null
     return (
-        <nav className="flex w-56 shrink-0 flex-col gap-px" aria-label={MESSAGING_PRODUCT_NAME}>
+        <nav className="flex w-60 shrink-0 flex-col gap-px" aria-label={MESSAGING_PRODUCT_NAME}>
             {variant === 'A' && <SidebarSearch />}
             {MESSAGING_NAV_GROUPS.map((group, index) => (
                 <div key={index} className="flex flex-col gap-px">

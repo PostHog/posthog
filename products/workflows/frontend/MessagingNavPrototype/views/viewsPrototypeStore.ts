@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react'
 
 import { ME, MESSAGE_ITEMS, MessageItem, MessageStatus, MessageType } from './viewsPrototypeData'
 
-export const VIEWS_VARIANTS = ['A', 'B', 'C'] as const
+export const VIEWS_VARIANTS = ['A', 'B', 'C', 'D'] as const
 export type ViewsVariant = (typeof VIEWS_VARIANTS)[number]
 
 export type ColumnKey =
@@ -105,7 +105,7 @@ export const DEFAULT_QUERIES: Record<DefaultViewKey, ViewQuery> = {
     },
 }
 
-export const DEFAULT_VIEW_FOR_TYPE: Record<MessageType, DefaultViewKey> = {
+export const DEFAULT_VIEW_FOR_TYPE: Record<MessageType, Exclude<DefaultViewKey, 'all'>> = {
     broadcast: 'broadcasts',
     transactional: 'transactional',
     workflow: 'workflows',

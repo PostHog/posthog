@@ -11,13 +11,19 @@ export const VIEWS_VARIANT_LABELS: Record<ViewsVariant, string> = {
     A: 'A (Views in the sidebar)',
     B: 'B (View menu on the list)',
     C: 'C (One search bar)',
+    D: 'D (First slice: search and status)',
 }
 
 // Usage flags from the element pass on the ticket: flag and control only, never a number.
+const SHARED_FLAGS =
+    'agent contract: workflows-list search, status and type arguments · channel shift: list search and status filter'
+const SAVED_VIEW_FLAGS = 'low use: tag filter, created-by filter and column sort on all three lists'
+
 export const VIEWS_VARIANT_FLAGS: Record<ViewsVariant, string> = {
-    A: 'element pass pending',
-    B: 'element pass pending',
-    C: 'element pass pending',
+    A: `${SAVED_VIEW_FLAGS}, now chips · low use: search across lists · ${SHARED_FLAGS}`,
+    B: `${SAVED_VIEW_FLAGS}, kept as dropdowns · ${SHARED_FLAGS}`,
+    C: `${SAVED_VIEW_FLAGS}, now tokens · low use: search across lists · ${SHARED_FLAGS}`,
+    D: `low use, borderline: search box on the Workflows list · ${SHARED_FLAGS}`,
 }
 
 function step(current: ViewsVariant, by: number): ViewsVariant {

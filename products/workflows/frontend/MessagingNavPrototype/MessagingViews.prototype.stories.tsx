@@ -17,7 +17,7 @@ const meta: Meta = {
     title: 'Prototypes/Email & Messaging saved views',
     decorators: [
         // The navigation story's request mocks, so the app shell and the calendar load.
-        navMeta.decorators![0] as any,
+        (navMeta.decorators as any[])[0],
         (Story, { id, parameters }) => {
             // The navigation stays as accepted: shape A, the in-scene sidebar.
             messagingNavPrototypeLogic.mount()
@@ -48,6 +48,9 @@ export const VariantB: Story = {
 }
 export const VariantC: Story = {
     parameters: { viewsVariant: 'C', pageUrl: '/messaging/broadcasts?views=C' },
+}
+export const VariantD: Story = {
+    parameters: { viewsVariant: 'D', pageUrl: '/messaging/broadcasts?views=D' },
 }
 export const SavedViewAcrossTypes: Story = {
     parameters: { viewsVariant: 'A', pageUrl: '/messaging/view-onboarding?views=A' },

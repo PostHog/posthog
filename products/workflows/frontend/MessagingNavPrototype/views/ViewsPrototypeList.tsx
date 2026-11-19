@@ -1,7 +1,7 @@
 // PROTOTYPE, never merged: PostHog/michaelr-context#421. A default view or a saved view, with the toolbar of the
 // variant: A quick filter chips, B the app's dropdowns and view menu, C one search bar with tokens.
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCheck, IconGlobe, IconPin, IconUser } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -214,7 +214,8 @@ export function ViewsPrototypeList({
               </>
           )
         : dirty &&
-          variant !== 'B' && (
+          variant !== 'B' &&
+          variant !== 'D' && (
               <>
                   <LemonButton
                       size="small"
@@ -230,6 +231,28 @@ export function ViewsPrototypeList({
                   </LemonButton>
               </>
           )
+
+    // Variant D keeps search and status in the URL, the same `search` and `status` the `workflows-list` tool takes.
+    const urlSearch = String(router.values.searchParams.search ?? '')
+    const urlStatus = String(router.values.searchParams.status ?? '')
+    useEffect(() => {
+        if (variant === 'D' && !savedView && (urlSearch || urlStatus)) {
+            setDraft(key, { search: urlSearch, statuses: urlStatus ? (urlStatus.split(',') as MessageStatus[]) : [] })
+        }
+        // Only on arrival, so typing is not overwritten by the URL it writes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key, variant])
+    useEffect(() => {
+        if (variant !== 'D' || savedView) {
+            return
+        }
+        const { search: _search, status: _status, ...rest } = router.values.searchParams
+        router.actions.replace(router.values.location.pathname, {
+            ...rest,
+            ...(query.search ? { search: query.search } : {}),
+            ...(query.statuses.length ? { status: query.statuses.join(',') } : {}),
+        })
+    }, [variant, savedView, query.search, query.statuses])
 
     const statuses = Array.from(new Set(query.types.flatMap((t) => STATUSES_BY_TYPE[t]))) as MessageStatus[]
     const views = state.savedViews.filter((v) => list && sameTypes(v.query.types, DEFAULT_QUERIES[list].types))
@@ -271,7 +294,9 @@ export function ViewsPrototypeList({
                     <span>
                         {variant === 'C'
                             ? 'A default view is a search that starts with a type. Change it, then pin it as your own view.'
-                            : 'Filter, sort or pick columns, then save it as your own view.'}
+                            : variant === 'D'
+                              ? 'Search, or filter by status. The link keeps both, so you can bookmark or share it.'
+                              : 'Filter, sort or pick columns, then save it as your own view.'}
                     </span>
                 </div>
             )}
@@ -295,6 +320,21 @@ export function ViewsPrototypeList({
                     </div>
                     <QuickFilterChips query={query} onChange={change} onClear={clearFilters} />
                 </>
+            )}
+
+            {variant === 'D' && (
+                <div className="flex flex-wrap items-center gap-2">
+                    <LemonInput
+                        type="search"
+                        size="small"
+                        className="max-w-80 flex-1"
+                        placeholder={list ? SEARCH_PLACEHOLDER[list] : 'Search this view'}
+                        value={query.search}
+                        onChange={(search) => change({ search })}
+                        data-attr="messaging-prototype-list-search"
+                    />
+                    <QuickFilterChips query={query} onChange={change} onClear={clearFilters} statusOnly />
+                </div>
             )}
 
             {variant === 'B' && list && (
