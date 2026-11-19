@@ -6,6 +6,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EvalFixProblemEnumApi } from '../../generated/api.schemas'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { evaluationFixSuggestionLogic } from './evaluationFixSuggestionLogic'
@@ -34,7 +35,7 @@ export function EvaluationFixSuggestionBanner({
     }
     const hasPatch = Object.keys(openFix.draft).length > 0
     // With nothing to apply, the form's live estimate already warns that no traffic matches.
-    if (!hasPatch && volume?.matchingGenerations === 0) {
+    if (openFix.fix_problem === EvalFixProblemEnumApi.NoRuns && !hasPatch && volume?.matchingGenerations === 0) {
         return null
     }
     return (
