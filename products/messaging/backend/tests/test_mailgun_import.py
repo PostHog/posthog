@@ -22,7 +22,7 @@ from products.messaging.backend.models.message_suppression import MessageSuppres
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.provider_imports import runs
+from products.messaging.backend.provider_imports import mailgun, runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.mailgun import (
     COMPLAINT_REASON_PREFIX,
@@ -211,6 +211,20 @@ class TestMailgunImport(BaseTest):
         TransactionalEmailKey.objects.for_team(self.team.id).create(team=self.team, key="welcome", hog_flow_id=uuid4())
 
         self._run(["templates"])
+
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key="welcome").exists()
+
+    def test_a_key_a_code_email_starts_sending_under_during_the_import_is_left_to_it(self) -> None:
+        convert = mailgun.convert_version
+
+        def send_starts(version: dict) -> Any:
+            TransactionalEmailKey.objects.for_team(self.team.id).get_or_create(
+                team=self.team, key="welcome", defaults={"hog_flow_id": uuid4()}
+            )
+            return convert(version)
+
+        with patch.object(mailgun, "convert_version", send_starts):
+            self._run(["templates"], region="us")
 
         assert not MessageTemplate.objects.filter(team_id=self.team.id, key="welcome").exists()
 

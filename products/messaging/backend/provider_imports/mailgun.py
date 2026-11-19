@@ -18,6 +18,8 @@ from email.utils import parseaddr, parsedate_to_datetime
 from functools import partial
 from typing import Any
 
+from django.db import transaction
+
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
@@ -25,6 +27,7 @@ from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PR
 from products.messaging.backend.models.message_suppression import SuppressionSource
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
+from products.messaging.backend.models.transactional_email_key import lock_team_keys
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
     ImportCredentials,
@@ -886,22 +889,43 @@ def _save_templates(
                 *_other_versions_note(template, version),
                 *_missing_versions_note(template, version),
             )
-            created = create_template(
-                context.team_id,
-                context.created_by_id,
-                {
-                    "name": label,
-                    "key": key,
-                    "description": " ".join(
-                        part
-                        for part in ("Imported from Mailgun.", _as_sentence(template.get("description")), *notes)
-                        if part
-                    ),
-                    "type": "email",
-                    "content": {"templating": "liquid", "email": email},
-                    "tags": [IMPORT_TAG],
-                },
-            )
+            with transaction.atomic():
+                # Under the lock a send takes to add a code email key, so one added since the check above wins.
+                lock_team_keys(context.team_id)
+                created = (
+                    None
+                    if code_email_keys(context.team_id, [key])
+                    else create_template(
+                        context.team_id,
+                        context.created_by_id,
+                        {
+                            "name": label,
+                            "key": key,
+                            "description": " ".join(
+                                part
+                                for part in (
+                                    "Imported from Mailgun.",
+                                    _as_sentence(template.get("description")),
+                                    *notes,
+                                )
+                                if part
+                            ),
+                            "type": "email",
+                            "content": {"templating": "liquid", "email": email},
+                            "tags": [IMPORT_TAG],
+                        },
+                    )
+                )
+            if created is None:
+                counts["already_present"] += 1
+                items.append(
+                    ImportItem(
+                        label=label,
+                        status="skipped",
+                        notes=(f"A code email sends under the key {key}, so this template wasn't imported.",),
+                    )
+                )
+                continue
             counts["needs_review" if notes else "created"] += 1
             items.append(
                 ImportItem(label=label, status="created", url=f"/workflows/library/templates/{created.id}", notes=notes)

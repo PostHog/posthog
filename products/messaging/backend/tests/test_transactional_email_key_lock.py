@@ -9,7 +9,10 @@ from django.db import connection
 import psycopg
 from psycopg import sql
 
-from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.models.transactional_email_key import (
+    TRANSACTIONAL_EMAIL_KEY_LOCK,
+    TransactionalEmailKey,
+)
 from products.messaging.backend.services import transactional_email
 from products.workflows.backend.facade.models import HogFlow
 
@@ -35,7 +38,7 @@ class TestTransactionalEmailKeyLock(NonAtomicBaseTest):
             with self._other_connection() as other:
                 row = other.execute(
                     "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))",
-                    [f"{transactional_email.TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"],
+                    [f"{TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"],
                 ).fetchone()
                 assert row is not None
                 lock_free_for_another_sender.append(row[0])
