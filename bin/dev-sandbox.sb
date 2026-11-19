@@ -122,8 +122,14 @@
     (subpath (string-append (param "MAINREPO") "/.flox/env"))
     ;; The pnpm/corepack launchers on-activate.sh writes into cache/. They sit on
     ;; PATH ahead of flox's own bin, so a planted one runs on the next `pnpm`.
+    ;; The .flox and cache nodes too: renaming either and putting a symlink in its
+    ;; place moves the shims out from under the subpath, as with /opt/homebrew/etc.
     (subpath (string-append (param "PROJECT") "/.flox/cache/node-shims"))
     (subpath (string-append (param "MAINREPO") "/.flox/cache/node-shims"))
+    (literal (string-append (param "PROJECT") "/.flox"))
+    (literal (string-append (param "MAINREPO") "/.flox"))
+    (literal (string-append (param "PROJECT") "/.flox/cache"))
+    (literal (string-append (param "MAINREPO") "/.flox/cache"))
     ;; The husky hooks. core.hooksPath points git at .husky, so these are the hooks
     ;; that actually run — .git/hooks above is the directory git never reads once
     ;; that is set. Same unsandboxed execution, one step more direct.
