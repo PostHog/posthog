@@ -197,6 +197,7 @@ class TestScoreWindow(SimpleTestCase):
             ("errors_rise_at_a_small_step_after_a_larger_one", True, [0.0, 0.6, 0.6, 0.7, 0.7, 0.7], [3], 1.0),
             ("errors_rise_in_the_hour_of_an_edit_that_doesnt_enable", False, [0.5, 0.5, 0.5, 0.7], [0], 1.0),
             ("errors_rise_before_the_exposure_rise_and_stay_up", True, [0.0, 0.0, 0.0, 1.0], [2, 3], 0.0),
+            ("errors_rise_before_a_slow_exposure_climb", True, [0.0, 0.0, 0.0, 0.04, 0.08, 0.12], [1], 0.0),
             ("errors_rise_when_the_share_recovers_from_a_dip", True, [0.5, 0.5, 0.5, 0.4, 0.5], [4], math.exp(-4 / 6)),
         ]
     )
@@ -224,6 +225,7 @@ class TestScoreWindow(SimpleTestCase):
             ("without_a_baseline", EDITED_AT + HOUR, HourErrors(active=PEOPLE, with_errors=80), None),
             ("with_one_earlier_week", EDITED_AT + HOUR, HourErrors(active=PEOPLE, with_errors=80), BASELINE_RATES[:1]),
             ("below_the_minimum_activity", EDITED_AT + HOUR, HourErrors(active=1, with_errors=1), BASELINE_RATES),
+            ("no_errors_in_the_hour_or_earlier_weeks", EDITED_AT, HourErrors(active=PEOPLE, with_errors=0), (0.0,) * 4),
         ]
     )
     def test_an_hour_that_cant_show_an_error_rise_adds_no_strength(
@@ -247,6 +249,14 @@ class TestScoreWindow(SimpleTestCase):
 
         assert result.level_5 == 1.0
 
+    def test_a_window_without_exposure_or_errors_yet_is_not_suspicious(self) -> None:
+        hours = _hours([BASELINE_RATE])
+
+        result = score_window(EDIT, [], None, hours, _baseline(hours), PARAMETERS)
+
+        assert result.level_1 is None and result.level_2 is None
+        assert not result.suspicious
+
     @parameterized.expand(
         [
             ("everyone", EDIT, None, False),
@@ -254,17 +264,25 @@ class TestScoreWindow(SimpleTestCase):
             ("in_the_watched_conditions", EDIT_WITH_CONDITIONS, ConditionMatch.REASON, True),
             ("not_found_without_watched_conditions", EDIT, ConditionMatch.PROPERTIES, False),
             ("not_found_with_watched_conditions", EDIT_WITH_CONDITIONS, ConditionMatch.PROPERTIES, None),
+            (
+                "found_by_the_exposure_query_only",
+                EDIT_WITH_CONDITIONS,
+                ConditionMatch.PROPERTIES,
+                None,
+                (ConditionMatch.REASON, ConditionMatch.PROPERTIES),
+            ),
         ]
     )
     def test_level_1_compares_the_people_that_the_condition_match_selects(
-        self, _name: str, edit: WatchedEdit, condition_match: ConditionMatch | None, significant: bool | None
+        self,
+        _name: str,
+        edit: WatchedEdit,
+        condition_match: ConditionMatch | None,
+        significant: bool | None,
+        exposure_matches: Sequence[ConditionMatch] = (ConditionMatch.REASON,),
     ) -> None:
-        exposure = _exposure(
-            [0.5],
-            in_condition={
-                ConditionMatch.REASON: ConditionExposure(with_flag=PEOPLE, exposed=PEOPLE // 2, unexposed=PEOPLE // 2)
-            },
-        )
+        in_condition = ConditionExposure(with_flag=PEOPLE, exposed=PEOPLE // 2, unexposed=PEOPLE // 2)
+        exposure = _exposure([0.5], in_condition=dict.fromkeys(exposure_matches, in_condition))
         errors = _errors(
             40,
             40,
@@ -365,6 +383,12 @@ class TestScoreWindow(SimpleTestCase):
             ("without_the_counts_by_last_value", None, PEOPLE, None),
             ("exposed_people_worse", ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10), PEOPLE, 0.8),
             ("exposed_people_better", ErrorsByLastValue(exposed_with_errors=10, unexposed_with_errors=50), PEOPLE, 0.0),
+            (
+                "more_errors_than_exposed_people",
+                ErrorsByLastValue(exposed_with_errors=1500, unexposed_with_errors=10),
+                PEOPLE,
+                0.99,
+            ),
             ("no_exposed_errors", ErrorsByLastValue(exposed_with_errors=0, unexposed_with_errors=50), PEOPLE, 0.0),
             (
                 "people_whose_value_changed_in_both_groups",
@@ -435,6 +459,8 @@ class TestScoreWindow(SimpleTestCase):
         [
             ("no_active_people", {"min_active": 0}),
             ("no_exposure_share_step", {"min_share_step": 0.0}),
+            ("no_full_strength_z", {"full_strength_z": 0.0}),
+            ("no_proximity_decay", {"decay": timedelta(0)}),
         ]
     )
     def test_parameters_that_would_divide_by_zero_raise(self, _name: str, changes: dict[str, Any]) -> None:

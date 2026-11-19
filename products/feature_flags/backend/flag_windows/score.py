@@ -35,23 +35,24 @@ from products.feature_flags.backend.flag_windows.query import ConditionMatch, Wa
 
 @frozen
 class ScoreParameters:
-    """An hour is an error rise when its excess over the baseline is at least `rise_z` standard deviations, and level 5
-    has full strength at `full_strength_z`. An exposure step is a rise in exposure share of at least `min_share_step`.
-    Level 4 measures it from one hour to the next. The proximity measures it over the highest share so far, so a share
-    that dips and comes back makes no step, and it also counts the hour of an edit that doesn't enable the flag as a
-    step. The proximity falls to 1/e when the error rise is `decay` after the latest step at or before it. Variation
-    is noise below `min_exposed` and `min_with_errors`, and in an hour or earlier week with fewer than `min_active`
-    active people. A group flag counts groups, so one large customer can't meet these minimums alone."""
-
+    # The false positive rate of the level 1 test.
     alpha: float
+    # The score is the largest of levels 2, 4 and 5, each times its weight and its proximity. With enough volume, the
+    # window is suspicious when the score reaches `threshold`.
     weight_level_2: float
     weight_level_4: float
     weight_level_5: float
+    threshold: float
+    # An hour is an error rise when its excess over the baseline is at least `rise_z` standard deviations, and level 5
+    # has full strength at `full_strength_z`.
     rise_z: float
     full_strength_z: float
+    # The smallest rise in exposure share that is an exposure step.
     min_share_step: float
+    # The proximity falls to 1/e when the error rise is `decay` after the latest exposure step at or before it.
     decay: timedelta
-    threshold: float
+    # Variation is noise below `min_exposed` and `min_with_errors`, and in an hour or earlier week with fewer than
+    # `min_active` active people. A group flag counts groups, so one large customer can't meet these minimums alone.
     min_exposed: int
     min_with_errors: int
     min_active: int
@@ -61,6 +62,10 @@ class ScoreParameters:
             raise ValueError(f"The score needs at least 1 active person per hour, got {self.min_active}")
         if self.min_share_step <= 0:
             raise ValueError(f"The score needs a positive exposure share step, got {self.min_share_step}")
+        if self.full_strength_z <= 0:
+            raise ValueError(f"The score needs a positive full strength z, got {self.full_strength_z}")
+        if self.decay <= timedelta(0):
+            raise ValueError(f"The score needs a positive proximity decay, got {self.decay}")
 
 
 MIN_GROUP_SIZE = 5
@@ -86,11 +91,11 @@ WEB_PARAMETERS = ScoreParameters(
 class WindowScore:
     """Levels 2, 4 and 5 and the proximity are in [0, 1]. Level 1 is None when the test can't run: no exposure, nobody
     exposed or nobody unexposed, fewer than 5 people in a group, or an edit with watched conditions when
-    `condition_match` is None or this source doesn't find it. Level 2 is None without exposure, when nobody is exposed
-    or nobody is unexposed, without the counts by last value, below the minimum volume, or for an edit with watched
-    conditions. Level 4 is None without an error rise or with fewer than two exposure steps. `proximity` is that of the
-    error rise closest after an exposure step, and weighs levels 2 and 4. Level 5 is weighed by the proximity of its
-    own error rise.
+    `condition_match` is None or the exposure or error query doesn't find it. Level 2 is None without exposure, when
+    nobody is exposed or nobody is unexposed, without the counts by last value, below the minimum volume, or for an
+    edit with watched conditions. Level 4 is None without an error rise or with fewer than two exposure steps.
+    `proximity` is that of the error rise closest after an exposure step, and weighs levels 2 and 4. Level 5 is weighed
+    by the proximity of its own error rise.
 
     The window is suspicious when level 1 finds the exposed people significantly worse with enough volume, or when the
     volume is enough and `score` reaches the threshold."""
@@ -157,11 +162,10 @@ def score_window(
         )
     level_2 = _level_2(edit, exposure_since_edit, errors_since_edit, parameters)
 
-    exposure_steps = _exposure_steps(edit, exposure, parameters.min_share_step)
+    exposure_steps = _exposure_steps(edit, shares, parameters.min_share_step)
     error_rises = _error_rises(excess, parameters.rise_z)
-    # Without an error rise, the steps of the error rate are noise, and equal noise steps would look like a dose.
-    level_4 = _level_4(shares, excess, parameters.min_share_step) if error_rises else None
     if error_rises:
+        level_4 = _level_4(shares, excess, parameters.min_share_step)
         proximities = {start: _proximity(start, exposure_steps, parameters) for start in error_rises}
         # Each rise counts by its own distance, so that a strong rise days later can't lend strength to an early one.
         level_5_rise = max(
@@ -172,6 +176,9 @@ def score_window(
         # Levels 2 and 4 don't come from one hour, so a later rise that the flag didn't cause can't weaken them.
         proximity = max(proximities.values())
     else:
+        # Without an error rise, the steps of the error rate are noise, and noise steps of similar size would pass
+        # level 4 as errors that rise with exposure.
+        level_4 = None
         # Without an error rise, the latest hour stands in for it, so weak evidence counts less as the window ages.
         latest_hour = max([*shares, *hours], default=edit.edited_at)
         level_5 = max([0.0, *(_strength(hour_excess, parameters) for hour_excess in excess.values())])
@@ -270,8 +277,11 @@ def _level_1_split(
     counts: ExposureCounts | ConditionExposure = exposure
     error_counts: ErrorCounts | ConditionErrors | None = errors
     if match is not None and match in exposure.in_condition:
+        if errors is not None and match not in errors.in_condition:
+            # The error query lost these counts, and no errors in either group would compare as no difference.
+            return None
         counts = exposure.in_condition[match]
-        error_counts = errors.in_condition.get(match) if errors else None
+        error_counts = errors.in_condition[match] if errors else None
     elif edit.conditions:
         # Everyone with the flag would compare the people in the edited conditions with people outside them.
         return None
@@ -341,19 +351,21 @@ def _excess_by_hour(
     return excess
 
 
-def _exposure_steps(edit: WatchedEdit, exposure: Sequence[ExposureBucket], min_share_step: float) -> list[datetime]:
-    """The starts of the buckets in which the exposure share rises at least `min_share_step` over the highest share
-    before them, and the hour of an edit that doesn't enable the flag. For an edit that enables the flag, only the hour
-    of the edit when no event carries the flag, or when the share never rises that much."""
+def _exposure_steps(edit: WatchedEdit, shares: Mapping[datetime, float], min_share_step: float) -> list[datetime]:
+    """The starts of the buckets in which the exposure share is at least `min_share_step` above its share at the latest
+    step before them, and the hour of an edit that doesn't enable the flag. For an edit that enables the flag, only the
+    hour of the edit when no event carries the flag, or when the share never rises that much."""
     edit_hour = _utc_hour(edit.edited_at)
     # An edit that doesn't enable the flag changes at once who gets which value, and its share before the edit is
     # unknown, so its hour is the step instead of its first bucket. Before an edit that enables it, nobody is exposed.
     steps = [] if edit.enables else [edit_hour]
-    highest = 0.0 if edit.enables else None
-    for bucket in exposure:
-        share = _share(bucket.in_bucket)
-        # A share that falls by chance and comes back exposes nobody new, so a step must top the highest share.
-        if highest is not None and share - highest >= min_share_step:
-            steps.append(bucket.start)
-        highest = share if highest is None else max(highest, share)
+    at_latest_step = 0.0 if edit.enables else None
+    for start, share in shares.items():
+        # A share that climbs slowly makes a step once it adds up to `min_share_step`, and a share that falls by chance
+        # and comes back exposes nobody new, so each step counts from the share at the step before it.
+        if at_latest_step is None:
+            at_latest_step = share
+        elif share - at_latest_step >= min_share_step:
+            steps.append(start)
+            at_latest_step = share
     return steps or [edit_hour]
