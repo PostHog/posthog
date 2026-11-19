@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { Controller } from '../cloud/admission'
+import type { Aws } from '../cloud/aws'
 import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
 import { PROFILE } from '../cloud/fixtures'
 import { RunManifest, keyOf, lease, runManifestOf } from '../cloud/lease'
@@ -18,7 +19,7 @@ const HOLD_MS = 30 * 60_000
 const OBSERVE_WITHIN_MS = 400
 const IDLE = { liveReaderAcu: { maxima: [1, 1, 1, 1, 1] } }
 
-type Run = { cloud: FakeCloud; manifest: RunManifest; cluster: string; writer: string; reader: string }
+type Run = { cloud: FakeCloud; manifest: RunManifest; cluster: string; writer: string; reader: string; aws?: Aws }
 
 function runOf(options: Partial<FakeCloudOptions> = {}): Run {
     const cloud = new FakeCloud({ now: () => new Date(), failover: { takesMs: 20 }, ...IDLE, ...options })
@@ -34,9 +35,43 @@ const probeThroughPooler = ({ cloud, cluster }: Run): (() => WriterSample[]) => 
     }
 }
 
+const MINUTE_MS = 60_000
+
+const flagOf = (args: string[], flag: string): string => args[args.indexOf(flag) + 1]
+
+type CapacityAnswer = { ascending: boolean; until: number; minutes: number[] }
+
+const answeringCapacity = (cloud: FakeCloud, answerOf: (asked: CapacityAnswer) => unknown): Aws => ({
+    call: (args) => {
+        if (args[1] !== 'get-metric-data') {
+            return cloud.call(args)
+        }
+        const until = Date.parse(flagOf(args, '--end-time'))
+        const ascending = flagOf(args, '--scan-by') === 'TimestampAscending'
+        const minutes = [5, 4, 3, 2, 1].map((back) => until - back * MINUTE_MS)
+        return Promise.resolve(answerOf({ ascending, until, minutes: ascending ? minutes : minutes.reverse() }))
+    },
+    text: (args) => cloud.text(args),
+})
+
+const idleAnswer = ({ minutes }: CapacityAnswer, fields: Record<string, unknown> = {}): unknown => ({
+    Messages: [],
+    MetricDataResults: [
+        {
+            Id: 'acu',
+            Label: 'ServerlessDatabaseCapacity',
+            Timestamps: minutes.map((at) => new Date(at).toISOString().replace('.000Z', '+00:00')),
+            Values: minutes.map(() => 1),
+            StatusCode: 'Complete',
+            Messages: [],
+            ...fields,
+        },
+    ],
+})
+
 const failOverOn = (run: Run, overrides: Partial<FailoverOptions> = {}) =>
     failOver({
-        aws: run.cloud,
+        aws: run.aws ?? run.cloud,
         manifest: run.manifest,
         holdMs: HOLD_MS,
         identity: () => {
@@ -137,6 +172,40 @@ describe('pg.failover', () => {
             /-reader's capacity read came back with no status, not Complete/,
         ],
         [
+            'a capacity read with a timestamp that is not a time',
+            { unknownTimestampOf: 'Maximum' },
+            () => undefined,
+            /-reader's capacity read has a timestamp that is not a time: unknown/,
+        ],
+        [
+            'a capacity read in descending time order',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) =>
+                    idleAnswer({ ...asked, minutes: [...asked.minutes].sort((a, b) => b - a) })
+                )),
+            /-reader's capacity read is not in ascending time order at /,
+        ],
+        [
+            'a capacity read with a minute after the window it asked for',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) =>
+                    idleAnswer({ ...asked, minutes: asked.minutes.map((at) => at + 5 * MINUTE_MS) })
+                )),
+            /-reader's capacity read has a timestamp outside the .* it asked for: /,
+        ],
+        [
+            'a capacity read that is only one page',
+            {},
+            (run) =>
+                (run.aws = answeringCapacity(run.cloud, (asked) => ({
+                    ...(idleAnswer(asked) as object),
+                    NextToken: 'page-2',
+                }))),
+            /CloudWatch answered with a NextToken, so the answer is only one page/,
+        ],
+        [
             'a run manifest without the reader idle limit',
             {},
             (run) => delete run.manifest.readerIdleMaxAcu,
@@ -229,6 +298,16 @@ describe('pg.failover', () => {
             })
         }
     )
+
+    it('promotes on an idle capacity read in the GetMetricData shape, which comes ascending only when asked', async () => {
+        const run = runOf()
+        run.aws = answeringCapacity(run.cloud, (asked) => idleAnswer(asked))
+
+        const actuation = await failOverOn(run)
+        await actuation.release()
+
+        expect(run.cloud.promotions.map(({ to }) => to)).toEqual([run.reader, run.writer])
+    })
 
     it('counts no probe commit that still lands on the old writer', async () => {
         const run = runOf()

@@ -1239,7 +1239,7 @@ describe('cloud controller', () => {
             { averageStatuses: ['Forbidden'] },
             () => undefined,
             'invalid',
-            'CloudWatch answered Forbidden for the avg series',
+            "CloudWatch's avg series came back Forbidden, not Complete",
         ],
         [
             'a card that passes before its failover',

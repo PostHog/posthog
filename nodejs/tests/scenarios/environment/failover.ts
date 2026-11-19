@@ -4,6 +4,7 @@ import { Aws, AwsError } from '../cloud/aws'
 import type { RunManifest } from '../cloud/lease'
 import { RUN_TAG } from '../cloud/stack'
 import type { WriterSample } from '../probe/writer-probe'
+import { seriesOf } from './metric-data'
 import { SCENARIO_SESSION_PREFIX } from './roles'
 import { withPostgres } from './stack'
 
@@ -55,8 +56,6 @@ type Cluster = {
     TagList?: { Key: string; Value: string }[]
     DBClusterMembers?: { DBInstanceIdentifier: string; IsClusterWriter: boolean }[]
 }
-
-type CapacityData = { MetricDataResults: { Timestamps: string[]; Values: number[]; StatusCode?: string }[] }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -386,30 +385,32 @@ export async function failOver({
                 Stat: 'Maximum',
             },
         }
-        const { MetricDataResults } = (await required(
+        const from = until - 2 * CAPACITY_MINUTES * MINUTE_MS
+        const answer = await required(
             aws.call([
                 'cloudwatch',
                 'get-metric-data',
                 '--metric-data-queries',
                 JSON.stringify([query]),
                 '--start-time',
-                new Date(until - 2 * CAPACITY_MINUTES * MINUTE_MS).toISOString(),
+                new Date(from).toISOString(),
                 '--end-time',
                 new Date(until).toISOString(),
+                '--scan-by',
+                'TimestampAscending',
             ])
-        )) as CapacityData
-        const [{ Timestamps, Values, StatusCode }] = MetricDataResults
-        if (StatusCode !== 'Complete') {
-            refuse(`${reader}'s capacity read came back ${StatusCode ?? 'with no status'}, not Complete`)
+        )
+        let sorted: { at: number; max: number }[] = []
+        try {
+            sorted = seriesOf(answer, {
+                ids: ['acu'],
+                from,
+                to: until,
+                subject: () => `${reader}'s capacity read`,
+            }).acu.map(({ at, value }) => ({ at, max: value }))
+        } catch (error) {
+            refuse(messageOf(error))
         }
-        if (Values.length !== Timestamps.length) {
-            refuse(`${reader}'s capacity read has ${Timestamps.length} timestamps and ${Values.length} values`)
-        }
-        const unreadable = Timestamps.filter((_, i) => !Number.isFinite(Values[i]))
-        if (unreadable.length > 0) {
-            refuse(`${reader}'s capacity read has a value that is not a finite number at ${unreadable.join(', ')}`)
-        }
-        const sorted = Timestamps.map((at, i) => ({ at: Date.parse(at), max: Values[i] })).sort((a, b) => a.at - b.at)
         let consecutive = sorted.length > 0 ? 1 : 0
         while (
             consecutive < Math.min(sorted.length, CAPACITY_MINUTES) &&

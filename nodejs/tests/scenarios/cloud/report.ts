@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { CAPACITY_MINUTES } from '../environment/failover'
+import { seriesOf } from '../environment/metric-data'
 import { EXIT_CODE, Status } from '../runner/status'
 import { ADAPTERS, SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
@@ -43,22 +44,6 @@ const HostScorecard = z.object({
         .catchall(z.unknown()),
 })
 
-const MetricData = z.object({
-    MetricDataResults: z.array(
-        z
-            .object({
-                Id: z.enum(['max', 'avg']),
-                Timestamps: z.array(z.iso.datetime({ offset: true })),
-                Values: z.array(z.number()),
-                StatusCode: z.string(),
-                Messages: z.array(z.object({ Code: z.string().optional(), Value: z.string().optional() })).optional(),
-            })
-            .refine(({ Timestamps, Values }) => Timestamps.length === Values.length, {
-                message: 'CloudWatch returned a different number of timestamps and values',
-            })
-    ),
-})
-
 const minuteOf = (at: number): number => at - (at % MINUTE_MS)
 
 const iso = (at: number): string => new Date(at).toISOString()
@@ -87,39 +72,28 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
             Stat,
         },
     }))
-    const { MetricDataResults } = MetricData.parse(
+    const start = minuteOf(from)
+    const end = minuteOf(to) + MINUTE_MS
+    const series = seriesOf(
         await aws.call([
             'cloudwatch',
             'get-metric-data',
             '--start-time',
-            iso(minuteOf(from)),
+            iso(start),
             '--end-time',
-            iso(minuteOf(to) + MINUTE_MS),
+            iso(end),
             '--scan-by',
             'TimestampAscending',
             '--metric-data-queries',
             JSON.stringify(queries),
-        ])
+        ]),
+        { ids: ['max', 'avg'], from: start, to: end, subject: (id) => `CloudWatch's ${id} series` }
     )
-    const incomplete = MetricDataResults.filter(({ StatusCode }) => StatusCode !== 'Complete')
-    if (incomplete.length > 0) {
-        throw new Error(
-            incomplete
-                .map(({ Id, StatusCode, Messages = [] }) =>
-                    [
-                        `CloudWatch answered ${StatusCode} for the ${Id} series`,
-                        ...Messages.map(({ Code, Value }) => Value ?? Code),
-                    ].join(': ')
-                )
-                .join('; ')
-        )
-    }
     const byMinute = new Map<number, Minute>()
-    for (const { Id, Timestamps, Values } of MetricDataResults) {
-        Timestamps.forEach((timestamp, i) => {
-            const at = Date.parse(timestamp)
-            byMinute.set(at, { ...byMinute.get(at), at, [Id]: Values[i] })
-        })
+    for (const [id, points] of Object.entries(series)) {
+        for (const { at, value } of points) {
+            byMinute.set(at, { ...byMinute.get(at), at, [id]: value })
+        }
     }
     const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
     const ends = [...minutes.map(({ at }) => at), ...expected.map(minuteOf)]

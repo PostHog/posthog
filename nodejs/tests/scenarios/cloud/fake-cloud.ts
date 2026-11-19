@@ -565,7 +565,8 @@ export class FakeCloud implements Aws {
         { Id, MetricStat: { Metric, Period, Stat } }: MetricQuery,
         from: number,
         to: number,
-        averageStatus: string
+        averageStatus: string,
+        ascending: boolean
     ) {
         if (Id === 'avg' && averageStatus !== 'Complete') {
             return {
@@ -592,7 +593,8 @@ export class FakeCloud implements Aws {
                           value: { Maximum: max, Average: avg, SampleCount: 60 }[Stat],
                       })
                   )
-        const points = recorded.filter(({ at, value }) => at >= from && at < to && value !== undefined)
+        const inWindow = recorded.filter(({ at, value }) => at >= from && at < to && value !== undefined)
+        const points = ascending ? inWindow : inWindow.reverse()
         const values = points.map(({ value }) => value)
         const timestamps = points.map(({ at }) => new Date(at).toISOString())
         return {
@@ -1069,11 +1071,14 @@ export class FakeCloud implements Aws {
                     ? (parseJSON(flags.get('metric-data-queries')!) as MetricQuery[])
                     : []
                 const [from, to] = ['start-time', 'end-time'].map((flag) => Date.parse(flags.get(flag) ?? ''))
-                const averageStatus = flags.has('scan-by')
+                const averageStatus = queries.some(({ Id }) => Id === 'avg')
                     ? (this.options.averageStatuses?.[this.metricReads++] ?? 'Complete')
                     : 'Complete'
+                const ascending = flags.get('scan-by') === 'TimestampAscending'
                 return {
-                    MetricDataResults: queries.map((query) => this.readerCapacity(query, from, to, averageStatus)),
+                    MetricDataResults: queries.map((query) =>
+                        this.readerCapacity(query, from, to, averageStatus, ascending)
+                    ),
                 }
             }
             case 'resourcegroupstaggingapi get-resources': {
