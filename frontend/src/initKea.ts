@@ -261,11 +261,13 @@ Owned by inviteLogic's inviteTeamMembersFailure listener.
 const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
 
 /*
-Loads whose owning logic renders a 404 with code `github_repository_inaccessible` inline, with a link
-to the GitHub integration settings. The team's GitHub connection can't reach the PR's repository, so
-the 404 is a setup state, not a defect. The backend raises the code in products/signals/backend/views.py.
+Loads whose owning logic renders these GitHub error codes inline, with a link to the GitHub integration
+settings. The team's GitHub connection can't reach the PR's repository (404), or its installation is
+suspended or uninstalled (403). Both are setup states, not defects. The backend raises the codes in
+products/signals/backend/views.py.
 */
-const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+const GITHUB_SETUP_ERROR_CODES = new Set(['github_repository_inaccessible', 'github_installation_unavailable'])
+const GITHUB_SETUP_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadPrChecks: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadPrComments: 'scenes.inbox.logics.inboxReportDetailLogic',
@@ -278,8 +280,8 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
 }
 
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
-    if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
-        return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    if (GITHUB_SETUP_ERROR_CODES.has(error?.code)) {
+        return isOwnedByLogic(GITHUB_SETUP_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
     }
     return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
 }

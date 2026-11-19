@@ -16,7 +16,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubInstallationUnavailableError, Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -2777,13 +2777,26 @@ class TestSignalReportCommitDiff(APIBaseTest):
         response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_diff_returns_404_when_no_integration_can_access_repo(self):
+    @parameterized.expand(
+        [
+            ("no_integration", {"return_value": None}, status.HTTP_404_NOT_FOUND, "github_repository_inaccessible"),
+            (
+                "installation_unavailable",
+                {"side_effect": GitHubInstallationUnavailableError("token refresh after 401 failed")},
+                status.HTTP_403_FORBIDDEN,
+                "github_installation_unavailable",
+            ),
+        ]
+    )
+    def test_diff_links_github_settings_when_github_cannot_serve_repo(
+        self, _name: str, lookup: dict, expected_status: int, expected_code: str
+    ) -> None:
         report = self._create_report()
         artefact = self._create_commit_artefact(report)
-        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", **lookup):
             response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert response.json()["code"] == "github_repository_inaccessible"
+        assert response.status_code == expected_status
+        assert response.json()["code"] == expected_code
         assert response.json()["remediation_url"] == f"/project/{self.team.id}/settings/project-integrations"
 
     def _mock_github(self, result: dict):

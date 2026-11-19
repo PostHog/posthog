@@ -18,6 +18,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.integrations.contracts import IntegrationNotFound, IntegrationPatch, IntegrationRecord, RepositoryCache
 from posthog.models.github_integration_base import (
+    GitHubInstallationUnavailableError,
     GitHubIntegrationBase,
     GitHubIntegrationError,
     _is_safe_github_repo_path,
@@ -340,7 +341,8 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         An installation whose probe fails transiently, runs out of egress budget, or hits GitHub's
         rate limit is skipped. When no other installation covers the repository, that first error
-        is raised.
+        is raised. A failure from a suspended or uninstalled installation is raised as
+        :class:`GitHubInstallationUnavailableError`, so a caller can ask for a reconnect.
         """
         if not _is_safe_github_repo_path(repository):
             return None
@@ -353,6 +355,8 @@ class GitHubIntegration(GitHubIntegrationBase):
                 # A team's first installation being out of budget must not hide a later one that
                 # covers the repository. The first error is kept and raised only when none does,
                 # so a caller that has no reader still sees why.
+                if isinstance(e, GitHubIntegrationError) and github.installation_unavailable():
+                    exhausted = exhausted or GitHubInstallationUnavailableError(str(e), status_code=e.status_code)
                 exhausted = exhausted or e
                 continue
             if covers:

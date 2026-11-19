@@ -49,6 +49,7 @@ from posthog.models.github_integration_base import (
 )
 from posthog.models.integration import (
     GitHubInstallationAccessFetchError,
+    GitHubInstallationUnavailableError,
     GitHubIntegration,
     GitHubIntegrationError,
     Integration,
@@ -1051,6 +1052,20 @@ class TestGitHubIntegrationModel(BaseTest):
         self.create_integration(sensitive_config={"access_token": "SECOND"})
         with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, False]):
             with pytest.raises(type(error)):
+                GitHubIntegration.first_for_team_repository(
+                    self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
+                )
+
+    def test_first_for_team_repository_raises_installation_unavailable_for_a_suspended_installation(self):
+        # The failed token mint stamps the marker before it raises, so the caller can tell a
+        # suspended installation, which needs a reconnect, from a transient failure.
+        self.create_integration(config={"installation_unavailable_since": 1700000000})
+        with patch.object(
+            GitHubIntegration,
+            "installation_can_access_repository",
+            side_effect=GitHubIntegrationError("token refresh after 401 failed"),
+        ):
+            with pytest.raises(GitHubInstallationUnavailableError):
                 GitHubIntegration.first_for_team_repository(
                     self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
                 )

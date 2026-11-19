@@ -29,7 +29,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.errors import ClickHouseQueryTimeOut
 from posthog.models import OAuthApplication, Organization, User
 from posthog.models.github_integration_base import PullRequestCiStatus
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubInstallationUnavailableError, GitHubIntegration, GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -6175,6 +6175,49 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
         }
 
+    @parameterized.expand(
+        [
+            ("checks_lookup", "_checks_url", "get_pull_request_checks", "lookup"),
+            ("comments_lookup", "_comments_url", "get_pull_request_comments", "lookup"),
+            ("checks_fetch", "_checks_url", "get_pull_request_checks", "fetch"),
+            ("comments_fetch", "_comments_url", "get_pull_request_comments", "fetch"),
+        ]
+    )
+    def test_pr_detail_403_when_github_installation_is_unavailable(
+        self, _name: str, url_method: str, fetch_name: str, stage: str
+    ) -> None:
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        if stage == "lookup":
+            github.side_effect = GitHubInstallationUnavailableError("token refresh after 401 failed")
+        else:
+            getattr(github.return_value, fetch_name).side_effect = GitHubIntegrationError(
+                "token refresh after 401 failed"
+            )
+            github.return_value.installation_unavailable.return_value = True
+
+        response = self.client.get(getattr(self, url_method)(str(report.id)))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == {
+            "code": "github_installation_unavailable",
+            "error": (
+                "PostHog's GitHub connection is suspended or was uninstalled. A project admin must reconnect GitHub."
+            ),
+            "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
+        }
+
+    @parameterized.expand([("checks", "_checks_url"), ("comments", "_comments_url")])
+    def test_pr_detail_502_when_github_lookup_errors(self, _name: str, url_method: str) -> None:
+        report = self._create_report()
+        with patch(
+            "products.signals.backend.views.GitHubIntegration.first_for_team_repository",
+            side_effect=GitHubIntegrationError("unavailable", status_code=503),
+        ):
+            response = self.client.get(getattr(self, url_method)(str(report.id)))
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
     def test_pr_checks_503_when_egress_budget_sheds_request(self):
         report = self._create_report()
         with patch(
@@ -6278,6 +6321,7 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         github.return_value.get_pull_request_checks.return_value = {"success": False, "error": "boom"}
+        github.return_value.installation_unavailable.return_value = False
 
         response = self.client.get(self._checks_url(str(report.id)))
 

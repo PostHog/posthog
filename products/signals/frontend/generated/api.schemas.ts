@@ -4310,6 +4310,18 @@ export interface PullRequestCommentsResponseApi {
 }
 
 /**
+ * Response when the team's GitHub App installation is suspended or uninstalled.
+ */
+export interface GitHubInstallationUnavailableErrorApi {
+    /** Stable code for a suspended or uninstalled GitHub App installation. */
+    readonly code: string
+    /** What happened to the GitHub connection, and who can fix it. */
+    readonly error: string
+    /** Project integrations settings where a project admin can reconnect GitHub. */
+    readonly remediation_url: string
+}
+
+/**
  * Request body for posting an inline PR review comment as the requesting user.
  *
  * Two shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new
