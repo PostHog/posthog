@@ -128,6 +128,8 @@ export type FakeCloudOptions = {
     readerAcu?: ReaderMinute[]
     averageStatuses?: string[]
     shortValuesOf?: 'Maximum' | 'Average'
+    unknownTimestampOf?: 'Maximum' | 'Average'
+    omitsCapacityStatus?: boolean
     liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
     failover?: { takesMs?: number; showsAfterMs?: number }
 }
@@ -592,12 +594,13 @@ export class FakeCloud implements Aws {
                   )
         const points = recorded.filter(({ at, value }) => at >= from && at < to && value !== undefined)
         const values = points.map(({ value }) => value)
+        const timestamps = points.map(({ at }) => new Date(at).toISOString())
         return {
             Id,
             Label: Id,
-            Timestamps: points.map(({ at }) => new Date(at).toISOString()),
+            Timestamps: Stat === this.options.unknownTimestampOf ? ['unknown', ...timestamps.slice(1)] : timestamps,
             Values: Stat === this.options.shortValuesOf ? values.slice(0, -1) : values,
-            StatusCode: 'Complete',
+            ...(this.options.omitsCapacityStatus ? {} : { StatusCode: 'Complete' }),
         }
     }
 

@@ -399,8 +399,8 @@ export async function failOver({
             ])
         )) as CapacityData
         const [{ Timestamps, Values, StatusCode }] = MetricDataResults
-        if (StatusCode !== undefined && StatusCode !== 'Complete') {
-            refuse(`${reader}'s capacity read came back ${StatusCode}, not Complete`)
+        if (StatusCode !== 'Complete') {
+            refuse(`${reader}'s capacity read came back ${StatusCode ?? 'with no status'}, not Complete`)
         }
         if (Values.length !== Timestamps.length) {
             refuse(`${reader}'s capacity read has ${Timestamps.length} timestamps and ${Values.length} values`)

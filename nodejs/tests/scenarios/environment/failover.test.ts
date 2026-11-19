@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { mkdtempSync, writeFileSync } from 'fs'
+import { mkdtempDisposableSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
@@ -131,6 +131,12 @@ describe('pg.failover', () => {
             /-reader's capacity read has a value that is not a finite number at /,
         ],
         [
+            'a capacity read with no status',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2] }, omitsCapacityStatus: true },
+            () => undefined,
+            /-reader's capacity read came back with no status, not Complete/,
+        ],
+        [
             'a run manifest without the reader idle limit',
             {},
             (run) => delete run.manifest.readerIdleMaxAcu,
@@ -174,7 +180,7 @@ describe('pg.failover', () => {
             print: () => undefined,
             warn: () => undefined,
         } as unknown as Controller
-        const dir = mkdtempSync(path.join(tmpdir(), 'failover-manifest-'))
+        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
         const hostRunUnder = async (idleMax: number): Promise<Run> => {
             const profile = CloudProfile.parse({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax } })
             const runner = { file: 'runner.yaml', bytes: Buffer.from(''), sha256: '' }
@@ -183,7 +189,7 @@ describe('pg.failover', () => {
                 { profile, runner, inputs: [runner], card: { id: 'cyclotron-failover-under-load', failsOver: true } },
                 { owner: 'scenario-tests', commit: 'abc123' }
             )
-            const file = path.join(dir, `${runId}.json`)
+            const file = path.join(dir.path, `${runId}.json`)
             writeFileSync(file, cloud.objects.get(keyOf(runId, 'input/manifest.json'))!)
             const manifest = runManifestOf({ SCENARIO_RUN_MANIFEST: file })!
             return { cloud, ...cloud.runCluster(runId), manifest }

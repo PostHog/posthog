@@ -48,7 +48,7 @@ const MetricData = z.object({
         z
             .object({
                 Id: z.enum(['max', 'avg']),
-                Timestamps: z.array(z.string()),
+                Timestamps: z.array(z.iso.datetime({ offset: true })),
                 Values: z.array(z.number()),
                 StatusCode: z.string(),
                 Messages: z.array(z.object({ Code: z.string().optional(), Value: z.string().optional() })).optional(),

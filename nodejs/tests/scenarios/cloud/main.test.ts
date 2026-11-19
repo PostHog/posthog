@@ -255,6 +255,19 @@ describe('cloud controller', () => {
         })
     })
 
+    it('calls a card without a failover invalid when CloudWatch answers with fewer values than timestamps', async () => {
+        const { controller } = prepare({
+            profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }),
+            cloud: { liveReaderAcu: { maxima: [1, 1, 1, 1, 1] }, shortValuesOf: 'Average' },
+            env: api.credentials,
+        })
+
+        await expect(main(['run', profilePath(), 'cyclotron-scale'], controller)).resolves.toBe(2)
+
+        expect(published()).toMatchObject({ card_id: 'cyclotron-scale', status: 'invalid' })
+        expect(published().status_reason).toContain('could not read the reader capacity')
+    })
+
     it.each<[string, string | undefined, string, Setup]>([
         ['a card that does not exist', 'no-such-card', 'no-such-card is not a card at commit', {}],
         [
@@ -1156,6 +1169,20 @@ describe('cloud controller', () => {
             () => undefined,
             'invalid',
             'could not read the reader capacity',
+        ],
+        [
+            'a CloudWatch timestamp that is not a time',
+            { readerAcu: IDLE_THEN_PROMOTED, unknownTimestampOf: 'Average' },
+            () => undefined,
+            'invalid',
+            'could not read the reader capacity',
+        ],
+        [
+            'the oldest of the five minutes before T0 missing',
+            { readerAcu: IDLE_THEN_PROMOTED.filter(({ minute }) => minute !== -5) },
+            () => undefined,
+            'invalid',
+            'no reader capacity in the 5 minutes before T0 for',
         ],
         [
             'a whole minute missing from the five before T0',

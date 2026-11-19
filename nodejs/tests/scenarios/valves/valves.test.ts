@@ -280,6 +280,16 @@ describe('valves', () => {
                 ),
             },
         ],
+        [
+            'records no intent for a failover whose capacity read has no status',
+            { liveReaderAcu: { maxima: [2, 2, 2, 2, 2] }, omitsCapacityStatus: true },
+            true,
+            {
+                error: expect.stringMatching(
+                    /^pg\.failover refused: .*'s capacity read came back with no status, not Complete/
+                ),
+            },
+        ],
         ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
     ])('%s', async (_story, options, onRunHost, recorded) => {
         const valves = createValves({ pollMs: 5 })
