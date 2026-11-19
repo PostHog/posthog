@@ -1,6 +1,5 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useCallback, useRef } from 'react'
 
 import { IconCheck, IconExternal, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
@@ -26,6 +25,7 @@ import {
     ExternalProjectItem,
     ListItem,
     newAccountMenuLogic,
+    openExternalProject,
     ProjectListItem,
 } from './newAccountMenuLogic'
 import { ProjectFreshnessIndicator } from './ProjectFreshnessIndicator'
@@ -42,11 +42,11 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         projectSearchValue: searchValue,
         filteredProjectItems: filteredItems,
         projectGroups,
+        externalProjectItems,
         hasProjectGroups,
     } = useValues(newAccountMenuLogic)
     const inputRef = useRef<HTMLInputElement>(null!)
     const createItem = filteredItems.find((p): p is CreateProjectItem => p.type === 'create')
-    const externalItems = filteredItems.filter((p): p is ExternalProjectItem => p.type === 'external')
 
     const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
 
@@ -70,9 +70,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                 )
                 closeProjectSwitcher()
             } else if (item.type === 'external') {
-                posthog.capture('project switcher external project opened')
                 closeProjectSwitcher()
-                window.location.href = item.url
+                openExternalProject(item)
             } else if (!item.isCurrent) {
                 const targetUrl = getProjectSwitchTargetUrl(
                     location.pathname,
@@ -213,8 +212,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                             </Combobox.Group>
                         ))}
 
-                        {externalItems.length > 0 && (
-                            <Combobox.Group items={externalItems}>
+                        {externalProjectItems.length > 0 && (
+                            <Combobox.Group items={externalProjectItems}>
                                 <Combobox.GroupLabel className="px-2 pt-2 pb-1 text-xxs text-tertiary font-medium">
                                     Other regions
                                 </Combobox.GroupLabel>
