@@ -1104,6 +1104,77 @@ email@example.org
         cohort.refresh_from_db()
         self.assertTrue(cohort.is_calculating)
 
+    def test_switching_cohort_to_dynamic_mid_replace_stops_replace_finalization(self) -> None:
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+        from products.cohorts.backend.models.util import insert_cohort_people_into_pg
+
+        run = uuid4().hex[:8]
+        create_person(team=self.team, distinct_ids=[f"{run}-dyn"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static-turning-dynamic",
+            is_static=True,
+            count=7,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        claimed_at = timezone.now().replace(microsecond=0)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=claimed_at,
+        )
+
+        def flip_to_dynamic_then_copy(*args: Any, **kwargs: Any) -> None:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+                data={
+                    "is_static": False,
+                    "filters": {
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": ["user@example.com"],
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    },
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, 200, response.json())
+            insert_cohort_people_into_pg(*args, **kwargs)
+
+        with (
+            patch("posthog.tasks.calculate_cohort.is_static_cohort_replace_enabled", return_value=True),
+            patch.object(Cohort, "enqueue_calculation"),
+            patch(
+                "products.cohorts.backend.models.util.insert_cohort_people_into_pg",
+                side_effect=flip_to_dynamic_then_copy,
+            ),
+        ):
+            insert_cohort_from_query(cohort.pk, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_static)
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.count, 7)
+        self.assertIsNone(cohort.pending_population_mode)
+        self.assertIsNone(cohort.population_marker)
+        self.assertIsNone(cohort.population_claimed_at)
+        self.assertEqual(list_cohort_member_ids(self.team.pk, cohort.pk), [])
+        # The interrupted replace left orphaned _offset = 1 rows in ClickHouse; the blocker filter makes
+        # adds and appends ignore them if the cohort is ever populated statically again.
+
     def test_calculation_history_endpoint_and_serializer_expose_mode(self) -> None:
         cohort = Cohort.objects.create(team=self.team, name="Static with History", is_static=True)
         history = CohortCalculationHistory.objects.create(

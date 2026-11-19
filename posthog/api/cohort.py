@@ -2365,6 +2365,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if create_in_folder is not None:
             cohort._create_in_folder = create_in_folder or None
 
+        was_static = cohort.is_static
         was_realtime = cohort.cohort_type == CohortType.REALTIME and not cohort.is_static
         held_a_realtime_slot = cohort.realtime_enabled and was_realtime and not cohort.deleted
 
@@ -2626,9 +2627,16 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             elif cohort.is_static:
                 cohort.save(update_fields=update_fields)
             else:
+                dynamic_update_fields = [*update_fields, "is_calculating"]
+                if was_static:
+                    # Clear any in-flight static replace claim in the same UPDATE so a running replace sees the
+                    # cleared marker and stops instead of overwriting the dynamic cohort's count or is_calculating.
+                    for field, value in PENDING_POPULATION_CLEARED.items():
+                        setattr(cohort, field, value)
+                    dynamic_update_fields.extend(PENDING_POPULATION_CLEARED)
                 # Dynamic edits mark the cohort for recalculation above, so include is_calculating here even though
                 # STATIC_POPULATION_RUN_FIELDS excludes it from the shared update_fields list.
-                cohort.save(update_fields=[*update_fields, "is_calculating"])
+                cohort.save(update_fields=dynamic_update_fields)
 
         if not deleted_state:
             if import_from_csv:
