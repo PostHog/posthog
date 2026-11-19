@@ -39,6 +39,9 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
         # web GET /health: 5 server spans, healthy.
         for _ in range(5):
             w.span("web", name="GET /health", env="prod")
+        # web GET /report: satisfied, tolerating (between 500 ms and 2 s) and frustrated -> Apdex 0.5.
+        for ms in (100, 900, 2500):
+            w.span("web", name="GET /report", ms=ms, env="prod")
         # api POST /charge: a non-root server span is still an endpoint.
         for _ in range(4):
             w.span("api", name="POST /charge", env="prod", parent=root)
@@ -81,6 +84,7 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
                 ("web", "GET /orders"),
                 ("api", "POST /charge"),
                 ("web", "GET /health"),
+                ("web", "GET /report"),
                 ("worker", "cron.tick"),
             ],
         )
@@ -94,6 +98,9 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(orders["health"]["error_rate"], 0.1)
         self.assertAlmostEqual(orders["health"]["request_rate"], 10 / 7200, places=6)
         self.assertGreaterEqual(orders["health"]["p95_ms"], 50)
+        self.assertAlmostEqual(orders["health"]["apdex"], 0.9)
+        report = next(r for r in self._list()["results"] if r["endpoint"] == "GET /report")
+        self.assertAlmostEqual(report["health"]["apdex"], 0.5)
 
     def test_client_and_internal_child_spans_are_not_endpoints(self) -> None:
         endpoints = {r["endpoint"] for r in self._list()["results"]}
@@ -102,7 +109,7 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_service_filter(self) -> None:
         rows = self._list(service="web")["results"]
-        self.assertEqual([r["endpoint"] for r in rows], ["GET /orders", "GET /health"])
+        self.assertEqual([r["endpoint"] for r in rows], ["GET /orders", "GET /health", "GET /report"])
 
     def test_environment_filter(self) -> None:
         self.assertNotIn("eu-only", {r["service_name"] for r in self._list()["results"]})

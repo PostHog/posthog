@@ -11,6 +11,8 @@ from posthog.enums import LabeledStrEnum
 
 WARNING_ERROR_RATE = 0.01
 SERIOUS_ERROR_RATE = 0.05
+# The same default T the derived spans.apdex metric uses, so the table and the metric agree.
+APDEX_THRESHOLD_MS = 500
 
 _STATUS_RANK = {"critical": 0, "serious": 1, "warning": 2, "good": 3}
 
@@ -29,6 +31,7 @@ class HealthRow:
     p95_ms: float | None
     span_count: int
     error_count: int
+    apdex: float | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,13 @@ class ServiceEdge:
     calls: int
     error_count: int
     p95_ms: float | None
+
+
+class VersionSource(LabeledStrEnum):
+    """The resource attribute a deployment version is read from."""
+
+    SERVICE_VERSION = "service.version"
+    K8S_REPLICASET_NAME = "k8s.replicaset.name"
 
 
 class DependencyKind(LabeledStrEnum):

@@ -25,7 +25,7 @@ const row = (service_name: string, status: 'good' | 'warning' | 'serious' | 'cri
     service_name,
     environment: 'prod',
     status,
-    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0 },
+    health: { request_rate: 1, error_rate: 0, p95_ms: 10, span_count: 1, error_count: 0, apdex: 1 },
     sparkline: [1],
 })
 
@@ -47,7 +47,7 @@ const ENDPOINTS_RESPONSE: EndpointsHealthResponseApi = {
             route: null,
             environment: 'prod',
             status: 'serious',
-            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1 },
+            health: { request_rate: 1, error_rate: 0.5, p95_ms: 10, span_count: 2, error_count: 1, apdex: 0.5 },
         },
     ],
     environment: 'prod',
