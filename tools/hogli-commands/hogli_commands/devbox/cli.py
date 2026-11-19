@@ -485,8 +485,16 @@ def _resume_sync(name: str) -> None:
         click.echo(f"Resumed the sync to '{name}'.")
 
 
+def _report_box_setup(name: str) -> None:
+    # box_checks builds its probes from the command builders in this module, so importing it at the top
+    # of the module would be circular.
+    from .box_checks import report_box_setup
+
+    report_box_setup(name)
+
+
 def _start_existing_workspace(
-    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
+    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool, check_setup: bool = False
 ) -> None:
     """Handle `devbox:start` when the workspace already exists."""
     if start_app is not None:
@@ -499,6 +507,8 @@ def _start_existing_workspace(
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
         _print_connection_info(name)
+        if check_setup:
+            _report_box_setup(name)
         return
 
     if status in PENDING_WORKSPACE_STATES:
@@ -517,6 +527,8 @@ def _start_existing_workspace(
         click.echo("Started.")
         _resume_sync(name)
         _print_connection_info(name)
+        if check_setup:
+            _report_box_setup(name)
         return
 
     click.echo(f"Devbox '{name}' is in state: {status}")
@@ -525,6 +537,8 @@ def _start_existing_workspace(
     _wait_until_ready(name)
     _resume_sync(name)
     _print_connection_info(name)
+    if check_setup:
+        _report_box_setup(name)
 
 
 def _read_legacy_keychain_token() -> str | None:
@@ -2202,7 +2216,9 @@ def devbox_start(
     if ws is not None:
         if workspace is None and region is None:
             _maybe_hint_region_mismatch(name)
-        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
+        _start_existing_workspace(
+            name, ws, start_app=start_app, verbose=verbose, check_setup=_targets_own_box(workspace)
+        )
         return
 
     config = load_config()
@@ -2226,6 +2242,8 @@ def devbox_start(
     _wait_until_ready(name)
     click.echo("Created.")
     _print_connection_info(name)
+    if _targets_own_box(workspace):
+        _report_box_setup(name)
 
 
 @click.command(

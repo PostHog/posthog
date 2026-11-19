@@ -265,6 +265,9 @@ devbox:
     devbox:trunk:logout:
         click: hogli_commands.devbox.trunk_login:devbox_trunk_logout
         description: Log the Trunk CLI out on your devbox
+    devbox:check:
+        click: hogli_commands.devbox.box_checks:devbox_check
+        description: Show which logins and other per-box setup your devbox is missing
     devbox:config:show:
         click: hogli_commands.devbox.cli:devbox_config_show
         description: Show saved devbox setup configuration

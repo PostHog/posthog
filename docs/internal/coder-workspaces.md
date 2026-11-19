@@ -196,6 +196,9 @@ When a build fails with `InsufficientInstanceCapacity`, AWS has no free capacity
 `devbox:start`, `devbox:restart` and `devbox:update` then start the box on the template's other instance types in turn, through the Coder build API, because the Coder CLI keeps a parameter's last-build value.
 The template changes the type of the same instance, so the disk stays, and the box keeps the type that started.
 
+After your own box starts, `devbox:start` lists the per-box setup it still needs, such as the Claude Code, GitHub CLI and Trunk CLI logins, with the command that sets each one up.
+Run `hogli devbox:check` to see the same list at any time.
+
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
 When in doubt, `hogli devbox:doctor` reports which prerequisite is missing.

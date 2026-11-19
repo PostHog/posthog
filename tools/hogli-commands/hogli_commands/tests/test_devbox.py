@@ -23,6 +23,7 @@ from click.testing import CliRunner
 from hogli.cli import cli
 from hogli_commands import worktrees
 from hogli_commands.devbox import (
+    box_checks,
     cli as devbox_cli,
     coder,
     config as devbox_config,
@@ -3275,7 +3276,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "_start_existing_workspace",
-            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
+            lambda name, ws, start_app=None, verbose=False, check_setup=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -3314,7 +3315,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "_start_existing_workspace",
-            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
+            lambda name, ws, start_app=None, verbose=False, check_setup=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -4123,6 +4124,71 @@ class TestStartExistingWorkspace:
         devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": status}}, verbose=False)
 
         assert calls == expected
+
+    @pytest.mark.parametrize(
+        "box_answer, workspace_arg, expected, unexpected",
+        [
+            (
+                "HOGLI_CHECK 0 0\nHOGLI_CHECK 1 0\nHOGLI_CHECK 2 0\n",
+                [],
+                ["Box setup: Claude Code login, GitHub CLI login, Trunk CLI login are ready."],
+                ["Missing"],
+            ),
+            (
+                "Welcome to the box!\nHOGLI_CHECK 1 1\nHOGLI_CHECK 0 0\nHOGLI_CHECK 2 3\n",
+                [],
+                [
+                    "Missing GitHub CLI login. Run `hogli devbox:gh:login`.",
+                    "Run `hogli devbox:exec --flox -- true, then hogli devbox:trunk:login`.",
+                ],
+                ["Claude Code login"],
+            ),
+            (
+                "HOGLI_CHECK 0 1\nHOGLI_CHECK 1 124\n",
+                [],
+                [
+                    "Missing Claude Code login. Run `hogli devbox:claude:login`.",
+                    "Couldn't check GitHub CLI login.",
+                    "Couldn't check Trunk CLI login.",
+                ],
+                [],
+            ),
+            (subprocess.TimeoutExpired("ssh", 30), [], ["Couldn't check box setup."], ["Missing"]),
+            ("motd only\n", [], ["Couldn't check box setup."], ["Missing"]),
+            ("HOGLI_CHECK 0 1\n", ["@bob"], [], ["Box setup", "Missing", "Couldn't check"]),
+        ],
+        ids=["all_ready", "missing_after_profile_junk", "missing_and_unknown", "timeout", "no_markers", "other_box"],
+    )
+    def test_start_reports_missing_box_setup(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        box_answer: str | Exception,
+        workspace_arg: list[str],
+        expected: list[str],
+        unexpected: list[str],
+    ) -> None:
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if isinstance(box_answer, Exception):
+                raise box_answer
+            return subprocess.CompletedProcess([], 0, box_answer, "")
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli, "get_workspace", lambda name, workspaces=None: {"latest_build": {"status": "running"}}
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
+        monkeypatch.setattr(box_checks, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(box_checks, "run_in_workspace", fake_run_in_workspace)
+
+        result = runner.invoke(cli, ["devbox:start", *workspace_arg])
+
+        assert result.exit_code == 0, result.output
+        for text in expected:
+            assert text in result.output
+        for text in unexpected:
+            assert text not in result.output
 
 
 class TestDevboxStop:
