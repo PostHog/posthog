@@ -33,7 +33,7 @@ export function ServiceRequestsChart({ data, loading }: ServiceRequestsChartProp
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             xAxis: { timezone: TRACING_DISPLAY_TIMEZONE },
-            yAxis: { label: interval ? `Requests per ${interval}` : 'Requests' },
+            yAxis: { label: interval ? `Requests / ${interval}` : 'Requests' },
             showGrid: true,
             legend: { show: true, position: 'bottom', align: 'start' },
         }),
