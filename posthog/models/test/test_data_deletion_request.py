@@ -459,26 +459,36 @@ def _matches_by_row(read_table: str, team_id: int, fragment: str, values: dict) 
 
 
 @pytest.mark.parametrize(
-    "property_type, predicate",
+    "property_type, predicate, differs_on",
     [
-        pytest.param("materialized", "properties.$plan IN ('pro', 'team')", id="materialized_in"),
-        pytest.param("materialized", "properties.$plan IN ('pro')", id="materialized_in_one_value"),
-        pytest.param("materialized", "properties.$plan = 'pro' OR distinct_id = 'd'", id="materialized_equals_or"),
-        pytest.param(None, "properties.$plan = 'pro'", id="equals"),
-        pytest.param(None, "properties.$plan = ''", id="equals_empty_string"),
-        pytest.param(None, "properties.$plan = 'a\"b'", id="equals_escaped_quote"),
-        pytest.param(None, "properties.$plan != 'pro'", id="not_equals"),
-        pytest.param(None, "properties.$plan IN ('pro', 'team')", id="in"),
-        pytest.param(None, "properties.$plan > 'free'", id="greater"),
-        pytest.param(None, "properties.$plan IS NULL", id="is_null"),
-        pytest.param(None, "properties.$plan LIKE 'pr%'", id="like"),
-        pytest.param("Numeric", "properties.$plan > 1", id="numeric_greater"),
-        pytest.param("Boolean", "properties.$plan = true", id="boolean_equals"),
-        pytest.param(None, "person.properties.$plan = 'pro'", id="person_property_equals"),
+        pytest.param("materialized", "properties.$plan IN ('pro', 'team')", set(), id="materialized_in"),
+        pytest.param("materialized", "properties.$plan IN ('pro')", set(), id="materialized_in_one_value"),
+        pytest.param(
+            "materialized", "properties.$plan = 'pro' OR distinct_id = 'd'", set(), id="materialized_equals_or"
+        ),
+        # The accepted difference: mat_$plan reads a stored "" and "null" as NULL, and the raw JSON read does not.
+        pytest.param("materialized", "properties.$plan = ''", {'{"$plan": ""}'}, id="materialized_equals_empty_string"),
+        pytest.param(
+            "materialized",
+            "properties.$plan IS NULL",
+            {'{"$plan": ""}', '{"$plan": "null"}'},
+            id="materialized_is_null",
+        ),
+        pytest.param(None, "properties.$plan = 'pro'", set(), id="equals"),
+        pytest.param(None, "properties.$plan = ''", set(), id="equals_empty_string"),
+        pytest.param(None, "properties.$plan = 'a\"b'", set(), id="equals_escaped_quote"),
+        pytest.param(None, "properties.$plan != 'pro'", set(), id="not_equals"),
+        pytest.param(None, "properties.$plan IN ('pro', 'team')", set(), id="in"),
+        pytest.param(None, "properties.$plan > 'free'", set(), id="greater"),
+        pytest.param(None, "properties.$plan IS NULL", set(), id="is_null"),
+        pytest.param(None, "properties.$plan LIKE 'pr%'", set(), id="like"),
+        pytest.param("Numeric", "properties.$plan > 1", set(), id="numeric_greater"),
+        pytest.param("Boolean", "properties.$plan = true", set(), id="boolean_equals"),
+        pytest.param(None, "person.properties.$plan = 'pro'", set(), id="person_property_equals"),
     ],
 )
 def test_flag_evaluations_predicate_matches_the_rows_the_events_predicate_matches(
-    team, request, property_type, predicate
+    team, request, property_type, predicate, differs_on
 ):
     if property_type == "materialized":
         request.getfixturevalue("materialized_plan")
@@ -502,7 +512,8 @@ def test_flag_evaluations_predicate_matches_the_rows_the_events_predicate_matche
 
     events_matches = _matches_by_row("events", team.id, events_sql, events_values)
     assert events_matches.keys() == set(_PARITY_ROW_PROPERTIES)
-    assert _matches_by_row("flag_evaluations", team.id, flag_sql, flag_values) == events_matches
+    flag_matches = _matches_by_row("flag_evaluations", team.id, flag_sql, flag_values)
+    assert {row for row, matched in flag_matches.items() if matched != events_matches[row]} == differs_on
 
 
 def test_rendered_count_query_substitutes_parameters():

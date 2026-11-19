@@ -3641,7 +3641,7 @@ def test_full_job_property_removal_survives_the_ttl_dropping_reingested_flag_eva
             False,
             "properties.$browser = 'Chrome'",
             False,
-            "as deferred",
+            "match this request but cannot be deleted: .*as deferred",
             id="hogql_predicate_refuses_matching_rows_without_an_events_copy",
         ),
         pytest.param(
@@ -3649,7 +3649,8 @@ def test_full_job_property_removal_survives_the_ttl_dropping_reingested_flag_eva
             False,
             "properties.$browser = 'Chrome' AND NOT elements_chain ILIKE '%checkout%'",
             False,
-            "elements_chain",
+            "match this request's team, time range and events, and have no copy in sharded_events. They were "
+            "counted without the HogQL predicate.*elements_chain",
             id="hogql_predicate_that_cannot_run_on_flag_evaluations_refuses_rows_without_an_events_copy",
         ),
     ],

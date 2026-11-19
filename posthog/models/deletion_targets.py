@@ -481,7 +481,7 @@ def assert_no_unsweepable_rows(
     *,
     events: Sequence[str],
     reason: str,
-    counted_without_predicate: bool = False,
+    counted_without_predicate: str | None = None,
     log: logging.Logger | None = None,
 ) -> None:
     """Fail when a target this request cannot sweep actually holds rows matching it.
@@ -489,11 +489,14 @@ def assert_no_unsweepable_rows(
     Pass targets already narrowed by ``resolve_targets``; this does not re-check presence.
 
     ``predicate_for`` returns the criteria to count on a target, or ``NotCounted`` to skip it.
-    The criteria carry no materialized-column arms, so each count is a superset of what the
-    deletion would have removed. A caller may drop a criterion the target cannot hold, and the
-    count is then a superset of the remainder.
-    Set ``counted_without_predicate`` when the request has a HogQL predicate that the criteria
-    leave out. The error then says that the counted rows may not match that predicate.
+    Criteria that leave out the request's HogQL predicate count a superset of what the deletion
+    would have removed. A caller may drop a criterion the target cannot hold, and the count is then
+    a superset of the remainder. Criteria that include the predicate compiled for the target count
+    the rows that compile matches, which can differ on edge values from what the events compile
+    would match.
+    ``counted_without_predicate`` names what the criteria count, such as "this request's team and
+    time range", when the request has a HogQL predicate that they leave out. The error then says
+    what was counted and that the rows may not match the predicate.
     ``events`` is the request's event filter, empty meaning every event.
     ``log`` gets an info line for each target skipped without a count, with the reason, so a
     completed erasure records which targets went unchecked.
@@ -515,8 +518,8 @@ def assert_no_unsweepable_rows(
         count = count_surviving_rows(cluster, target, predicate, params)
         if count:
             matched = (
-                "match this request's team, time range and events. They were counted without the HogQL "
-                "predicate, so some of them may not match it. They"
+                f"match {counted_without_predicate}. They were counted without the HogQL predicate, so some of "
+                "them may not match it. They"
                 if counted_without_predicate
                 else "match this request but"
             )

@@ -588,12 +588,13 @@ def _refuse_unsweepable(
     predicate_for: Callable[[DeletionTarget], tuple[str, dict] | NotCounted],
     *,
     reason: str,
-    predicate_applied: bool = False,
+    counted: str | None,
     log: logging.Logger | None = None,
 ) -> None:
     """Raise a dagster.Failure when the request would strand rows on any of ``targets``.
 
-    Set ``predicate_applied`` when ``predicate_for`` includes the request's compiled HogQL predicate.
+    ``counted`` names what ``predicate_for`` counts when it leaves out the request's HogQL predicate,
+    and is None when it applies that predicate.
     """
     try:
         assert_no_unsweepable_rows(
@@ -602,11 +603,18 @@ def _refuse_unsweepable(
             predicate_for,
             events=[] if deletion_request.delete_all_events else deletion_request.events,
             reason=reason,
-            counted_without_predicate=bool(deletion_request.hogql_predicate) and not predicate_applied,
+            counted_without_predicate=counted if deletion_request.hogql_predicate else None,
             log=log,
         )
     except UnsweepableRowsError as exc:
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
+
+
+def _request_criteria_text(deletion_request: DeletionRequestContext) -> str:
+    """The team, time range and event criteria of ``deletion_request``, as a refusal names them."""
+    if deletion_request.delete_all_events:
+        return "this request's team and time range"
+    return "this request's team, time range and events"
 
 
 def _same_criteria(criteria: tuple[str, dict]) -> Callable[[DeletionTarget], tuple[str, dict]]:
@@ -647,6 +655,7 @@ def _refuse_property_removal_unsweepable(
         deletion_request,
         predicate_for,
         reason=_PROPERTY_REWRITE_UNSWEEPABLE_REASON,
+        counted=f"{_request_criteria_text(deletion_request)}, and carry a property it removes",
         log=log,
     )
     _refuse_unsweepable(
@@ -655,6 +664,7 @@ def _refuse_property_removal_unsweepable(
         deletion_request,
         predicate_for,
         reason=_HOGQL_UNSWEEPABLE_REASON,
+        counted=f"{_request_criteria_text(deletion_request)}, and carry a property it removes",
         log=log,
     )
 
@@ -748,6 +758,7 @@ def _event_removal_placements(
         deletion_request,
         _same_criteria(criteria),
         reason=_HOGQL_UNSWEEPABLE_REASON,
+        counted=_request_criteria_text(deletion_request),
     )
 
     uncopied: list[tuple[TargetPlacement, UncopiedRowsPredicate]] = []
@@ -786,7 +797,9 @@ def _event_removal_placements(
                 deletion_request,
                 _same_criteria(window),
                 reason=reason,
-                predicate_applied=uncopied_predicate.compiled is not None,
+                counted=None
+                if uncopied_predicate.compiled is not None
+                else f"{_request_criteria_text(deletion_request)}, and have no copy in {target.copied_from}",
             )
     return EventRemovalPlacements(swept=[p for p in placements if p.target.accepts_hogql_predicate], uncopied=uncopied)
 
