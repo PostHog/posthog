@@ -782,7 +782,8 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
 }
 
-export interface ProjectType extends ProjectBasicType, Pick<ProjectApi, 'logo_media_id'> {
+export interface ProjectType extends ProjectBasicType {
+    logo_media_id: ProjectApi['logo_media_id']
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null
