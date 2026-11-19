@@ -65,7 +65,7 @@ Every other delivery is `UNDECIDED`, so a ticket edit that no region acts on sta
 The task reads the current state of every linked Linear ticket from Linear, so a delivery that arrives late or out of order cannot apply a state the ticket no longer has.
 
 `error_tracking_linear_external_references`, declared in the same file.
-It handles created tickets and `Issue` updates that change the description or the title, and queues one task per error tracking issue that the description links to.
+It handles created tickets and `Issue` updates that change the description or the title, and queues one task per project whose error tracking issues the description links to.
 Its `ownership` lookup reads `organization_id` the same way, but only for a ticket whose description links to an error tracking issue at this instance's URL or one of the configured regional origins.
 Every other delivery is `UNDECIDED`.
 The task waits 60 seconds before linking and uses the ticket's immutable ID, so a move between Linear teams does not lose the link.
@@ -77,6 +77,8 @@ Private and restricted teams always require membership, including for administra
 Guests can link tickets in teams they belong to, matching [Linear's member roles](https://linear.app/docs/members-roles).
 Individually shared private issues and inherited restricted-team access do not qualify without team membership.
 These checks also apply when refreshing a linked ticket's title.
+A task shares one access check across all references to the same ticket and actor within each project's integration.
+No permission result is cached across tasks, so a later delivery rechecks access.
 
 After linking, the task reconciles the current states of all the issue's linked Linear tickets, using the existing status-sync rules and kill switch.
 A completed ticket can therefore resolve the issue without another state-change delivery.

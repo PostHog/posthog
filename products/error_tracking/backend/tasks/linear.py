@@ -87,7 +87,11 @@ def process_linear_status_sync(
 
 
 def enqueue_linear_external_references(payload: dict[str, Any]) -> None:
+    projects: dict[int, list[contracts.LinearExternalReferenceJob]] = {}
     for job in api.prepare_linear_external_reference_jobs(payload):
+        projects.setdefault(job.team_id, []).append(job)
+    for jobs in projects.values():
+        job = jobs[0]
         cast(Any, process_linear_external_reference).apply_async(
             kwargs={
                 "team_id": job.team_id,
@@ -96,8 +100,13 @@ def enqueue_linear_external_references(payload: dict[str, Any]) -> None:
                 "actor_id": str(job.actor_id),
                 "identifier": job.identifier,
                 "title": job.title,
-                "issue_id": str(job.issue_id) if job.issue_id is not None else None,
-                "fingerprint": job.fingerprint,
+                "references": [
+                    {
+                        "issue_id": str(reference.issue_id) if reference.issue_id is not None else None,
+                        "fingerprint": reference.fingerprint,
+                    }
+                    for reference in jobs
+                ],
             },
             countdown=_LINK_DELAY_SECONDS,
         )
@@ -133,21 +142,28 @@ def process_linear_external_reference(
     actor_id: str,
     identifier: str,
     title: str | None,
-    issue_id: str | None,
-    fingerprint: str | None,
+    issue_id: str | None = None,
+    fingerprint: str | None = None,
+    references: list[dict[str, str | None]] | None = None,
 ) -> None:
-    job = contracts.LinearExternalReferenceJob(
-        team_id=team_id,
-        organization_id=organization_id,
-        ticket_id=UUID(ticket_id),
-        actor_id=UUID(actor_id),
-        identifier=identifier,
-        title=title,
-        issue_id=UUID(issue_id) if issue_id is not None else None,
-        fingerprint=fingerprint,
-    )
+    targets = references if references is not None else [{"issue_id": issue_id, "fingerprint": fingerprint}]
+    jobs: list[contracts.LinearExternalReferenceJob] = []
+    for target in targets:
+        target_id = target.get("issue_id")
+        jobs.append(
+            contracts.LinearExternalReferenceJob(
+                team_id=team_id,
+                organization_id=organization_id,
+                ticket_id=UUID(ticket_id),
+                actor_id=UUID(actor_id),
+                identifier=identifier,
+                title=title,
+                issue_id=UUID(target_id) if target_id is not None else None,
+                fingerprint=target.get("fingerprint"),
+            )
+        )
     try:
-        api.link_linear_external_reference(job)
+        api.link_linear_external_references(jobs)
     except LinearRateLimitedError as error:
         raise self.retry(exc=error, countdown=error.retry_after_seconds, max_retries=_RATE_LIMITED_MAX_RETRIES)
     except LockError as error:

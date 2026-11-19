@@ -826,6 +826,10 @@ def link_linear_external_reference(job: contracts.LinearExternalReferenceJob) ->
     return linear_external_references.link_reference(job)
 
 
+def link_linear_external_references(jobs: list[contracts.LinearExternalReferenceJob]) -> list[bool]:
+    return linear_external_references.link_references(jobs)
+
+
 def linear_external_reference_delivery_ownership(payload: dict[str, Any]) -> DeliveryOwnership:
     return linear_external_references.delivery_ownership(payload)
 

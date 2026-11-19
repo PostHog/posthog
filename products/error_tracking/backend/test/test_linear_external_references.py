@@ -25,6 +25,7 @@ from posthog.models import Team
 from posthog.models.integration import Integration, LinearIntegrationError
 
 from products.error_tracking.backend.facade import api, contracts
+from products.error_tracking.backend.facade.linear import enqueue_linear_external_references
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
@@ -82,6 +83,7 @@ class _FakeLinear:
         self.ticket_states = ticket_states or dict.fromkeys(readable_identifiers, "started")
         self.rate_limit_seconds = rate_limit_seconds
         self.request_count = 0
+        self.authority_requests: list[str] = []
 
     def post(self, url: str, *, headers: dict[str, str], json: dict[str, Any], timeout: int) -> Mock:
         query, variables = json["query"], json["variables"]
@@ -93,6 +95,7 @@ class _FakeLinear:
                 json=Mock(return_value={"errors": [{"extensions": {"code": "RATELIMITED"}}]}),
             )
         if "ReferenceAuthority" in query:
+            self.authority_requests.append(headers["Authorization"])
             assert variables == {"issueId": TICKET_ID, "actorId": ACTOR_ID}
             nodes = (
                 [
@@ -280,8 +283,7 @@ class TestErrorTrackingLinearExternalReferenceWebhook(BaseTest):
                 "actor_id": ACTOR_ID,
                 "identifier": "ENG-1",
                 "title": "Checkout fails",
-                "issue_id": ISSUE_ID,
-                "fingerprint": None,
+                "references": [{"issue_id": ISSUE_ID, "fingerprint": None}],
             },
             countdown=60,
         )
@@ -337,6 +339,46 @@ class TestLinearExternalReferences(BaseTest):
             return [
                 api.link_linear_external_reference(job) for job in api.prepare_linear_external_reference_jobs(payload)
             ]
+
+    @parameterized.expand([("allowed", True), ("denied", False)])
+    def test_one_access_read_per_project_for_multiple_references(self, _name: str, allowed: bool) -> None:
+        first = ErrorTrackingIssue.objects.create(team=self.team)
+        second = ErrorTrackingIssue.objects.create(team=self.team)
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        third = ErrorTrackingIssue.objects.create(team=other_team)
+        Integration.objects.create(
+            team=other_team,
+            kind=Integration.IntegrationKind.LINEAR.value,
+            integration_id=ORGANIZATION_ID,
+            sensitive_config={"access_token": "other-token"},
+        )
+        targets = (first, second, third)
+        description = "\n".join(
+            f"https://app.example.com/project/{issue.team_id}/error_tracking/{issue.id}" for issue in targets
+        )
+        linear = _FakeLinear({"ENG-1"} if allowed else set())
+        with (
+            patch.object(process_linear_external_reference, "apply_async") as queue,
+            patch("posthog.models.integration.linear.requests.post", side_effect=linear.post),
+        ):
+            enqueue_linear_external_references(
+                _ticket_payload(
+                    data={
+                        "identifier": "ENG-1",
+                        "title": "Checkout fails",
+                        "description": description,
+                    }
+                )
+            )
+            messages = [call.kwargs for call in queue.call_args_list]
+            for message in messages:
+                process_linear_external_reference(**message["kwargs"])
+
+        assert len(messages) == 2
+        assert linear.authority_requests == ["Bearer linear-token", "Bearer other-token"]
+        assert set(ErrorTrackingExternalReference.objects.values_list("issue_id", flat=True)) == (
+            {issue.id for issue in targets} if allowed else set()
+        )
 
     def test_links_the_issues_a_ticket_points_at_without_writing_to_linear(self) -> None:
         direct_issue = ErrorTrackingIssue.objects.create(team=self.team, name="Direct issue")

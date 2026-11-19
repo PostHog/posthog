@@ -6,7 +6,7 @@ reference, and only when its token can read the ticket and confirm the actor's t
 """
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID
 
@@ -19,6 +19,7 @@ from posthog.event_usage import groups
 from posthog.ingress.contracts import DeliveryOwnership
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import LinearIntegration
+from posthog.models.integration.linear import LinearIssueForReference
 from posthog.ph_client import ph_scoped_capture
 
 from products.error_tracking.backend.facade import contracts
@@ -124,7 +125,26 @@ def delivery_ownership(payload: Mapping[str, Any]) -> DeliveryOwnership:
     return workspace_ownership(ticket.organization_id)
 
 
+@frozen
+class _ReferenceAccessKey:
+    integration_id: int
+    ticket_id: UUID
+    actor_id: UUID
+
+
 def link_reference(job: contracts.LinearExternalReferenceJob) -> bool:
+    return link_references([job])[0]
+
+
+def link_references(jobs: Sequence[contracts.LinearExternalReferenceJob]) -> list[bool]:
+    access: dict[_ReferenceAccessKey, LinearIssueForReference | None] = {}
+    return [_link_reference(job, access) for job in jobs]
+
+
+def _link_reference(
+    job: contracts.LinearExternalReferenceJob,
+    access: dict[_ReferenceAccessKey, LinearIssueForReference | None],
+) -> bool:
     integration = IntegrationManager.linear.oauth.find(job.team_id, external_id=job.organization_id)
     if integration is None:
         return False
@@ -139,16 +159,21 @@ def link_reference(job: contracts.LinearExternalReferenceJob) -> bool:
     )
 
     with issue_status_lock(issue.id):
-        return _link_and_reconcile(job, integration, issue)
+        key = _ReferenceAccessKey(integration_id=integration.id, ticket_id=job.ticket_id, actor_id=job.actor_id)
+        if key not in access:
+            access[key] = LinearIntegration(integration).issue_for_reference(str(job.ticket_id), str(job.actor_id))
+        ticket = access[key]
+        if ticket is None:
+            return False
+        return _link_and_reconcile(job, integration, issue, ticket)
 
 
 def _link_and_reconcile(
-    job: contracts.LinearExternalReferenceJob, integration: IntegrationRecord, issue: ErrorTrackingIssue
+    job: contracts.LinearExternalReferenceJob,
+    integration: IntegrationRecord,
+    issue: ErrorTrackingIssue,
+    ticket: LinearIssueForReference,
 ) -> bool:
-    ticket = LinearIntegration(integration).issue_for_reference(str(job.ticket_id), str(job.actor_id))
-    if ticket is None:
-        return False
-
     external_context: dict[str, Any] = {"id": ticket.identifier}
     if job.title is not None:
         external_context["title"] = job.title
