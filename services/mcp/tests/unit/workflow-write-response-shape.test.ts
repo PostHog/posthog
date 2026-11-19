@@ -101,6 +101,7 @@ describe('workflow write response shape', () => {
 
         if (noted) {
             expect(result._agentNote).toContain('test_sender_live')
+            expect((tool === 'enable' ? result : result.workflow).warnings).toEqual(TEST_SENDER_LIVE)
         } else {
             expect(result._agentNote).toBeUndefined()
         }
