@@ -2274,6 +2274,9 @@ class Resolver(CloningVisitor):
 
         A deferred attempt rolls back CTE registrations, scopes, and diagnostics.
         """
+        if not self._pending_scalar_ctes[-1]["pending"]:
+            return self.visit(cte)
+
         errors_before = len(self.context.errors)
         warnings_before = len(self.context.warnings)
         notices_before = len(self.context.notices)
@@ -3062,12 +3065,14 @@ class Resolver(CloningVisitor):
             if cte:
                 binding = self._scalar_cte_scopes.get(id(cte))
                 if binding is not None and self._pending_scalar_ctes:
-                    frame = self._pending_scalar_ctes[-1]
-                    if frame["has_from"] and binding[1] is not frame["scope"]:
-                        raise QueryError(
-                            f"Scalar WITH alias '{name}' references another SELECT's tables. "
-                            "Define it inside this SELECT instead."
-                        )
+                    for frame in reversed(self._pending_scalar_ctes):
+                        if frame["scope"] is binding[1]:
+                            break
+                        if frame["has_from"]:
+                            raise QueryError(
+                                f"Scalar WITH alias '{name}' references another SELECT's tables. "
+                                "Define it inside this SELECT instead."
+                            )
                 if len(node.chain) > 1:
                     raise QueryError(f"Cannot access fields on CTE {name} yet")
 
@@ -3098,6 +3103,8 @@ class Resolver(CloningVisitor):
 
                     if binding is not None:
                         self._record_scalar_table_reference()
+                    while isinstance(inner_type, ast.FieldAliasType):
+                        inner_type = inner_type.type
                     return ast.Field(chain=node.chain, type=ast.FieldAliasType(alias=name, type=inner_type))
                 else:
                     raise ImpossibleASTError(f"Cannot use CTE {cte.name} as a value. Use it in a FROM clause instead.")

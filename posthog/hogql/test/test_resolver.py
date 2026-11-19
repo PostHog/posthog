@@ -1416,9 +1416,10 @@ class TestResolver(BaseTest):
         self.assertIsInstance(resolved.type, ast.SelectSetQueryType)
         self.assertEqual(self.context.errors, [])
 
-    def test_union_scalar_alias_dependency_chain_does_not_use_python_recursion(self):
-        aliases = ["1 AS a0", *(f"a{index - 1}+1 AS a{index}" for index in range(1, 1100))]
-        query = f"WITH {', '.join(aliases)} SELECT a1099 UNION ALL SELECT a1099"
+    @parameterized.expand([("arithmetic", "+1"), ("alias_only", "")])
+    def test_union_scalar_alias_dependency_chain_does_not_use_python_recursion(self, _name: str, operation: str):
+        aliases = ["1 AS a0", *(f"a{index - 1}{operation} AS a{index}" for index in range(1, 1100))]
+        query = f"WITH {', '.join(aliases)} SELECT toString(a1099) UNION ALL SELECT toString(a1099)"
         resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
         self.assertIsInstance(resolved.type, ast.SelectSetQueryType)
 
