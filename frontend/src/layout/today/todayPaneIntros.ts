@@ -28,6 +28,10 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
         title: 'Is anything broken?',
         description: 'Error tracking, logs, metrics and uptime, so you hear about problems.',
     },
+    data: {
+        title: "What's coming in, and what does it mean?",
+        description: 'Sources, pipelines, the warehouse and the definitions that describe your data.',
+    },
     products: {
         title: 'Every product in one place',
         description: 'Find any PostHog product, and star the ones you use most.',
