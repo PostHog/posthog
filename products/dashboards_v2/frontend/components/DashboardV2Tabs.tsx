@@ -37,7 +37,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
         }
         const title = draft.title.trim()
         const original = dashboard.tabs.find((tab) => tab.id === draft.id)?.title
-        if (title && title !== original) {
+        if (original !== undefined && title && title !== original) {
             applyDashboardEdit({ edit: 'renameTab', id: draft.id, title })
         }
         setDraft(null)
@@ -81,49 +81,51 @@ export function DashboardV2Tabs(): JSX.Element | null {
                             )
                         }
                         const isDropTarget = dropTarget?.grid === tab.id && tab.id !== activeTab.id
+                        // A tile dropped on a tab moves to that tab; the drag looks for `data-dv2-tab`.
+                        const trigger = (
+                            <TabsTrigger
+                                key={tab.id}
+                                value={tab.id}
+                                data-dv2-tab={tab.id === activeTab.id ? undefined : tab.id}
+                                className={isDropTarget ? 'DashboardV2__tab--drop-target' : undefined}
+                                onDoubleClick={() => startRename(tab.id, tab.title)}
+                            >
+                                {tab.title}
+                            </TabsTrigger>
+                        )
+                        if (!hasPermission('renameTab') && !hasPermission('removeTab')) {
+                            return trigger
+                        }
                         return (
                             <ContextMenu key={tab.id}>
-                                {/* A tile dropped on a tab moves to that tab; the drag looks for `data-dv2-tab`. */}
-                                <ContextMenuTrigger
-                                    render={
-                                        <TabsTrigger
-                                            value={tab.id}
-                                            data-dv2-tab={tab.id === activeTab.id ? undefined : tab.id}
-                                            className={isDropTarget ? 'DashboardV2__tab--drop-target' : undefined}
-                                            onDoubleClick={() => startRename(tab.id, tab.title)}
-                                        />
-                                    }
-                                >
-                                    {tab.title}
-                                </ContextMenuTrigger>
-                                {(hasPermission('renameTab') || hasPermission('removeTab')) && (
-                                    <ContextMenuContent data-attr="dashboard-v2-tab-menu">
-                                        <ContextMenuItem
-                                            data-attr="dashboard-v2-rename-tab"
-                                            disabled={renameDisabledReason !== null}
-                                            onClick={() => startRename(tab.id, tab.title)}
-                                        >
-                                            <IconPencil />
-                                            Rename
-                                        </ContextMenuItem>
-                                        <ContextMenuItem
-                                            variant="destructive"
-                                            data-attr="dashboard-v2-delete-tab"
-                                            disabled={removeDisabledReason !== null}
-                                            onClick={() => applyDashboardEdit({ edit: 'removeTab', id: tab.id })}
-                                        >
-                                            <IconTrash />
-                                            <span className="flex flex-col items-start">
-                                                Delete
-                                                {removeDisabledReason && (
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {removeDisabledReason}
-                                                    </span>
-                                                )}
-                                            </span>
-                                        </ContextMenuItem>
-                                    </ContextMenuContent>
-                                )}
+                                <ContextMenuTrigger render={trigger} />
+                                {/* Returning focus to the tab would blur the rename input straight away. */}
+                                <ContextMenuContent data-attr="dashboard-v2-tab-menu" finalFocus={false}>
+                                    <ContextMenuItem
+                                        data-attr="dashboard-v2-rename-tab"
+                                        disabled={renameDisabledReason !== null}
+                                        onClick={() => startRename(tab.id, tab.title)}
+                                    >
+                                        <IconPencil />
+                                        Rename
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                        variant="destructive"
+                                        data-attr="dashboard-v2-delete-tab"
+                                        disabled={removeDisabledReason !== null}
+                                        onClick={() => applyDashboardEdit({ edit: 'removeTab', id: tab.id })}
+                                    >
+                                        <IconTrash />
+                                        <span className="flex flex-col items-start">
+                                            Delete
+                                            {removeDisabledReason && (
+                                                <span className="text-xs text-muted-foreground">
+                                                    {removeDisabledReason}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </ContextMenuItem>
+                                </ContextMenuContent>
                             </ContextMenu>
                         )
                     })}
