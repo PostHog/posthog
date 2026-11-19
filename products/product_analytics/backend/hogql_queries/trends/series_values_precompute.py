@@ -263,6 +263,8 @@ def _live_tail_values(runner: TrendsQueryRunner, *, live_from: datetime, date_to
         limit_context=runner.limit_context,
         user=runner.user,
         workload=runner.workload,
+        ch_user=runner.ch_user,
+        hogql_settings=runner.hogql_settings,
     )
     results = live_runner.calculate().results
     if not results:
