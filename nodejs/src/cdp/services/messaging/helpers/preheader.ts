@@ -1,5 +1,4 @@
-// `[^<>]*` rather than `[^>]*`, so an attempt at an unterminated `<body ` stops at the next tag
-// instead of scanning to the end of the document for every such tag.
+// `[^<>]*` so a match attempt at an unterminated `<body ` stops at the next tag instead of the end.
 const BODY_OPEN_TAG = /<body\b[^<>]*>/i
 const OPEN_TAG = /<([a-z][a-z0-9]*)\b[^<>]*>/gi
 const CLOSE_TAG = /<\/[a-z][a-z0-9]*\s*>/gi
@@ -24,10 +23,8 @@ const visibleText = (text: string): string =>
         .replace(/[\s ]+/g, ' ')
         .trim()
 
-// Markup inside a comment, including an Outlook-only `<!--[if mso]>` branch, never renders in the
-// clients that read the preview, so it cannot act as the preheader. An indexOf walk rather than a
-// regex, because a body full of unclosed `<!--` would make a lazy-quantifier regex rescan to the end
-// for each one.
+// Comment markup, including an Outlook-only `<!--[if mso]>` branch, never renders where the preview
+// is read. An indexOf walk, because unclosed `<!--` makes a lazy regex rescan to the end for each one.
 const stripComments = (html: string): string => {
     let start = html.indexOf('<!--')
     if (start === -1) {
@@ -48,9 +45,8 @@ const stripComments = (html: string): string => {
     return out + html.slice(pos)
 }
 
-// The editor can bake the preview text into the template as a hidden element already, so adding the
-// step's own copy as well makes inboxes show the preview twice. Only a hidden element that comes
-// before any other body text acts as the preview, so a copy further down does not count.
+// The editor can bake the preview into the template as a hidden element already, so a second copy
+// from the step would show twice. Only a hidden element before any other body text acts as the preview.
 const hasHiddenPreheader = (html: string, preheader: string): boolean => {
     const wanted = visibleText(preheader).toLowerCase()
     const stripped = stripComments(html)
@@ -69,10 +65,8 @@ const hasHiddenPreheader = (html: string, preheader: string): boolean => {
         textFrom = contentStart
         const tagName = openTag[1].toLowerCase()
         if (tagName === 'style' || tagName === 'script') {
-            // Stylesheet and script contents look like text to this scan but never render, so they
-            // cannot be the preview the inbox shows. A case-insensitive regex rather than a search in
-            // a lowercased copy, because `toLowerCase()` can change the string's length (`İ` becomes
-            // two code points) and shift every offset after it.
+            // Stylesheet and script contents never render, so they cannot be the preview. The regex
+            // reports offsets in the original string; `toLowerCase()` could shift them (`İ` grows).
             const closeSearch = tagName === 'style' ? STYLE_CLOSE : SCRIPT_CLOSE
             closeSearch.lastIndex = contentStart
             const close = closeSearch.exec(body)
@@ -86,15 +80,12 @@ const hasHiddenPreheader = (html: string, preheader: string): boolean => {
             continue
         }
         // A matching element's content holds no markup, so its closing tag can only be the next tag.
-        // Checking just that position keeps the scan linear however many hidden tags the html holds,
-        // instead of rescanning the rest of the email for each one and stalling the worker.
+        // Checking just that position keeps the scan linear instead of rescanning per hidden tag.
         const contentEnd = body.indexOf('<', contentStart)
         if (contentEnd === -1) {
             continue
         }
         const closeTag = `</${tagName}`
-        // Lowercase only this slice: lowercasing the whole body can change its length and desync
-        // `contentEnd` from the position it names.
         if (body.slice(contentEnd, contentEnd + closeTag.length).toLowerCase() !== closeTag) {
             continue
         }
