@@ -1,5 +1,14 @@
 import { ChildProcess, execFileSync, spawn } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import {
+    appendFileSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    readdirSync,
+    rmSync,
+    writeFileSync,
+} from 'fs'
 import os from 'os'
 import path from 'path'
 
@@ -37,6 +46,7 @@ case $target in
     [ -z "\${FAKE_LIVE_FAILS:-}" ] || exit 1
     [ -z "\${FAKE_LIVE_DELAY:-}" ] || sleep "$FAKE_LIVE_DELAY"
     if [ -n "\${FAKE_LIVE_HANGS:-}" ]; then
+        trap '' TERM
         touch "$FAKE_S3.hanging"
         exec sleep 1000
     fi
@@ -46,6 +56,7 @@ cat >"$target.part" && mv "$target.part" "$target"
 `
 
 const FAKE_RUNNER = `#!/usr/bin/env bash
+echo $$ >"$FAKE_RUNNER_PID"
 run="$XDG_CACHE_HOME/posthog-scenarios/${RUN_ID}"
 mkdir -p "$run"
 end_live_log() { [ -z "\${FAKE_LIVE:-}" ] || printf '%s\\n%s\\n' '${TICK.slice(14)}' '${END}' >>"$run/live.jsonl"; }
@@ -98,6 +109,7 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
                 SCENARIO_LIVE_COPY_SECONDS: '0.2',
                 FAKE_S3: path.join(dir, 's3'),
                 FAKE_RELEASE: path.join(dir, 'release'),
+                FAKE_RUNNER_PID: path.join(dir, 'runner.pid'),
                 ...env,
             },
             stdio: 'ignore',
@@ -126,10 +138,17 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         }
     }
 
-    function copyLoopsOf(run: Run): string[] {
-        return execFileSync('ps', ['-eo', 'args'], { encoding: 'utf8' })
+    const copied = (run: Run): string =>
+        existsSync(object(run, 'live.jsonl')) ? readFileSync(object(run, 'live.jsonl'), 'utf8') : ''
+
+    function processesBesideTheRunner(run: Run): string[] {
+        const runner = readFileSync(path.join(run.dir, 'runner.pid'), 'utf8').trim()
+        return execFileSync('ps', ['-eo', 'pid=,ppid=,sid=,stat=,args='], { encoding: 'utf8' })
             .split('\n')
-            .filter((args) => args.includes('host-live-copy.sh') && args.includes(run.dir))
+            .map((line) => line.trim().split(/\s+/))
+            .filter(([, , sid, stat]) => sid === String(run.wrapper.pid) && !stat?.startsWith('Z'))
+            .filter(([pid, ppid]) => pid !== runner && ppid !== runner)
+            .map((fields) => fields.slice(4).join(' '))
     }
 
     function evidenceOf(run: Run): string[] {
@@ -163,16 +182,23 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         ['', {}],
         [', even when one copy takes longer than the interval', { FAKE_LIVE_DELAY: '0.5' }],
     ])(
-        'copies the whole lines of the live log to the run while the card runs, and the rest when it ends%s',
+        'copies each whole line of the live log to the run while the card runs, and the rest when it ends%s',
         async (_, env) => {
-            const run = start('run', { ...env, FAKE_LIVE: '1', FAKE_HOLD: '1' })
+            const run = start(
+                'run',
+                { ...env, FAKE_HOLD: '1' },
+                { runId: RUN_ID, content: `${START}\n${TICK.slice(0, 14)}` }
+            )
+            const liveLog = liveLogIn(run.dir, RUN_ID)
 
-            await until(() => existsSync(object(run, 'live.jsonl')), 'a live log copy')
-            expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(`${START}\n`)
-
+            await until(() => copied(run) === `${START}\n`, 'the first whole line')
+            appendFileSync(liveLog, `${TICK.slice(14)}\n`)
+            await until(() => copied(run) === `${START}\n${TICK}\n`, 'the next whole line')
+            appendFileSync(liveLog, `${END}\n`)
             release(run)
             await run.exited
-            expect(readFileSync(object(run, 'live.jsonl'), 'utf8')).toBe(`${START}\n${TICK}\n${END}\n`)
+
+            expect(copied(run)).toBe(`${START}\n${TICK}\n${END}\n`)
         }
     )
 
@@ -245,14 +271,19 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         expect(parseJSON(readFileSync(object(run, 'host/done'), 'utf8'))).toMatchObject({ exitCode: 0, uploaded: true })
     })
 
-    it('ends on its own when the wrapper is gone', async () => {
-        const run = start('run', { FAKE_LIVE: '1', FAKE_HOLD: '1' })
+    it.each([
+        ['', {}, false],
+        [' while it stops', { FAKE_SLOW_STOP: '1000' }, true],
+    ])('leaves no process but the card behind once the wrapper is gone%s', async (_, env, stopping) => {
+        const run = start('run', { ...env, FAKE_LIVE: '1', FAKE_HOLD: '1' })
         await until(() => existsSync(object(run, 'live.jsonl')), 'a live log copy')
-        expect(copyLoopsOf(run)).toHaveLength(1)
 
+        if (stopping) {
+            signalAll(run, 'SIGTERM')
+        }
         run.wrapper.kill('SIGKILL')
 
-        await until(() => copyLoopsOf(run).length === 0, 'the copy loop to end')
+        await until(() => processesBesideTheRunner(run).length === 0, 'the copy loop to end')
     })
 
     it('never copies the live log of an earlier run on the same host', async () => {

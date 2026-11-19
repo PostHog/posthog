@@ -34,7 +34,7 @@ copy() {
         return 0
     }
     [ "$size" -gt "$copied" ] || return 0
-    timeout -k 2 "$limit" aws s3 cp --only-show-errors - "$target" <"$snapshot" >/dev/null 2>&1 &
+    timeout --foreground -k 2 "$limit" aws s3 cp --only-show-errors - "$target" <"$snapshot" >/dev/null 2>&1 &
     wait $!
     status=$?
     if [ "$status" = 0 ]; then
@@ -50,7 +50,7 @@ finish() {
         kill -TERM "$child" 2>/dev/null
     done
     wait
-    while kill -0 "$runner" 2>/dev/null; do
+    while kill -0 "$runner" 2>/dev/null && kill -0 "$wrapper" 2>/dev/null; do
         sleep 0.2
     done
     copy
