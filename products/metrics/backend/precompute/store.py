@@ -64,6 +64,9 @@ def merge_entries(target: dict[EntryKey, Entry], source: dict[EntryKey, Entry]) 
         )
         existing.fingerprints |= entry.fingerprints
         existing.fingerprints_truncated |= entry.fingerprints_truncated
+        if len(existing.fingerprints) > MAX_FINGERPRINTS_PER_ENTRY:
+            existing.fingerprints = set(sorted(existing.fingerprints)[:MAX_FINGERPRINTS_PER_ENTRY])
+            existing.fingerprints_truncated = True
         existing.points.update(entry.points)
 
 

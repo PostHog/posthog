@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from products.metrics.backend.facade.enums import AttributeScope, PrecomputedMetricKind
 from products.metrics.backend.facade.tasks import schedule_metrics_precompute_fills
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.models import MetricPrecomputedChunk, MetricPrecomputedMetric
 from products.metrics.backend.precompute.definitions import LabelRef, Leaf, get_or_create_precomputed_metric
 from products.metrics.backend.precompute.fill import FINAL_AFTER, RETENTION, fill_precomputed_metrics, fill_step
@@ -225,6 +226,27 @@ class TestFillPrecomputedMetrics(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(UnstorableLabelError):
             write_entries(precomputed, SETTLED, SETTLED + dt.timedelta(hours=1), {entry.key: entry})
+
+    def test_the_fill_query_returns_at_most_the_capped_fingerprints_per_row(self):
+        start = SETTLED - dt.timedelta(hours=2)
+        self._seed_delta_counter("checkout", 1.0, start, 2)
+        self._seed_delta_counter("search", 2.0, start, 2)
+
+        uncapped, capped = (
+            build_metric_query_runner(
+                team=self.team,
+                metric_name="requests_total",
+                aggregation="increase",
+                date_from=start,
+                date_to=SETTLED,
+                interval="hour",
+                max_series_fingerprints=cap,
+            ).run()
+            for cap in (None, 1)
+        )
+
+        assert [len(row["series_fingerprints"]) for row in uncapped] == [2, 2]
+        assert [row["series_fingerprints"] for row in capped] == [[min(row["series_fingerprints"])] for row in uncapped]
 
     def test_stores_non_finite_histogram_bounds(self):
         precomputed = self._create(PrecomputedMetricKind.HISTOGRAM, "latency")

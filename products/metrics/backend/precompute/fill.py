@@ -32,6 +32,7 @@ from products.metrics.backend.precompute.definitions import labels_of
 from products.metrics.backend.precompute.gate import precompute_enabled
 from products.metrics.backend.precompute.store import (
     HOUR,
+    MAX_FINGERPRINTS_PER_ENTRY,
     Entry,
     EntryKey,
     TooManySeriesError,
@@ -97,6 +98,8 @@ def _query_hours(
         interval="hour",
         quantile=0.5 if histogram else None,
         metric_type=precomputed_metric.metric_type or None,
+        # One more than the store keeps, so a row that hit the cap is known to be a sample.
+        max_series_fingerprints=MAX_FINGERPRINTS_PER_ENTRY + 1,
     )
     entries: dict[EntryKey, Entry] = {}
     if histogram:
