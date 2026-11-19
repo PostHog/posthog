@@ -6564,6 +6564,7 @@ class HogFlowViewSet(
 
         if not confirm:
             counts = self._get_in_flight_counts(instance)
+            # nosemgrep: api-response-must-match-schema (these keys are exactly HogFlowPublishResponseSerializer's fields)
             return Response(
                 {
                     "published": False,
@@ -6638,6 +6639,7 @@ class HogFlowViewSet(
         self._emit_resource_edited(locked)
         self._report_workflow_action("hog_flow_draft_published", locked)
 
+        # nosemgrep: api-response-must-match-schema (these keys are exactly HogFlowPublishResponseSerializer's fields)
         return Response(
             {
                 "published": True,

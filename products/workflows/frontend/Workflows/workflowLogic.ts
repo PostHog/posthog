@@ -4009,7 +4009,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         // re-send of the live row and at worst (with a staged draft merged into the form)
                         // a silent deploy of unpublished content. Metadata-only saves on active workflows
                         // strip content the same way, so unchanged content never routes to a draft.
-                        const payload: Partial<HogFlow> =
+                        const payload: Partial<HogFlow> & { sandbox_sender_warned?: boolean } =
                             isStatusTransition || (latest?.status === 'active' && !contentChanged)
                                 ? omitWorkflowContent(updates)
                                 : { ...updates }
@@ -4018,6 +4018,10 @@ export const workflowLogic = kea<workflowLogicType>([
                             // behind a disable carries the pre-change status and puts the workflow
                             // back, so a stopped workflow resumes running and sending.
                             delete payload.status
+                        }
+                        if (sandboxSenderWarned !== undefined) {
+                            // The server refuses an enable onto the test sender that showed no warning.
+                            payload.sandbox_sender_warned = sandboxSenderWarned
                         }
                         const liveBase = latest?.updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
@@ -4039,10 +4043,6 @@ export const workflowLogic = kea<workflowLogicType>([
                                 ...payload,
                                 ...(stagingDraft ? { stage_draft: true } : {}),
                                 ...(includesStagedDraft ? { includes_staged_draft: true } : {}),
-                                // The server refuses an enable onto the test sender that showed no warning.
-                                ...(sandboxSenderWarned !== undefined
-                                    ? { sandbox_sender_warned: sandboxSenderWarned }
-                                    : {}),
                                 // A staged save's metadata still writes live; fence that write with the
                                 // live stamp so it can't overwrite a concurrent metadata edit the
                                 // draft-stamp baseline wouldn't catch.
