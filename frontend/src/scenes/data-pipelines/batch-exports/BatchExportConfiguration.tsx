@@ -14,6 +14,7 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -398,7 +399,20 @@ export function BatchExportConfiguration(): JSX.Element {
                                 <LemonField
                                     name="use_new_events_schema"
                                     label="Events table"
-                                    help="Some properties are exported with a different type or format from the new events table. Try it on a separate test export before you turn it on for a production export."
+                                    help={
+                                        <>
+                                            Some properties are exported with a different type or format from the new
+                                            events table. All exports will be migrated starting on November 30. You can
+                                            switch this export over before then. This switch has no effect once the
+                                            migration is complete.{' '}
+                                            <Link
+                                                to="https://posthog.com/blog/changing-event-storage#what-changes-for-batch-exports"
+                                                target="_blank"
+                                            >
+                                                Read more about the change
+                                            </Link>
+                                        </>
+                                    }
                                 >
                                     {({ value, onChange }) => (
                                         <LemonSwitch
