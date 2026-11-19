@@ -3,9 +3,9 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -880,6 +880,24 @@ def find_existing_jobs(
             Q(expires_at__gte=min_expires_at)
         )
         .order_by("time_range_start")
+    )
+
+
+def expire_ready_jobs_covering(team: Team, job_ids: Collection[uuid.UUID], days: Collection[date]) -> int:
+    """Mark the READY jobs among `job_ids` that cover any of the UTC `days` as STALE, so the next ensure rebuilds them.
+
+    STALE jobs are never selected again, also not under a serve-stale grace, which only relaxes `expires_at`.
+    """
+    if not job_ids or not days:
+        return 0
+    covers_a_day = Q()
+    for day in days:
+        day_start = datetime(day.year, day.month, day.day, tzinfo=UTC)
+        covers_a_day |= Q(time_range_start__lt=day_start + timedelta(days=1), time_range_end__gt=day_start)
+    return (
+        PreaggregationJob.objects.filter(team=team, id__in=job_ids, status=PreaggregationJob.Status.READY)
+        .filter(covers_a_day)
+        .update(status=PreaggregationJob.Status.STALE)
     )
 
 
