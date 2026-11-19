@@ -6,29 +6,37 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EvalFixProblemEnumApi } from '../../generated/api.schemas'
+import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
+import type { LLMEvaluationLogicProps } from '../llmEvaluationLogic'
 import { evaluationFixSuggestionLogic } from './evaluationFixSuggestionLogic'
 
 export interface EvaluationFixSuggestionBannerProps {
     suggestionId: string
-    evaluationId: string
+    evaluationLogicProps: LLMEvaluationLogicProps
     userAccessLevel: AccessControlLevel | undefined
     hasUnsavedChanges: boolean
 }
 
 export function EvaluationFixSuggestionBanner({
     suggestionId,
-    evaluationId,
+    evaluationLogicProps,
     userAccessLevel,
     hasUnsavedChanges,
 }: EvaluationFixSuggestionBannerProps): JSX.Element | null {
-    const logic = evaluationFixSuggestionLogic({ suggestionId, evaluationId })
+    const logic = evaluationFixSuggestionLogic({ suggestionId, evaluationId: evaluationLogicProps.evaluationId })
     const { openFix, applying } = useValues(logic)
     const { applyFix } = useActions(logic)
+    const { volume } = useValues(evaluationVolumeLogic(evaluationLogicProps))
 
     if (!openFix) {
         return null
     }
     const hasPatch = Object.keys(openFix.draft).length > 0
+    // With nothing to apply, the form's live estimate already warns that no traffic matches.
+    if (openFix.fix_problem === EvalFixProblemEnumApi.NoRuns && !hasPatch && volume?.matchingGenerations === 0) {
+        return null
+    }
     return (
         <LemonBanner
             type="warning"

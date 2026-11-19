@@ -131,16 +131,19 @@ export function DashboardScenePanel(): JSX.Element | null {
                         </ButtonPrimitive>
                         <SceneExportDropdownMenu
                             dropdownMenuItems={[
-                                {
-                                    format: ExporterFormat.PNG,
+                                ...[
+                                    { format: ExporterFormat.PNG, extension: 'png' },
+                                    { format: ExporterFormat.PDF, extension: 'pdf' },
+                                ].map(({ format, extension }) => ({
+                                    format,
                                     dashboard: dashboard.id,
                                     context: {
                                         path: apiUrl(),
                                         variables_override: currentDashboardVariables,
                                         filters_override: effectiveRefreshFilters,
                                     },
-                                    dataAttr: `${RESOURCE_TYPE}-export-png`,
-                                },
+                                    dataAttr: `${RESOURCE_TYPE}-export-${extension}`,
+                                })),
                                 ...(user?.is_staff
                                     ? [
                                           {

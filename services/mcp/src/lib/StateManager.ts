@@ -793,7 +793,6 @@ export class StateManager {
                 })
                 return { hasMetrics: availability.has_metrics }
             },
-            ttlMs: (cached) => (cached?.hasMetrics === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
             expectTimeouts: true,
             // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
             discardOnError: (cached) => cached?.hasMetrics === false,

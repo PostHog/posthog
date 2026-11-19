@@ -16,7 +16,7 @@ Signals ingestion uses a three-stage pipeline: **emitter → buffer → grouping
 
 The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but is no longer started by `emit_signal()`. Its shared activities and `_process_signal_batch()` implementation are still actively used by v2.
 
-Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by `posthog/management/commands/start_temporal_worker.py`.
+Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by the `TEMPORAL` declaration in `backend/facade/temporal.py`.
 The inbox ranking scoring sweep is the one exception. `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` register it only on `SELF_DRIVING_TASK_QUEUE`, which the `temporal-worker-self-driving` fleet polls. See the [self-driving Temporal worker runbook](../../docs/internal/self-driving-temporal-worker-runbook.md) for the fleet, its schedule, and its checks.
 If you add or remove a Signals workflow/activity from `backend/temporal/__init__.py`, you also need to update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`). That test intentionally snapshots the registered workflow/activity lists and will fail until its expected names are updated.
 
@@ -383,7 +383,8 @@ note, and drops its oldest fire when full. Every other rejection (pause, enrolme
 missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
 hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
 allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
-per lane that passes the same gates a live fire does. Only ids travel through Temporal: the run claims
+per lane that passes the gates a live fire does, except the cooldown, which is one tick long, so a
+queued fire does not wait for both the cooldown and the next tick. Only ids travel through Temporal: the run claims
 (locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
 leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
 
@@ -1041,6 +1042,8 @@ Source filters (`config.hogql_filter`) share one rollout gate, `source_filters.w
 `filter_preview` (`source_filter_preview.py`) reads the records created in the last 7 days with emission's own window field, built-in conditions and saved scope allowlist, and binds the expression to the active catalog version the save would pin.
 Unlike emission, it runs as the requester under warehouse access control, so a user without access to the source table gets `access_denied` and no rows.
 It creates no signals, calls no AI, and moves no sync cursor.
+A source config with a saved filter also returns a read-only `filter_status`, built from its `SignalSourceFilterState` rows: `failing` while a fetch failed and no later fetch succeeded, with the error, the time it failed, and the earliest window still to read again.
+It counts only results recorded for the filter saved now (each state row stores a fingerprint of the filter that produced it), on warehouse schemas that this environment owns and that are not deleted.
 
 #### `SignalTeamConfigViewSet`
 

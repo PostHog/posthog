@@ -5,9 +5,9 @@ import json
 import uuid
 import builtins
 import contextvars
-from collections.abc import AsyncGenerator, Callable, Iterable, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from datetime import timedelta
 from enum import StrEnum
 from functools import partial
@@ -92,7 +92,6 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.hogql_queries.access_controlled_resources import shared_warehouse_lookups
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface, refresh_param_present
@@ -108,8 +107,6 @@ from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
-from posthog.query_cache.read_history import batched_reads
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
@@ -159,7 +156,13 @@ from products.dashboards.backend.customization import (
     validated_group_keys,
     without_default_settings,
 )
-from products.dashboards.backend.facade.api import CannotAddToDashboard, add_insight_to_dashboard, tile_ids_prefetch
+from products.dashboards.backend.facade.api import (
+    CannotAddToDashboard,
+    add_insight_to_dashboard,
+    dashboard_v2_enabled,
+    shared_tile_work,
+    tile_ids_prefetch,
+)
 from products.dashboards.backend.facade.query_sharing import (
     DashboardQuerySharingStream,
     DashboardQuerySharingStreamEvent,
@@ -530,25 +533,6 @@ def tile_insights_context(tiles: Iterable[DashboardTile]) -> dict[str, Any]:
         "insights_in_response": [tile.insight for tile in tiles if tile.insight is not None],
         "_shown_insight_alerts": {},
     }
-
-
-@contextmanager
-def shared_tile_work(team: Team, user: Any) -> Iterator[None]:
-    """With `dashboard-v2` on, the tiles serialized inside the block share the work that is the same for
-    every tile: warehouse name lookups for their cache keys, and the write that records their cache reads.
-    Each tile's response is unchanged."""
-    enabled = posthog_feature_flag_enabled(
-        "dashboard-v2",
-        str(getattr(user, "distinct_id", None) or team.uuid),
-        organization_id=team.organization_id,
-        team_id=team.pk,
-        only_evaluate_locally=True,
-    )
-    if not enabled:
-        yield
-        return
-    with shared_warehouse_lookups(), batched_reads():
-        yield
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -3140,7 +3124,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         with (
             task_chain_context() if chained_tile_refresh_enabled else nullcontext(),
-            shared_tile_work(team, getattr(self.context.get("request"), "user", None)),
+            shared_tile_work(
+                team, str(getattr(getattr(self.context.get("request"), "user", None), "distinct_id", None) or team.uuid)
+            ),
         ):
             # Handle case where there are no tiles
             if not sorted_tiles:
@@ -4433,13 +4419,7 @@ class DashboardsViewSet(
     def cached_tiles(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Read the cached results of several insight tiles in one request. Never runs a query: a tile with
         nothing cached comes back as a miss, to be loaded through the insight endpoint."""
-        if not posthog_feature_flag_enabled(
-            "dashboard-v2",
-            str(cast(User, request.user).distinct_id),
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            only_evaluate_locally=True,
-        ):
+        if not dashboard_v2_enabled(self.team, str(cast(User, request.user).distinct_id)):
             raise exceptions.NotFound()
         # Covers the body as well as the query string: `resolve_execution_mode` honors either.
         if refresh_param_present(request):

@@ -27,6 +27,7 @@ import { getDefaultCdpConfig } from '~/cdp/config'
 import { EMAIL_STATUS_OUTPUT } from '~/cdp/outputs/outputs'
 import {
     CdpProducerName,
+    MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
@@ -2357,6 +2358,7 @@ describe('EmailService', () => {
                             [WARPSTREAM_CYCLOTRON_PRODUCER]: statusProducer,
                             [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: statusProducer,
                             [WAREHOUSE_PRODUCER]: statusProducer,
+                            [MSK_CDP_INTAKE_PRODUCER]: statusProducer,
                         }),
                         cdpConfig
                     ),

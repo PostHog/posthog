@@ -187,13 +187,29 @@ Admission needs the login and the numeric account id to match one entry, `user.t
 A draft stays skipped before admission is considered.
 An admitted delivery passes the bot-author skip, which also stands in for the author-association check, the review-mode gate and the write-permission gate, and nothing else.
 The run is stamped `bot_admission` provenance and the `bot_admission` trigger, and retention never keeps its approvals.
-The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that declares `publisher_files` proved every file in the PR.
-An attestation without `publisher_files` never counts for a bot, because a job of any PR could post it.
+The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that pins its publisher (`Attestation.pins_publisher`) proved every file in the PR.
+An attestation pins its publisher through `publisher_files` or through an `issuer` manifest, never both, and one that does neither never counts for a bot, because a job of any PR could post it.
 Neither does a `sibling_files` companion, because the publisher did not name it.
 That proof is the PR's independent assurance (`assurance.every_file_proven`), and the reviewer prompt carries a provenance block for the admitted bot, because its bot-author rule would otherwise refuse the PR.
 A pending pinned attestation that could cover every unproven file turns that gate into a WAIT, and the check-run wake carries the `bot_admission` stamp into the re-run, because the refetched PR fails the bot pre-filter on its own.
 Removing the policy entry is enough to stop reviews.
 The next delivery skips and dismisses the standing approval, and the engine refuses a woken re-run.
+
+## Attestation issuers (who the publisher is, and what it may lift)
+
+An attestation entry splits who the publisher is from what it may do.
+`check` and `app_id` identify the publisher, and `paths` and `lifts` say what it may lift.
+The default-branch paths the publisher runs from are its own description, kept in one place: an `issuer` manifest that the publisher owns, such as `tools/change-prover/issuer.yml`, which holds only `paths`.
+A key ending in `/` is a directory, which the marker pins by its git tree id, so a file added under it changes the pin too. Any other key is a file pinned by its blob id.
+The manifest must cover its own path, so an edit to it changes a pin as well.
+The policy only names the manifest. It never copies the list, so the two cannot drift apart.
+
+- Only trusted configuration selects the source. An entry with both `issuer` and `publisher_files` fails the policy load, and nothing falls back from one to the other.
+- The manifest path must match a `stamphog_policy` path pattern (not `edit_paths`), or the policy load fails. The manifest decides what a proof pins, so an edit to it needs the human review an edit to the policy gets.
+- The engine has no network, so the server reads each manifest the default-branch policy names (`logic/issuer_manifests.py`) from the default branch with the policy files, as the git blob at its path (`get_default_branch_blob_text`). A symlink reads as its link text and leaves the entry unusable, because the contents API would follow it to a target that neither self-governance nor the pins cover. The server stores it in `run.output["policy_files"]`, and writes it into both the sandbox payload and the worker's pre-check and attest tree. The sandbox payload command wipes the PR head's copy first, as it does for the optional policy files, so a manifest the default branch lacks is absent rather than read from the PR.
+- A missing or invalid manifest leaves the entry with no required pins (`Attestation.usable` is false). Such an entry lifts nothing, never counts as pending, and never proves a bot's file.
+- A result counts only when its `blobs` keys hold every manifest path verbatim and the server confirmed every pinned object still current. `logic/attestation_pins.py` compares a `/` key against the default branch's tree id and any other key against the blob id. A type mismatch, or an object that is gone, is not current. The posting-time `_attest_gates` reads the check runs through the same function, so the final check uses the same comparison.
+- The policy, the manifest and the pins are each read from the default branch by name, not from one resolved commit. The manifest covers itself, so an edit to it changes a pinned id and a proof made before the edit reads as stale. A proof made after it is checked against the copy the run read: it lifts when it pins every path that copy lists, and lifts nothing when the edit dropped one.
 
 ## The manual trigger (the one exception to label mode)
 
