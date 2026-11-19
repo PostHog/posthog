@@ -989,6 +989,7 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
             team_id=integration.team_id,
             user_id=user_id,
+            slack_user_id=slack_user_id,
             repository=repository,
         )
     return task_run is not None

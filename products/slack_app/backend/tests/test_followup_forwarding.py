@@ -382,7 +382,14 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert self.Task.objects.filter(team=self.team, repository="example/project").exists()
         mock_execute_workflow.assert_called_once()
         posted = [c.kwargs.get("text", "") for c in mock_slack_instance.client.chat_postMessage.call_args_list]
-        assert any("can't access `example/project`" in text for text in posted) is expect_warning
+        assert not any("can't access `example/project`" in text for text in posted)
+        warnings = [
+            c.kwargs
+            for c in mock_slack_instance.client.chat_postEphemeral.call_args_list
+            if "can't access `example/project`" in c.kwargs.get("text", "")
+        ]
+        assert bool(warnings) is expect_warning
+        assert all(w["user"] == "U_ALICE" for w in warnings)
 
     @parameterized.expand(
         [

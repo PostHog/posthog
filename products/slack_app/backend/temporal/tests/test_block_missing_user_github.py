@@ -222,14 +222,17 @@ class TestWarnIfPersonalGitHubCannotOpenRepository(TestCase):
                 thread_ts="1234.5678",
                 team_id=self.team.id,
                 user_id=self.user.id,
+                slack_user_id="U123",
                 repository="example/project",
             )
 
+        slack.client.chat_postMessage.assert_not_called()
         if expected_text is None:
-            slack.client.chat_postMessage.assert_not_called()
+            slack.client.chat_postEphemeral.assert_not_called()
             return
 
-        kwargs = slack.client.chat_postMessage.call_args.kwargs
+        kwargs = slack.client.chat_postEphemeral.call_args.kwargs
+        assert kwargs["user"] == "U123"
         assert expected_text in kwargs["text"]
         buttons = next(b for b in kwargs["blocks"] if b.get("type") == "actions")["elements"]
         assert [b["text"]["text"] for b in buttons] == expected_buttons

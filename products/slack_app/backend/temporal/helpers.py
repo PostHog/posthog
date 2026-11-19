@@ -98,8 +98,12 @@ def post_personal_github_prompt(
     access: "PersonalGitHubRepoAccess",
     repository: str | None = None,
     task_started: bool = False,
+    ephemeral_to: str | None = None,
 ) -> None:
     """Tell the user what is wrong with their personal GitHub connection, with buttons to fix it.
+
+    ``ephemeral_to`` names a Slack user who alone sees the prompt; without it the prompt is a
+    thread reply everyone can read.
 
     ``task_started`` picks the wording: True warns about a task that runs anyway, False
     explains a task that was held. Every reason links to the personal integrations settings
@@ -111,7 +115,11 @@ def post_personal_github_prompt(
 
     from posthog.api.github_callback.types import github_app_install_url_shareable
 
-    from products.slack_app.backend.services.slack_messages import personal_integrations_url, post_slack_thread_reply
+    from products.slack_app.backend.services.slack_messages import (
+        personal_integrations_url,
+        post_slack_ephemeral,
+        post_slack_thread_reply,
+    )
     from products.tasks.backend.facade.contracts import PersonalGitHubRepoAccess
 
     settings_url = personal_integrations_url(team_id)
@@ -146,16 +154,16 @@ def post_personal_github_prompt(
         )
         buttons.append(_link_button("Connect GitHub", settings_url, primary=True))
 
-    post_slack_thread_reply(
-        slack.client,
-        channel=channel,
-        thread_ts=thread_ts,
-        text=text,
-        blocks=[
-            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-            {"type": "actions", "elements": buttons},
-        ],
-    )
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {"type": "actions", "elements": buttons},
+    ]
+    if ephemeral_to:
+        post_slack_ephemeral(
+            slack.client, channel=channel, user=ephemeral_to, thread_ts=thread_ts, text=text, blocks=blocks
+        )
+    else:
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
     structlog.get_logger(__name__).info(
         "slack_app_personal_github_prompt_posted",
         user_id=user_id,
@@ -186,9 +194,10 @@ def warn_if_personal_github_cannot_open_repository(
     thread_ts: str,
     team_id: int,
     user_id: int,
+    slack_user_id: str,
     repository: str,
 ) -> None:
-    """Warn in the thread when the user's personal GitHub connection exists but can't open the repo.
+    """Warn the user, and only them, when their personal GitHub connection exists but can't open the repo.
 
     Slack tasks author pull requests as the user, so a revoked token or a repository outside
     the user's installation makes the run fail later with an unclear error. The task still
@@ -213,6 +222,7 @@ def warn_if_personal_github_cannot_open_repository(
             access=access,
             repository=repository,
             task_started=True,
+            ephemeral_to=slack_user_id,
         )
     except Exception:
         structlog.get_logger(__name__).exception(
