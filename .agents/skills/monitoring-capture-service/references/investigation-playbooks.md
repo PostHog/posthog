@@ -2,12 +2,17 @@
 
 Workflows for common capture service investigations.
 Each playbook describes **what to check and in what order** —
-construct PromQL live using the discovery workflow from the main skill doc.
+use the discovery workflow from the main skill doc.
+Discover exact names with `posthog:metric-names-list`, then send PromQL as written in `posthog:query-metrics`'s `query.promql`.
+Use `query.output: "summary"` for range summaries or `query.instant: true` for current values.
+Set `query.dropEmptySeries: false` for health checks so zero-valued series keep their labels.
+Share the returned `_posthogUrl`. Use the same region's `posthog:query-logs` for log checks.
+Set its discovered `query.serviceNames` and an explicit `query.dateRange`; add severity and text filters as needed.
 
 ## 1. "Is capture healthy?" — quick health check
 
-Start by pulling up the main dashboard:
-`get_dashboard_by_uid` with uid `"capture"`.
+Start with the metrics below through PostHog.
+The `capture` dashboard remains a reference when existing Grafana access is available.
 
 Then verify these signals in order:
 
@@ -30,7 +35,7 @@ The event funnel: received -> ingested -> dropped/rerouted.
 1. **Compare rates** — `rate(capture_events_received_total)` vs `rate(capture_events_ingested_total)`.
    The gap is drops + reroutes.
 2. **Discover drop causes** — `capture_events_dropped_total` by `cause`.
-   Discover live values with `list_prometheus_label_values` on `cause`.
+   Discover live values with `posthog:metric-attribute-values-list` on `cause`.
    Key causes to watch:
    - `retryable_sink` — Kafka producer failures (check Kafka health next)
    - `events_over_quota` / `recordings_over_quota` / `*_over_quota` — billing limits hit
@@ -65,7 +70,7 @@ Diagnose layer by layer, outside-in:
 
 4. **Redis latency** — no direct latency metric in capture.
    Check `capture_event_restrictions_redis_fetch{result="error"}` rate as a proxy.
-   For actual Redis latency, use CloudWatch ElastiCache metrics via datasource `P034F075C744B399F`.
+   For actual Redis latency, discover ingested CloudWatch ElastiCache metrics in PostHog.
 
 5. **Kafka producer queue depth** — `capture_kafka_producer_queue_depth` / `capture_kafka_producer_queue_depth_limit`.
    Ratio > 0.8 = producer near saturation, will backpressure the HTTP handler.
@@ -81,7 +86,7 @@ Diagnose layer by layer, outside-in:
 4. **Broker errors** — `capture_kafka_broker_tx_errors_total` and `_rx_errors_total` by broker.
    `capture_kafka_broker_request_timeouts` by broker.
 5. **MSK throttle time** — discover `aws_msk_*` metrics with
-   `list_prometheus_metric_names` regex `"aws_msk_kafka.*throttle.*"`.
+   `posthog:metric-names-list` with `match: "regex"` and `value` `"aws_msk_kafka.*throttle.*"`.
    Throttling means Kafka quota enforcement is active.
 6. **MSK network processor** — look for idle % metric.
    < 30% idle = broker network thread saturation warning.
@@ -134,7 +139,7 @@ First, identify **which** Redis instance is affected:
 
 Then check infrastructure health:
 
-1. **CloudWatch ElastiCache** — use datasource `P034F075C744B399F`.
+1. **CloudWatch ElastiCache** — discover the ingested metrics in PostHog.
    Key metrics: `EngineCPUUtilization`, `DatabaseMemoryUsagePercentage`,
    `CurrConnections`, `Evictions`, `ReplicationLag`.
    Cluster IDs:
@@ -142,8 +147,8 @@ Then check infrastructure health:
    - GRL: `capture-globalratelimit-prod-redis`
    - Rate limit: `ratelimit-prod-redis`
 
-2. **prometheus-redis-exporter** — search VictoriaMetrics for Redis exporter metrics
-   if available: `list_prometheus_metric_names` regex `"redis_.*"`.
+2. **prometheus-redis-exporter** — search PostHog for Redis exporter metrics
+   if available: `posthog:metric-names-list` with `match: "regex"` and `value` `"redis_.*"`.
 
 3. **Fail-open behavior** — capture is designed to fail open for most Redis failures:
    - Quota limiter: if Redis is down, limits aren't refreshed but cached limits still apply
@@ -153,17 +158,18 @@ Then check infrastructure health:
 
 ## 7. "Comparing prod-us vs prod-eu" — cross-environment
 
-Most capture app metrics use `namespace`/`container` labels but **no environment label** —
-the environment is implicit in which Grafana instance you're connected to.
+US and EU use separate internal PostHog projects on separate PostHog instances.
+Use each region's connection. Discover labels and check `environment` where it exists.
+US metrics carry `environment="prod-us"`.
 
 For cross-environment comparison:
 
-1. **MSK metrics** use `environment="prod-us"` or `"prod-eu"` label — these can be
-   compared in a single query.
-2. **CloudWatch** datasource has access to both regions — use region selector
-   in the query.
-3. **Dashboard variables** — some dashboards have an `environment` variable.
-   Check with `get_dashboard_by_uid` and look at template variables.
+1. **MSK metrics** — discover names and labels in each region with `posthog:metric-names-list`.
+   Check `environment="prod-us"` or `"prod-eu"` where present. Run the same PromQL through each region's connection.
+2. **CloudWatch metrics** — discover and query the ingested metrics in each region's PostHog project.
+   An environment filter does not switch instances.
+3. **Dashboard variables** — existing Grafana dashboards may have an `environment` variable.
+   This does not select the PostHog project; query each region separately.
 4. **Kafka topic names differ by partition count** — `ingestion-analytics-main-1024` (US)
    vs `ingestion-analytics-main-512` (EU). The `topic` label works for comparing produce
    patterns but values won't match across envs.

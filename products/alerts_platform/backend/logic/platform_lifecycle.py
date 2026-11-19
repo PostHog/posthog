@@ -953,7 +953,6 @@ def create_native_configuration(
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
     recurrence_unit: str | None,
-    destinations_owner: PlatformAlertOwner,
     created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
@@ -967,7 +966,6 @@ def create_native_configuration(
         recurrence_unit=recurrence_unit,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
-        destinations_owner=destinations_owner,
         created_by_id=created_by_id,
         first_enabled_at=now if edit.enabled else None,
     )

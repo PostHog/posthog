@@ -4,6 +4,8 @@ Apart from `api.py`, because `posthog.tasks.alerts.utils` imports `api.py`, and 
 modules here import `posthog.tasks.alerts.utils`.
 """
 
+import uuid
+
 from products.alerts.backend.platform_alert_reads import (
     moved_alert_check_page,
     moved_alert_fired_checks,
@@ -59,3 +61,11 @@ __all__ = [
     "write_moved_alert_edit",
     "write_native_alert_edit",
 ]
+
+
+def queue_delivery_test(*, team_id: int, alert_id: uuid.UUID, alert_name: str, insight_short_id: str) -> None:
+    """Queues the test message to the alert's destination rows that the alerts platform sends.
+    Raises when the task cannot be queued."""
+    from products.alerts.backend.tasks.tasks import send_insight_alert_delivery_test  # noqa: PLC0415 - cycle
+
+    send_insight_alert_delivery_test.delay(team_id, str(alert_id), alert_name, insight_short_id)

@@ -304,9 +304,6 @@ def create_configuration(
                 edit=validated,
                 check_interval_minutes=check_interval_minutes,
                 recurrence_unit=recurrence_unit,
-                destinations_owner=PlatformAlertOwner.PLATFORM
-                if spec.native.platform_destinations
-                else PlatformAlertOwner.SOURCE,
                 created_by_id=created_by_id,
                 now=django_timezone.now(),
             )

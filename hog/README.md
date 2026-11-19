@@ -47,6 +47,9 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 
 ## Commands
 
+`hog` alone shows a person the commands most people start with, and `hog help` lists every command and option.
+Agents and pipes get the full help, with the exit codes.
+
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
 
@@ -55,7 +58,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog setup`, `hog setup next`             | Takes this folder from nothing to PostHog installed and events arriving, one step at a time. See [Setup](#setup).                 |
 | `hog auth login`                          | Logs in through the browser to one project, and names it in `posthog.json`. Agents finish with `hog auth login --wait`.           |
 | `hog auth add <scope...>`                 | Adds scopes to your login, approved in the browser. Agents finish with `hog auth add --wait`.                                     |
-| `hog auth status`                         | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key.          |
+| `hog auth status`, `hog whoami`           | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key.          |
 | `hog auth logout`                         | Removes the login commands in this folder use. `--all` removes every login.                                                       |
 | `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                                      |
 | `hog ci setup`                            | Asks an admin to trust this repository's CI jobs, so they use their OIDC token instead of a stored key.                           |

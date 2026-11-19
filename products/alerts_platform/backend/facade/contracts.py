@@ -1640,6 +1640,14 @@ class StoredAlertDestination:
 
 
 @frozen
+class DeliveryTestOutcome:
+    """What sending a test message to an alert's destinations did: how many took it, and how many refused or failed."""
+
+    sent: int
+    failed: int
+
+
+@frozen
 class SourceDestination:
     """One destination on the page of an alert whose source keeps HogFunctions for it.
 

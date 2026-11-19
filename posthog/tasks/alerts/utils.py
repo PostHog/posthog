@@ -113,6 +113,8 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
+    # The Trends runner returns a calendar heatmap as one aggregated value with an empty `data` list.
+    ChartDisplayType.CALENDAR_HEATMAP,
 }
 
 
