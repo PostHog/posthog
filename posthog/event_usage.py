@@ -4,7 +4,7 @@ Module to centralize event reporting on the server-side.
 
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
 
 from django.contrib.auth.models import AnonymousUser
@@ -758,18 +758,15 @@ def report_organization_deletion_completed(user_id: int, organization_id: str) -
         )
 
 
-def report_user_deleted_account(user: User):
-    if not user.distinct_id:
+def report_user_deleted_account(distinct_id: str | None, analytics_metadata: dict[str, Any]) -> None:
+    if not distinct_id:
         return
-    properties = {key: value for key, value in user.get_analytics_metadata().items() if key != "email"}
+    properties = {**analytics_metadata, "$unset": ["email"]}
+    properties.pop("email", None)
     # The SDK's Django middleware tags every event in an authenticated request with the user's email.
     # A fresh context drops that tag, so the deletion event does not carry the email it removes.
     with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
-        posthoganalytics.capture(
-            distinct_id=user.distinct_id,
-            event="user account deleted",
-            properties={**properties, "$unset": ["email"]},
-        )
+        posthoganalytics.capture(distinct_id=distinct_id, event="user account deleted", properties=properties)
     posthoganalytics.flush()
 
 
