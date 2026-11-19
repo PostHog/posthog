@@ -3781,6 +3781,13 @@ class TestCurrentAliasUsage(APIBaseTest):
         [
             ("unscoped_key_on_project", "/api/projects/@current/", None, status.HTTP_200_OK, False),
             ("project_scoped_key_on_project", "/api/projects/@current/", "own_team", status.HTTP_200_OK, True),
+            (
+                "key_listing_a_project_outside_its_organization",
+                "/api/projects/@current/",
+                "own_and_foreign_team_in_own_organization",
+                status.HTTP_200_OK,
+                True,
+            ),
             ("key_scoped_to_another_project", "/api/projects/@current/", "other_team", status.HTTP_403_FORBIDDEN, True),
             ("unscoped_key_on_organization", "/api/organizations/@current/members/", None, status.HTTP_200_OK, False),
             (
@@ -3803,10 +3810,15 @@ class TestCurrentAliasUsage(APIBaseTest):
         self, _name: str, path: str, key_scope: str | None, expected_status: int, expected_pins_scope: bool
     ) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
+        foreign_team = create_team(organization=create_organization(name="Foreign"))
         key_scoping = {
             None: {},
             "own_team": {"scoped_teams": [self.team.id]},
             "other_team": {"scoped_teams": [other_team.id]},
+            "own_and_foreign_team_in_own_organization": {
+                "scoped_teams": [self.team.id, foreign_team.id],
+                "scoped_organizations": [str(self.organization.id)],
+            },
             "own_organization": {"scoped_organizations": [str(self.organization.id)]},
         }[key_scope]
         token = generate_random_token_personal()

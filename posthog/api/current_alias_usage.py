@@ -83,13 +83,7 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
     method = request.method or ""
     resolution = scope_resolution(request)
     project_from = resolution.source.value if resolution else ""
-    credential_pins_scope = False
-    if resolution is not None:
-        credential_pins_scope = (
-            resolution.credential_pins_organization
-            if scope == CurrentAliasScope.ORGANIZATION
-            else resolution.credential_pins_project
-        )
+    credential_pins_scope = resolution.credential_pins_scope if resolution else False
 
     client = posthoganalytics.default_client
     if client is not None:
@@ -127,6 +121,8 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
         token_in_query,
         api_key_mask,
         oauth_application_id,
+        project_from,
+        credential_pins_scope,
     )
     dedupe_key = "current_alias_use:" + hashlib.sha256(repr(dedupe_parts).encode()).hexdigest()
     if not dedupe_cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
