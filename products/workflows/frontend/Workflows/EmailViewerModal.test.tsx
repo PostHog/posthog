@@ -41,8 +41,9 @@ describe('EmailViewerModal', () => {
         )
         const email = await screen.findByTitle('Rendered email')
 
-        fireEvent.click(screen.getByRole('tab', { name: /Activity/ }))
-        fireEvent.click(screen.getByRole('tab', { name: 'Email' }))
+        const [emailTab, activityTab] = Array.from(document.querySelectorAll('[role="tab"]'))
+        fireEvent.click(activityTab)
+        fireEvent.click(emailTab)
 
         expect(screen.getByTitle('Rendered email')).toBe(email)
     })
