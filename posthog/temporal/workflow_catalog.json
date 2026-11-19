@@ -50,14 +50,14 @@
     "task_queues": "AEO_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "agent-egress-probe",
+    "product": "tasks",
+    "task_queues": "TASKS_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "ai-observability-trace-summary",
     "product": "ai_observability",
     "task_queues": "LLMA_TASK_QUEUE"
-  },
-  {
-    "temporal_workflow_type": "ai-sync-vectors",
-    "product": "temporal/ai",
-    "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "alerts-platform-deliver",
@@ -73,6 +73,11 @@
     "temporal_workflow_type": "alerts-platform-evaluate",
     "product": "alerts_platform",
     "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "alerts-platform-hand-over",
+    "product": "alerts_platform",
+    "task_queues": "ALERTS_PLATFORM_DELIVERY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "alerts-platform-orchestrate",
@@ -431,17 +436,17 @@
   },
   {
     "temporal_workflow_type": "data-modeling-enrich-view-semantics",
-    "product": "temporal/data_modeling",
+    "product": "data_modeling",
     "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "data-modeling-execute-dag",
-    "product": "temporal/data_modeling",
+    "product": "data_modeling",
     "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "data-modeling-materialize-view",
-    "product": "temporal/data_modeling",
+    "product": "data_modeling",
     "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
   },
   {
@@ -796,6 +801,11 @@
   },
   {
     "temporal_workflow_type": "knowledge-writer-publish",
+    "product": "knowledge_writer",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "knowledge-writer-start-held-requests",
     "product": "knowledge_writer",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
@@ -1235,11 +1245,6 @@
     "task_queues": "BILLING_TASK_QUEUE"
   },
   {
-    "temporal_workflow_type": "score-sessions-batch",
-    "product": "temporal/session_replay",
-    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
-  },
-  {
     "temporal_workflow_type": "security-sync-access-rules",
     "product": "security",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
@@ -1363,11 +1368,6 @@
     "temporal_workflow_type": "support-reply-pipeline",
     "product": "conversations",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
-  },
-  {
-    "temporal_workflow_type": "surfacing-score-export-sweep",
-    "product": "temporal/session_replay",
-    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "sync-events-retention",

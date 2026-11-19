@@ -1,6 +1,7 @@
 import {
   ArrowSquareOutIcon,
   CaretDownIcon,
+  CaretUpIcon,
   ChatCircleIcon,
   DownloadSimpleIcon,
   PackageIcon,
@@ -65,6 +66,7 @@ import {
 import { useMemo, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
+const VISIBLE_PULL_REQUESTS = 5;
 
 interface CurrentUser {
   id?: number;
@@ -399,6 +401,7 @@ export function TaskArtifactsList({
    *  open externally rather than into a review pane nobody is showing. */
   canOpenInPlace?: boolean;
 }) {
+  const [pullRequestsExpanded, setPullRequestsExpanded] = useState(false);
   // A finished upload_artifact tool call re-keys the runs query, so a file
   // the agent just delivered shows up now rather than on the next poll.
   const events = useSessionSelector(task.id, (session) => session?.events);
@@ -520,7 +523,23 @@ export function TaskArtifactsList({
     <div className="flex flex-col">
       {pullRequests.length > 0 && (
         <div className="sticky top-0 z-10 flex flex-col gap-px border-border border-b bg-gray-1 p-1">
-          {pullRequests.map(renderRow)}
+          {(pullRequestsExpanded
+            ? pullRequests
+            : pullRequests.slice(0, VISIBLE_PULL_REQUESTS)
+          ).map(renderRow)}
+          {pullRequests.length > VISIBLE_PULL_REQUESTS && (
+            <Button
+              variant="default"
+              size="xs"
+              aria-expanded={pullRequestsExpanded}
+              onClick={() => setPullRequestsExpanded((expanded) => !expanded)}
+            >
+              {pullRequestsExpanded ? <CaretUpIcon /> : <CaretDownIcon />}
+              {pullRequestsExpanded
+                ? "Show less"
+                : `Show more (${pullRequests.length - VISIBLE_PULL_REQUESTS})`}
+            </Button>
+          )}
         </div>
       )}
       <div className="flex flex-col gap-px p-1">{others.map(renderRow)}</div>

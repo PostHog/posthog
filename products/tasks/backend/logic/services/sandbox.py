@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Protocol, Self
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from django.conf import settings
 
@@ -190,6 +190,45 @@ class ExecutionResult(BaseModel):
     error: str | None = None
 
 
+@frozen
+class SandboxDirEntry:
+    name: str
+    # A symlink is reported as itself, never as the type of its target.
+    kind: Literal["file", "dir", "symlink", "other"]
+    size: int
+    mtime: float
+
+
+LIST_DIR_MISSING_EXIT_CODE = 3
+_FIND_KINDS: dict[str, Literal["file", "dir", "symlink"]] = {"f": "file", "d": "dir", "l": "symlink"}
+
+
+def list_dir_command(path: str, limit: int | None = None) -> str:
+    # NUL-terminated, because a filename may contain a newline and must not split into forged entries
+    # or let `head` count one entry twice.
+    quoted = shlex.quote(path)
+    command = (
+        f"test -d {quoted} || exit {LIST_DIR_MISSING_EXIT_CODE}; "
+        f"find {quoted} -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\0'"
+    )
+    if limit is not None:
+        command += f" | head -z -n {int(limit)}"
+    return command
+
+
+def parse_list_dir_output(stdout: str) -> list[SandboxDirEntry]:
+    entries: list[SandboxDirEntry] = []
+    for record in stdout.split("\0"):
+        parts = record.split("\t", 3)
+        if len(parts) != 4 or not parts[1].isdigit():
+            continue
+        kind, size, mtime, name = parts
+        entries.append(
+            SandboxDirEntry(name=name, kind=_FIND_KINDS.get(kind, "other"), size=int(size), mtime=float(mtime))
+        )
+    return entries
+
+
 class ExecutionStream(Protocol):
     def iter_stdout(self) -> Iterable[str]: ...
 
@@ -235,6 +274,8 @@ class SandboxConfig(BaseModel):
     cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
+    agent_egress_probe: bool = False
+    agent_egress_observation: bool = False
     outbound_domain_allowlist: list[str] | None = None
     network_policy_fingerprint: str | None = None
     # gVisor only. An empty domain allowlist means unrestricted network in
@@ -251,6 +292,46 @@ class SandboxConfig(BaseModel):
     # guest RAM up to the cap) instead of the fixed-size default golden. Set from the
     # tasks-hogland-hotplug-golden flag at context time; ignored by other providers.
     use_hotplug_golden: bool = False
+
+    @model_validator(mode="after")
+    def validate_agent_egress_probe(self) -> Self:
+        if self.agent_egress_probe and (
+            not (settings.DEBUG or settings.TEST)
+            or not self.vm_runtime
+            or self.template != SandboxTemplate.SLIM_BASE
+            or self.memory_gb < 2
+            or self.burstable_resources
+            or self.environment_variables
+            or self.base_image_reference
+            or self.snapshot_id
+            or self.snapshot_external_id
+            or self.resume_snapshot_external_id
+            or self.snapshot_mount_path
+            or self.require_snapshot
+            or self.custom_image_name
+            or self.outbound_domain_allowlist is not None
+            or self.block_network
+        ):
+            raise ValueError("Egress probes require a fresh, credential-free development VM")
+        return self
+
+    @model_validator(mode="after")
+    def validate_agent_egress_observation(self) -> Self:
+        if self.agent_egress_observation and (
+            not (settings.DEBUG or settings.TEST)
+            or not self.vm_runtime
+            or self.memory_gb < 2
+            or self.agent_egress_probe
+            or self.outbound_domain_allowlist is not None
+            or self.block_network
+            or self.snapshot_id
+            or self.snapshot_external_id
+            or self.resume_snapshot_external_id
+            or self.snapshot_mount_path
+            or self.require_snapshot
+        ):
+            raise ValueError("Egress observation requires a fresh development VM with full network access")
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -338,6 +419,30 @@ SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
 )
 GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
 GITLAB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://oauth2:)[^@\s]+(?P<suffix>@gitlab\.com/)")
+CLONE_PHASES_ECHO = 'echo "clone_phases_ms mode=$MODE fetch=$((T1-T0)) checkout=$((T2-T1))"'
+CLONE_PHASES_PATTERN = re.compile(r"clone_phases_ms mode=(?P<mode>\w+) fetch=(?P<fetch>\d+) checkout=(?P<checkout>\d+)")
+
+
+@frozen
+class ClonePhases:
+    mode: str
+    fetch_ms: int
+    checkout_ms: int
+
+
+def _timed_clone_command(*, prepare: str, fetch: str, checkout: str) -> str:
+    return (
+        f"{prepare} && T0=$(date +%s%3N) && {fetch} && T1=$(date +%s%3N) && "
+        f"{checkout} && T2=$(date +%s%3N) && {{ {{ {CLONE_PHASES_ECHO}; }} 2>/dev/null || true; }}"
+    )
+
+
+def parse_clone_phases(stdout: str) -> ClonePhases | None:
+    for line in reversed(stdout.splitlines()):
+        match = CLONE_PHASES_PATTERN.fullmatch(line.strip())
+        if match is not None:
+            return ClonePhases(mode=match["mode"], fetch_ms=int(match["fetch"]), checkout_ms=int(match["checkout"]))
+    return None
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
@@ -437,6 +542,7 @@ AGENT_SERVER_BINARY_PATH = "/scripts/node_modules/.bin/agent-server"
 AGENT_SERVER_CAPABILITY_TOKENS: dict[str, str] = {
     "auto_publish": "autoPublish",
     "exec_permission_regex": "posthogExecPermissionRegex",
+    "launch_before_repo_ready": "launchBeforeRepoReady",
     "pi_runtime": "POSTHOG_AGENT_RUNTIME",
     "prewarmed_resume_message_driven": "prewarmedResumeMessageDriven",
 }
@@ -509,6 +615,23 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
+        """Entries in `path`; None when it is missing or not a directory, so an empty directory stays distinct.
+
+        `limit` caps the entries inside the sandbox; pass `cap + 1` and read a longer result as truncated.
+
+        The agent controls the sandbox filesystem, so callers must validate every name and size.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support listing directories")
+
+    def read_file(self, path: str, max_bytes: int) -> bytes | None:
+        """The contents of `path`, or None when it is missing, not a regular file, or over `max_bytes`.
+
+        A file can grow between the size check and the read, so a result may hold up to
+        `max_bytes + 1` bytes and callers must re-check the length.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support reading files")
 
     def stop_agent_server(self) -> ExecutionResult:
         """Stop the agent server gracefully so it can flush terminal events."""
@@ -607,6 +730,7 @@ class SandboxBase(ABC):
         branch: str | None = None,
         blobless: bool = False,
         gitlab_token: str | None = None,
+        baked_repo_clone: bool = False,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -627,13 +751,49 @@ class SandboxBase(ABC):
         blob_filter = ""
         if not shallow:
             blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
-        clone_command = (
-            f"rm -rf {shlex.quote(target_path)} && "
-            f"mkdir -p {shlex.quote(org_path)} && "
-            f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch{blob_filter}{depth_flag}{branch_flag} "
-            f"{shlex.quote(repo_url)} {shlex.quote(repo)}"
+        checkout_workers = " -c checkout.workers=0" if baked_repo_clone else ""
+        fresh_clone_command = _timed_clone_command(
+            prepare=f"rm -rf {shlex.quote(target_path)} && mkdir -p {shlex.quote(org_path)} && cd {shlex.quote(org_path)}",
+            fetch=(
+                f"git clone --no-checkout --single-branch{blob_filter}{depth_flag}{branch_flag} "
+                f"{shlex.quote(repo_url)} {shlex.quote(repo)}"
+            ),
+            checkout=(
+                f"cd {shlex.quote(repo)} && "
+                f"{{ ! git rev-parse -q --verify HEAD > /dev/null || git{checkout_workers} checkout -q -f; }}"
+            ),
         )
+        clone_command = f"MODE=fresh && {fresh_clone_command}"
+        if shallow and baked_repo_clone:
+            resolve_branch = (
+                f"BRANCH={shlex.quote(branch)}"
+                if branch
+                else "BRANCH=$(git ls-remote --symref origin HEAD | awk '$1==\"ref:\"{print substr($2,12)}')"
+            )
+            baked_fetch_command = _timed_clone_command(
+                prepare=f"cd {shlex.quote(target_path)}",
+                fetch=(
+                    "{ cat .git/objects/pack/* .git/index .git/shallow > /dev/null 2>&1 || true; } && "
+                    f"git remote set-url origin {shlex.quote(repo_url)} && "
+                    f"{resolve_branch} && "
+                    '[ -n "$BRANCH" ] && '
+                    'git config remote.origin.fetch "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" && '
+                    f"git fetch -q --no-tags{depth_flag} origin"
+                ),
+                checkout=(
+                    'git -c checkout.workers=0 checkout -q -f -B "$BRANCH" --track "origin/$BRANCH" && '
+                    '[ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$BRANCH")" ] && '
+                    "git for-each-ref --format='delete %(refname)' refs/heads refs/remotes | "
+                    '{ grep -vxF -e "delete refs/heads/$BRANCH" -e "delete refs/remotes/origin/$BRANCH" || true; } | '
+                    "git update-ref --no-deref --stdin && "
+                    'git remote set-head origin "$BRANCH"'
+                ),
+            )
+            clone_command = (
+                f"if [ -d {shlex.quote(target_path)}/.git ]; then "
+                f"( MODE=baked && {baked_fetch_command} ) || ( MODE=fallback && {fresh_clone_command} ); "
+                f"else {clone_command}; fi"
+            )
         _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
 
@@ -740,12 +900,6 @@ class SandboxBase(ABC):
     def exit_status(self) -> str | None:
         return None
 
-    def read_agent_server_session_init_ms(self) -> int | None:
-        return None
-
-    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
-        return {}
-
     def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
         return None, {}
 
@@ -760,15 +914,6 @@ class SandboxBase(ABC):
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         return None
-
-    def _read_health_session_init_ms(self, port: int) -> int | None:
-        try:
-            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
-            payload = json.loads(result.stdout or "{}")
-            session_init_ms = payload.get("sessionInitMs")
-            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
-        except Exception:
-            return None
 
     def _read_health_boot_metrics(self, port: int) -> tuple[int | None, dict[str, int]]:
         try:
@@ -810,28 +955,6 @@ class SandboxBase(ABC):
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
         except Exception:
             return None, {}
-
-    def _read_health_boot_phases_ms(self, port: int) -> dict[str, int]:
-        try:
-            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
-            payload = json.loads(result.stdout or "{}")
-            raw_phases = payload.get("boot", {}).get("phasesMs", {})
-            allowed_phases = {
-                "context_fetch",
-                "acp_initialize",
-                "repository_ready",
-                "session_dependencies",
-                "session_create",
-            }
-            if not isinstance(raw_phases, dict):
-                return {}
-            return {
-                phase: max(0, int(duration))
-                for phase, duration in raw_phases.items()
-                if phase in allowed_phases and isinstance(duration, int | float)
-            }
-        except Exception:
-            return {}
 
     def __enter__(self) -> Self:
         return self

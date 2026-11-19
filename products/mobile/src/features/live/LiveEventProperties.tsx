@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { ActivityIndicator, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
 import type { LiveEventRow } from '@/model/live'
@@ -32,9 +32,14 @@ export function LiveEventProperties({
             </Text>
             <View style={styles.card}>
                 {query.isPending ? (
-                    <View style={styles.status}>
-                        <ActivityIndicator size="small" color={colors.tertiary} />
-                        <Text style={styles.note}>Loading properties…</Text>
+                    <View
+                        accessible
+                        accessibilityRole="progressbar"
+                        accessibilityLabel="Loading custom properties"
+                        style={styles.property}
+                    >
+                        <View style={[styles.placeholder, styles.placeholderKey]} />
+                        <View style={[styles.placeholder, styles.placeholderValue]} />
                     </View>
                 ) : query.isError ? (
                     <View style={styles.status}>
@@ -82,6 +87,9 @@ const useStyles = createStyles(({ colors }) => ({
         backgroundColor: colors.surface,
     },
     property: { paddingVertical: 12, gap: 6 },
+    placeholder: { borderRadius: radii.markSmall, backgroundColor: colors.sunken },
+    placeholderKey: { width: 76, height: 12 },
+    placeholderValue: { width: 124, height: 16 },
     divided: { borderTopWidth: 1, borderTopColor: colors.rowDivider },
     key: { ...type.meta, color: colors.tertiary },
     value: { flexShrink: 1 },

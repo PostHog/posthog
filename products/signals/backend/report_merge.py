@@ -35,6 +35,7 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
 )
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
+from products.signals.backend.facade.api import notify_report_slack_thread_created
 from products.signals.backend.implementation_pr_cache import schedule_implementation_pr_cache_refresh
 from products.signals.backend.models import (
     SignalReport,
@@ -564,6 +565,7 @@ def merge_reports(
         transaction.on_commit(
             lambda: _schedule_signal_move(team_id=team_id, survivor_id=survivor_id, source_ids=moved_ids)
         )
+        transaction.on_commit(lambda: notify_report_slack_thread_created(team_id, survivor_id))
 
     survivor.refresh_from_db()
     logger.info(

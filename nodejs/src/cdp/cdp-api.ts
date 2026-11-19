@@ -33,7 +33,7 @@ import {
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { IntakeProducer, intakeModeOf } from './intake/intake-producer'
-import { RunIntake } from './intake/run-intake'
+import { RunIntake, keyedRunId } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
@@ -55,7 +55,6 @@ import { HogFlowManagerService } from './services/hogflows/hogflow-manager.servi
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE, checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import {
     SCHEDULED_RUNS_PER_BATCH,
     ScheduledRuns,
@@ -80,6 +79,7 @@ import {
 } from './services/hogflows/transactional-email'
 import {
     TRANSACTIONAL_PUSH_EVENT,
+    TRANSACTIONAL_PUSH_RUN_SCOPE,
     TRANSACTIONAL_PUSH_TOKEN_CLAIMS,
     TransactionalPushOutcome,
     TransactionalPushRequestSchema,
@@ -94,6 +94,7 @@ import {
 } from './services/hogflows/transactional-sends'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { IdempotentJobQueue, JobQueue } from './services/job-queue/job-queue.interface'
+import { createInvocationSanitizer } from './services/job-queue/shared'
 import { GroupsManagerService, GroupsMap } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
@@ -149,6 +150,7 @@ import {
 import { recordRequestOrigins } from './utils/cdp-fetch'
 import { deadlineAfter, throwIfDeadlinePassed } from './utils/deadline'
 import { dualRead, dualWrite } from './utils/dual-store'
+import { EncryptedFields } from './utils/encryption-utils'
 import { isHogLimitError, isHogVMError } from './utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
@@ -304,7 +306,6 @@ const liquidTagsInStep = (emailStep: EmailStep): number =>
 type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: GroupsMap }
 
 const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
-    idempotency_key_in_flight: 409,
     idempotency_key_reused: 422,
     idempotency_unavailable: 503,
     intake_unavailable: 503,
@@ -351,6 +352,7 @@ export class CdpApi {
     private emailTrackingService: EmailTrackingService
     private sandboxFeedbackService: SandboxFeedbackService
     private emailTrackingCodeSigner: EmailTrackingCodeSigner
+    private fingerprintSigner: EncryptedFields
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
@@ -367,8 +369,6 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
-    private transactionalEmailIdempotencyKeys: IdempotencyKeys
-    private transactionalPushIdempotencyKeys: IdempotencyKeys
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
@@ -412,15 +412,11 @@ export class CdpApi {
         })
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(
-            config,
-            deps,
-            jobQueues,
-            new IdempotencyKeys(
-                deps.idempotencyValkey ?? null,
-                'workflow-webhook',
-                config.CDP_IDEMPOTENCY_VALKEY_ENABLED
-            )
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
+        // A fingerprint hashes the request, login code included, so new ones are signed with the sealed state keys. The
+        // shared keys come last, so a claim signed with them before this change still replays.
+        this.fingerprintSigner = new EncryptedFields(
+            [config.CDP_SEALED_STATE_KEYS, config.ENCRYPTION_SALT_KEYS].filter(Boolean).join(',')
         )
         this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
             config.ENCRYPTION_SALT_KEYS,
@@ -477,15 +473,6 @@ export class CdpApi {
         this.manageTransactionalEmailJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
-        )
-        this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
-            deps.idempotencyValkey ?? null,
-            'transactional-email',
-            config.CDP_IDEMPOTENCY_VALKEY_ENABLED
-        )
-        this.transactionalPushIdempotencyKeys = new IdempotencyKeys(
-            deps.idempotencyValkey ?? null,
-            'transactional-push'
         )
         this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
@@ -1801,47 +1788,47 @@ export class CdpApi {
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             invocation.state.triggerMetricPending = true
 
-            const idempotencyKeys = this.transactionalPushIdempotencyKeys
             const fingerprint = transactionalPushFingerprint(hogFlow.id, parsed.data)
+            const replayed = (runId: string) =>
+                reply('replayed', 202, { status: 'queued', invocation_id: runId, replayed: true })
             if (idempotencyKey) {
-                const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, invocation.id)
-                switch (reservation.status) {
-                    case 'replayed':
-                        return reply('replayed', 202, {
-                            status: 'queued',
-                            invocation_id: reservation.invocationId,
-                            replayed: true,
-                        })
-                    case 'in_flight':
-                        return reply('idempotency_key_in_flight', 409, { error: 'idempotency_key_in_flight' })
-                    case 'conflict':
-                        return reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
-                    case 'unavailable':
-                        return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                invocation.id = keyedRunId(team.id, TRANSACTIONAL_PUSH_RUN_SCOPE, idempotencyKey)
+                let claimed: Awaited<ReturnType<IdempotentJobQueue['findIdempotencyKey']>>
+                try {
+                    claimed = await this.hogflowQueue.findIdempotencyKey(invocation.id)
+                } catch (error) {
+                    logger.error('🔑', 'Transactional push claim lookup failed', {
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                    return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                }
+                if (claimed) {
+                    return claimed.fingerprint === fingerprint
+                        ? replayed(invocation.id)
+                        : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
                 }
             }
+            if ((await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)).isLimited) {
+                return reply('quota_limited', 429, { error: 'quota_limited' })
+            }
+            const rows = this.invocationResultsService.invocationResultsRowsService
+            rows.queueLifecycleRow(invocation, 'running')
             try {
-                if ((await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)).isLimited) {
-                    if (idempotencyKey) {
-                        await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                if (idempotencyKey) {
+                    // Two sends with one key can both pass the lookup above, and the insert lets only one through.
+                    const [claim] = await this.hogflowQueue.queueInvocationsIdempotently([{ invocation, fingerprint }])
+                    if (claim.outcome !== 'created') {
+                        rows.dropQueuedRowsFor([invocation.id])
+                        return claim.outcome === 'replayed'
+                            ? replayed(invocation.id)
+                            : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
                     }
-                    return reply('quota_limited', 429, { error: 'quota_limited' })
-                }
-                this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
-                try {
+                } else {
                     await this.hogflowQueue.queueInvocations([invocation])
-                } catch (error) {
-                    this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
-                    throw error
                 }
             } catch (error) {
-                if (idempotencyKey) {
-                    await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-                }
+                rows.dropQueuedRowsFor([invocation.id])
                 throw error
-            }
-            if (idempotencyKey) {
-                await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id, invocation.id)
             }
             // Best-effort rows, so the 202 waits for the hand-off to Kafka but not the acks.
             const { produced } = await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
@@ -1862,11 +1849,15 @@ export class CdpApi {
     private transactionalSendsForRequest(): TransactionalSends {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
-            idempotencyKeys: this.transactionalEmailIdempotencyKeys,
+            encryptedFields: this.fingerprintSigner,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
                 invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
-                intake: { modeOf: intakeModeOf(this.config), producer: new IntakeProducer(this.outputs) },
+                intake: {
+                    modeOf: intakeModeOf(this.config),
+                    producer: new IntakeProducer(this.outputs, undefined, createInvocationSanitizer(this.config).seal),
+                    sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
+                },
             }),
             invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,
@@ -1919,8 +1910,6 @@ export class CdpApi {
                     return res.status(409).json({ error: 'canceled' })
                 case 'not_found':
                     return res.status(404).json({ error: 'not_found' })
-                case 'idempotency_unavailable':
-                    return res.status(503).json({ error: 'idempotency_unavailable' })
             }
         })
     }
@@ -1955,10 +1944,10 @@ export class CdpApi {
             }
             const sends = new ScheduledTransactionalSends({
                 jobs: this.batchResolverProducer,
-                idempotencyKeys: this.transactionalEmailIdempotencyKeys,
                 hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,
+                stateOpener: new EncryptedFields(this.config.CDP_SEALED_STATE_KEYS),
             })
             return await handle(sends, parseInt(req.params.team_id), req.params.message_id)
         } catch (e) {

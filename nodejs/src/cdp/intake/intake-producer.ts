@@ -47,6 +47,27 @@ export const intakeModeOf = (
     return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
 }
 
+// A produce outlives its ack deadline. A caller that bounds its work in flight passes a settlement to its produces and,
+// after they return, waits on `publishesSettled()` with the same handle before it frees that work's share. The unread
+// private field makes the type nominal, so neither a plain object nor a spread copy type-checks as a settlement.
+export class PublishSettlement {
+    readonly #brand = true
+}
+
+const trackedPublishes = new WeakMap<PublishSettlement, Promise<unknown>[]>()
+
+const trackPublish = (settlement: PublishSettlement, publish: Promise<unknown>): void => {
+    const publishes = trackedPublishes.get(settlement)
+    if (publishes) {
+        publishes.push(publish)
+    } else {
+        trackedPublishes.set(settlement, [publish])
+    }
+}
+
+export const publishesSettled = (settlement: PublishSettlement): Promise<void> =>
+    Promise.allSettled(trackedPublishes.get(settlement) ?? []).then(() => undefined)
+
 export type IntakeRun = {
     kind: RunKind
     invocation: CyclotronJobInvocation
@@ -57,19 +78,22 @@ export type IntakeRun = {
 export class IntakeProducer {
     constructor(
         private outputs: IngestionOutputs<IntakeOutput>,
-        private ackDeadlineMs: number = INTAKE_ACK_DEADLINE_MS
+        private ackDeadlineMs: number = INTAKE_ACK_DEADLINE_MS,
+        // Encrypts a transactional send's content before it reaches the topic, as the job queues do.
+        private seal: (invocation: CyclotronJobInvocation) => CyclotronJobInvocation = (invocation) => invocation
     ) {}
 
     async produce(
         { kind, invocation, fingerprint, reply }: IntakeRun,
-        mode: IntakeMode
+        mode: IntakeMode,
+        settlement?: PublishSettlement
     ): Promise<IntakeProduceOutcome> {
         const encoded = encodeIntakeMessage({
             kind,
             fingerprint,
             reply,
             shadow: mode === 'shadow',
-            job: { ...encodeJob(invocation), id: invocation.id },
+            job: { ...encodeJob(this.seal(invocation)), id: invocation.id },
         })
         if (encoded.status !== 'encoded') {
             launchesCounter.labels({ kind, mode, outcome: encoded.status }).inc()
@@ -77,7 +101,7 @@ export class IntakeProducer {
         }
         const startedAt = performance.now()
         try {
-            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[kind], encoded.message))
+            await this.withinDeadline(this.outputs.produce(OUTPUT_OF[kind], encoded.message), settlement)
             ackMs.labels({ kind }).observe(performance.now() - startedAt)
             launchesCounter.labels({ kind, mode, outcome: 'acked' }).inc()
             return 'acked'
@@ -95,12 +119,15 @@ export class IntakeProducer {
 
     // The produce keeps running after the deadline, so a late ack can still land the message: an unacked run is
     // unconfirmed, not lost.
-    private withinDeadline(produce: Promise<void>): Promise<void> {
+    private withinDeadline(produce: Promise<void>, settlement?: PublishSettlement): Promise<void> {
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error('no ack before the deadline')), this.ackDeadlineMs)
         })
-        produce.catch(() => undefined)
-        return Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
+        const raced = Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
+        if (settlement) {
+            trackPublish(settlement, produce)
+        }
+        return raced
     }
 }

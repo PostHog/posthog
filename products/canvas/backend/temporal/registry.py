@@ -5,11 +5,13 @@ Core reaches these through ``facade/temporal.py``.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from products.canvas.backend.temporal.activities import run_canvas_build_activity
 from products.canvas.backend.temporal.workflow import CanvasBuildWorkflow
 
 WORKFLOWS = [CanvasBuildWorkflow]
 
-ACTIVITIES = [run_canvas_build_activity]
+ACTIVITIES: list[Callable[..., object]] = [run_canvas_build_activity]
 
 __all__ = ["WORKFLOWS", "ACTIVITIES"]

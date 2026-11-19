@@ -374,14 +374,28 @@ describe('Hono App Routes', () => {
             expect(await res.text()).toContain('Invalid token')
         })
 
-        it('asks a project secret API key for its project instead of rejecting the key', async () => {
+        it('sends a project secret API key to the business knowledge URL', async () => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/mcp', {
+            const res = await app.request('/mcp?project_id=1', {
                 method: 'POST',
                 headers: { Authorization: 'Bearer phs_test_key' },
             })
             expect(res.status).toBe(400)
-            expect(await res.text()).toContain('project_id')
+            expect(await res.text()).toContain('/mcp/business-knowledge')
+        })
+
+        it.each([
+            ['no credential', undefined],
+            ['a personal API key', 'Bearer phx_test_key'],
+        ])('asks for a project secret API key on the business knowledge URL with %s', async (_, authorization) => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/mcp/business-knowledge', {
+                method: 'POST',
+                headers: authorization ? { Authorization: authorization } : {},
+            })
+            expect(res.status).toBe(401)
+            expect(await res.text()).toContain('project secret API key')
+            expect(res.headers.get('WWW-Authenticate')).toBeNull()
         })
     })
 

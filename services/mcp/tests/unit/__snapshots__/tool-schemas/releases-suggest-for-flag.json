@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "feature_flag_id": {
+            "description": "ID of the feature flag to find releases for.",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["feature_flag_id"],
+    "type": "object"
+}

@@ -14,13 +14,17 @@ does not charge for them until it has Business Knowledge products. No quota is e
 failure is logged and never fails the ingest or search that triggered it.
 """
 
+import datetime as dt
 from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Sum
+from django.db.models.functions import TruncDate
 
 import structlog
+
+from posthog.dataclasses import frozen
 
 from .facade.contracts import KnowledgeUsageByTeam
 from .models import KnowledgeUsageKey, KnowledgeUsageRecord
@@ -100,3 +104,43 @@ def usage_by_team(begin: datetime, end: datetime) -> KnowledgeUsageByTeam:
     for row in rows:
         totals[KnowledgeUsageKey(row["usage_key"])].append((row["team_id"], row["total"]))
     return KnowledgeUsageByTeam(chunks=totals[KnowledgeUsageKey.CHUNKS], queries=totals[KnowledgeUsageKey.QUERIES])
+
+
+@frozen
+class MeterUsage:
+    """One meter's usage for one team in a period."""
+
+    total: int
+    by_day: dict[dt.date, int]
+    # Largest first.
+    by_surface: list[tuple[str, int]]
+
+
+def usage_for_team(team_id: int, since: datetime) -> dict[KnowledgeUsageKey, MeterUsage]:
+    """Usage of every meter for `team_id` from rows written at or after `since`, by UTC day and by surface.
+
+    `team_id` must be the canonical team. Buckets by write time, as the usage report does, so the totals
+    here match what the report sends for the same period.
+    """
+    rows = (
+        KnowledgeUsageRecord.objects.unscoped()
+        # Naming the meters lets Postgres range-scan `bk_usage_team_key_created` for this team and period.
+        .filter(team_id=team_id, usage_key__in=list(KnowledgeUsageKey), created_at__gte=since)
+        .annotate(day=TruncDate("created_at", tzinfo=dt.UTC))
+        .values("usage_key", "surface", "day")
+        .annotate(total=Sum("quantity"))
+    )
+    by_day: dict[KnowledgeUsageKey, dict[dt.date, int]] = {key: {} for key in KnowledgeUsageKey}
+    by_surface: dict[KnowledgeUsageKey, dict[str, int]] = {key: {} for key in KnowledgeUsageKey}
+    for row in rows:
+        key = KnowledgeUsageKey(row["usage_key"])
+        by_day[key][row["day"]] = by_day[key].get(row["day"], 0) + row["total"]
+        by_surface[key][row["surface"]] = by_surface[key].get(row["surface"], 0) + row["total"]
+    return {
+        key: MeterUsage(
+            total=sum(by_surface[key].values()),
+            by_day=by_day[key],
+            by_surface=sorted(by_surface[key].items(), key=lambda item: (-item[1], item[0])),
+        )
+        for key in KnowledgeUsageKey
+    }

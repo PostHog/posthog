@@ -56,6 +56,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
+    // Stores the content of transactional email sends encrypted. Turn on only once every reader is deployed.
+    CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: boolean
+    // Keys for sealed job state only, kept apart from ENCRYPTION_SALT_KEYS. Comma-separated, newest first.
+    CDP_SEALED_STATE_KEYS: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -67,6 +71,14 @@ export type CdpConfig = ClickhouseConfig & {
     // cdp_events_unmatched_event_name_invoked stays at zero.
     CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
+    // How long the matcher holds an event batch to look it up together with the batches after it.
+    // 0 looks up every batch alone. It can only merge as many batches as CONSUMER_MAX_BACKGROUND_TASKS.
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: number
+    // Whether the matcher checks an event against the workflows' filters before looking it up:
+    //   "off"     - every event of a team with a waiting or goal workflow is looked up.
+    //   "shadow"  - every event is still looked up, and the metrics count what "on" would skip.
+    //   "on"      - only events that pass some filter are looked up.
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: number
@@ -159,7 +171,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_IDEMPOTENCY_VALKEY_PORT: number
     CDP_IDEMPOTENCY_VALKEY_PASSWORD: string
     CDP_IDEMPOTENCY_VALKEY_TLS: boolean
-    CDP_IDEMPOTENCY_VALKEY_ENABLED: boolean
 
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
@@ -389,6 +400,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+        CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: false,
+        CDP_SEALED_STATE_KEYS: isDevEnv() || isTestEnv() ? '00feed0000feed0000feed0000feed00' : '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -398,6 +411,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
         CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: 0,
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: 'off',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,
@@ -464,7 +479,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_IDEMPOTENCY_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_IDEMPOTENCY_VALKEY_PASSWORD: '',
         CDP_IDEMPOTENCY_VALKEY_TLS: false,
-        CDP_IDEMPOTENCY_VALKEY_ENABLED: true,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,

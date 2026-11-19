@@ -18,6 +18,7 @@ import gates  # noqa: E402
 import policy  # noqa: E402
 
 from products.stamphog.backend.logic.engine_pregate import run_engine_attest, run_engine_pregate  # noqa: E402
+from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths  # noqa: E402
 from products.stamphog.backend.temporal import activities  # noqa: E402
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
     PullRequestHeadMovedError,
@@ -141,6 +142,42 @@ def test_pregate_merges_the_repo_policy_onto_the_shipped_default(path: str, deni
         assert denied_category in outcome.result["classification"]["deny_categories"]
 
 
+_ISSUER = "tools/proof/issuer.yml"
+_ISSUER_POLICY = f"attestations:\n  - name: proof\n    issuer: {_ISSUER}\n"
+
+
+@pytest.mark.parametrize(
+    "policy_text, expected",
+    [
+        pytest.param(_ISSUER_POLICY, (_ISSUER,), id="attestations"),
+        pytest.param(f"extend_attestations:\n  - issuer: {_ISSUER}\n  - issuer: {_ISSUER}\n", (_ISSUER,), id="extend"),
+        pytest.param("attestations:\n  - name: migration_risk\n", (), id="no-issuer"),
+        pytest.param(None, (), id="no-policy"),
+        pytest.param("attestations: [unclosed", (), id="malformed"),
+        pytest.param("attestations:\n  - issuer: ../outside.yml\n", (), id="escapes-the-tree"),
+        pytest.param("attestations:\n  - issuer: /etc/passwd\n", (), id="absolute"),
+        pytest.param("attestations:\n  - issuer: tools/proof/\n", (), id="a-directory"),
+        # The worker writes the manifest into the tree its engine subprocess imports modules from.
+        pytest.param("attestations:\n  - issuer: tools/proof/argparse.py\n", (), id="not-yaml"),
+        pytest.param("attestations:\n  - issuer: tools/pr-approval-agent/x.yml\n", (), id="beside-the-engine"),
+        pytest.param("attestations:\n  - issuer: tools/owners/owners_yaml/x.yml\n", (), id="beside-owners"),
+        # A URL decodes `%2e%2e` to `..`, which would read another repository's file.
+        pytest.param("attestations:\n  - issuer: '%2e%2e/%2e%2e/victim/contents/x.yml'\n", (), id="percent-escape"),
+    ],
+)
+def test_issuer_manifest_paths_names_only_plain_files(policy_text: str | None, expected: tuple[str, ...]) -> None:
+    assert issuer_manifest_paths(policy_text) == expected
+
+
+def test_an_issuer_manifest_rides_with_the_policy_that_names_it() -> None:
+    files = {STAMPHOG_POLICY_ENTRYPOINT: _ISSUER_POLICY, _ISSUER: "paths:\n  - tools/proof/\n", "other.yml": "x"}
+
+    assert _effective_policy_files("acme/widgets", files) == {
+        STAMPHOG_POLICY_ENTRYPOINT: _ISSUER_POLICY,
+        _ISSUER: "paths:\n  - tools/proof/\n",
+    }
+
+
 def test_repo_guidance_and_steering_pass_through() -> None:
     files = {
         STAMPHOG_REVIEW_GUIDANCE_PATH: "repo norms\n",
@@ -154,13 +191,22 @@ def test_repo_guidance_and_steering_pass_through() -> None:
 def test_review_payload_command_wipes_optional_paths_from_pr_head() -> None:
     # steering.md is injected only when the repo's default branch has it — so the wipe must cover it
     # regardless, or a PR head could plant a steering.md the reviewer would trust as maintainer prose.
-    command = _review_payload_command()
+    command = _review_payload_command((_ISSUER,))
 
     wipe, _, extract = command.partition("tar -xzf")
     assert ".stamphog/steering.md" in wipe
     assert ".stamphog/policy.yml" in wipe
+    # A manifest the default branch lacks must not leave the PR head's copy for the engine to trust.
+    assert _ISSUER in wipe.partition("rm -f")[2]
     assert "rm -rf tools/pr-approval-agent tools/owners" in wipe
     assert extract
+
+
+@pytest.mark.parametrize("path", ["tools/pr-approval-agent/yaml.py", "tools/owners/owners_yaml/json.py"])
+def test_review_payload_refuses_a_repository_file_beside_the_engine_modules(path: str) -> None:
+    # The engine imports from its own directory first, so such a file would run as code.
+    with pytest.raises(RuntimeError, match="engine tree"):
+        _review_payload_archive({path: "import os"}, "{}")
 
 
 @pytest.mark.parametrize("tools_is_symlink", [False, True])

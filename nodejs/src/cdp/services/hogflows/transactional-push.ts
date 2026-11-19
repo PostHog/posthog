@@ -3,9 +3,12 @@ import { z } from 'zod'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 
-import { IdempotencyKeys } from './idempotency-keys'
+import { requestFingerprint } from './idempotency-keys'
 
 export const TRANSACTIONAL_PUSH_EVENT = '$transactional_push'
+
+// Never change it: a retry inside the claim's window would get another run id and send a second time.
+export const TRANSACTIONAL_PUSH_RUN_SCOPE = 'transactional-push'
 
 // Django mints the transactional email token with this claim for a push send, so a push token can't run an email.
 export const TRANSACTIONAL_PUSH_TOKEN_CLAIMS = { kind: 'push' }
@@ -22,7 +25,6 @@ export type TransactionalPushRequest = z.infer<typeof TransactionalPushRequestSc
 export type TransactionalPushOutcome =
     | 'queued'
     | 'replayed'
-    | 'idempotency_key_in_flight'
     | 'idempotency_key_reused'
     | 'idempotency_unavailable'
     | 'not_configured'
@@ -42,7 +44,7 @@ export const transactionalPushRequestsTotal = new Counter({
 export const transactionalPushFingerprint = (
     hogFlowId: string,
     { distinct_id, variables }: TransactionalPushRequest
-): string => IdempotencyKeys.fingerprint([hogFlowId, distinct_id, variables])
+): string => requestFingerprint([hogFlowId, distinct_id, variables])
 
 // A token for one workflow can only run that workflow, so this only stops a push token reaching a workflow that
 // someone changed to send something else.

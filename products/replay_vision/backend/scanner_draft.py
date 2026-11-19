@@ -2,7 +2,7 @@
 
 The goal step asks "what should the scanner find out?" and this turns the answer into a ready-to-review
 scanner draft: the scanner type, a name, a description, the type-specific config (prompt, tag vocabulary,
-score scale, or summary length), the session targeting, and the sampling dials solved from the budget.
+score scale, or summary length), the session targeting, and the sampling rate solved from the budget.
 The draft is grounded in the team's real pages, events, and saved entities, the
 scanners the caller already has (so a goal can say "like the checkout scanner but for onboarding"), and the
 company's business context (Max's core memory), so the prompt talks about THEIR product. It then lands in
@@ -54,7 +54,6 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.gemini_client import gemini_text_models
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
-    SamplingMode,
     ScannerModel,
     ScannerType,
     apply_experiment_targeting,
@@ -289,10 +288,8 @@ class ScannerDraft:
     scanner_config: dict[str, Any]
     rationale: str
     query: dict[str, Any] | None
-    # The quality pre-filter the model chose for the goal, the random rate solved from the stated
-    # budget, and the resulting monthly projection. None when the costing estimate failed, so the
-    # wizard keeps its defaults.
-    sampling_mode: str | None = None
+    # The random rate solved from the stated budget and the resulting monthly projection; None when
+    # the costing estimate failed, so the wizard keeps its defaults.
     sampling_rate: float | None = None
     estimated_monthly_observations: int | None = None
     # The observation model the draft chose, and the monthly credit cap set to the stated budget so a
@@ -617,10 +614,6 @@ class _LlmDraft(BaseModel):
         "rather than surveys in general. Only use a property and value the briefing showed; anything else is "
         "dropped. Leave empty when the event alone is what the goal means.",
     )
-    sampling_mode: Literal["comprehensive", "balanced", "focused"] = Field(
-        default="comprehensive",
-        description="Which sessions deserve the budget when it cannot cover everything; see the drafting rules.",
-    )
     model: Literal["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"] = Field(
         default="gemini-3-flash-preview",
         description="The model that watches each recording. Pick by how much judgment the goal needs: "
@@ -755,15 +748,6 @@ Pick the single type that best fits the goal, then draft the scanner:
   audience, so use one when the goal is about WHO the user is ('what do power users struggle with')
   rather than what they did. Copy the name exactly; anything not in the list is discarded. Usually
   one cohort; it ANDs with every other filter.
-- sampling_mode: who deserves the budget when it cannot cover every matching session. Each session
-  carries a score of how eventful it looks; the mode drops the lowest-scoring sessions before random
-  sampling. Choose by what the goal hunts:
-  - comprehensive: no filter. The default, and REQUIRED when the goal is about ordinary, quiet, or
-    unremarkable behavior: giving up, drifting away, missing a feature, not converting. Those sessions
-    look boring, and a tighter mode would silently discard the scanner's own answers.
-  - balanced: drops only the least eventful sessions. For general questions tilted toward engaged usage.
-  - focused: keeps only clearly eventful sessions. Only when the goal explicitly hunts intense moments:
-    rage, frustration, heavy usage, power users.
 - model: which model watches each recording, chosen by how much judgment the goal needs, NOT by budget
   (the budget is spent by watching fewer recordings, never by dropping to a weaker model):
   - gemini-3.5-flash-lite (cheapest): a simple, unambiguous yes/no monitor where the answer is obvious
@@ -1306,7 +1290,6 @@ def _draft_query(
 
 @dataclass(frozen=True, kw_only=True)
 class _BudgetSolution:
-    sampling_mode: str
     sampling_rate: float
     estimated_monthly_observations: int
 
@@ -1323,20 +1306,15 @@ def _solve_budget(
     query: dict[str, Any] | None,
     monthly_credit_budget: int,
     credits_per_observation: int,
-    model_mode: str,
     experiment_targeting: dict[str, Any] | None = None,
 ) -> _BudgetSolution:
-    """Set the two dials from the stated credit budget.
+    """Solve the random sampling rate from the stated credit budget.
 
     The budget is credits, so the number of recordings it buys depends on the chosen model's price:
     a pricier model buys fewer recordings. Convert to an observation budget first, then solve.
 
-    Budget covers everything: watch everything. No quality filter, no sampling — a filter would only
-    hide sessions the budget could have paid for.
-
-    Budget below the matched volume: keep the model's quality mode (it read the goal; a formula
-    cannot tell "find where people give up" from "find the most frustrated users"), then solve the
-    random rate so the projection lands on the budget.
+    Budget covers everything: watch everything. Budget below the matched volume: solve the random
+    rate so the projection lands on the budget.
 
     Raises on estimate failure; the caller degrades to an uncosted draft.
     """
@@ -1348,38 +1326,15 @@ def _solve_budget(
     recordings_query = apply_experiment_targeting(
         RecordingsQuery.model_validate(query or {"kind": "RecordingsQuery"}), experiment_targeting
     )
-    comprehensive = estimate_scanner_session_volume(
+    estimate = estimate_scanner_session_volume(
         team=team,
         query=recordings_query,
         user=user,
-        sampling_mode=SamplingMode.COMPREHENSIVE,
         budget=PREVIEW_ESTIMATE_BUDGET,
     )
-    monthly_all = project_monthly_observations(comprehensive, 1.0)
-    if monthly_all <= monthly_scan_budget:
-        return _BudgetSolution(
-            sampling_mode=SamplingMode.COMPREHENSIVE, sampling_rate=1.0, estimated_monthly_observations=monthly_all
-        )
-
-    if model_mode == SamplingMode.COMPREHENSIVE:
-        monthly_mode = monthly_all
-    else:
-        under_mode = estimate_scanner_session_volume(
-            team=team,
-            query=recordings_query,
-            user=user,
-            sampling_mode=model_mode,
-            budget=PREVIEW_ESTIMATE_BUDGET,
-        )
-        monthly_mode = project_monthly_observations(under_mode, 1.0)
-    if monthly_mode <= monthly_scan_budget:
-        return _BudgetSolution(sampling_mode=model_mode, sampling_rate=1.0, estimated_monthly_observations=monthly_mode)
-    rate = _floor_to_precision(monthly_scan_budget / monthly_mode)
-    return _BudgetSolution(
-        sampling_mode=model_mode,
-        sampling_rate=rate,
-        estimated_monthly_observations=round(monthly_mode * rate),
-    )
+    monthly_all = project_monthly_observations(estimate, 1.0)
+    rate = 1.0 if monthly_all <= monthly_scan_budget else _floor_to_precision(monthly_scan_budget / monthly_all)
+    return _BudgetSolution(sampling_rate=rate, estimated_monthly_observations=round(monthly_all * rate))
 
 
 def _grounded_event_properties(
@@ -1583,7 +1538,6 @@ def _finalize(
         scanner_config=scanner_config,
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
         query=query,
-        sampling_mode=parsed.sampling_mode,
         model=parsed.model,
     )
 
@@ -1784,7 +1738,7 @@ def draft_scanner_from_goal(
     chosen_query: dict[str, Any] | None = None,
 ) -> ScannerDraft:
     """Ground the goal in the team's real pages, draft the whole scanner in one
-    model call, then solve the sampling dials from the stated monthly credit budget.
+    model call, then solve the sampling rate from the stated monthly credit budget.
 
     `chosen_query` is a recording filter the user already chose, already cleaned by
     `clean_scanner_query`. The draft starts from it and never widens it: see `_settle_chosen_scope`.
@@ -1948,7 +1902,6 @@ def draft_scanner_from_goal(
             experiment_targeting=config_experiment_scope(draft.scanner_config),
             monthly_credit_budget=monthly_credit_budget,
             credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
-            model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
         )
 
     if chosen_query is not None:
@@ -1961,9 +1914,6 @@ def draft_scanner_from_goal(
                 query=apply_experiment_targeting(
                     RecordingsQuery.model_validate(query), config_experiment_scope(draft.scanner_config)
                 ),
-                # The solver keeps either every recording or the model's mode, and the model's mode is
-                # the narrower one, so a match there holds for whichever the solver picks.
-                sampling_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
             )
 
         return _settle_chosen_scope(draft, chosen=chosen_query, solve=solve, has_match=has_match, team_id=team.id)
@@ -2061,12 +2011,11 @@ def _solve_or_none(
 
 
 def _costed(draft: ScannerDraft, solution: _BudgetSolution | None) -> ScannerDraft:
-    """The draft with its sampling dials solved, or left empty for the wizard's defaults when counting failed."""
+    """The draft with its sampling rate solved, or left empty for the wizard's defaults when counting failed."""
     if solution is None:
-        return replace(draft, sampling_mode=None, sampling_rate=None, estimated_monthly_observations=None)
+        return replace(draft, sampling_rate=None, estimated_monthly_observations=None)
     return replace(
         draft,
-        sampling_mode=solution.sampling_mode,
         sampling_rate=solution.sampling_rate,
         estimated_monthly_observations=solution.estimated_monthly_observations,
     )

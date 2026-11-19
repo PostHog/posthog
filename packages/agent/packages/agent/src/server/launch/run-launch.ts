@@ -150,6 +150,9 @@ function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
       url: `${projectWebUrl}/ai?task=${taskId}`,
     };
   }
+  if (clientProvenance !== "posthog_desktop") {
+    return undefined;
+  }
   const appUrl = apiUrl.replace(/\/+$/, "");
   const path = task.channel
     ? `code/channel/${encodeURIComponent(task.channel)}/tasks/${taskId}`

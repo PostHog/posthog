@@ -7,7 +7,7 @@ import {
 } from '@/lib/client-ip-signature'
 import { env } from '@/lib/env'
 import { findPostHogPermissionError, PostHogApiError } from '@/lib/errors'
-import { isProjectSecretKey, projectSecretKeyProbePath } from '@/lib/project-secret-key'
+import { isProjectSecretKey, PROJECT_SECRET_KEY_ACCESS_PATH } from '@/lib/project-secret-key'
 import type { CloudRegion } from '@/tools/types'
 
 const MCP_HONO_US_URL = 'https://mcp.us.posthog.com'
@@ -18,8 +18,7 @@ const KV_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
 async function resolveRegion(
     token: string,
     userHash: string,
-    kv: KVNamespace | undefined,
-    projectId: string | undefined
+    kv: KVNamespace | undefined
 ): Promise<CloudRegion | undefined> {
     if (kv) {
         try {
@@ -39,10 +38,7 @@ async function resolveRegion(
     const usBase = env.POSTHOG_API_BASE_URL || 'https://us.posthog.com'
     const euBase = env.POSTHOG_API_BASE_URL || 'https://eu.posthog.com'
 
-    const [usResult, euResult] = await Promise.all([
-        probeRegion(token, usBase, projectId),
-        probeRegion(token, euBase, projectId),
-    ])
+    const [usResult, euResult] = await Promise.all([probeRegion(token, usBase), probeRegion(token, euBase)])
 
     // Only the home region answers 403 (token known, `user:read` missing). The other region answers
     // 401, which would make the client refresh a valid token forever.
@@ -71,13 +67,13 @@ async function resolveRegion(
 
 type ProbeResult = { success: true } | { success: false; error: Error }
 
-async function probeRegion(token: string, baseUrl: string, projectId: string | undefined): Promise<ProbeResult> {
+async function probeRegion(token: string, baseUrl: string): Promise<ProbeResult> {
     const api = new ApiClient({ apiToken: token, baseUrl })
-    if (!isProjectSecretKey(token) || !projectId) {
+    if (!isProjectSecretKey(token)) {
         return api.users().me()
     }
     try {
-        await api.request({ method: 'GET', path: projectSecretKeyProbePath(projectId) })
+        await api.request({ method: 'GET', path: PROJECT_SECRET_KEY_ACCESS_PATH })
         return { success: true }
     } catch (error) {
         // Only the home region knows the key. Every refusal there is a 403, also one for a blocked
@@ -99,11 +95,10 @@ function getHonoTargetUrl(region: CloudRegion): string {
 export async function resolveProxyRegion(
     token: string,
     userHash: string,
-    kv: KVNamespace | undefined,
-    projectId?: string
+    kv: KVNamespace | undefined
 ): Promise<CloudRegion> {
     try {
-        const region = await resolveRegion(token, userHash, kv, projectId)
+        const region = await resolveRegion(token, userHash, kv)
         if (region) {
             return region
         }
