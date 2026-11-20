@@ -203,7 +203,6 @@ jobs:
                         - '**/AGENT_APPROVALS.md'
                         # Real repo files the hogli suite reads, listed under hogli below
                         - 'devenv/**'
-                        - 'products/model_crossing_uses_baseline.txt'
                         - .github/workflows/ci-security.yaml
                       # Per-tool groups below gate the pytest steps in code-quality, so these
                       # suites skip Python PRs that cannot affect them. A path filter that skips
@@ -227,8 +226,6 @@ jobs:
                         - 'bin/mprocs.yaml'
                         - 'bin/mprocs-e2e.yaml'
                         - 'devenv/**'
-                        - 'products/model_crossing_uses_baseline.txt'
-                        - '.stamphog/policy.yml'
                         - .github/workflows/ci-security.yaml
                         - 'pyproject.toml'
                         - 'uv.lock'
