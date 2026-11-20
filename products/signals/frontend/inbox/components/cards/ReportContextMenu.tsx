@@ -195,7 +195,7 @@ function ReportContextMenuItems({
                 data-attr="inbox-report-context-menu-takeover"
             >
                 <IconPerson />
-                Take over
+                Take over claim
             </ButtonPrimitive>
         </ContextMenuItem>
     ) : claimant || isReportClaimable(report, currentUserUuid) ? (

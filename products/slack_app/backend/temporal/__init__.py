@@ -5,7 +5,7 @@ Activities living here run on ``settings.TASKS_TASK_QUEUE`` and are imported by
 in this package at module load time.
 """
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from products.slack_app.backend.temporal.activities import (
     CLASSIFIER_THREAD_HISTORY_MESSAGES,
@@ -72,7 +72,10 @@ from products.slack_app.backend.temporal.types import (
     SlackRepoSelectionOutcome,
 )
 
-SLACK_APP_ACTIVITIES: list[Callable[..., object]] = [
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
+SLACK_APP_ACTIVITIES: list[ActivityDefinition] = [
     prepare_slack_report_implementation_activity,
     finish_slack_report_implementation_activity,
     process_slack_app_fork_thread_activity,

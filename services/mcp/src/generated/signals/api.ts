@@ -2262,7 +2262,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
 export const signalsScoutCreateBodyConfigOneWriteScopesMax = 16
 
-export const signalsScoutCreateBodyConfigOneReportActionsMax = 1
+export const signalsScoutCreateBodyConfigOneReportActionsMax = 2
 
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMin = 0
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMax = 20
@@ -2382,7 +2382,7 @@ export const SignalsScoutCreateBody = () => zod
                     .max(signalsScoutCreateBodyConfigOneReportActionsMax)
                     .optional()
                     .describe(
-                        "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                        "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
                     ),
                 max_report_actions_per_day: zod
                     .number()
@@ -2590,7 +2590,7 @@ export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigCreateBodyWriteScopesMax = 16
 
-export const signalsScoutConfigCreateBodyReportActionsMax = 1
+export const signalsScoutConfigCreateBodyReportActionsMax = 2
 
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMax = 20
@@ -2670,7 +2670,7 @@ export const SignalsScoutConfigCreateBody = () => zod
             .max(signalsScoutConfigCreateBodyReportActionsMax)
             .optional()
             .describe(
-                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
             ),
         max_report_actions_per_day: zod
             .number()
@@ -2866,7 +2866,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigUpdateBodyWriteScopesMax = 16
 
-export const signalsScoutConfigUpdateBodyReportActionsMax = 1
+export const signalsScoutConfigUpdateBodyReportActionsMax = 2
 
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMax = 20
@@ -3044,7 +3044,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .max(signalsScoutConfigUpdateBodyReportActionsMax)
             .optional()
             .describe(
-                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
             ),
         max_report_actions_per_day: zod
             .number()
@@ -5329,7 +5329,7 @@ export const SignalsScoutReportCheckListQueryParams = () => zod.object({
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = () => zod.object({
@@ -5343,6 +5343,7 @@ export const SignalsScoutScratchpadSearchParams = () => zod.object({
 export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
 
 export const signalsScoutScratchpadSearchQueryIncludeExpiredDefault = false
+export const signalsScoutScratchpadSearchQueryIncludeRevisionsDefault = false
 export const signalsScoutScratchpadSearchQueryLimitMax = 1000
 
 export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
@@ -5368,6 +5369,12 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
         .default(signalsScoutScratchpadSearchQueryIncludeExpiredDefault)
         .describe(
             'Include entries whose `expires_at` has passed. Off by default so a time-boxed memory retires itself; turn it on to audit what the fleet remembered and when it lapsed.'
+        ),
+    include_revisions: zod
+        .boolean()
+        .default(signalsScoutScratchpadSearchQueryIncludeRevisionsDefault)
+        .describe(
+            "With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content."
         ),
     key: zod
         .string()

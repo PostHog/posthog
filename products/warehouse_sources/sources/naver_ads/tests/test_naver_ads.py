@@ -153,6 +153,38 @@ def test_child_entities_resume_after_the_last_finished_parent() -> None:
 
 
 @pytest.mark.parametrize(
+    ("resume_state", "expected_owners"),
+    [
+        (None, ["cmp-1", "cmp-2", "grp-cmp-1", "grp-cmp-2"]),
+        # Campaign and ad group owners share one sorted walk, so a resume skips owners of both kinds.
+        (NaverAdsResumeConfig(after_id="cmp-2"), ["grp-cmp-1", "grp-cmp-2"]),
+        (NaverAdsResumeConfig(after_id="grp-cmp-1"), ["grp-cmp-2"]),
+    ],
+)
+def test_ad_extensions_fan_out_over_campaign_and_ad_group_owners(
+    resume_state: NaverAdsResumeConfig | None, expected_owners: list[str]
+) -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/ncc/campaigns":
+            return ok([{"nccCampaignId": "cmp-2"}, {"nccCampaignId": "cmp-1"}])
+        if request.path == "/ncc/adgroups":
+            return ok([{"nccAdgroupId": f"grp-{request.param('nccCampaignId')}"}])
+        assert request.path == "/ncc/ad-extensions"
+        assert request.param("recordSize") is None
+        owner = request.param("ownerId")
+        return ok([{"nccAdExtensionId": f"ext-{owner}", "ownerId": owner, "type": "SUB_LINKS"}])
+
+    result = driver().run("ad_extensions", respond, resume_state=resume_state)
+
+    assert result.raised is None
+    owners = [request.param("ownerId") for request in result.requests if request.path == "/ncc/ad-extensions"]
+    assert owners == expected_owners
+    assert [row["nccAdExtensionId"] for row in result.rows] == [f"ext-{owner}" for owner in expected_owners]
+    assert result.committed_states[-1] == NaverAdsResumeConfig(after_id="grp-cmp-2")
+    assert result.completed_state is None
+
+
+@pytest.mark.parametrize(
     ("last_value", "should_use", "expected_days"),
     [
         # The pipeline applies the schema's lookback before the source sees the watermark.

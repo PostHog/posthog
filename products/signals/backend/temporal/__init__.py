@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickWorkflow,
@@ -167,6 +167,9 @@ from products.signals.backend.temporal.summary import (
     revert_report_to_candidate_activity,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     MonitoringAssessmentWorkflow,
     UpdateSignalSpendWorkflow,
@@ -194,7 +197,7 @@ WORKFLOWS = [
     SignalReportInboxNotificationWorkflow,
 ]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     assigned_signal_ids_activity,
     delete_expired_grouping_records_activity,
     delete_expired_spend_activity,
@@ -291,7 +294,7 @@ SELF_DRIVING_WORKFLOWS = [
     AnomalyScoringTickWorkflow,
     AnomalyScoringDueListRefreshWorkflow,
 ]
-SELF_DRIVING_ACTIVITIES: list[Callable[..., object]] = [
+SELF_DRIVING_ACTIVITIES: list[ActivityDefinition] = [
     score_inbox_reports_activity,
     plan_activity_summary_tick_activity,
     update_activity_summary_pair_activity,

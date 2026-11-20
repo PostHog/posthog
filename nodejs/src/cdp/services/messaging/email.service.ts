@@ -1065,7 +1065,7 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? undefined : failureReason,
+                    reason: success ? (trackingEnabled ? undefined : 'untracked') : failureReason,
                     sendingDomain,
                     messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
