@@ -1244,14 +1244,14 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(open_ids, [resumed.id])
         self.assertEqual(merged_ids, [merged.id])
 
-    def test_chunked_run_log_url_points_at_its_logs_endpoint(self):
+    def test_chunked_run_log_url_points_at_its_log_entries_endpoint(self):
         task = self._make_task()
         run = TaskRun.objects.create(task=task, team=self.team, log_format=TaskRun.LogFormat.CHUNKED)
 
         log_url = facade._task_run_log_url(run, has_analytics_context=False)
 
         assert log_url is not None
-        assert log_url.endswith(f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/logs/")
+        assert log_url.endswith(f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/log_entries/?scope=run")
 
     @patch("products.tasks.backend.facade.api._task_run_log_url", return_value="https://presigned/log")
     def test_task_detail_inherits_a_pr_without_restoring_a_suppressed_log_url(self, _mock_log_url):

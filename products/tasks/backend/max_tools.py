@@ -372,14 +372,13 @@ Use this tool when the user wants to:
                     "run_id": run_id,
                 }
 
-            protected = "analytics_query_context" in (task_run.state or {})
-            if protected and not may_read(task_run.state["analytics_query_context"]):
-                return {"error": "permission_denied"}
-            if protected or task_run.log.chunked:
+            if "analytics_query_context" in (task_run.state or {}):
+                if not may_read(task_run.state["analytics_query_context"]):
+                    return {"error": "permission_denied"}
                 return {
                     "task_id": str(task.id),
                     "run_id": str(task_run.id),
-                    "logs_api_url": tasks_facade.task_run_logs_path(self._team.id, task.id, task_run.id),
+                    "logs_api_url": f"/api/projects/{self._team.id}/tasks/{task.id}/runs/{task_run.id}/logs/",
                 }
 
             return {

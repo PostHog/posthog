@@ -472,7 +472,6 @@ __all__ = [
     "sandbox_token_has_open_network",
     "is_html_artifact",
     "get_task_run_logs",
-    "task_run_logs_path",
     "get_task_run_log_size",
     "read_task_run_log_content",
     "read_task_run_conversation_logs",
@@ -728,20 +727,20 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
     return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
-def task_run_logs_path(team_id: int, task_id: str | UUID, run_id: str | UUID) -> str:
-    return f"/api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/logs/"
+def _task_run_log_entries_path(team_id: int, task_id: str | UUID, run_id: str | UUID) -> str:
+    return f"/api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/log_entries/?scope=run"
 
 
 def _task_run_log_url(run: TaskRun, *, has_analytics_context: bool) -> str | None:
-    """Download URL for a run's log: a cached presigned S3 URL for a single-file log, the logs endpoint for a
-    chunked one. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
+    """Download URL for a run's log: a cached presigned S3 URL for a single-file log, the log entries endpoint
+    for a chunked one. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
     from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
 
     # Protected traces must go through the permission-checked logs endpoint.
     if has_analytics_context:
         return None
     if run.log.chunked:
-        return absolute_uri(task_run_logs_path(run.team_id, run.task_id, run.id))
+        return absolute_uri(_task_run_log_entries_path(run.team_id, run.task_id, run.id))
     cache_key = f"task_run_log_url:{run.id}"
     cached_url = get_tasks_cache().get(cache_key)
     if cached_url:
@@ -809,7 +808,7 @@ def _task_run_detail_to_dto(
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
         log_url=(
-            task_run_logs_path(run.team_id, run.task_id, run.id)
+            _task_run_log_entries_path(run.team_id, run.task_id, run.id)
             if has_analytics_context and include_agent_state and include_log_url
             else _task_run_log_url(run, has_analytics_context=has_analytics_context)
             if include_log_url
@@ -11222,7 +11221,7 @@ def _slack_repo_research_dto(
         sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
         run_status = research_run.status
         try:
-            log_url = _task_run_log_url(research_run, has_analytics_context=False)
+            log_url = run_log_download_url(research_run.log, expiration_seconds=3600)
         except Exception:
             logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
             log_url = None
@@ -11305,7 +11304,7 @@ def resolve_slack_thread_context(
         task_processing_workflow_id = run.workflow_id
         mention_workflow_id = state.get("slack_mention_workflow_id")
         try:
-            presigned_log_url = _task_run_log_url(run, has_analytics_context=False)
+            presigned_log_url = run_log_download_url(run.log, expiration_seconds=3600)
         except Exception:
             logger.exception("slack_thread_context_log_presign_failed", extra={"run_id": str(run.id)})
             presigned_log_url = None

@@ -110,11 +110,14 @@ class TestStorage(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True):
             file_name = f"{TEST_BUCKET}/test_write_if_absent_writes_a_key_once/{uuid.uuid4()}"
 
-            first = write_if_absent(file_name, b"first")
-            second = write_if_absent(file_name, b"second")
+            first = write_if_absent(file_name, b"first", metadata={"append-id": "first"})
+            second = write_if_absent(file_name, b"second", metadata={"append-id": "second"})
 
             assert (first, second) == (True, False)
             self.assertEqual(read_bytes(file_name), b"first")
+            head = head_object(file_name)
+            assert head is not None
+            self.assertEqual(head["Metadata"], {"append-id": "first"})
 
     def test_can_generate_presigned_url_for_existing_file(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -498,4 +501,4 @@ class TestObjectStorageClientFactory(SimpleTestCase):
 class TestUnavailableStorage(SimpleTestCase):
     def test_write_if_absent_refuses_instead_of_pretending_to_write(self) -> None:
         with self.assertRaises(ObjectStorageError):
-            UnavailableStorage().write_if_absent("bucket", "key", b"content")
+            UnavailableStorage().write_if_absent("bucket", "key", b"content", metadata={})
