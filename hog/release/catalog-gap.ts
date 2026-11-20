@@ -7,6 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import ts from 'typescript'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
@@ -54,9 +55,6 @@ export interface CompiledGraph {
 }
 
 export const UNNAMED_IMPORT = ''
-
-const NAMED_IMPORT = /\bimport\s+(type\s+)?\{([^}]*)\}\s*from\s*(['"])([^'"\n]*)\3/g
-const IMPORT_BINDING = /^(type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+[A-Za-z_$][\w$]*)?$/
 
 export interface GapInput {
     changed: string[]
@@ -235,50 +233,52 @@ function schemasByTool(source: string | undefined): Map<string, Set<string>> | u
     return generatedToolNames(source).every((tool) => byTool.has(tool)) ? byTool : undefined
 }
 
-// The values a module imports from a schema file by name. The build resolved which of the module's specifiers
-// name the file. Only `import { ... } from '<specifier>'` statements whose bindings are plain names count, and
-// each quoted copy of a specifier must belong to one of them. Undefined otherwise, such as for a namespace or
-// default import, a re-export, `import()`, a comment inside the braces, or a specifier no statement accounts
-// for, so every schema counts as read.
+// The values a module imports from a schema file by name, as the TypeScript parser reads them, so escapes and
+// comments read as they compile. The build resolved which specifiers name the file. Undefined, so every schema
+// counts as read, when the module reads the file any other way, such as a namespace or default import, a
+// re-export, `import()` or `require`, or through a specifier no import declaration accounts for.
 function namedImports(source: string | undefined, specifiers: string[] | undefined): Set<string> | undefined {
     if (!specifiers?.length || specifiers.includes(UNNAMED_IMPORT)) {
         return undefined
     }
     const wanted = new Set(specifiers)
-    const text = source ?? ''
+    const file = ts.createSourceFile('importer.ts', source ?? '', ts.ScriptTarget.Latest, true)
     const names = new Set<string>()
-    const accounted = new Set<string>()
-    let statements = 0
+    const declared = new Set<ts.Node>()
 
-    for (const [, typeOnly, bindings = '', , specifier = ''] of text.matchAll(NAMED_IMPORT)) {
-        if (!wanted.has(specifier)) {
+    for (const statement of file.statements) {
+        if (
+            !ts.isImportDeclaration(statement) ||
+            !ts.isStringLiteral(statement.moduleSpecifier) ||
+            !wanted.has(statement.moduleSpecifier.text)
+        ) {
             continue
         }
-        statements++
-        accounted.add(specifier)
-        const elements = bindings.split(',').map((element) => element.trim())
-        if (elements.at(-1) === '') {
-            elements.pop()
+        declared.add(statement.moduleSpecifier)
+        const clause = statement.importClause
+        if (clause?.isTypeOnly) {
+            continue
         }
-        for (const element of elements) {
-            const binding = element.match(IMPORT_BINDING)
-            if (!binding) {
-                return undefined
-            }
-            const [, typeElement, name] = binding
-            if (!typeOnly && !typeElement && name) {
-                names.add(name)
+        if (!clause || clause.name || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) {
+            return undefined
+        }
+        for (const element of clause.namedBindings.elements) {
+            if (!element.isTypeOnly) {
+                names.add((element.propertyName ?? element.name).text)
             }
         }
     }
 
-    const quoted = [...wanted].reduce(
-        (count, specifier) =>
-            count +
-            ["'", '"', '`'].reduce((sum, quote) => sum + text.split(`${quote}${specifier}${quote}`).length - 1, 0),
-        0
-    )
-    return accounted.size === wanted.size && quoted === statements ? names : undefined
+    const accounted = new Set([...declared].map((node) => (node as ts.StringLiteral).text))
+    let undeclared = [...wanted].some((specifier) => !accounted.has(specifier))
+    const visit = (node: ts.Node): void => {
+        if (ts.isStringLiteralLike(node) && wanted.has(node.text) && !declared.has(node)) {
+            undeclared = true
+        }
+        ts.forEachChild(node, visit)
+    }
+    visit(file)
+    return undeclared ? undefined : names
 }
 
 // Code other than the registry that imports a generated module, like an alias that wraps its tools. hog runs that
