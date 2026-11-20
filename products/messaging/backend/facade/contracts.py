@@ -577,3 +577,35 @@ class TransactionalEmailActivity:
     has_more_before: bool
     has_more_after: bool
     sessions: list[TransactionalEmailActivitySession]
+
+
+@frozen
+class WorkflowEmailSend:
+    """One email a workflow or broadcast step sent, read from the `$workflows_email_*` events."""
+
+    # A run can send several emails, so a send is its run and the step that sent it.
+    invocation_id: str
+    action_id: str
+    workflow_id: str
+    distinct_id: str
+    recipient: str
+    # Empty for a sensitive template, whose events leave the subject out.
+    subject: str
+    sent_at: datetime
+    status: EmailDeliveryStatus
+    opened: bool
+    clicked: bool
+
+
+@frozen
+class WorkflowEmailPage:
+    sends: list[WorkflowEmailSend]
+    has_more: bool
+    # The events only exist while the team records engagement events.
+    engagement_events_enabled: bool
+
+
+@frozen
+class WorkflowEmailDetail:
+    send: WorkflowEmailSend
+    timeline: list[TransactionalEmailLogEvent]

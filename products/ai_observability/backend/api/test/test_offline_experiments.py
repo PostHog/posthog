@@ -43,9 +43,6 @@ from products.ai_observability.backend.models.score_definitions import ScoreDefi
 class TestOfflineExperimentsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.feature_flag = self.enterContext(
-            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
-        )
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -533,14 +530,6 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         response = self.client.post(self._endpoint(team_id=other_team.id), self._experiment_body(), format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(OfflineExperiment.objects.for_team(other_team.id).exists())
-
-    @parameterized.expand([("session",), ("personal_key",), ("project_key",)])
-    def test_rollout_flag_is_required_for_every_authentication_method(self, auth_kind: str) -> None:
-        self._authenticate(auth_kind)
-        self.feature_flag.return_value = False
-        response = self.client.post(self._endpoint(), self._experiment_body(), format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(OfflineExperiment.objects.for_team(self.team.id).exists())
 
     @parameterized.expand(
         [

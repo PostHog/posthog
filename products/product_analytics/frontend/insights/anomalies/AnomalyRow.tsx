@@ -9,6 +9,9 @@ import { urls } from 'scenes/urls'
 
 import type { AnomalyIntervalEnumApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
+import type { AnomalyRowRating } from './anomaliesTabLogic'
+import { appPath } from './anomalyInsightLinks'
+import { AnomalyRowActions } from './AnomalyRowActions'
 import { AnomalyRowChart } from './AnomalyRowChart'
 import { withAnomalyScoresParam } from './anomalyScoresParam'
 
@@ -29,20 +32,25 @@ function anomalyRateLabel(rate: number | null): string {
     return rate > 0 && rate < 0.005 ? '<1%' : percentage(rate, 0)
 }
 
-// The API returns an absolute link. Routing its path keeps the click inside the app.
-function appPath(url: string): string {
-    const parsed = new URL(url, window.location.origin)
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`
-}
-
 export interface AnomalyRowProps {
     series: AnomalySeriesApi
     dateFrom: string
     dateTo: string
+    rating: AnomalyRowRating | undefined
     onOpenInsight: () => void
+    onRate: (rating: AnomalyRowRating) => void
+    onCreateAlert: () => void
 }
 
-export function AnomalyRow({ series, dateFrom, dateTo, onOpenInsight }: AnomalyRowProps): JSX.Element {
+export function AnomalyRow({
+    series,
+    dateFrom,
+    dateTo,
+    rating,
+    onOpenInsight,
+    onRate,
+    onCreateAlert,
+}: AnomalyRowProps): JSX.Element {
     const shownDashboards = series.dashboards.slice(0, MAX_DASHBOARD_LINKS)
     const moreDashboards = series.dashboards.slice(MAX_DASHBOARD_LINKS)
     return (
@@ -98,6 +106,7 @@ export function AnomalyRow({ series, dateFrom, dateTo, onOpenInsight }: AnomalyR
                             )}
                         </div>
                     )}
+                    <AnomalyRowActions series={series} rating={rating} onRate={onRate} onCreateAlert={onCreateAlert} />
                 </div>
                 <div className="flex-1 min-w-0">
                     <AnomalyRowChart series={series} dateFrom={dateFrom} dateTo={dateTo} />

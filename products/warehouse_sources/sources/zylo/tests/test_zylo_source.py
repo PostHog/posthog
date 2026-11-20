@@ -63,14 +63,23 @@ class TestZyloSource:
 
         assert permissions == {"PurchaseOrders": expected_message}
 
+    @pytest.mark.parametrize(
+        ("endpoint", "parent_path", "scope"),
+        [
+            ("AutomationExecutions", "/v2/automations", "automations"),
+            ("ApplicationFunctionalities", "/v2/applications", "applications:read"),
+        ],
+    )
     @mock.patch("products.warehouse_sources.sources.zylo.source.probe_endpoint_status")
-    def test_get_endpoint_permissions_probes_fanout_child_via_parent_list(self, mock_probe: MagicMock) -> None:
+    def test_get_endpoint_permissions_probes_fanout_child_via_parent_list(
+        self, mock_probe: MagicMock, endpoint: str, parent_path: str, scope: str
+    ) -> None:
         mock_probe.return_value = 403
 
-        permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["AutomationExecutions"])
+        permissions = self.source.get_endpoint_permissions(self.config, self.team_id, [endpoint])
 
-        assert permissions == {"AutomationExecutions": "API key is missing the `automations` permission scope"}
-        mock_probe.assert_called_once_with("tok_id", "tok_secret", "/v2/automations")
+        assert permissions == {endpoint: f"API key is missing the `{scope}` permission scope"}
+        mock_probe.assert_called_once_with("tok_id", "tok_secret", parent_path)
 
     def test_get_endpoint_permissions_unknown_endpoint_is_reachable(self) -> None:
         permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["NotARealEndpoint"])

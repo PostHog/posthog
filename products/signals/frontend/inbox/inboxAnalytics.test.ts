@@ -307,7 +307,7 @@ describe('inboxAnalytics', () => {
         expect(JSON.stringify(props)).not.toContain('Something broke')
     })
 
-    it('records how the query moved without shipping what was typed into the search box', () => {
+    it('records how the query moved without shipping the search text or the tags', () => {
         captureInboxQueryChanged({
             change: 'search',
             tab: 'reports',
@@ -316,6 +316,7 @@ describe('inboxAnalytics', () => {
             sortDirection: 'desc',
             sourceProductFilter: ['error_tracking'],
             scoutFilter: [],
+            tagFilter: ['acme-billing'],
             priorityFilter: ['P0'],
             stateFilter: ['monitoring'],
             searchQuery: '  acme checkout crash  ',
@@ -331,6 +332,7 @@ describe('inboxAnalytics', () => {
             source_product_filter: ['error_tracking'],
             has_search: true,
             search_length: 'acme checkout crash'.length,
+            tag_filter_count: 1,
         })
         expect(JSON.stringify(props)).not.toContain('acme')
     })
