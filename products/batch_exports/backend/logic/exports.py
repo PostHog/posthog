@@ -630,7 +630,12 @@ def _remove_secret_fields(destination_type: str, config: dict[str, typing.Any]) 
 
 
 def _remove_stored_restrictions(schema: dict[str, typing.Any] | None) -> dict[str, typing.Any] | None:
-    """Leave out the property restrictions of the user who saved a schema, which other users must not read."""
+    """Return the schema without `restricted_properties`, for API responses.
+
+    A schema stores the property restrictions of the user who last saved it, so a native run can recompile its query
+    with the same restrictions. Without this, anyone who can read the export would see that user's restrictions. The
+    Temporal schedule keeps the full schema, because the worker needs the restrictions.
+    """
     if schema is None:
         return None
     return {key: value for key, value in schema.items() if key != "restricted_properties"}
