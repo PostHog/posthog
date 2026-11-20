@@ -1997,6 +1997,21 @@ class TestSharedInsightsExecutionMode(BaseTest):
         assert legacy.get_cache_key() != runner.get_cache_key()
         assert "useNewEventsSchema" not in legacy.get_cache_payload()["hogql_modifiers"]
 
+    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
+    def test_async_payload_drops_null_modifiers_that_an_older_worker_rejects(
+        self, mock_enqueue: mock.MagicMock
+    ) -> None:
+        query = HogQLQuery(query="SELECT 1", modifiers=HogQLQueryModifiers(optimizeProjections=False))
+        runner = HogQLQueryRunner(query=query, team=self.team)
+
+        runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+
+        query_json = mock_enqueue.call_args.kwargs["query_json"]
+        assert query_json["modifiers"]["optimizeProjections"] is False
+        assert None not in query_json["modifiers"].values()
+        worker = HogQLQueryRunner(query=query_json, team=self.team)
+        assert worker.get_cache_key() == runner.get_cache_key()
+
 
 @pytest.mark.ee
 class TestQueryRunnerAccessControlFingerprint(BaseTest):
