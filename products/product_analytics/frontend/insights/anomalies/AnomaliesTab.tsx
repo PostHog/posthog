@@ -33,16 +33,11 @@ export function AnomaliesTab(): JSX.Element {
     } = useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
-    const scoredThrough = series
-        .map((row) => row.scored_through)
-        .filter((value): value is string => !!value)
-        .sort()
-        .at(-1)
 
     return (
         <div className="flex flex-col gap-4">
             <p className="text-secondary m-0">
-                Saved trends insights that behaved unusually, checked automatically. No setup needed.
+                Saved trends insights with anomalous values, checked automatically. No setup needed.
             </p>
             <AnomaliesFilters />
 
@@ -71,7 +66,7 @@ export function AnomaliesTab(): JSX.Element {
                 <>
                     {!anomalies.scored_history_ready && (
                         <LemonBanner type="info">
-                            {`This project has ${anomalies.scored_days} of ${SCORED_HISTORY_READY_DAYS} days of scored history. Until it has ${SCORED_HISTORY_READY_DAYS}, flags are less reliable.`}
+                            {`This project has ${anomalies.scored_days} of ${SCORED_HISTORY_READY_DAYS} days of scored history. Until it has ${SCORED_HISTORY_READY_DAYS}, anomaly results are less reliable.`}
                         </LemonBanner>
                     )}
                     {anomalies.series_capped && (
@@ -86,10 +81,10 @@ export function AnomaliesTab(): JSX.Element {
                         <span>
                             {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
                         </span>
-                        {scoredThrough && (
+                        {anomalies.scored_through && (
                             <>
                                 <span> · Checked through </span>
-                                <TZLabel time={scoredThrough} />
+                                <TZLabel time={anomalies.scored_through} />
                             </>
                         )}
                     </div>

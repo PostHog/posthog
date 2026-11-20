@@ -5,10 +5,7 @@ import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 
-import {
-    SignalsAnomaliesSearchRetrieveInterval,
-    SignalsAnomaliesSearchRetrieveOrder,
-} from 'products/signals/frontend/generated/api.schemas'
+import { SignalsAnomaliesSearchRetrieveInterval } from 'products/signals/frontend/generated/api.schemas'
 
 import { ANOMALIES_DATE_RANGES } from './anomaliesDateRanges'
 import { anomaliesTabLogic } from './anomaliesTabLogic'
@@ -19,10 +16,6 @@ const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterva
     { value: SignalsAnomaliesSearchRetrieveInterval.Day, label: 'Daily' },
     { value: SignalsAnomaliesSearchRetrieveInterval.Week, label: 'Weekly' },
     { value: SignalsAnomaliesSearchRetrieveInterval.Month, label: 'Monthly' },
-]
-
-const ORDER_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveOrder> = [
-    { value: SignalsAnomaliesSearchRetrieveOrder.Recent, label: 'Most recent' },
 ]
 
 export function AnomaliesFilters(): JSX.Element {
@@ -68,13 +61,6 @@ export function AnomaliesFilters(): JSX.Element {
                 onChange={(dashboardId) => setFilters({ dashboardId })}
                 dropdownMatchSelectWidth={false}
                 data-attr="anomalies-tab-dashboard"
-            />
-            <LemonSelect
-                size="small"
-                value={filters.order}
-                options={ORDER_OPTIONS}
-                onChange={(order) => setFilters({ order })}
-                data-attr="anomalies-tab-order"
             />
         </div>
     )

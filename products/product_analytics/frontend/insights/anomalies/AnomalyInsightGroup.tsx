@@ -64,7 +64,7 @@ export function AnomalyInsightGroup({
                         onClick={onToggleExpanded}
                         data-attr="anomalies-tab-expand-insight"
                     >
-                        {expanded ? 'Show fewer series' : `Show ${otherSeries.length} more flagged series`}
+                        {expanded ? 'Show fewer series' : `Show ${otherSeries.length} more anomalous series`}
                     </LemonButton>
                 </div>
             )}
