@@ -47,12 +47,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import tag_queries
 
 # PostHog's `SessionAuthentication` (not DRF's) calls `enforce_two_factor()`.
@@ -720,12 +715,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Run history + finding emission for the headless agent."""
 
     serializer_class = SignalScoutRunSummarySerializer
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # `.unscoped()` bypasses the fail-closed TeamScopedManager; this class-attribute queryset
@@ -2074,12 +2064,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     serializer_class = ScratchpadEntrySerializer
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # `list` returns a raw newest-first array (capped at limit=1000 by the query serializer),
@@ -2339,12 +2324,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     serializer_class = ScoutNoteSerializer
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # `destroy` resolves the note through `_parse_run_id_or_404`, which reads the `id` kwarg.
@@ -2561,12 +2541,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     """
 
     serializer_class = ProjectProfileSerializer
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # `.unscoped()` — see `SignalScoutRunViewSet` for the same module-load reasoning.
@@ -2674,12 +2649,7 @@ class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     """
 
     serializer_class = ScoutMetadataSerializer
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # No model backs this endpoint — metadata is computed from the flag payload. A real queryset is
@@ -3650,12 +3620,7 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Create a runnable custom scout and its config through one atomic API call."""
 
     serializer_class = SignalScoutCreateSerializer
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -3783,12 +3748,7 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
     """
 
     serializer_class = SignalScoutConfigSerializer
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     # Every action resolves `_canonical_team_id`, so the rows read and written belong to the
     # parent project even on a child-environment URL — and config writes drive spend and the
     # sandbox network posture, so authorization must anchor to the data-owning team.

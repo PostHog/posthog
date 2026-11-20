@@ -13,12 +13,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.pagination import BoundedLimitOffsetPagination, page_link_with_params
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
@@ -96,7 +91,6 @@ PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
 
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [
-        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
@@ -598,7 +592,6 @@ class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     """
 
     authentication_classes = [
-        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
@@ -666,7 +659,6 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     authentication_classes = [
-        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
@@ -718,7 +710,6 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     authentication_classes = [
-        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
@@ -796,7 +787,6 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     authentication_classes = [
-        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,

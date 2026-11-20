@@ -10,19 +10,13 @@ from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 
 _AUTH_CLASSES: list[type[BaseAuthentication]] = [
-    IDJagAccessTokenAuthentication,
     SessionAuthentication,
     PersonalAPIKeyAuthentication,
     OAuthAccessTokenAuthentication,

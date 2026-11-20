@@ -9,19 +9,25 @@ import structlog
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import InsufficientScope
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
-from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission, scopes_caller_lacks
+from posthog.permissions import (
+    DenyIDJagAccessToken,
+    TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
+    scopes_caller_lacks,
+)
 from posthog.scopes.catalog import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.scopes.project_secret_api_key import PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
@@ -310,14 +316,31 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
     return False
 
 
+class DenyIDJagProjectSecretAPIKeyWrites(DenyIDJagAccessToken):
+    """A project secret API key outlives the credential that issues it. The organization's identity provider mints an
+    ID-JAG token without the person approving it, so the token must not create or change a key."""
+
+    message = (
+        "ID-JAG tokens can't create or change project secret API keys, because a key outlives the token. "
+        "Sign in to PostHog with OAuth to manage keys."
+    )
+
+    def has_permission(self, request, view) -> bool:
+        return request.method in SAFE_METHODS or super().has_permission(request, view)
+
+
 @extend_schema(extensions={"x-product": "core"})
 class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "roll"]
     lookup_field = "id"
     serializer_class = ProjectSecretAPIKeySerializer
-    permission_classes = [TimeSensitiveActionPermission, TeamMemberStrictManagementPermission]
-    authentication_classes = [IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
+    permission_classes = [
+        TimeSensitiveActionPermission,
+        TeamMemberStrictManagementPermission,
+        DenyIDJagProjectSecretAPIKeyWrites,
+    ]
+    authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
 
     queryset = ProjectSecretAPIKey.objects.all()
 

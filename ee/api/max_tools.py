@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import get_event_source
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
@@ -48,11 +48,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     permission_classes = [IsAuthenticated]
     renderer_classes = [SafeJSONRenderer]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
 
     @extend_schema(request=InsightsToolCallSerializer, responses={200: OpenApiTypes.OBJECT})
     @action(

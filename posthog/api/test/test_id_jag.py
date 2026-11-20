@@ -28,6 +28,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from oauth2_provider.utils import jwk_from_pem
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.request import Request
 
 from posthog.api.id_jag import (
     ACCESS_TOKEN_TYPE,
@@ -38,7 +39,7 @@ from posthog.api.id_jag import (
     issue_access_token,
 )
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
-from posthog.auth import IDJagAccessTokenAuthentication
+from posthog.auth import ExportRendererAuthentication, IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.errors import InternalCHQueryError
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -52,6 +53,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.user import User as UserModel
 from posthog.permissions import get_authenticator_client
+from posthog.rate_limit import hashed_personal_api_key_for_throttling
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
 
@@ -1150,6 +1152,22 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self.assertEqual(
             get_authenticator_client(authenticator), {"credential_type": "id_jag", "client_id": "agent_client_id"}
         )
+
+    @parameterized.expand([(PersonalAPIKeyAuthentication,), (ExportRendererAuthentication,)])
+    def test_other_bearer_authenticators_leave_the_token_to_the_id_jag_authenticator(self, authenticator_class) -> None:
+        # GET, because ExportRendererAuthentication reads a bearer token only on GET.
+        request = Request(
+            RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {self._mint_access_token(scope='user:read')}")
+        )
+
+        self.assertIsNone(authenticator_class().authenticate(request))
+
+    def test_rate_limiter_does_not_count_the_token_as_a_personal_api_key(self) -> None:
+        request = Request(
+            RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {self._mint_access_token(scope='user:read')}")
+        )
+
+        self.assertIsNone(hashed_personal_api_key_for_throttling(request))
 
     @covers_authentication(IDJagAccessTokenAuthentication)
     def test_valid_token_authenticates_user(self) -> None:

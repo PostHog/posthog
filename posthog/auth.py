@@ -320,6 +320,11 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                     OAUTH_ACCESS_TOKEN_PREFIX
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
+                # An ID-JAG access token is never a personal API key. Returning None lets the ID-JAG authenticator,
+                # which TeamAndOrgViewSetMixin adds after a view's own classes, read it, and keeps the rate limiter and
+                # the CSRF middleware from treating it as a personal API key.
+                if IDJagAccessTokenAuthentication.is_id_jag_token(token):
+                    return None
                 return token, cls.SOURCE_HEADER
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
@@ -1015,8 +1020,12 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
         authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
         if not authorization_match:
             return None
+        token = authorization_match.group(1).strip()
+        # An ID-JAG access token is an RS256 JWT. `decode_jwt` rejects its algorithm, which the handler below would
+        # report as an invalid export token before the ID-JAG authenticator can read it.
+        if IDJagAccessTokenAuthentication.is_id_jag_token(token):
+            return None
         try:
-            token = authorization_match.group(1).strip()
             info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
             user_id = info["id"]
             team_id = info["team_id"]

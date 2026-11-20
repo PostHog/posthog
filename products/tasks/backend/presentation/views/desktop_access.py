@@ -16,12 +16,7 @@ from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.email_verification import email_verification_pending
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.oauth import OAuthAccessToken
@@ -178,7 +173,6 @@ def _desktop_usage_breakdown(limited: dict[str, Any]) -> dict[str, int | None] |
 @extend_schema(tags=["tasks"])
 class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [
-        IDJagAccessTokenAuthentication,
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,

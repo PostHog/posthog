@@ -15,7 +15,6 @@ from posthog.api.fields import JSONTolerantListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import (
-    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -227,12 +226,7 @@ class ActivitySummaryVersionsQuerySerializer(serializers.Serializer):
 
 class ActivitySummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = ActivitySummarySerializer
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     requires_resource_level_access = True
