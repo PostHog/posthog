@@ -735,6 +735,15 @@ Per-scout binding for the headless **Signals agent**: one row per `(team, skill_
 | `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                                                                                                                                                                                                                       |
 
+#### Scout report actions
+
+A scout can start a report action, so it can act as an orchestrator over the reports it tends. `backend/scout_report_actions.py` holds the rules.
+
+- **The grant.** `report_actions` lists the kinds a scout may start. Only `make_it_green` is grantable, because its request text is fixed and the started run acts with the acting user's posture. The endpoint refuses `get_it_merged` and refuses a scout's own `message`. Only the person the scout's runs act as can widen the grant. A project admin can only narrow it, and a sandbox token cannot change it.
+- **The cap.** `max_report_actions_per_day` (default 3, at most `MAX_SCOUT_REPORT_ACTIONS_PER_DAY`) caps starts across all the scout's runs in a rolling 24 hours. Each start is recorded on its run row (`metadata["report_action_starts"]`), and the reservation counts those entries under the config row lock. A failed start still spends its reservation.
+- **The dispatch stamp.** The runner stamps the grant on `metadata["report_actions"]` at run creation, and renders the same value in the prompt's _Report actions_ section. A dry run, a private trial, and a team-fallback run hold no grant, so the stamp is empty and the section is absent. The endpoint admits a start only when the stamp and the current config both hold the kind, so a widened grant reaches only later runs, and a revoke applies at once.
+- **The chain rule.** A started action is a report discussion, not a scout run, so it cannot start another action. Its run also records the scout's run as its parent, so tasks gives it no personal MCP servers and refuses a run start from its sandbox. Chains stop at one level.
+
 #### Scout rubrics
 
 The nullable `rubrics` JSON field stores a scout's evaluation criteria and revision, plus its latest suggestion request and result.
