@@ -7,6 +7,9 @@ import {
     scopeGroupLevel,
     scopeGroupTooltip,
 } from 'lib/scopes'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
+import { QuillScopeRowsLevelControl } from './QuillScopeRowsLevelControl'
 
 interface ScopeRowsLevelControlProps {
     rows: ScopePickerRow[]
@@ -25,6 +28,20 @@ export function ScopeRowsLevelControl({
     const disabledReasons = scopeGroupDisabledReasons(rows)
     const valueTooltip = scopeGroupTooltip(rows, value)
     const keys = rows.map((row) => row.key)
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <QuillScopeRowsLevelControl
+                value={value}
+                disabledReasons={disabledReasons}
+                valueTooltip={valueTooltip}
+                onChange={(level) => onChange(keys, level)}
+                ariaLabel={ariaLabel}
+                dataAttrPrefix={dataAttrPrefix}
+            />
+        )
+    }
 
     return (
         <div role="group" aria-label={ariaLabel}>

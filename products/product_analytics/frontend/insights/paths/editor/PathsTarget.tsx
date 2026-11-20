@@ -4,10 +4,10 @@ import { IconX } from '@posthog/icons'
 import { Button, ButtonGroup } from '@posthog/quill'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
 import { FunnelsQuery, InsightVizNode, NodeKind, PathsQuery } from '~/queries/schema/schema-general'

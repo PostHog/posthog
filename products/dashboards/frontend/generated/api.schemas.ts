@@ -9696,6 +9696,7 @@ export interface ChartSettingsApi {
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
+    movingAverageIntervals?: number | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
@@ -9704,6 +9705,7 @@ export interface ChartSettingsApi {
     seriesBreakdownColumn?: string | null
     showAnnotations?: boolean | null
     showLegend?: boolean | null
+    showMovingAverage?: boolean | null
     showNullsAsZero?: boolean | null
     showPieTotal?: boolean | null
     showTotalRow?: boolean | null

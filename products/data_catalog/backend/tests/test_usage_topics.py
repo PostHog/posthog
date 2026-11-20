@@ -25,6 +25,7 @@ from products.data_catalog.backend.logic.agent_sessions import session_notes
 from products.data_catalog.backend.logic.usage_judge import AIConsentMissing
 from products.data_catalog.backend.logic.usage_snapshots import previous_topic_list
 from products.data_catalog.backend.logic.usage_topics import (
+    _MAX_OUTPUT_CHARS,
     OTHER_TOPIC,
     CoverageVerdict,
     LookupRow,
@@ -731,6 +732,9 @@ class TestTopicSessionsQuery(ClickhouseTestMixin, BaseTest):
         end = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
         at = end - timedelta(hours=3)
         shared = {"$session_id": "s1", "$mcp_project_uuid": str(self.team.uuid), "$ai_trace_id": "t1"}
+        result = "table_name|description\nrevenue|Monthly revenue\n"
+        # The final "é" takes two bytes and ends one byte past the cut, so a cut by bytes leaves invalid UTF-8.
+        result += "x" * (_MAX_OUTPUT_CHARS - len(result) - 1) + "é"
         _create_event(
             team=self.team,
             event="$ai_span",
@@ -740,7 +744,7 @@ class TestTopicSessionsQuery(ClickhouseTestMixin, BaseTest):
                 **shared,
                 "$ai_span_name": "execute-sql",
                 "$ai_input_state": json.dumps({"query": "SELECT description FROM system.information_schema.tables"}),
-                "$ai_output_state": "table_name|description\nrevenue|Monthly revenue",
+                "$ai_output_state": result,
             },
         )
         _create_event(

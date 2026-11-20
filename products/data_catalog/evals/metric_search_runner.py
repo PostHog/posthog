@@ -98,6 +98,14 @@ def _rank(ranked: Sequence[str], name: str | None) -> int | None:
     return ranked.index(name)
 
 
+def _meaning_above_shared_word(case: SearchCase, ranked: Sequence[str]) -> float:
+    """Share of the expected metrics that are in the hits and rank above every shared-word metric there."""
+    shared_ranks = [rank for name in case.shared_word_metrics if (rank := _rank(ranked, name)) is not None]
+    first_shared = min(shared_ranks, default=len(ranked))
+    above = [name for name in case.expected if (rank := _rank(ranked, name)) is not None and rank < first_shared]
+    return len(above) / len(case.expected)
+
+
 def score_case(case: SearchCase, ranked: Sequence[str], confident_match: bool) -> dict[str, float | None]:
     """Scores for one case. None means the score does not apply to this case type."""
     if case.case_type == CaseType.REAL_GAP:
@@ -105,6 +113,7 @@ def score_case(case: SearchCase, ranked: Sequence[str], confident_match: bool) -
             "recall": None,
             "correct_no_match": 0.0 if confident_match else 1.0,
             "sibling_ranked_above": None,
+            "meaning_above_shared_word": None,
             "confident_when_present": None,
         }
     found_ranks = [rank for name in case.expected if (rank := _rank(ranked, name)) is not None]
@@ -117,6 +126,9 @@ def score_case(case: SearchCase, ranked: Sequence[str], confident_match: bool) -
         "recall": 1.0 if found_ranks else 0.0,
         "correct_no_match": None,
         "sibling_ranked_above": sibling_score,
+        "meaning_above_shared_word": (
+            _meaning_above_shared_word(case, ranked) if case.case_type == CaseType.SHARED_WORD else None
+        ),
         "confident_when_present": 1.0 if confident_match else 0.0,
     }
 

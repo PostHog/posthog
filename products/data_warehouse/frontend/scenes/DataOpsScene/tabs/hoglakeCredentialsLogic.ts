@@ -35,7 +35,7 @@ export interface hoglakeCredentialsLogicValues {
 export interface hoglakeCredentialsLogicActions {
     createCredential: (params: { name: string; scope: HoglakeCredentialScope }) => {
         name: string
-        scope: HoglakeCredentialScopeEnumApi
+        scope: HoglakeCredentialScope
     }
     loadHoglakeCredentials: () => any
     loadHoglakeCredentialsFailure: (

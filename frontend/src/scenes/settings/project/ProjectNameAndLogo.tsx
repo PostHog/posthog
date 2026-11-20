@@ -1,17 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { MouseEvent, useEffect, useState } from 'react'
 
 import { IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isProjectNameTaken } from 'scenes/project/isProjectNameTaken'
 import { projectLogic } from 'scenes/projectLogic'
+
+import { QuillProjectNameAndLogo } from './QuillProjectNameAndLogo'
 
 const NAME_TAKEN_REASON = 'There is already a project with this name in this organization. Choose a different name.'
 
@@ -37,6 +40,7 @@ export function ProjectNameAndLogo(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // A rename patches the project, so the uniqueness rule applies to the project's name. That can
     // differ from the environment's name, which is what `teamLogic` holds.
@@ -56,6 +60,39 @@ export function ProjectNameAndLogo(): JSX.Element {
         (uploading && 'Wait for the logo to finish uploading') ||
         (!nameChanged && !logoChanged && 'No changes to save') ||
         null
+
+    const removeLogo = (e: MouseEvent): void => {
+        e.preventDefault()
+        e.stopPropagation()
+        setLogoMediaId(null)
+    }
+
+    const saveNameAndLogo = (): void =>
+        updateCurrentProject({
+            ...(nameChanged ? { name: trimmedName } : {}),
+            ...(logoChanged ? { logo_media_id: logoMediaId } : {}),
+        })
+
+    if (todayRailNav) {
+        return (
+            <QuillProjectNameAndLogo
+                projectName={currentProject?.name}
+                projectId={currentProject?.id}
+                name={name}
+                onNameChange={setName}
+                logoMediaId={logoMediaId}
+                onRemoveLogo={removeLogo}
+                filesToUpload={filesToUpload}
+                onFilesToUploadChange={setFilesToUpload}
+                uploading={uploading}
+                restrictionReason={restrictionReason}
+                nameError={nameTaken ? NAME_TAKEN_REASON : undefined}
+                onSave={saveNameAndLogo}
+                saveDisabledReason={saveDisabledReason}
+                saving={currentProjectLoading}
+            />
+        )
+    }
 
     return (
         <div className="flex gap-6 items-start">
@@ -79,11 +116,7 @@ export function ProjectNameAndLogo(): JSX.Element {
                             <div className="absolute -inset-2 group">
                                 <LemonButton
                                     icon={<IconX />}
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        setLogoMediaId(null)
-                                    }}
+                                    onClick={removeLogo}
                                     size="small"
                                     tooltip="Remove logo"
                                     tooltipPlacement="right"
@@ -118,12 +151,7 @@ export function ProjectNameAndLogo(): JSX.Element {
                 <div>
                     <LemonButton
                         type="primary"
-                        onClick={() =>
-                            updateCurrentProject({
-                                ...(nameChanged ? { name: trimmedName } : {}),
-                                ...(logoChanged ? { logo_media_id: logoMediaId } : {}),
-                            })
-                        }
+                        onClick={saveNameAndLogo}
                         disabledReason={saveDisabledReason}
                         loading={currentProjectLoading}
                         data-attr="project-name-and-logo-save"

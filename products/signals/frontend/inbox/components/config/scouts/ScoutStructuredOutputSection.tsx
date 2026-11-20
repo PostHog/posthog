@@ -9,6 +9,7 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { parseScoutStructuredOutputSchema, scoutStructuredOutputFieldNames } from './scoutStructuredOutput'
 
 const HEADER_FIELD_LIMIT = 3
@@ -143,7 +144,7 @@ export function ScoutStructuredOutputSection({
                                     className="font-mono text-[11.5px]"
                                     disabled={updating}
                                     onChange={setDraft}
-                                    aria-label={`${config.skill_name} record schema`}
+                                    aria-label={`${scoutDisplayName(config)} record schema`}
                                     aria-invalid={!!error}
                                     aria-describedby={error ? errorId : undefined}
                                 />
