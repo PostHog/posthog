@@ -980,7 +980,7 @@ describe('scenario environment', () => {
                 await waitForExpect(() => expect(missing.exits().length).toBeGreaterThanOrEqual(2), 5000, 20)
                 const [first] = missing.exits()
                 expect(first).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
-                expect(Date.parse(first.relaunchedAt!) - Date.parse(first.at)).toBeGreaterThanOrEqual(20)
+                expect(first.relaunchedAt).toBeUndefined()
             } finally {
                 await missing.stop()
             }
@@ -1586,7 +1586,9 @@ describe('scenario environment', () => {
                 expect(answer.status).toBe(200)
                 expect(Number(await answer.text())).not.toBe(killed)
             }, 15_000)
-            expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
+            expect(environment.exits()).toEqual([
+                expect.objectContaining({ role, signal: 'SIGKILL', byValve: false, relaunchedAt: expect.any(String) }),
+            ])
         }, 30_000)
 
         it('kills a role on a valve, sees the old process gone, records the exit as the valve and starts it again', async () => {

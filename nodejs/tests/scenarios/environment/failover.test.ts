@@ -345,6 +345,10 @@ describe('pg.failover', () => {
             'idle on average in a minute its maximum bursts above the idle limit',
             { maxima: [1, 1, 5, 1, 1], averages: [1, 1, 1.6, 1, 1] },
         ],
+        [
+            'idle in the five minutes before the request, with its newest minute late and a busy minute before them',
+            { maxima: [3, 1, 1, 1, 1], lagMinutes: 1 },
+        ],
     ])(
         'promotes a reader %s, observes each recovery stage, then fails back to the original writer',
         async (_story, liveReaderAcu) => {

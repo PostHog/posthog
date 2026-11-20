@@ -355,6 +355,12 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.drop_connections on postgres was applied`,
         ],
         [
+            'a role was killed while the connections were dropped, and tsx reported the kill as an exit code',
+            { timeline: [dropped(10, 40)], exits: [{ ...exitedWithError(HOGFLOW_WORKER, 25), code: 137 }] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 137) without a valve causing it, while pg.drop_connections on postgres was applied`,
+        ],
+        [
             'a dependency went away',
             { down: ['provider-edge'], invariants: [BROKEN], admissions: [REFUSED_LOAD] },
             'invalid',
