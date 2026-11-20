@@ -92,6 +92,7 @@ rules:
           - '/Account/*.test.*'
           - '/ActivityLog/activityDescriptions/*.test.*'
           - '/NotificationsMenu/*.test.*'
+          - '/SocialLoginButton/*.test.*'
           - '/TimeSensitiveAuthentication/*.test.*'
       owners: team-platform-features
     - match:
