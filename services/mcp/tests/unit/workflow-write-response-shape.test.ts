@@ -70,8 +70,6 @@ describe('workflow write response shape', () => {
     const testSenderLive = [{ code: 'test_sender_live', message: 'Set up your sending domain.' }]
     const id = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
 
-    // Both routes run from their public entry point over real HTTP, so a dispatch that picks a handler
-    // without the note, or a catalog entry the CLI drops, fails here.
     async function throughRoute(
         route: 'the MCP server' | 'the CLI',
         name: string,
@@ -98,7 +96,11 @@ describe('workflow write response shape', () => {
         const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
         try {
             if (route === 'the CLI') {
-                const called = await createApiToolLibrary({ catalog: buildCliCatalog(null) }).call(
+                const library = createApiToolLibrary({ catalog: buildCliCatalog(null) })
+                const catalog = library.catalog()
+                expect(catalog.source).toBe('downloaded')
+                expect(catalog.dropped.map((tool) => tool.name)).not.toContain(name)
+                const called = await library.call(
                     name,
                     input,
                     { apiKey: 'phx_test', host: baseUrl, projectId: '42', clientName: 'hog', clientVersion: '0.0.0' },
@@ -164,7 +166,11 @@ describe('workflow write response shape', () => {
             expect(requests).toEqual([
                 { method: 'PATCH', path: `/api/projects/42/hog_flows/${id}/`, body: { status: 'active' } },
             ])
-            expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
+            if (relays) {
+                expect(result._agentNote).toContain('test_sender_live')
+            } else {
+                expect(result).not.toHaveProperty('_agentNote')
+            }
             expect(result.warnings).toEqual(warnings)
             expect(result._posthogUrl).toBe(`${baseUrl}${path}`)
             expectStepWithoutInputs(result.actions[0])
@@ -215,7 +221,11 @@ describe('workflow write response shape', () => {
                     body: { confirm: false, ...confirmation },
                 },
             ])
-            expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
+            if (relays) {
+                expect(result._agentNote).toContain('test_sender_live')
+            } else {
+                expect(result).not.toHaveProperty('_agentNote')
+            }
             expect(result.workflow?.warnings).toEqual((response as any).workflow?.warnings)
             if (result.workflow) {
                 expectStepWithoutInputs(result.workflow.actions[0])
