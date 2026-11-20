@@ -62,10 +62,14 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         options: {
             profile: { type: 'string' },
             all: { type: 'boolean' },
-            target: { type: 'string', default: 'local' },
+            target: { type: 'string' },
         },
     })
     const [command, ...cards] = positionals
+    if (values.target !== undefined && command !== 'run') {
+        process.stderr.write(`${USAGE}\n`)
+        return EXIT_CODE.invalid
+    }
     if (command === 'seed-backlog' && cards.length === 0 && values.profile !== undefined) {
         return seedBacklogOf(values.profile, env)
     }
@@ -74,7 +78,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     if (command === 'publish' && publishesAll !== namesRuns) {
         return publishRuns(cards, env)
     }
-    const target = values.target
+    const target = values.target ?? 'local'
     if (command !== 'run' || cards.length === 0 || (target !== 'local' && target !== 'dev')) {
         process.stderr.write(`${USAGE}\n`)
         return EXIT_CODE.invalid

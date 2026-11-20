@@ -54,7 +54,7 @@ describe('captureEmit', () => {
         }
     })
 
-    it('fails at seed, before any offer, when dev does not know the workflow', async () => {
+    it('fails its seed, which the runner reads before it offers, when dev does not know the workflow', async () => {
         const server = http.createServer((_req, res) => res.writeHead(404).end('{}'))
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`

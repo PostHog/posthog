@@ -385,6 +385,7 @@ describe('load', () => {
         ...card,
         profile: 'dev',
         drive: { for: '11s', traffic: [{ name: 'capture_webhook' }] },
+        convergeWithin: '10m',
         invariants: [{ name: 'at_least_once' }, { name: 'duplicate_sends' }],
         gates: { duplicate_sends: 0 },
     }
@@ -471,6 +472,12 @@ describe('load', () => {
             'drive: 2001 units is above the dev cap',
         ],
         ['a drive longer than 10m', { ...devCard, drive: { ...devCard.drive, for: '11m' } }, devAt(1), 'drive.for: '],
+        [
+            'a convergence window shorter than receipts take to become queryable',
+            { ...devCard, convergeWithin: '30s' },
+            devProfile,
+            'convergeWithin: dev waits 5m at least',
+        ],
         [
             'a ramp step shorter than a minute, where rounding bunches offers',
             {

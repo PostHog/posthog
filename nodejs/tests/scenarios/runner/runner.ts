@@ -753,7 +753,7 @@ export function createRunner(
                 cardId: card.id,
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
-                ...(recorded ? { topologyHash: recorded.hash } : {}),
+                ...(recorded && recorded.processes.length > 0 ? { topologyHash: recorded.hash } : {}),
                 origin: 'local-agent',
                 target: runTarget.name,
                 timeline: valves.timeline(),

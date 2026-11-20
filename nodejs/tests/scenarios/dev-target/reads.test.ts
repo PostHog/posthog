@@ -32,7 +32,10 @@ async function fakeDev(state: { receipts: Receipt[]; series: Record<string, numb
             if (req.url === '/api/projects/2/query/') {
                 const key = JSON.stringify(body.query)
                 const limit = Number(/limit (\d+)/.exec(body.query.query)?.[1] ?? 100)
-                const rows = state.receipts.filter(({ runId }) => runId === body.query.values.run_id).slice(0, limit)
+                const scoped = body.query.query.includes('properties.run_id = {run_id}')
+                const rows = state.receipts
+                    .filter(({ runId }) => !scoped || runId === body.query.values.run_id)
+                    .slice(0, limit)
                 if (body.refresh === 'force_blocking' || !cached.has(key)) {
                     cached.set(
                         key,
