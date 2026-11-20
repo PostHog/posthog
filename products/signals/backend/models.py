@@ -498,6 +498,9 @@ class SignalReport(UUIDModel):
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
     monitoring_started_at = models.DateTimeField(null=True, blank=True)
+    # When Monitoring ended in Resolved or Closed. Archiving only pauses Monitoring, so it leaves this unset,
+    # and reopening clears it with `monitoring_started_at`. Lets the inbox list reports that left Monitoring recently.
+    monitoring_ended_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -594,6 +597,11 @@ class SignalReport(UUIDModel):
                 fields=["last_run_at"],
                 condition=models.Q(status="in_progress"),
                 name="signals_report_in_progress",
+            ),
+            models.Index(
+                fields=["team", "monitoring_ended_at"],
+                condition=models.Q(monitoring_ended_at__isnull=False, status__in=["resolved", "closed"]),
+                name="signals_report_monitoring_end",
             ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(
@@ -698,7 +706,8 @@ class SignalReport(UUIDModel):
                 if monitoring_started_at is None or timezone.is_naive(monitoring_started_at):
                     raise ValueError("An aware implementation-complete timestamp is required to enter Monitoring.")
                 self.monitoring_started_at = monitoring_started_at
-                updated_fields.add("monitoring_started_at")
+                self.monitoring_ended_at = None
+                updated_fields.update(["monitoring_started_at", "monitoring_ended_at"])
 
             case (S.MONITORING, S.MONITORING):
                 if self.monitoring_started_at is None:
@@ -712,7 +721,9 @@ class SignalReport(UUIDModel):
                 updated_fields.add("status_before_suppression")
 
             case (S.MONITORING, S.RESOLVED | S.READY | S.CLOSED):
-                pass
+                if new_status != S.READY:
+                    self.monitoring_ended_at = timezone.now()
+                    updated_fields.add("monitoring_ended_at")
 
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
@@ -797,6 +808,9 @@ class SignalReport(UUIDModel):
             # so they are preserved as-is. In-flight states (candidate/in_progress) are never restored
             # here — they have no live workflow to resume and instead route back through POTENTIAL above.
             case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.CLOSED | S.FAILED):
+                if self.status_before_suppression == S.MONITORING and new_status in (S.RESOLVED, S.CLOSED):
+                    self.monitoring_ended_at = timezone.now()
+                    updated_fields.add("monitoring_ended_at")
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
 
@@ -878,7 +892,8 @@ class SignalReport(UUIDModel):
         self.status = new_status
         if new_status in (S.POTENTIAL, S.READY) and self.monitoring_started_at is not None:
             self.monitoring_started_at = None
-            updated_fields.add("monitoring_started_at")
+            self.monitoring_ended_at = None
+            updated_fields.update(["monitoring_started_at", "monitoring_ended_at"])
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
 

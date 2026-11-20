@@ -2063,6 +2063,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # leaving a `results=[]` placeholder on the returned model.
     serve_raw_cached_results: bool = False
     raw_cached_results_bytes: Optional[bytes] = None
+    # Set by plan_cache_key, so the next run reuses the key instead of building it again.
+    planned_cache_key: Optional[str] = None
     cache_key_ignored_fields: ClassVar[tuple[CacheKeyIgnoredField, ...]] = ()
 
     def __init__(
@@ -2122,6 +2124,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if user is self.user:
             return
         self.user = user
+        # The key reads the user's access restrictions, so a key planned for the previous user no longer applies.
+        self.planned_cache_key = None
         self._on_user_changed()
 
     def _child_runners(self) -> Iterable["QueryRunner"]:
@@ -2647,7 +2651,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if user is not None:
             self.set_user(user)
         start_time = perf_counter()
-        cache_key = self.get_cache_key()
+        cache_key = self.planned_cache_key if self.planned_cache_key is not None else self.get_cache_key()
         self._phase = RunPhase(name="prepare")
         self._timings_before_run: dict[str, float] = self.timings.to_dict()
         # Resolve per-call state before observability so SLO + analytics agree on the values.
@@ -3266,6 +3270,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
                 **notes_outcome.event_properties(),
+                **self._query_executed_event_properties(),
                 **phase_times,
             }
             report_user_or_team_action(
@@ -3476,6 +3481,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self._query_for_events = payload["query"]
         return f"{self._cache_key_for(payload)}{variant}"
 
+    def plan_cache_key(self) -> str:
+        """Build the cache key ahead of `run`, which then reuses it. Call it once the runner is fully configured:
+        a filter or override applied afterwards would not reach the key."""
+        self.planned_cache_key = self.get_cache_key()
+        return self.planned_cache_key
+
     def get_cache_key_variant(self) -> str:
         """State outside the cache payload that changes this runner's results, as a key suffix.
         Override this rather than `get_cache_key`, so the state also reaches `runtime_hash`."""
@@ -3638,6 +3649,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         A runner that recomputes only part of a result calls `previous_entry` to read the entry this
         calculation replaces, with any extra keys that `_cache_entry_with_freshness` stored in it.
         """
+
+    def _query_executed_event_properties(self) -> dict[str, Any]:
+        """Runner-specific properties for the `query executed` event of a run that computed its result."""
+        return {}
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
         """Adds the runner's freshness decision to a cache entry before it is stored.
