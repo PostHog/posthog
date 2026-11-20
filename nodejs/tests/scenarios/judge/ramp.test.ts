@@ -183,6 +183,24 @@ describe('ramp', () => {
             },
         ],
         [
+            'ends at a step the target says to halt at, before its bars are read',
+            {
+                targetLimit: ({ scale }) => Promise.resolve(`dev quota limited 3 runs at the ${scale}x step`),
+                writerCpu: () => Promise.reject(new Error('read after the target halted')),
+            },
+            1,
+            UNITS_PER_STEP[1],
+            {
+                advance: false,
+                stop: expect.objectContaining({
+                    index: 1,
+                    end: 'harness_limit',
+                    reason: 'dev quota limited 3 runs at the 2x step',
+                    broke: expect.objectContaining({ by: 'target', kind: 'harness', scale: 2 }),
+                }),
+            },
+        ],
+        [
             'passes a first step whose workers claimed at the profile load',
             {
                 profile: { load: { targets: { claimsPerSecond: { hogflow: 5 } }, tolerance: 0.2 } },
@@ -503,7 +521,7 @@ describe('ramp', () => {
                     at: iso(T + 2 * MINUTE),
                     part: null,
                 },
-                reason: 'at_least_once broke at the 2x step',
+                reason: 'at_least_once broke at the 2x step, found after the drive',
             },
         ],
         [
@@ -513,7 +531,7 @@ describe('ramp', () => {
                 end: 'broke',
                 sustainedScale: null,
                 broke: { scale: 1, offeredPerSecond: 1, by: 'duplicate_sends', kind: 'gate', at: iso(T), part: null },
-                reason: 'duplicate_sends broke at the 1x step',
+                reason: 'duplicate_sends broke at the 1x step, found after the drive',
             },
         ],
         [
