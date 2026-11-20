@@ -6,6 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { metricsInsightAvailabilityLogic } from 'scenes/insights/metricsInsightAvailabilityLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
@@ -29,6 +30,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AppContext,
     BaseMathType,
     ChartDisplayType,
     FunnelVizType,
@@ -57,6 +61,11 @@ describe('insightNavLogic', () => {
                 get: {
                     '/api/environments/:team_id/insights/trend/': async () => {
                         return [200, { result: ['result from api'] }]
+                    },
+                    '/api/projects/:team_id/metrics/has_metrics/': {
+                        hasMetrics: true,
+                        hasDerivedSources: false,
+                        hasDerivedMetrics: false,
                     },
                 },
                 post: {
@@ -236,11 +245,24 @@ describe('insightNavLogic', () => {
         })
 
         describe('metrics tab visibility', () => {
-            const enableMetricsBuilder = (): void => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            afterEach(() => {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            })
+
+            const enableMetricsBuilder = async (): Promise<void> => {
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    resource_access_control: {
+                        ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                        [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+                    },
+                } as AppContext
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.METRICS]: true,
                     [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
                 })
+                await expectLogic(metricsInsightAvailabilityLogic).toFinishAllListeners()
             }
 
             it('hides the metrics tab without both flags', () => {
@@ -249,7 +271,7 @@ describe('insightNavLogic', () => {
             })
 
             it('keeps the metrics tab and its draft after switching to another tab and back', async () => {
-                enableMetricsBuilder()
+                await enableMetricsBuilder()
 
                 await expectLogic(builtInsightDataLogic, () => {
                     logic.actions.setActiveView(InsightType.METRICS)

@@ -9,6 +9,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { metricsInsightAvailabilityLogic } from 'scenes/insights/metricsInsightAvailabilityLogic'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 
 import { AddSavedInsightsToDashboard } from 'products/product_analytics/frontend/insights/savedInsights/AddSavedInsightsToDashboard'
@@ -22,6 +23,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
     const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
     const { dashboard, newTileGroupKey } = useValues(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { showMetricsInsight } = useValues(metricsInsightAvailabilityLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleClose = (): void => {
@@ -40,6 +42,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
         dashboardId: dashboard?.id,
         tileGroupKey: newTileGroupKey,
         featureFlags,
+        showMetricsInsight,
     })
 
     if (todayRailNav) {
