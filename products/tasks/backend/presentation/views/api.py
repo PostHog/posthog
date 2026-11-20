@@ -6,7 +6,7 @@ import dataclasses
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID, uuid4
 
@@ -510,17 +510,49 @@ class _SignalReportTaskThrottle(UserRateThrottle):
         data = request.data
         if not isinstance(data, dict) or not _requests_signal_report_origin(data):
             return True
+        self.num_requests = self.limit_for(request, view)
         return super().allow_request(request, view)
 
+    def limit_for(self, request: Request, view: APIView) -> int | None:
+        return self.num_requests
 
-class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
+
+class _SignalReportTaskCreateThrottle(_SignalReportTaskThrottle):
+    """Shares its scopes and its limit with the signals report actions run throttle.
+
+    A run started from the inbox and one started from the API spend one per-user budget. The rate sets only
+    the window; the number comes from the `signal-report-task-limits` flag payload on each request.
+    """
+
+    window: str
+
+    def limit_for(self, request: Request, view: APIView) -> int | None:
+        from products.signals.backend.facade.report_task_limits import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            ReportTaskRunWindow,
+            report_task_run_limit_for_request,
+        )
+
+        return report_task_run_limit_for_request(request, view, ReportTaskRunWindow(self.window))
+
+    def throttle_failure(self) -> NoReturn:
+        from products.signals.backend.facade.report_task_limits import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            ReportTaskRunWindow,
+            report_task_run_throttled,
+        )
+
+        raise report_task_run_throttled(ReportTaskRunWindow(self.window), cast(int, self.num_requests), self.wait())
+
+
+class SignalReportTaskCreateBurstThrottle(_SignalReportTaskCreateThrottle):
     scope = "signal_report_task_create_burst"
     rate = "20/hour"
+    window = "hour"
 
 
-class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
+class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskCreateThrottle):
     scope = "signal_report_task_create_day"
     rate = "50/day"
+    window = "day"
 
 
 class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):

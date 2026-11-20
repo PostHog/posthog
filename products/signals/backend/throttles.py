@@ -1,10 +1,19 @@
-from typing import Any
+from typing import Any, NoReturn
 
 from rest_framework.request import Request
 from rest_framework.throttling import UserRateThrottle
+from rest_framework.views import APIView
 
 from posthog.oauth_provenance import get_oauth_access_token
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
+
+from products.signals.backend.report_task_limits import (
+    DEFAULT_RUNS_PER_DAY,
+    DEFAULT_RUNS_PER_HOUR,
+    ReportTaskRunWindow,
+    report_task_run_limit_for_request,
+    report_task_run_throttled,
+)
 
 
 class ReportMetricRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -19,23 +28,41 @@ class ReportMetricRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 class _ReportTaskActionRunThrottle(UserRateThrottle):
+    window: ReportTaskRunWindow
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        # A scout's bucket keeps the default limit, so raising a person's limit does not raise their scouts'.
+        if _sandbox_task_id(request) is None:
+            self.num_requests = report_task_run_limit_for_request(request, view, self.window)
+        return super().allow_request(request, view)
+
+    def throttle_failure(self) -> NoReturn:
+        raise report_task_run_throttled(self.window, self.num_requests, self.wait())
+
     def get_cache_key(self, request: Request, view: Any) -> str | None:
         # A scout acts as a person, so its runs get their own bucket per task. The scout's daily cap bounds them.
-        if (sandbox_task_id := getattr(get_oauth_access_token(request), "sandbox_task_id", None)) is not None:
+        if (sandbox_task_id := _sandbox_task_id(request)) is not None:
             return self.cache_format % {"scope": self.scope, "ident": f"sandbox_task_{sandbox_task_id}"}
         return super().get_cache_key(request, view)
 
 
+def _sandbox_task_id(request: Request) -> object:
+    return getattr(get_oauth_access_token(request), "sandbox_task_id", None)
+
+
 class ReportTaskActionRunBurstThrottle(_ReportTaskActionRunThrottle):
     # Scope and rate match the tasks create throttle for report tasks, so a run started from the
-    # API spends the same per-user budget as one started from the inbox.
+    # API spends the same per-user budget as one started from the inbox. The rate sets only the window;
+    # the number comes from the `signal-report-task-limits` flag payload on each request.
     scope = "signal_report_task_create_burst"
-    rate = "20/hour"
+    rate = f"{DEFAULT_RUNS_PER_HOUR}/hour"
+    window = ReportTaskRunWindow.HOUR
 
 
 class ReportTaskActionRunSustainedThrottle(_ReportTaskActionRunThrottle):
     scope = "signal_report_task_create_day"
-    rate = "50/day"
+    rate = f"{DEFAULT_RUNS_PER_DAY}/day"
+    window = ReportTaskRunWindow.DAY
 
 
 class UserReportCreateBurstThrottle(UserRateThrottle):

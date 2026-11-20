@@ -18,6 +18,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.facade.testing import report_task_run_limits_payload
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
@@ -597,6 +598,25 @@ class TestReportTaskActionsAPI(_ReportActionFixtures):
         assert set(response.json()) == {"code", "detail"}
         assert not Task.objects.filter(signal_report=report).exists()
         workflow.assert_not_called()
+
+    def test_a_user_entry_in_the_limits_flag_raises_the_daily_limit(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        reports = [self._report(prompts=["Why does checkout fail?"]) for _ in range(3)]
+
+        with report_task_run_limits_payload(
+            {"default": {"per_day": 1}, "users": {str(self.user.uuid): {"per_day": 2}}}
+        ):
+            responses = [
+                self._run(report, {"action": "suggested_prompt", "suggested_prompt_index": 0}) for report in reports
+            ]
+
+        assert [r.status_code for r in responses] == [
+            status.HTTP_201_CREATED,
+            status.HTTP_201_CREATED,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        ]
+        assert responses[2].json()["detail"].startswith("You've reached your limit of 2 report runs a day.")
 
 
 SCOUT_SKILL = "signals-scout-ci-watch"
