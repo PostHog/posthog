@@ -156,6 +156,8 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("change_filters", True, {"filters": {"serviceNames": [_PIPELINE], "severityLevels": ["warn"]}}, 403),
             ("turn_on", False, {"enabled": True}, 403),
             ("change_routing_labels", True, {"labels": {"team": "payments"}}, 403),
+            ("change_grouping", True, {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}, 403),
+            ("change_threshold", True, {"threshold_count": 5}, 200),
             ("send_no_routing_labels", True, {"labels": {}}, 200),
         ]
     )
@@ -182,6 +184,39 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == expected, response.json()
+
+    def test_restricted_member_renames_a_pipeline_log_alert_by_sending_it_back_whole(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.pk}/logs/alerts/",
+                {
+                    "name": "Pipeline alert",
+                    "filters": {"serviceNames": [_PIPELINE]},
+                    "threshold_count": 0,
+                    "threshold_operator": "above",
+                    "window_minutes": 5,
+                },
+                format="json",
+            ).json()
+            set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+            stored = self.client.get(f"/api/projects/{self.team.pk}/logs/alerts/{alert['id']}/").json()
+            writable = (
+                "filters",
+                "threshold_count",
+                "threshold_operator",
+                "window_minutes",
+                "grouping",
+                "labels",
+                "annotations",
+            )
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/logs/alerts/{alert['id']}/",
+                {**{key: stored[key] for key in writable}, "name": "Renamed"},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
 
     @parameterized.expand([("restricted", 403), ("granted", 201), ("admin", 201)])
     def test_destination_on_pipeline_log_alert_follows_property_access(
