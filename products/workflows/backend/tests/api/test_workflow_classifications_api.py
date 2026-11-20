@@ -1,3 +1,4 @@
+import time
 from datetime import timedelta
 from functools import reduce
 from typing import Any, cast
@@ -27,6 +28,8 @@ from products.ml_inference.backend.facade.contracts import (
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.workflows.backend.presentation.views.workflow_classifications import WorkflowClassifyJWTAuthentication
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
 
 SECRET = "test-workflow-classify-jwt"
 _DECIDE = "products.ml_inference.backend.facade.api.decide_when_available"
@@ -193,3 +196,158 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         decide.assert_not_called()
+
+
+_GATEWAY_POST = "products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post"
+_MINT_BACKOFF = "products.tasks.backend.temporal.process_task.ai_gateway_token.time.sleep"
+_MINT_KEY = "phs_test_mint_key"
+_EXPIRES_AT = "2026-11-20T12:30:00Z"
+
+
+class _FakeGateway:
+    def __init__(self, mint_status: int = 201, echo_capture_mode: bool = True) -> None:
+        self.mint_status = mint_status
+        self.echo_capture_mode = echo_capture_mode
+        self.mints: list[dict[str, Any]] = []
+        self.revoked: list[str] = []
+
+    def post(self, url: str, *, json: dict[str, Any], headers: dict[str, str], **_kwargs: Any) -> Any:
+        assert headers["Authorization"] == f"Bearer {_MINT_KEY}"
+        if url == "https://gateway.example.com/v1/tokens/revoke":
+            self.revoked.append(json["token"])
+            return _FakeResponse(200, {"revoked": True})
+        assert url == "https://gateway.example.com/v1/tokens"
+        self.mints.append(json)
+        if self.mint_status != 201:
+            return _FakeResponse(self.mint_status, {"error": "refused"})
+        minted = {
+            "token": f"phe_minted_{len(self.mints)}",
+            "expires_at": _EXPIRES_AT,
+            "cap_usd": json["cap_usd"],
+            "allowed_models": json.get("allowed_models"),
+        }
+        if self.echo_capture_mode and "capture_mode" in json:
+            minted["capture_mode"] = json["capture_mode"]
+        return _FakeResponse(201, minted)
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, body: dict[str, Any]) -> None:
+        self.status_code = status_code
+        self._body = body
+        self.text = str(body)
+
+    def json(self) -> dict[str, Any]:
+        return self._body
+
+
+@override_settings(
+    WORKFLOW_CLASSIFY_JWT_SECRETS=[SECRET],
+    TASKS_CREATE_JWT_SECRETS=[SECRET],
+    SANDBOX_AI_GATEWAY_URL="https://gateway.example.com/v1",
+    SANDBOX_AI_GATEWAY_MINT_KEY=_MINT_KEY,
+)
+class TestWorkflowClassifyGatewayTokenAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.client.logout()
+        self.url = f"/api/projects/{self.team.id}/workflow_classifications/gateway_token/"
+        flag_patch = patch("posthoganalytics.feature_enabled", return_value=True)
+        self.feature_flag = flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+        self.gateway = _FakeGateway()
+        gateway_patch = patch(_GATEWAY_POST, side_effect=self.gateway.post)
+        gateway_patch.start()
+        self.addCleanup(gateway_patch.stop)
+        backoff_patch = patch(_MINT_BACKOFF)
+        backoff_patch.start()
+        self.addCleanup(backoff_patch.stop)
+
+    def _post(self, token: str | None = None) -> Any:
+        return self.client.post(
+            self.url, {}, format="json", HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id)}"
+        )
+
+    @covers_authentication(WorkflowClassifyJWTAuthentication)
+    def test_mints_a_content_redacted_jev_token_billed_to_the_team(self) -> None:
+        response = self._post()
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"token": "phe_minted_1", "expires_at": _EXPIRES_AT}
+        [mint] = self.gateway.mints
+        assert mint == {
+            "product": "workflows_classify",
+            "obo": str(self.team.id),
+            "allowed_models": [DEFAULT_DECISION_MODEL],
+            "capture_mode": "content_none",
+            "ttl_seconds": 1800,
+            "cap_usd": "1",
+        }
+
+    def test_refuses_without_the_feature_flag(self) -> None:
+        self.feature_flag.return_value = False
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert self.gateway.mints == []
+
+    def test_refuses_an_organization_without_ai_data_processing_approval(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert self.gateway.mints == []
+
+    def test_refuses_a_team_with_exhausted_ai_credits(self) -> None:
+        add_limited_team_tokens(
+            QuotaResource.AI_CREDITS,
+            {self.team.api_token: int(time.time()) + 3600},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert self.gateway.mints == []
+
+    def test_revokes_a_token_the_gateway_minted_without_content_redaction(self) -> None:
+        self.gateway.echo_capture_mode = False
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert "token" not in response.json()
+        assert self.gateway.revoked == ["phe_minted_1"]
+
+    @parameterized.expand(
+        [
+            ("rate_limited", 429, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("gateway_down", 503, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("refused", 400, status.HTTP_502_BAD_GATEWAY),
+        ]
+    )
+    def test_a_mint_failure_maps_onto_a_status_the_worker_can_retry_or_fail_on(
+        self, _name: str, mint_status: int, expected: int
+    ) -> None:
+        self.gateway.mint_status = mint_status
+
+        response = self._post()
+
+        assert response.status_code == expected
+        assert "token" not in response.json()
+
+    @override_settings(SANDBOX_AI_GATEWAY_MINT_KEY=None)
+    def test_reports_a_deployment_without_a_gateway_mint_key(self) -> None:
+        response = self._post()
+
+        assert response.status_code == status.HTTP_501_NOT_IMPLEMENTED
+        assert self.gateway.mints == []
+
+    def test_rejects_a_token_minted_for_another_workflow_action(self) -> None:
+        response = self._post(token=_token(self.team.id, audience=PosthogJwtAudience.TASKS_CREATE))
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert self.gateway.mints == []

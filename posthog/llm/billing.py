@@ -5,6 +5,7 @@ POSTHOG_AI_PRODUCTS = [
     "posthog_ai",
     "slack_app",
     "workflows",
+    "workflows_classify",
     "subscriptions",
     "alert_investigation_agent",
     "alert_llm_detector",

@@ -326,6 +326,22 @@ class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
         ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
 
 
+class GatewayTokenCreditsRefused(Exception):
+    """The team has no credit left in the bucket the token's product bills, or its organization is deactivated."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+class GatewayTokenMintFailed(Exception):
+    """The gateway issued no usable token. `retryable` is False when a retry gets the same answer."""
+
+    def __init__(self, *, retryable: bool):
+        super().__init__("The AI gateway issued no usable token")
+        self.retryable = retryable
+
+
 class OAuthTokenError(ProcessTaskTransientError):
     """Failed to create OAuth access token."""
 

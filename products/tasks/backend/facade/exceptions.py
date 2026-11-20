@@ -5,6 +5,6 @@ Facade re-exports for tasks exceptions that cross the boundary.
 notebooks API) to surface a typed failure.
 """
 
-from products.tasks.backend.exceptions import SandboxProvisionError
+from products.tasks.backend.exceptions import GatewayTokenCreditsRefused, GatewayTokenMintFailed, SandboxProvisionError
 
-__all__ = ["SandboxProvisionError"]
+__all__ = ["GatewayTokenCreditsRefused", "GatewayTokenMintFailed", "SandboxProvisionError"]

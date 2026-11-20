@@ -1211,3 +1211,10 @@ class AgentEgressRegistrationDTO:
     region: str
     lease_expires_at: datetime
     revoked: bool
+
+
+@dataclass(frozen=True)
+class ScopedGatewayToken:
+    token: str
+    # RFC 3339 UTC, as the gateway returned it; None when the gateway sent none.
+    expires_at: str | None

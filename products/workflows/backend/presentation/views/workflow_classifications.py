@@ -7,6 +7,7 @@ from django.db import models
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -129,6 +130,15 @@ class WorkflowClassificationResponseSerializer(serializers.Serializer):
     )
 
 
+class WorkflowClassifyGatewayTokenSerializer(serializers.Serializer):
+    token = serializers.CharField(
+        help_text="A scoped AI gateway token for this project. It calls only the classification models, bills the project's AI credits, and the gateway keeps no input or output."
+    )
+    expires_at = serializers.DateTimeField(
+        help_text="When the token stops working, in UTC. Mint a new one before then."
+    )
+
+
 class WorkflowClassificationErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the context was not classified.")
 
@@ -165,8 +175,7 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
         summary="Classify workflow context with an AI model",
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
-        user = cast(InternalAPIUser, request.user)
-        team = Team.objects.select_related("organization").get(id=cast(int, user.current_team_id))
+        team = _calling_team(request)
 
         if not gated_template_enabled("workflow-classify-action", team):
             return _error("Classify with AI is not enabled for this project.", status.HTTP_403_FORBIDDEN)
@@ -238,6 +247,80 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 }
             ).data
         )
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: WorkflowClassifyGatewayTokenSerializer,
+            402: OpenApiResponse(
+                response=WorkflowClassificationErrorSerializer,
+                description="The organization has no AI credits left or is deactivated",
+            ),
+            403: OpenApiResponse(
+                response=WorkflowClassificationErrorSerializer,
+                description="The feature is disabled or the organization has not approved AI data processing",
+            ),
+            501: OpenApiResponse(
+                response=WorkflowClassificationErrorSerializer,
+                description="This deployment cannot mint AI gateway tokens",
+            ),
+            502: OpenApiResponse(
+                response=WorkflowClassificationErrorSerializer,
+                description="The AI gateway refused the token, or minted one without dropping input and output",
+            ),
+            503: OpenApiResponse(
+                response=WorkflowClassificationErrorSerializer,
+                description="The AI gateway is busy or unreachable. Retry later",
+            ),
+        },
+        summary="Mint an AI gateway token for classifying this project's workflow context",
+    )
+    @action(detail=False, methods=["post"])
+    def gateway_token(self, request: Request, **kwargs: Any) -> Response:
+        team = _calling_team(request)
+
+        if not gated_template_enabled("workflow-classify-action", team):
+            return _error("Classify with AI is not enabled for this project.", status.HTTP_403_FORBIDDEN)
+        if not team.organization.is_ai_data_processing_approved:
+            return _error(
+                "Your organization has not approved AI data processing. Approve it in organization settings.",
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        # The tasks facade pulls the gateway client, which must stay out of Django startup.
+        from posthog.llm.gateway_client import GatewayNotConfiguredError  # noqa: PLC0415
+
+        from products.tasks.backend.facade.exceptions import (  # noqa: PLC0415
+            GatewayTokenCreditsRefused,
+            GatewayTokenMintFailed,
+        )
+        from products.tasks.backend.facade.gateway import mint_workflow_classify_gateway_token  # noqa: PLC0415
+
+        try:
+            minted = mint_workflow_classify_gateway_token(
+                team_id=team.id, allowed_models=list(CLASSIFICATION_MODELS.values())
+            )
+        except GatewayNotConfiguredError:
+            return _error("The model is not available on this PostHog deployment.", status.HTTP_501_NOT_IMPLEMENTED)
+        except GatewayTokenCreditsRefused as refusal:
+            logger.info("workflow_classify_token_refused", team_id=team.id, reason=refusal.reason)
+            return _error(
+                "Your organization has no AI credits left. See your usage and limits in billing.",
+                status.HTTP_402_PAYMENT_REQUIRED,
+            )
+        except GatewayTokenMintFailed as failure:
+            logger.warning("workflow_classify_token_failed", team_id=team.id, retryable=failure.retryable)
+            if failure.retryable:
+                return _error("The model is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
+            return _error("The AI gateway refused to issue a token.", status.HTTP_502_BAD_GATEWAY)
+        return Response(
+            WorkflowClassifyGatewayTokenSerializer({"token": minted.token, "expires_at": minted.expires_at}).data
+        )
+
+
+def _calling_team(request: Request) -> Team:
+    user = cast(InternalAPIUser, request.user)
+    return Team.objects.select_related("organization").get(id=cast(int, user.current_team_id))
 
 
 def _is_usable(answer: object, categories: dict[str, str]) -> bool:

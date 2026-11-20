@@ -39,6 +39,7 @@ PRODUCT_CREDIT_BUCKET: dict[str, str] = {
     "posthog_code": "posthog_code_credits",
     "slack_app": "ai_credits",
     "workflows": "ai_credits",
+    "workflows_classify": "ai_credits",
 }
 
 # The legacy gateway's refusal for an exhausted Desktop bucket; the app matches on it.

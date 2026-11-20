@@ -21,7 +21,13 @@ from prometheus_client import Counter
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.security.outbound_proxy import internal_requests
 
-from products.tasks.backend.exceptions import GatewayTokenUnavailableError, ProcessTaskTransientError
+from products.tasks.backend.exceptions import (
+    GatewayTokenCreditsRefused,
+    GatewayTokenMintFailed,
+    GatewayTokenUnavailableError,
+    ProcessTaskTransientError,
+)
+from products.tasks.backend.facade.contracts import ScopedGatewayToken
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     POSTHOG_CODE_PRODUCT,
     PRODUCT_CREDIT_BUCKET,
@@ -378,6 +384,9 @@ def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" 
     raise GatewayNotConfiguredError("The private AI gateway credential could not be revoked")
 
 
+CaptureMode = Literal["none", "content_none"]
+
+
 def mint_scoped_token(
     *,
     ai_product: str,
@@ -385,12 +394,41 @@ def mint_scoped_token(
     user: str | None = None,
     allowed_models: list[str] | None = None,
     limit_tier: str | None = None,
-    capture_mode: Literal["none"] | None = None,
+    capture_mode: CaptureMode | None = None,
     expires_in_seconds: int | None = None,
     gateway_config: "AIGatewayConfig | None" = None,
     raise_on_failure: bool = False,
     run_id: str | None = None,
 ) -> str | None:
+    """The token of `mint_scoped_token_grant`, for callers that never read its expiry."""
+    grant = mint_scoped_token_grant(
+        ai_product=ai_product,
+        team_id=team_id,
+        user=user,
+        allowed_models=allowed_models,
+        limit_tier=limit_tier,
+        capture_mode=capture_mode,
+        expires_in_seconds=expires_in_seconds,
+        gateway_config=gateway_config,
+        raise_on_failure=raise_on_failure,
+        run_id=run_id,
+    )
+    return grant.token if grant is not None else None
+
+
+def mint_scoped_token_grant(
+    *,
+    ai_product: str,
+    team_id: int,
+    user: str | None = None,
+    allowed_models: list[str] | None = None,
+    limit_tier: str | None = None,
+    capture_mode: CaptureMode | None = None,
+    expires_in_seconds: int | None = None,
+    gateway_config: "AIGatewayConfig | None" = None,
+    raise_on_failure: bool = False,
+    run_id: str | None = None,
+) -> ScopedGatewayToken | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
     `user` pins the acting identity (the run's distinct id) so routed runs keep
@@ -455,7 +493,10 @@ def mint_scoped_token(
                         retryable = False
                         break
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
-                    return token
+                    expires_at = payload.get("expires_at")
+                    return ScopedGatewayToken(
+                        token=token, expires_at=expires_at if isinstance(expires_at, str) and expires_at else None
+                    )
             elif response.status_code in (429,) or response.status_code >= 500:
                 last_error = f"HTTP {response.status_code}"
             else:
@@ -491,3 +532,48 @@ def mint_scoped_token(
             )
         raise GatewayTokenUnavailableError("The AI gateway rejected the scoped token request.", context)
     return None
+
+
+WORKFLOWS_CLASSIFY_PRODUCT = "workflows_classify"
+# A leaked classify token stops working within half an hour.
+_WORKFLOWS_CLASSIFY_TOKEN_TTL_SECONDS = 1800
+
+
+def mint_workflow_classify_token(*, team_id: int, allowed_models: list[str]) -> ScopedGatewayToken:
+    """A token the classify worker calls the gateway with for one team.
+
+    The gateway bills the team's AI credits from the `$ai_generation` event and drops the
+    input and output, which carry person and event data. A gateway that does not echo
+    `content_none` would capture that data, so its token is revoked and never returned.
+    """
+    if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_MINT_KEY):
+        raise GatewayNotConfiguredError("Classify tokens require the AI gateway mint configuration")
+    bucket = PRODUCT_CREDIT_BUCKET[WORKFLOWS_CLASSIFY_PRODUCT]
+    try:
+        refusal = _team_credit_refusal(team_id, bucket)
+    except Exception as error:
+        logger.warning(
+            "ai_gateway_token: credit lookup failed", extra={"team_id": team_id, "bucket": bucket}, exc_info=True
+        )
+        raise GatewayTokenMintFailed(retryable=True) from error
+    if refusal:
+        raise GatewayTokenCreditsRefused(refusal)
+    try:
+        grant = mint_scoped_token_grant(
+            ai_product=WORKFLOWS_CLASSIFY_PRODUCT,
+            team_id=team_id,
+            allowed_models=allowed_models,
+            capture_mode="content_none",
+            expires_in_seconds=_WORKFLOWS_CLASSIFY_TOKEN_TTL_SECONDS,
+            raise_on_failure=True,
+        )
+    except ProcessTaskTransientError as error:
+        raise GatewayTokenMintFailed(retryable=True) from error
+    # The configuration was checked above, so a configuration error here is a failed revoke.
+    except (GatewayTokenUnavailableError, GatewayNotConfiguredError) as error:
+        raise GatewayTokenMintFailed(retryable=False) from error
+    if grant is None or grant.expires_at is None:
+        if grant is not None:
+            revoke_scoped_token(grant.token)
+        raise GatewayTokenMintFailed(retryable=False)
+    return grant

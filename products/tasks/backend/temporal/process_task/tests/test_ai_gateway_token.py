@@ -55,6 +55,7 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     MINTABLE_PRODUCTS,
     PRODUCT_CREDIT_BUCKET,
     SANDBOX_BOUND_MINTABLE_PRODUCTS,
+    WORKFLOWS_CLASSIFY_PRODUCT,
     _team_credit_refusal,
     mint_refusal,
     mint_scoped_token,
@@ -1450,8 +1451,9 @@ _POSTHOG_CODE_GATE = "products.tasks.backend.temporal.process_task.ai_gateway_to
 
 class TestMintRefusalScope:
     def test_ai_credits_billed_products(self):
-        assert AI_CREDITS_BILLED_PRODUCTS == {"posthog_ai", "slack_app", "workflows"}
-        assert AI_CREDITS_BILLED_PRODUCTS <= MINTABLE_PRODUCTS
+        assert AI_CREDITS_BILLED_PRODUCTS == {"posthog_ai", "slack_app", "workflows", "workflows_classify"}
+        # The classify worker mints through its own route; no sandbox run resolves to its product.
+        assert AI_CREDITS_BILLED_PRODUCTS - MINTABLE_PRODUCTS == {WORKFLOWS_CLASSIFY_PRODUCT}
 
     def test_product_credit_buckets_are_quota_resources(self):
         from ee.billing.quota_limiting import QuotaResource
@@ -1461,6 +1463,7 @@ class TestMintRefusalScope:
             "posthog_code": "posthog_code_credits",
             "slack_app": "ai_credits",
             "workflows": "ai_credits",
+            "workflows_classify": "ai_credits",
         }
         assert set(PRODUCT_CREDIT_BUCKET.values()) == {
             QuotaResource.AI_CREDITS.value,

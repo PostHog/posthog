@@ -134,7 +134,8 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # implementation runs regularly outspend every other stage. Each interactive cap and the
 # workflows cap clear their observed ceiling with room for the holds, because nothing
 # retries behind a cap that binds mid-run. Suggestion runs stay on the default. A PostHog
-# Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
+# Desktop cloud run has no duration cap, so its cap only bounds a runaway run. A classify token
+# lives 30 minutes and one Jev call costs a fraction of a cent, so its cap bounds a leaked token.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
     "background_agents": "50",
     "signals_scout": "30",
@@ -143,6 +144,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
     "signals_chat": "30",
     "slack_app": "75",
     "workflows": "75",
+    "workflows_classify": "1",
     "posthog_ai": "75",
     "posthog_code": "500",
 }
