@@ -334,6 +334,8 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 
 ## Regenerating references
 
+The scenario corpus re-records with `LOGS_PARITY_RECORD=1` on `logs-parity.serial.test.ts`. `LOGS_PARITY_SCENARIOS=transformations,transformations-budget` re-records only the named scenarios, so the other fixtures keep their input bytes. A new Hog snippet in a scenario or vector needs its compiled bytecode in `nodejs/tests/fixtures/hog-bytecode`, which `compileHog` writes on the first run.
+
 `tests/fixtures/input-decodes.json` comes from `scripts/node-decode-reference.js`. Run it from the repository root after a corpus re-record:
 
 ```bash
