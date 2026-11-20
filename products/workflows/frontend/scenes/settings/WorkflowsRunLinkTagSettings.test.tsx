@@ -5,7 +5,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -61,7 +61,7 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
     it('is disabled with the reason for a member below project admin', async () => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
-            effective_membership_level: TeamMembershipLevel.Member,
+            effective_membership_level: OrganizationMembershipLevel.Member,
         })
         render(<WorkflowsRunLinkTagSettings />)
         const toggle = screen.getByLabelText('Connect tracked email clicks to sessions')
@@ -70,6 +70,7 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
         await userEvent.hover(toggle.parentElement as HTMLElement)
 
         expect(await screen.findByText(/restricted to project admins and up/)).toBeInTheDocument()
+        await userEvent.click(toggle)
         expect(patchBodies).toHaveLength(0)
     })
 })
