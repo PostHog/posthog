@@ -24,7 +24,6 @@ import { parseEncodedSnapshots } from '../player/snapshot-processing/process-all
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
     ExportedSessionRecordingFileRawHeader,
-    ExportedViewport,
     ExportedSessionRecordingFileV1,
     ExportedSessionRecordingFileV2,
     LoadedSessionRecordingFile,
@@ -211,7 +210,6 @@ export interface sessionRecordingFilePlaybackSceneLogicActions {
             id: string
             person: PersonType | undefined
             snapshots: RecordingSnapshot[]
-            viewports?: ExportedViewport[]
         } | null,
         payload?: File
     ) => {
@@ -219,7 +217,6 @@ export interface sessionRecordingFilePlaybackSceneLogicActions {
             id: string
             person: PersonType | undefined
             snapshots: RecordingSnapshot[]
-            viewports?: ExportedViewport[]
         } | null
         payload?: File
     }
