@@ -15,6 +15,8 @@ It plays one session at a time, with no event timeline and no search.
    A quote is valid for 7 days.
 2. `export_recordings_to_s3 --quote-id` starts the `export-recordings` workflow on the session replay task queue.
    The date range and any session list come from the quote, so the run exports what the quote priced.
+   A session list comes from `--session-ids-file` or from a saved recordings filter (`--playlist`), resolved once at quote time.
+   The quote stores it as one file per start day under `session_recording_exports/session_ids/<quote_id>/`, so each shard reads only its own day.
 3. The workflow splits each day into `--shards-per-day` shards by session ID hash.
    It runs at most `--max-parallel-shards` shards at once, oldest day first, so the sessions closest to expiry go first.
 4. Each shard lists its sessions in `session_replay_events`, fetches every block from recording-api (decrypted, still snappy-compressed) and writes the session file.

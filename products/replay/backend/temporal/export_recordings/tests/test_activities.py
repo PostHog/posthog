@@ -16,6 +16,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 from posthog.storage import object_storage
@@ -37,7 +38,13 @@ from products.replay.backend.temporal.export_recordings.activities import (
     quote_storage_key,
     write_summary,
 )
-from products.replay.backend.temporal.export_recordings.quote import create_quote, current_cost, measure_usage
+from products.replay.backend.temporal.export_recordings.quote import (
+    Quote,
+    create_quote,
+    current_cost,
+    measure_usage,
+    playlist_session_ids,
+)
 from products.replay.backend.temporal.export_recordings.types import (
     ExportDestination,
     ExportShardInput,
@@ -156,7 +163,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         ):
             return async_to_sync(self._run_activity)(env, self._shard_input())
 
-    def _shard_input(self, day: datetime | None = None, session_ids_key: str | None = None) -> ExportShardInput:
+    def _shard_input(self, day: datetime | None = None, session_ids_prefix: str | None = None) -> ExportShardInput:
         return ExportShardInput(
             team_id=self.team.pk,
             destination=self.destination,
@@ -164,7 +171,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             day=(day or self.day).date().isoformat(),
             shard=0,
             shards_per_day=1,
-            session_ids_key=session_ids_key,
+            session_ids_prefix=session_ids_prefix,
             quoted_at=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
         )
 
@@ -207,14 +214,80 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert parts == [f"{day}-0000-0000.jsonl", f"{day}-0000-0001.jsonl"]
         assert [(m["session_id"], m["status"]) for m in self._manifest()] == [("s1", "exported"), ("s2", "deleted")]
 
-    def test_session_list_limits_the_listing(self) -> None:
-        key = f"session_recording_exports/session_ids/test-{self.team.pk}.txt"
-        object_storage.write(key, "s2\nnot-in-this-team")
+    def _quote(self, session_ids: list[str] | None, playlist_short_id: str | None = None) -> Quote:
         activities.load_session_ids.cache_clear()
+        return create_quote(
+            team_id=self.team.pk,
+            date_from=self.day.date().isoformat(),
+            date_to=(self.day + timedelta(days=1)).date().isoformat(),
+            session_ids=session_ids,
+            region="us-east-1",
+            cross_region=False,
+            max_parallel_shards=1,
+            playlist_short_id=playlist_short_id,
+        )
 
-        listed = [s.session_id for s in list_shard_sessions(self._shard_input(session_ids_key=key))]
+    def _listed_by_day(self, quote: Quote) -> list[list[str]]:
+        return [
+            [s.session_id for s in list_shard_sessions(self._shard_input(day, quote.session_ids_prefix))]
+            for day in (self.day, self.day + timedelta(days=1))
+        ]
 
-        assert listed == ["s2"]
+    def test_session_list_is_split_by_start_day_and_limits_each_shard(self) -> None:
+        quote = self._quote(["s4", "s2", "not-in-this-team"])
+
+        assert self._listed_by_day(quote) == [["s2"], ["s4"]]
+        assert quote.usage.sessions == 2
+
+    def test_saved_filter_selects_its_matches_in_the_quote_range(self) -> None:
+        for session_id, start in (("s5", self.day + timedelta(hours=3)), ("s6", self.day + timedelta(days=1))):
+            produce_replay_summary(
+                team_id=self.team.pk,
+                session_id=session_id,
+                distinct_id=f"d-{session_id}",
+                first_timestamp=start,
+                last_timestamp=start + timedelta(seconds=30),
+                all_urls=["https://example.com/checkout"],
+                block_urls=["s3://replay-bucket/session_recordings/30d/1-00000000000000ab?range=bytes=0-9"],
+                block_first_timestamps=[start],
+                block_last_timestamps=[start + timedelta(seconds=30)],
+                ensure_analytics_event_in_session=False,
+            )
+        # The filter's own range ends before the quote's sessions, so it must not apply.
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            type=SessionRecordingPlaylist.PlaylistType.FILTERS,
+            filters={
+                "date_from": "-1h",
+                "filter_group": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "recording",
+                                    "key": "visited_page",
+                                    "value": "/checkout",
+                                    "operator": "icontains",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+        with patch("products.replay.backend.temporal.export_recordings.quote.PLAYLIST_PAGE_SIZE", 1):
+            session_ids = playlist_session_ids(
+                self.team,
+                playlist.short_id,
+                self.day.date().isoformat(),
+                (self.day + timedelta(days=1)).date().isoformat(),
+            )
+
+        quote = self._quote(session_ids, playlist.short_id)
+
+        assert self._listed_by_day(quote) == [["s5"], ["s6"]]
 
     @parameterized.expand([("complete_run", True, 0), ("run_with_skipped_shards", False, None)])
     def test_summary_keeps_our_cost_out_of_the_customer_bucket(
@@ -485,7 +558,7 @@ async def test_a_session_that_expires_while_the_shard_runs_is_not_exported() -> 
         day="2026-01-01",
         shard=0,
         shards_per_day=1,
-        session_ids_key=None,
+        session_ids_prefix=None,
         quoted_at=(now - timedelta(days=2)).isoformat(),
     )
 

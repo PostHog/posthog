@@ -6,7 +6,7 @@ Each file plays back in Replay's file playback page.
 Usage:
     # Price an export and store the quote. Prints the quote ID.
     python manage.py export_recordings_to_s3 --quote --team-id 1 --region us-east-1 \\
-        --date-from 2026-08-01 --date-to 2026-10-31 [--session-ids-file ids.txt]
+        --date-from 2026-08-01 --date-to 2026-10-31 [--session-ids-file ids.txt | --playlist <short id>]
 
     # Start the export of a quoted selection.
     python manage.py export_recordings_to_s3 --quote-id <id> --integration-id 7 --bucket my-bucket \\
@@ -34,12 +34,15 @@ from posthog.integrations import IntegrationKind, IntegrationManager, Integratio
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
 
-from products.replay.backend.temporal.export_recordings.activities import (
-    MAX_SELECTED_SESSION_BYTES,
-    MAX_SELECTED_SESSIONS,
-    destination_error,
+from products.replay.backend.temporal.export_recordings.activities import destination_error
+from products.replay.backend.temporal.export_recordings.quote import (
+    Quote,
+    SelectionError,
+    create_quote,
+    current_cost,
+    load_quote,
+    playlist_session_ids,
 )
-from products.replay.backend.temporal.export_recordings.quote import Quote, create_quote, current_cost, load_quote
 from products.replay.backend.temporal.export_recordings.types import ExportDestination, ExportRecordingsInput
 from products.replay.backend.temporal.export_recordings.workflow import shard_name
 
@@ -55,7 +58,13 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", type=int)
         parser.add_argument("--date-from", type=date.fromisoformat, help="First UTC day, YYYY-MM-DD.")
         parser.add_argument("--date-to", type=date.fromisoformat, help="Last UTC day, YYYY-MM-DD, inclusive.")
-        parser.add_argument("--session-ids-file", type=Path, help="Export only these sessions, one ID per line.")
+        selection = parser.add_mutually_exclusive_group()
+        selection.add_argument("--session-ids-file", type=Path, help="Export only these sessions, one ID per line.")
+        selection.add_argument(
+            "--playlist",
+            metavar="SHORT_ID",
+            help="Export only the sessions a saved recordings filter matches in the date range.",
+        )
         parser.add_argument("--region", help="AWS region of the customer's bucket.")
         parser.add_argument(
             "--allow-cross-region", action="store_true", help="Price and allow a bucket outside our replay region."
@@ -93,20 +102,29 @@ class Command(BaseCommand):
             raise CommandError(
                 "--date-to must be before today (UTC), so no new sessions join the range after the quote"
             )
-        Team.objects.get(id=team_id)
-        session_ids = None
-        if options["session_ids_file"]:
-            session_ids = sorted({line.strip() for line in options["session_ids_file"].read_text().splitlines()} - {""})
-            check_session_list(session_ids)
-        quote = create_quote(
-            team_id=team_id,
-            date_from=date_from.isoformat(),
-            date_to=date_to.isoformat(),
-            session_ids=session_ids,
-            region=region,
-            cross_region=_cross_region(region, options["allow_cross_region"]),
-            max_parallel_shards=options["max_parallel_shards"],
-        )
+        team = Team.objects.get(id=team_id)
+        cross_region = _cross_region(region, options["allow_cross_region"])
+        try:
+            session_ids = None
+            if options["session_ids_file"]:
+                lines = options["session_ids_file"].read_text().splitlines()
+                session_ids = sorted({line.strip() for line in lines} - {""})
+            elif options["playlist"]:
+                session_ids = playlist_session_ids(
+                    team, options["playlist"], date_from.isoformat(), date_to.isoformat()
+                )
+            quote = create_quote(
+                team_id=team_id,
+                date_from=date_from.isoformat(),
+                date_to=date_to.isoformat(),
+                session_ids=session_ids,
+                region=region,
+                cross_region=cross_region,
+                max_parallel_shards=options["max_parallel_shards"],
+                playlist_short_id=options["playlist"],
+            )
+        except SelectionError as e:
+            raise CommandError(str(e)) from e
         self.stdout.write(format_quote(quote))
 
     def _start(self, options: dict[str, Any]) -> None:
@@ -157,7 +175,7 @@ class Command(BaseCommand):
             run_id=run_id,
             date_from=quote.date_from,
             date_to=quote.date_to,
-            session_ids_key=quote.session_ids_key,
+            session_ids_prefix=quote.session_ids_prefix,
             quoted_at=quote.created_at,
             shards_per_day=options["shards_per_day"],
             max_parallel_shards=options["max_parallel_shards"],
@@ -182,16 +200,6 @@ class Command(BaseCommand):
                 f"{workflow_id} is running or finished. A quote starts again only after a failed run."
             ) from e
         self.stdout.write(self.style.SUCCESS(f"Started {workflow_id}"))
-
-
-def check_session_list(session_ids: list[str]) -> None:
-    if len(session_ids) > MAX_SELECTED_SESSIONS:
-        raise CommandError(
-            f"The file lists {len(session_ids):,} sessions. Export at most {MAX_SELECTED_SESSIONS:,}, or a date range."
-        )
-    # Each ID goes into the query quoted and comma-separated.
-    if sum(len(session_id.encode()) + 4 for session_id in session_ids) > MAX_SELECTED_SESSION_BYTES:
-        raise CommandError("The session IDs in the file are too long to send in one query. Split the list.")
 
 
 def _positive_int(value: str) -> int:
@@ -234,12 +242,18 @@ def _cross_region(region: str, allowed: bool) -> bool:
     return cross_region
 
 
+def _selection_label(quote: Quote) -> str:
+    if quote.playlist_short_id:
+        return f" (saved filter {quote.playlist_short_id})"
+    return " (session list)" if quote.session_ids_prefix else ""
+
+
 def format_quote(quote: Quote) -> str:
     usage, cost = quote.usage, quote.cost
     return "\n".join(
         [
             f"Quote {quote.quote_id} for team {quote.team_id}, {quote.date_from} to {quote.date_to}"
-            + (" (session list)" if quote.session_ids_key else ""),
+            + _selection_label(quote),
             f"  Sessions:           {usage.sessions:,}",
             f"  Blocks:             {usage.blocks:,} ({usage.glacier_blocks:,} in Glacier IR)",
             f"  Stored data:        {usage.bytes / 1e9:,.1f} GB ({usage.glacier_bytes / 1e9:,.1f} GB in Glacier IR)",

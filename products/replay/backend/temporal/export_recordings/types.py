@@ -39,8 +39,8 @@ class ExportRecordingsInput:
     # Inclusive UTC days, YYYY-MM-DD. A session belongs to the day it started on.
     date_from: str
     date_to: str
-    # Sessions not listed in the quote's session ID file are skipped. None exports every session.
-    session_ids_key: str | None
+    # Sessions not listed in the quote's file for their start day are skipped. None exports every session.
+    session_ids_prefix: str | None
     # Sessions that expired before the quote are left out, so the run exports what the quote priced.
     quoted_at: str
     shards_per_day: int = 16
@@ -62,7 +62,7 @@ class ExportShardInput:
     day: str
     shard: int
     shards_per_day: int
-    session_ids_key: str | None
+    session_ids_prefix: str | None
     quoted_at: str
 
 

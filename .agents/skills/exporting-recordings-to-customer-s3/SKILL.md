@@ -41,7 +41,14 @@ For a session list, first copy the file into the pod with `kubectl cp`.
 
 ### 1. Pin down the selection
 
-You need the team ID, the region (US or EU), the date range (UTC days, inclusive) or a file of session IDs, and the bucket's AWS region.
+You need the team ID, the region (US or EU), the date range (UTC days, inclusive) and the bucket's AWS region.
+To export only some sessions in the range, you also need one of:
+
+- a saved recordings filter (`--playlist <short id>`), for a selection like "sessions that visited this URL" or "sessions from this country". Have the customer, or the person, build the filter in the recordings list and save it, so the customer sees exactly what they get. The short ID is in the filter's URL (`savedFilterId=`). The filter's own date range is ignored: the quote's range applies.
+- a file of session IDs (`--session-ids-file`).
+
+Filters on event properties, such as country, scan events over the whole range and can take minutes on a large team.
+Each day can select at most 100,000 sessions. The quote names the day that goes over; split the range or narrow the filter.
 A session belongs to the day it started on.
 The range must end before today (UTC). The command refuses a range that includes today.
 Recordings past their retention are gone and cannot be exported.
@@ -50,7 +57,7 @@ Recordings past their retention are gone and cannot be exported.
 
 ```sh
 python manage.py export_recordings_to_s3 --quote --team-id <id> --region <bucket region> \
-    --date-from <yyyy-mm-dd> --date-to <yyyy-mm-dd> [--session-ids-file ids.txt]
+    --date-from <yyyy-mm-dd> --date-to <yyyy-mm-dd> [--playlist <short id> | --session-ids-file ids.txt]
 ```
 
 Report the quote ID, the session count, our cost, the estimated duration, the best-effort session count and the valid-until time.

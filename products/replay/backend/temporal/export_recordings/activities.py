@@ -235,9 +235,17 @@ def frame_block(block: bytes) -> bytes:
     return len(block).to_bytes(4, "big") + block
 
 
+def session_ids_day_key(prefix: str, day: str) -> str:
+    return f"{prefix}/{day}.txt"
+
+
 def list_shard_sessions(input: ExportShardInput, after: str = "") -> list[SessionRow]:
-    # The quote caps a session list by count and by bytes, which keeps it inside ClickHouse's query size limit.
-    selected = sorted(load_session_ids(input.session_ids_key)) if input.session_ids_key else None
+    # The quote caps each day's list by count and by bytes, which keeps it inside ClickHouse's query size limit.
+    selected = None
+    if input.session_ids_prefix:
+        selected = sorted(load_session_ids(session_ids_day_key(input.session_ids_prefix, input.day)))
+        if not selected:
+            return []
     session_filter = "AND session_id IN %(session_ids)s" if selected is not None else ""
     rows = sync_execute(
         SHARD_SESSIONS_QUERY.replace("{session_filter}", session_filter),
@@ -268,10 +276,11 @@ def list_shard_sessions(input: ExportShardInput, after: str = "") -> list[Sessio
 
 @functools.lru_cache(maxsize=8)
 def load_session_ids(key: str) -> frozenset[str]:
-    content = object_storage.read(key)
+    # read() returns None for an empty file too, and a day without selected sessions has one.
+    content = object_storage.read_bytes(key)
     if content is None:
         raise ApplicationError(f"Session ID list {key} does not exist", non_retryable=True)
-    return frozenset(line.strip() for line in content.splitlines() if line.strip())
+    return frozenset(line.strip() for line in content.decode().splitlines() if line.strip())
 
 
 SessionMetadata = tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]
