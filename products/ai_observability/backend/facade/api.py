@@ -67,14 +67,14 @@ from ..logic.traces.dataset_item import StepDatasetItem
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
-from ..logic.traces.events_fallback import fallback_window
+from ..logic.traces.events_fallback import fallback_window, page_window
 from ..logic.traces.feedback import FeedbackText, Score, StepFeedback, TraceFeedback, roll_up_by_step
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
 from ..logic.traces.parser_verdict import parser_test_result
-from ..logic.traces.review import HumanReview, QueueAssignment
-from ..logic.traces.review_queries import load_trace_review_state
+from ..logic.traces.review import HumanReview, QueueAssignment, TraceReviewState
+from ..logic.traces.review_queries import load_trace_review_state, load_trace_review_states
 from ..logic.traces.step_content import StepReading, read_step, step_content
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
@@ -104,6 +104,7 @@ from ..logic.traces.trace_export import (
     TraceExportWriter,
 )
 from ..logic.traces.trace_queries import (
+    PageTraceRows,
     TraceNodeRow,
     load_available_trace_ids,
     load_trace,
@@ -112,8 +113,26 @@ from ..logic.traces.trace_queries import (
     load_trace_node,
     load_trace_root,
     load_trace_search,
+    load_traces_rows,
 )
 from ..logic.traces.trace_search import TraceSearchResult
+from ..logic.traces.trace_selection import (
+    MAX_PROPERTY_FILTERS as MAX_PROPERTY_FILTERS,
+    QUERY_SCOPED_FILTERS as QUERY_SCOPED_FILTERS,
+    QUICK_FILTERS as QUICK_FILTERS,
+    InvalidTraceCursorError as InvalidTraceCursorError,
+    InvalidTraceSelectionError as InvalidTraceSelectionError,
+    InvalidTraceWindowError as InvalidTraceWindowError,
+    QuickFilter as QuickFilter,
+    TraceGroupScope as TraceGroupScope,
+    TracePosition,
+    TraceSelection as TraceSelection,
+    TraceWindow,
+    decode_cursor,
+    encode_cursor,
+    resolve_window,
+)
+from ..logic.traces.trace_selection_queries import SelectionCounts, load_selection_page
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
@@ -136,6 +155,9 @@ class NoScoreScaleError(Exception):
     pass
 
 
+TRACE_LIST_DEFAULT_LIMIT: Final = 50
+TRACE_LIST_MAX_LIMIT: Final = 100
+
 _NO_METADATA = contracts.TraceNodeMetadata(
     provider=None, temperature=None, session_id=None, prompt_name=None, prompt_version=None
 )
@@ -157,7 +179,56 @@ def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: date
     loaded = load_trace(team, user, trace_id, timestamp_hint)
     if not loaded.rows:
         raise TraceNotFoundError(trace_id)
-    return _to_trace(Trace(trace_id, loaded.rows, loaded.person))
+    return _to_trace(Trace(trace_id, loaded.rows, loaded.person, partial=loaded.truncated))
+
+
+def resolve_trace_window(team: Team, date_from: str | None, date_to: str | None) -> TraceWindow:
+    """Raises `InvalidTraceWindowError` for a bound that does not parse or a range that ends before it starts."""
+    return resolve_window(team, date_from, date_to, now())
+
+
+def load_trace_list(
+    team: Team, user: User, selection: TraceSelection, *, cursor: str | None, limit: int
+) -> Callable[[], contracts.TraceList]:
+    """Loads a page of the selected traces, newest first, and returns the step that builds it into the list, each
+    trace read the way `get_trace` reads it. Counts come with the first page only. Raises `InvalidTraceCursorError`
+    for a cursor this read did not hand out, before any read.
+
+    The step reads the traces' review states from Postgres and builds each trace, but runs no ClickHouse query. So a
+    caller that holds a query concurrency slot for the load can release the slot before it runs the step.
+    """
+    after = decode_cursor(cursor) if cursor is not None else None
+    page = load_selection_page(team, user, selection, after=after, limit=limit)
+    loaded = _load_page_rows(team, user, page.positions)
+    return lambda: contracts.TraceList(
+        items=_list_items(team, user, page.positions, loaded),
+        counts=_to_list_counts(page.counts) if cursor is None else None,
+        next_cursor=encode_cursor(page.positions[-1]) if page.has_more else None,
+    )
+
+
+def _to_list_counts(counts: SelectionCounts) -> contracts.TraceListCounts:
+    return contracts.TraceListCounts(total=counts.total, errors=counts.errors, feedback=counts.feedback)
+
+
+def _load_page_rows(team: Team, user: User, positions: Sequence[TracePosition]) -> dict[str, PageTraceRows]:
+    if not positions:
+        return {}
+    window = page_window([position.first_timestamp for position in positions])
+    return load_traces_rows(team, user, [position.trace_id for position in positions], window)
+
+
+def _list_items(
+    team: Team, user: User, positions: Sequence[TracePosition], loaded: Mapping[str, PageTraceRows]
+) -> list[contracts.TraceListItem]:
+    found = [position.trace_id for position in positions if position.trace_id in loaded]
+    reviews = load_trace_review_states(team, user, found)
+    return [
+        _to_list_item(
+            Trace(trace_id, loaded[trace_id].rows, None, partial=loaded[trace_id].truncated), reviews[trace_id]
+        )
+        for trace_id in found
+    ]
 
 
 def load_trace_node_detail(
@@ -282,8 +353,32 @@ def _to_timeline_row(row: TimelineRow) -> contracts.TraceTimelineRow:
     )
 
 
+def _to_overview(trace: Trace) -> contracts.TraceOverview:
+    return contracts.TraceOverview(
+        id=trace.id,
+        name=trace.name,
+        created_at=trace.created_at,
+        session_id=trace.session_id,
+        totals=_to_stats(trace.totals),
+        has_error=trace.has_error,
+        error_count=trace.error_count,
+        totals_partial=trace.partial,
+    )
+
+
+def _to_list_item(trace: Trace, review: TraceReviewState) -> contracts.TraceListItem:
+    return contracts.TraceListItem(
+        **dict(_to_overview(trace)),
+        default_node_id=None if trace.partial else trace.default_node_id,
+        first_error=trace.first_error_text,
+        tools_called=list(trace.tools_called),
+        is_support_trace=trace.is_support_trace,
+        review=_to_review_status(review) if review.review or review.queue else None,
+    )
+
+
 def _to_trace(trace: Trace) -> contracts.Trace:
-    totals = _to_stats(trace.totals)
+    overview = _to_overview(trace)
     person = (
         contracts.TracePerson(distinct_id=trace.person.distinct_id, label=trace.person_label)
         if trace.person is not None and trace.person_label is not None
@@ -295,19 +390,13 @@ def _to_trace(trace: Trace) -> contracts.Trace:
         name=trace.title,
         label=trace.node_labels[trace.id],
         model=None,
-        stats=totals,
+        stats=overview.totals,
         has_error=trace.has_error,
         children=[_to_node(node, trace.node_labels) for node in trace.tree],
     )
     return contracts.Trace(
-        id=trace.id,
-        name=trace.name,
-        created_at=trace.created_at,
-        session_id=trace.session_id,
+        **dict(overview),
         person=person,
-        totals=totals,
-        has_error=trace.has_error,
-        error_count=trace.error_count,
         tree=[root],
         timeline=[_to_timeline_row(row) for row in trace.timeline.rows],
         total_ms=trace.timeline.total_ms,
@@ -538,7 +627,10 @@ def get_trace_feedback(
 def get_trace_review_status(team: Team, user: User, trace_id: str) -> contracts.TraceReviewStatus:
     """The trace's human review and the review queue it waits in, as far as the user may see them. An unknown trace
     has neither."""
-    state = load_trace_review_state(team, user, trace_id)
+    return _to_review_status(load_trace_review_state(team, user, trace_id))
+
+
+def _to_review_status(state: TraceReviewState) -> contracts.TraceReviewStatus:
     return contracts.TraceReviewStatus(
         review=_to_human_review(state.review) if state.review else None,
         queue=_to_review_queue_assignment(state.queue) if state.queue else None,

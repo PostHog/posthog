@@ -67,15 +67,22 @@ class TraceGit(Contract):
     repo: str | None = Field(description="The repository as owner/name, or null when the branch's event has none.")
 
 
-class Trace(Contract):
+class TraceOverview(Contract):
     id: str
     name: str | None
     created_at: datetime
     session_id: str | None
-    person: TracePerson | None
     totals: TraceNodeStats
     has_error: bool
     error_count: int
+    totals_partial: bool = Field(
+        description="Whether the totals, error count and tools were computed from the trace's earliest events only, "
+        "because the trace has more events than were read."
+    )
+
+
+class Trace(TraceOverview):
+    person: TracePerson | None
     tree: list[TraceNode]
     timeline: list[TraceTimelineRow]
     total_ms: float
@@ -507,6 +514,36 @@ class TraceReviewStatus(Contract):
         description="The review queue the trace waits in, or null when it waits in none the user may see. Saving a review "
         "normally takes the trace out of its queue."
     )
+
+
+class TraceListItem(TraceOverview):
+    default_node_id: str | None = Field(
+        description="The step the trace opens on. Null when the totals are partial, because the opening step may be "
+        "among the events not read."
+    )
+    first_error: str | None = Field(
+        description="The error text of the trace's earliest failed step that carries one, cut at 200 characters. "
+        "Null when no failed step carries error text."
+    )
+    tools_called: list[str] = Field(
+        description="The tools the trace's steps called, each once, in the order first called."
+    )
+    is_support_trace: bool = Field(description="Whether a support agent ran the trace while impersonating the user.")
+    review: TraceReviewStatus | None = Field(
+        description="The trace's review and review queue, or null when it has neither that the user may see."
+    )
+
+
+class TraceListCounts(Contract):
+    total: int = Field(description="How many traces the selection holds, ignoring its quick filter.")
+    errors: int = Field(description="How many of them have an error.")
+    feedback: int = Field(description="How many of them have user feedback.")
+
+
+class TraceList(Contract):
+    items: list[TraceListItem] = Field(description="A page of traces, newest first.")
+    counts: TraceListCounts | None = Field(description="The selection's counts, on the first page only.")
+    next_cursor: str | None = Field(description="The cursor of the next page, or null on the last one.")
 
 
 class TraceSearchMatch(Contract):

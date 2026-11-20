@@ -1,11 +1,12 @@
 import base64
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.models.event.util import bulk_create_events
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -76,6 +77,46 @@ def create_node_trace(
             }
         )
     bulk_create_ai_events(events)
+
+
+class TraceEvents:
+    """Events written to both `ai_events` and the shared `events` table, each with its own uuid, so that a list
+    selects its traces on one table and reads their rows from the other."""
+
+    def __init__(self, team: Team, *, start: datetime = T0) -> None:
+        self.team = team
+        self.start = start
+        self._events: list[dict[str, object]] = []
+
+    def add(
+        self,
+        trace_id: str,
+        *,
+        event: str = "$ai_generation",
+        minutes: int = 0,
+        properties: dict[str, object] | None = None,
+        person_id: str | None = None,
+    ) -> None:
+        self._events.append(
+            {
+                "event": event,
+                "event_uuid": f"00000000-0000-4000-8000-{len(self._events):012d}",
+                "distinct_id": "user-1",
+                "team": self.team,
+                "timestamp": self.start + timedelta(minutes=minutes),
+                "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, **(properties or {})},
+                **({"person_id": person_id} if person_id is not None else {}),
+            }
+        )
+
+    def seed(self) -> None:
+        bulk_create_events(self._events)
+        bulk_create_ai_events(self._events)
+
+    def seed_traces(self, *trace_ids: str) -> None:
+        for minutes, trace_id in enumerate(trace_ids):
+            self.add(trace_id, minutes=minutes)
+        self.seed()
 
 
 def restrict_property(test: APIBaseTest, name: str) -> None:

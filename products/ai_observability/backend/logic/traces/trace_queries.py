@@ -12,7 +12,7 @@ import structlog
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
@@ -23,22 +23,25 @@ from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.ai.ai_column_rewriter import (
     EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+    rewrite_expr_for_events_table,
     rewrite_query_for_events_table,
 )
-from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
+from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENTS_QUERY_TOTAL, query_ai_events
 from posthog.hogql_queries.ai.utils import merge_heavy_properties
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import use_new_events_schema
 
+from .error_text import error_text, is_truthy_json, parse_json
 from .events_fallback import FallbackWindow, events_filter, fallback_window, unhinted_window
 from .person import trace_distinct_id
+from .tool_calls import called_tool_names
 
 NODE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding")
 TRACE_EVENT_NAMES = ("$ai_trace", *NODE_EVENT_NAMES)
 _HEAVY_COLUMNS = ("input", "output", "output_choices", "input_state", "output_state", "tools")
 _NODE_COLUMNS = ("uuid", "event", "timestamp", "properties", *_HEAVY_COLUMNS)
 # The largest result HogQL returns; without an explicit limit it returns 100 rows.
-MAX_TRACE_EVENTS = 50_000
+MAX_TRACE_EVENTS = MAX_SELECT_RETURNED_ROWS
 TRACE_AVAILABILITY_QUERY_SECONDS = 2
 TOKEN_PROPERTIES = {
     "input_tokens": "$ai_input_tokens",
@@ -76,6 +79,9 @@ class TraceEventRow:
     ingestion_source: str | None
     git_branch: str | None
     git_repo: str | None
+    error_text: str | None
+    tools_called: tuple[str, ...]
+    is_support: bool
 
 
 @frozen
@@ -161,6 +167,8 @@ _SELECTED: dict[str, ast.Expr] = {
     "has_state": ast.Placeholder(expr=ast.Field(chain=["has_state"])),
     "git_branch": ast.Field(chain=["properties", "$ai_git_branch"]),
     "git_repo": ast.Field(chain=["properties", "$ai_git_repo"]),
+    "tools_called": ast.Field(chain=["properties", "$ai_tools_called"]),
+    "is_support": ast.Field(chain=["properties", "ai_support_impersonated"]),
 }
 
 
@@ -292,6 +300,21 @@ def _trace_filter(trace_id: str) -> ast.Expr:
     return _equals("trace_id", trace_id)
 
 
+def _ai_events_placeholders(trace_filter: ast.Expr) -> dict[str, ast.Expr]:
+    return {"filter_conditions": trace_filter, "has_state": _AI_EVENTS_HAS_STATE}
+
+
+def _events_placeholders(
+    trace_filter: ast.Expr, event_names: Sequence[str], window: FallbackWindow | None
+) -> dict[str, ast.Expr]:
+    return {
+        "filter_conditions": events_filter(
+            trace_filter=trace_filter, event_filter=_event_in(event_names), window=window
+        ),
+        "has_state": _EVENTS_HAS_STATE,
+    }
+
+
 def _read(
     name: str,
     query: ast.SelectQuery,
@@ -307,17 +330,12 @@ def _read(
     tag_queries(name=name)
     response = query_ai_events(
         query=query,
-        placeholders={"filter_conditions": _trace_filter(trace_id), "has_state": _AI_EVENTS_HAS_STATE},
+        placeholders=_ai_events_placeholders(_trace_filter(trace_id)),
         team=team,
         user=user,
         query_type=name,
         fall_back_to_events=True,
-        fallback_placeholders={
-            "filter_conditions": events_filter(
-                trace_filter=_trace_filter(trace_id), event_filter=_event_in(event_names), window=window
-            ),
-            "has_state": _EVENTS_HAS_STATE,
-        },
+        fallback_placeholders=_events_placeholders(_trace_filter(trace_id), event_names, window),
         posthog_tables_only=True,
         settings=settings,
         workload=workload,
@@ -351,25 +369,11 @@ def _count(value: Any) -> int | None:
     return None if number is None else int(number)
 
 
-def _json(raw: Any) -> Any:
-    if not isinstance(raw, str) or not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except ValueError:
-        return None
-
-
-def is_truthy_json(raw: Any) -> bool:
-    # A falsy $ai_error such as "", false or 0 does not mark an error, the same as in the legacy trace view.
-    return bool(_json(raw))
-
-
 def _token_count(native: Any, raw: Any) -> int | None:
     count = _count(native)
     if count is not None:
         return count
-    value = _json(raw)
+    value = parse_json(raw)
     if isinstance(value, dict):
         value = value.get("total")
     return _count(value)
@@ -400,6 +404,9 @@ def _trace_event_row(values: Sequence[Any]) -> TraceEventRow:
         ingestion_source=read_text(raw["ingestion_source"]),
         git_branch=read_text(raw["git_branch"]),
         git_repo=read_text(raw["git_repo"]),
+        error_text=error_text(raw["error_raw"]),
+        tools_called=called_tool_names(raw["event"], raw["tools_called"]),
+        is_support=read_flag(raw["is_support"]),
     )
 
 
@@ -456,6 +463,66 @@ def _read_trace(
     return read(unhinted_window())
 
 
+def _read_ai_events_table(
+    name: str,
+    query: ast.SelectQuery,
+    team: Team,
+    user: User | None,
+    settings: HogQLGlobalSettings,
+    placeholders: dict[str, ast.Expr] | None = None,
+) -> list[Sequence[Any]]:
+    with tags_context(product=Product.LLM_ANALYTICS):
+        tag_queries(name=name, ai_query_source="dedicated_table")
+        response = execute_hogql_query(
+            query=query,
+            placeholders=placeholders,
+            team=team,
+            user=user,
+            query_type=name,
+            modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+            context=HogQLContext(
+                team_id=team.pk, team=team, user=user, database=Database.create_for_posthog_tables(team)
+            ),
+            settings=settings,
+            workload=Workload.ONLINE,
+        )
+    results = list(response.results or [])
+    if results:
+        AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
+    return results
+
+
+def _read_shared_events_table(
+    name: str,
+    query: ast.SelectQuery,
+    team: Team,
+    user: User | None,
+    settings: HogQLGlobalSettings,
+    placeholders: dict[str, ast.Expr] | None = None,
+) -> list[Sequence[Any]]:
+    with tags_context(product=Product.LLM_ANALYTICS):
+        tag_queries(name=name, ai_query_source="shared_table_fallback")
+        AI_EVENTS_QUERY_TOTAL.labels(source="shared_table_fallback").inc()
+        response = execute_hogql_query(
+            query=rewrite_query_for_events_table(query),
+            placeholders={key: rewrite_expr_for_events_table(value) for key, value in (placeholders or {}).items()},
+            team=team,
+            user=user,
+            query_type=name,
+            context=HogQLContext(
+                team_id=team.pk,
+                team=team,
+                user=user,
+                database=Database.create_for_posthog_tables(team),
+                use_new_events_schema=use_new_events_schema(team.pk),
+                property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+            ),
+            settings=settings,
+            workload=Workload.ONLINE,
+        )
+    return list(response.results or [])
+
+
 def _read_trace_availability(
     team: Team, user: User | None, trace_ids: Sequence[str], *, shared_events: bool = False
 ) -> list[str]:
@@ -472,36 +539,17 @@ def _read_trace_availability(
         distinct=True,
         limit=ast.Constant(value=len(trace_ids)),
     )
-    name = "ai_trace_availability"
-    with tags_context(product=Product.LLM_ANALYTICS):
-        tag_queries(name=name, ai_query_source="shared_table_fallback" if shared_events else "dedicated_table")
-        try:
-            response = execute_hogql_query(
-                query=rewrite_query_for_events_table(query) if shared_events else query,
-                team=team,
-                user=user,
-                query_type=name,
-                modifiers=None
-                if shared_events
-                else HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
-                context=HogQLContext(
-                    team_id=team.pk,
-                    team=team,
-                    user=user,
-                    database=Database.create_for_posthog_tables(team),
-                    use_new_events_schema=use_new_events_schema(team.pk) if shared_events else None,
-                    property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES if shared_events else None,
-                ),
-                settings=HogQLGlobalSettings(
-                    max_execution_time=TRACE_AVAILABILITY_QUERY_SECONDS,
-                    timeout_before_checking_execution_speed=0,
-                    timeout_overflow_mode="break",
-                ),
-                workload=Workload.ONLINE,
-            )
-        except ClickHouseQueryTimeOut:
-            return []
-    return [str(row[0]) for row in response.results or []]
+    read = _read_shared_events_table if shared_events else _read_ai_events_table
+    settings = HogQLGlobalSettings(
+        max_execution_time=TRACE_AVAILABILITY_QUERY_SECONDS,
+        timeout_before_checking_execution_speed=0,
+        timeout_overflow_mode="break",
+    )
+    try:
+        results = read("ai_trace_availability", query, team, user, settings)
+    except ClickHouseQueryTimeOut:
+        return []
+    return [str(row[0]) for row in results]
 
 
 def load_available_trace_ids(team: Team, user: User | None, trace_ids: Sequence[str]) -> list[str]:
@@ -539,6 +587,87 @@ def load_trace(
     distinct_id = trace_distinct_id(rows)
     person = _read_person(team, user, distinct_id, workload) if distinct_id else None
     return LoadedTrace(rows=rows, person=person)
+
+
+PAGE_ROWS_QUERY_NAME = "ai_traces_page_rows"
+PAGE_ROW_CAP_PER_TRACE = 2000
+# HogQL silently cuts a result at this many rows, so the page's caps are sized to fit inside it.
+PAGE_ROW_BUDGET = MAX_SELECT_RETURNED_ROWS
+_PAGE_ROWS_QUERY_SECONDS = 15
+
+
+@frozen
+class PageTraceRows:
+    rows: tuple[TraceEventRow, ...]
+    truncated: bool
+
+
+def rows_per_trace_cap(trace_count: int) -> int:
+    # Each trace reads one row past its cap to tell a truncated trace apart from one that fits exactly.
+    return min(PAGE_ROW_CAP_PER_TRACE, PAGE_ROW_BUDGET // trace_count - 1)
+
+
+def _page_rows_query(trace_count: int, cap: int) -> ast.SelectQuery:
+    trace_rows = _trace_rows_query()
+    # HogQL takes one LIMIT BY per query, so duplicates of an event are dropped before the per-trace cap.
+    deduplicated = replace(
+        trace_rows, select=[*trace_rows.select, ast.Field(chain=["trace_id"])], order_by=None, limit=None
+    )
+    return ast.SelectQuery(
+        select=[ast.Field(chain=[column]) for column in (*_SELECTED, "trace_id")],
+        select_from=ast.JoinExpr(table=deduplicated),
+        order_by=[
+            ast.OrderExpr(expr=_equals("event", "$ai_trace"), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC"),
+            ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order="ASC"),
+        ],
+        limit_by=ast.LimitByExpr(n=ast.Constant(value=cap + 1), exprs=[ast.Field(chain=["trace_id"])]),
+        limit=ast.Constant(value=trace_count * (cap + 1)),
+    )
+
+
+def _page_rows_settings() -> HogQLGlobalSettings:
+    return HogQLGlobalSettings(max_execution_time=_PAGE_ROWS_QUERY_SECONDS)
+
+
+def _page_trace_rows(results: Iterable[Sequence[Any]], cap: int) -> dict[str, PageTraceRows]:
+    grouped: dict[str, list[TraceEventRow]] = {}
+    for *values, trace_id in results:
+        grouped.setdefault(str(trace_id), []).append(_trace_event_row(values))
+    # The read orders each trace's rows trace event first, then by time and uuid, so the cut keeps the earliest rows
+    # and keeps the same rows on every read.
+    return {
+        trace_id: PageTraceRows(rows=tuple(rows[:cap]), truncated=len(rows) > cap) for trace_id, rows in grouped.items()
+    }
+
+
+def load_traces_rows(
+    team: Team, user: User | None, trace_ids: Sequence[str], window: FallbackWindow
+) -> dict[str, PageTraceRows]:
+    requested = list(dict.fromkeys(trace_ids))
+    if not requested:
+        return {}
+    cap = rows_per_trace_cap(len(requested))
+    results = _read_ai_events_table(
+        PAGE_ROWS_QUERY_NAME,
+        _page_rows_query(len(requested), cap),
+        team,
+        user,
+        _page_rows_settings(),
+        _ai_events_placeholders(_column_in("trace_id", requested)),
+    )
+    found = {str(row[-1]) for row in results}
+    missing = [trace_id for trace_id in requested if trace_id not in found]
+    if missing:
+        results += _read_shared_events_table(
+            PAGE_ROWS_QUERY_NAME,
+            _page_rows_query(len(missing), cap),
+            team,
+            user,
+            _page_rows_settings(),
+            _events_placeholders(_column_in("trace_id", missing), TRACE_EVENT_NAMES, window),
+        )
+    return _page_trace_rows(results, cap)
 
 
 def canonical_uuid(value: str) -> str | None:

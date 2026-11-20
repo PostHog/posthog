@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
@@ -19,6 +20,12 @@ class FallbackWindow:
 def fallback_window(timestamp_hint: datetime) -> FallbackWindow:
     """Raises OverflowError when the window around the hint leaves the datetime range."""
     return FallbackWindow(start=timestamp_hint - FALLBACK_BEFORE_HINT, end=timestamp_hint + FALLBACK_AFTER_HINT)
+
+
+def page_window(first_timestamps: Sequence[datetime]) -> FallbackWindow:
+    return FallbackWindow(
+        start=min(first_timestamps) - FALLBACK_BEFORE_HINT, end=max(first_timestamps) + FALLBACK_AFTER_HINT
+    )
 
 
 def unhinted_window() -> FallbackWindow:
