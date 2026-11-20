@@ -76,4 +76,31 @@ describe('emailEditorAdapter', () => {
         expect(editor.state.doc.textBetween(from, to)).toEqual(selected)
         editor.destroy()
     })
+
+    it.each([
+        ['keeps the cursor on an empty line on the first press', 1, ''],
+        ['selects the whole email from an empty line on a second press', 2, 'First lineSecond line'],
+    ])('Ctrl+A %s', (_, presses, selected) => {
+        const editor = new Editor({
+            extensions: [...buildEmailExtensions(''), EmailBlockKeymap],
+            content: {
+                type: 'doc',
+                content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: 'First line' }] },
+                    { type: 'paragraph' },
+                    { type: 'paragraph', content: [{ type: 'text', text: 'Second line' }] },
+                ],
+            },
+        })
+        editor.commands.setTextSelection(13)
+        for (let press = 0; press < presses; press++) {
+            editor.view.someProp('handleKeyDown', (handler) =>
+                handler(editor.view, new KeyboardEvent('keydown', { key: 'a', ctrlKey: true }))
+            )
+        }
+        const { from, to } = editor.state.selection
+
+        expect(editor.state.doc.textBetween(from, to)).toEqual(selected)
+        editor.destroy()
+    })
 })
