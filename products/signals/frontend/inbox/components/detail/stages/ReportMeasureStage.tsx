@@ -1,3 +1,5 @@
+import { ReactNode } from 'react'
+
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
@@ -7,6 +9,7 @@ import { ReportMetricSeriesPoints } from '../../../utils/reportMetrics'
 import { ReportCheckItem } from './ReportCheckItem'
 import { ReportMonitoringWindow } from './ReportMonitoringWindow'
 import { ReportOutcomeCard } from './ReportOutcomeCard'
+import { ReportStageDetails } from './ReportStageDetails'
 import { ReportStageSectionTitle } from './ReportStageSectionTitle'
 
 /** Whether the fix held: the metric across the release, the observation window, and the follow-up checks. */
@@ -14,9 +17,12 @@ export function ReportMeasureStage({
     report,
     checks,
     metricPoints,
+    children,
 }: {
     report: SignalReport
     checks: SignalReportCheckApi[]
+    /** The detail lines of this stage. */
+    children?: ReactNode
     /** The primary metric by day, through now. Null while it loads or when the report has no metric. */
     metricPoints: ReportMetricSeriesPoints | null
 }): JSX.Element {
@@ -64,6 +70,7 @@ export function ReportMeasureStage({
                     </div>
                 </section>
             )}
+            <ReportStageDetails>{children}</ReportStageDetails>
         </div>
     )
 }

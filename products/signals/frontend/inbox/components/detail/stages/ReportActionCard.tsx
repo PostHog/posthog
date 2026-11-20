@@ -1,16 +1,9 @@
-import { useState } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconChevronDown, IconExternal, IconPullRequest } from '@posthog/icons'
 import {
     Badge,
     Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSub,
-    DropdownMenuSubContent,
-    DropdownMenuSubTrigger,
-    DropdownMenuTrigger,
     Item,
     ItemActions,
     ItemContent,
@@ -29,13 +22,9 @@ import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '..
 import { primaryReportPullRequest, ReportPullRequest, reportPullRequests } from '../../../utils/reportPullRequests'
 import { parseReportSummary } from '../../../utils/reportSummary'
 import { CommitContent } from '../artefactTypes'
-import { IMPLEMENTATION_AGENTS, ImplementationAgent } from '../implementationAgents'
 import { ReportStageProse } from './ReportStageProse'
 
 type BadgeVariant = 'default' | 'info' | 'success' | 'completed' | 'destructive'
-
-/** The agents listed first in the "Send to" menu. The rest sit one step away, under "More". */
-const TOP_AGENT_COUNT = 5
 
 function workState(
     report: SignalReport,
@@ -61,17 +50,18 @@ function workState(
 }
 
 /**
- * The one piece of work a report proposes: what to change, where, and how far it has come. Before any
- * work it offers to hand the change to an agent of the reader's choice; after that it follows the pull request.
+ * The one piece of work a report proposes: what to change, where, and how far it has come. It links the
+ * pull request once there is one.
  */
 export function ReportActionCard({
     report,
     artefacts,
-    onSendTo,
+    children,
 }: {
     report: SignalReport
     artefacts: SignalReportArtefact[]
-    onSendTo: (agent: ImplementationAgent) => void
+    /** Shown under the proposed change, such as a tracker issue note. */
+    children?: ReactNode
 }): JSX.Element {
     const [detailsOpen, setDetailsOpen] = useState(false)
     const pullRequest = reportPullRequests(report).length > 0 ? primaryReportPullRequest(report) : null
@@ -115,9 +105,10 @@ export function ReportActionCard({
                         </Badge>
                     )}
                 </div>
+                {children}
             </ItemContent>
-            <ItemActions className="self-start">
-                {pullRequestUrl ? (
+            {pullRequestUrl && (
+                <ItemActions className="self-start">
                     <Button
                         variant="outline"
                         render={<LinkPrimitive to={pullRequestUrl} target="_blank" />}
@@ -126,36 +117,8 @@ export function ReportActionCard({
                         Open pull request
                         <IconExternal />
                     </Button>
-                ) : (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger
-                            render={<Button variant="outline" data-attr="inbox-report-action-send-to" />}
-                        >
-                            Send to
-                            <IconChevronDown />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            {IMPLEMENTATION_AGENTS.slice(0, TOP_AGENT_COUNT).map((agent) => (
-                                <DropdownMenuItem key={agent.key} onClick={() => onSendTo(agent)}>
-                                    {agent.icon}
-                                    {agent.name}
-                                </DropdownMenuItem>
-                            ))}
-                            <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>More</DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent>
-                                    {IMPLEMENTATION_AGENTS.slice(TOP_AGENT_COUNT).map((agent) => (
-                                        <DropdownMenuItem key={agent.key} onClick={() => onSendTo(agent)}>
-                                            {agent.icon}
-                                            {agent.name}
-                                        </DropdownMenuItem>
-                                    ))}
-                                </DropdownMenuSubContent>
-                            </DropdownMenuSub>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                )}
-            </ItemActions>
+                </ItemActions>
+            )}
             {commits.length > 0 && (
                 <ItemFooter className="justify-end border-t border-border pt-2">
                     <Button

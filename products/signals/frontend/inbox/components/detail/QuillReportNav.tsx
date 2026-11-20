@@ -1,5 +1,5 @@
 import { router } from 'kea-router'
-import { useMemo } from 'react'
+import { ReactNode, useMemo } from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { Button } from '@posthog/quill'
@@ -25,10 +25,13 @@ export function QuillReportNav({
     reportId,
     backUrl,
     backLabel,
+    actions,
 }: {
     reportId: string
     backUrl: string
     backLabel: string
+    /** Page-level actions, shown before the position in the list. */
+    actions?: ReactNode
 }): JSX.Element {
     // Read once per report: the list keeps polling under the page, and a position that moves while a person
     // reads would make Previous and Next open a different report than the one they expect.
@@ -54,35 +57,38 @@ export function QuillReportNav({
                 <IconArrowLeft className="size-3.5" />
                 <span>{backLabel}</span>
             </LinkPrimitive>
-            {queue && (
-                <span className="TodayReportNav__steps">
-                    <span className="TodayReportNav__count" translate="no">
-                        {`${queue.position} of ${queue.total}`}
+            <span className="-me-1.5 flex items-center gap-1">
+                {actions}
+                {queue && (
+                    <span className="TodayReportNav__steps ps-2">
+                        <span className="TodayReportNav__count" translate="no">
+                            {`${queue.position} of ${queue.total}`}
+                        </span>
+                        <Button
+                            variant="link-muted"
+                            size="icon-sm"
+                            aria-label="Previous report"
+                            tooltip="Previous report (K)"
+                            disabled={!queue.previousId}
+                            onClick={() => open(queue.previousId)}
+                            data-attr="inbox-report-previous"
+                        >
+                            <IconChevronLeft />
+                        </Button>
+                        <Button
+                            variant="link-muted"
+                            size="icon-sm"
+                            aria-label="Next report"
+                            tooltip="Next report (J)"
+                            disabled={!queue.nextId}
+                            onClick={() => open(queue.nextId)}
+                            data-attr="inbox-report-next"
+                        >
+                            <IconChevronRight />
+                        </Button>
                     </span>
-                    <Button
-                        variant="link-muted"
-                        size="icon-sm"
-                        aria-label="Previous report"
-                        tooltip="Previous report (K)"
-                        disabled={!queue.previousId}
-                        onClick={() => open(queue.previousId)}
-                        data-attr="inbox-report-previous"
-                    >
-                        <IconChevronLeft />
-                    </Button>
-                    <Button
-                        variant="link-muted"
-                        size="icon-sm"
-                        aria-label="Next report"
-                        tooltip="Next report (J)"
-                        disabled={!queue.nextId}
-                        onClick={() => open(queue.nextId)}
-                        data-attr="inbox-report-next"
-                    >
-                        <IconChevronRight />
-                    </Button>
-                </span>
-            )}
+                )}
+            </span>
         </nav>
     )
 }

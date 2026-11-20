@@ -3,28 +3,31 @@ import './QuillReportDetail.scss'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 
-import { Skeleton } from '@posthog/quill'
-
 import 'scenes/project-homepage/today/Today.scss'
 import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
-import { TodayReportAbstract } from 'scenes/project-homepage/today/TodayReportAbstract'
 import { TodayReportFeedback } from 'scenes/project-homepage/today/TodayReportFeedback'
 import { todayReportLogic } from 'scenes/project-homepage/today/todayReportLogic'
-import { TodayReportNextStep } from 'scenes/project-homepage/today/TodayReportNextStep'
-import { TodayReportProposal } from 'scenes/project-homepage/today/TodayReportProposal'
 import { TodayReportTitle } from 'scenes/project-homepage/today/TodayReportTitle'
-import { TodaySectionTitle } from 'scenes/project-homepage/today/TodaySectionTitle'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
-import { QuillReportEvidence } from './QuillReportEvidence'
+import { reportNotesFromArtefacts } from '../../utils/reportNotes'
+import { QuillReportAskComposer } from './QuillReportAskComposer'
 import { QuillReportFactLine } from './QuillReportFactLine'
 import { QuillReportNav } from './QuillReportNav'
+import { QuillReportNavActions } from './QuillReportNavActions'
+import { QuillReportStageSlots, QuillReportStages } from './QuillReportStages'
 import { ReportDetailAction } from './ReportDetailActions'
 import { ReportNotesSection } from './ReportNotesSection'
+import { reportActivityEntries } from './stages/reportActivityEntries'
+import { ReportStageActivity } from './stages/ReportStageActivity'
 import { useQuillReportClaim } from './useQuillReportClaim'
 
+/**
+ * One report as three stages: Spec (what is wrong), Execute (the work that fixes it) and Measure
+ * (whether the fix held). The facts and the activity stay in view on every stage.
+ */
 export function QuillReportDetail({
     report,
     backUrl,
@@ -32,8 +35,8 @@ export function QuillReportDetail({
     actions,
     notesEnabled,
     banner,
-    fallback,
-    children,
+    activityDetails,
+    ...stageSlots
 }: {
     report: SignalReport
     backUrl: string
@@ -41,33 +44,35 @@ export function QuillReportDetail({
     actions: ReportDetailAction[]
     notesEnabled: boolean
     banner?: ReactNode
-    /** Shown when the Home report data does not load, so the report stays readable. */
-    fallback: JSX.Element
-    children: ReactNode
-}): JSX.Element {
+    /** The detail lines of the work log. */
+    activityDetails?: ReactNode
+} & QuillReportStageSlots): JSX.Element {
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { report: currentReport, reportTaskToOpen, implementationSlotClaim, prioritySaving } = useValues(detailLogic)
+    const { report: currentReport, reportArtefacts, prioritySaving } = useValues(detailLogic)
     const { updatePriority } = useActions(detailLogic)
-    const homeLogic = todayReportLogic({ reportId: report.id })
-    const { page, reportFailed } = useValues(homeLogic)
-    const { reportChanged } = useActions(homeLogic)
+    const { reportChanged } = useActions(todayReportLogic({ reportId: report.id }))
     const liveReport = currentReport ?? report
     const claim = useQuillReportClaim(liveReport)
+    const artefacts = reportArtefacts ?? []
+    // The notes list shows the notes that people left, so the work log does not repeat them.
+    const noteIds = new Set(notesEnabled ? reportNotesFromArtefacts(artefacts).map((note) => note.id) : [])
+    const activity = reportActivityEntries(liveReport, artefacts).filter((entry) => !noteIds.has(entry.id))
 
     useEffect(() => {
         reportChanged(liveReport)
     }, [liveReport, reportChanged])
 
-    if (reportFailed) {
-        return fallback
-    }
-
     return (
         <div className="Today min-h-full flex-1">
-            <div className="TodayReport Today__page" data-quill>
-                <QuillReportNav reportId={report.id} backUrl={backUrl} backLabel={backLabel} />
-                <article className="TodayReportArticle flex flex-col gap-10">
-                    <div className="flex flex-col gap-5">
+            <div className="TodayReport Today__page @container" data-quill>
+                <QuillReportNav
+                    reportId={report.id}
+                    backUrl={backUrl}
+                    backLabel={backLabel}
+                    actions={<QuillReportNavActions report={liveReport} />}
+                />
+                <QuillSurfaceContext.Provider value>
+                    <article className="TodayReportArticle flex flex-col gap-6">
                         <header className="flex flex-col gap-3">
                             <QuillReportFactLine
                                 report={liveReport}
@@ -85,41 +90,23 @@ export function QuillReportDetail({
                                 }}
                             />
                             <TodayReportTitle report={liveReport} />
+                            {claim.dialog}
                         </header>
-                        {page && <TodayReportAbstract report={liveReport} />}
-                        {notesEnabled && <ReportNotesSection report={report} />}
-                        {claim.dialog}
-                    </div>
-                    {banner}
-                    {page ? (
-                        <section className="flex flex-col gap-4 empty:hidden" aria-label="Proposal">
-                            <TodayReportProposal reportId={report.id} />
-                            <TodayReportNextStep
-                                report={liveReport}
-                                reportTaskToOpen={reportTaskToOpen}
-                                slotClaim={implementationSlotClaim}
-                                surface="detail_pane"
-                            />
-                        </section>
-                    ) : (
-                        <div className="flex flex-col gap-2" aria-busy>
-                            <Skeleton className="h-4 w-20" />
-                            <Skeleton className="h-3.5 w-full" />
-                            <Skeleton className="h-3.5 w-1/2" />
-                            <Skeleton className="mt-2 h-8 w-32" />
-                        </div>
-                    )}
-                    {page && <QuillReportEvidence reportId={report.id} />}
-                    <section className="flex flex-col gap-1.5" aria-label="Details">
-                        <TodaySectionTitle>Details</TodaySectionTitle>
-                        <div className="-mx-2 flex flex-col">
-                            <QuillSurfaceContext.Provider value>{children}</QuillSurfaceContext.Provider>
-                        </div>
-                    </section>
-                    <footer className="border-t border-(--today-line) pt-4">
-                        <TodayReportFeedback report={liveReport} />
-                    </footer>
-                </article>
+                        <QuillReportAskComposer reportId={report.id} />
+                        {banner}
+                        {/* Keyed by report, so the next report opens on its own stage. */}
+                        <QuillReportStages key={report.id} report={liveReport} {...stageSlots} />
+                        <ReportStageActivity
+                            entries={activity}
+                            notes={notesEnabled ? <ReportNotesSection report={report} /> : null}
+                        >
+                            {activityDetails}
+                        </ReportStageActivity>
+                        <footer className="border-t border-(--today-line) pt-4">
+                            <TodayReportFeedback report={liveReport} />
+                        </footer>
+                    </article>
+                </QuillSurfaceContext.Provider>
             </div>
         </div>
     )

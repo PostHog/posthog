@@ -1,5 +1,7 @@
+import { ReactNode } from 'react'
+
 import { IconCompass, IconDocument } from '@posthog/icons'
-import { Text } from '@posthog/quill'
+import { Skeleton, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -10,32 +12,43 @@ import { parseReportSummary, ReportSummarySectionKind } from '../../../utils/rep
 import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
 import { ReportEvidenceRow } from './ReportEvidenceRow'
 import { ReportImpactCards } from './ReportImpactCards'
+import { ReportStageDetails } from './ReportStageDetails'
 import { ReportStageProse } from './ReportStageProse'
 import { ReportStageSectionTitle } from './ReportStageSectionTitle'
 
 /** What is wrong and why it matters: the problem, the figures that size it, and the evidence behind it. */
-export function ReportSpecStage({ report, signals }: { report: SignalReport; signals: SignalNode[] }): JSX.Element {
+export function ReportSpecStage({
+    report,
+    signals,
+    children,
+}: {
+    report: SignalReport
+    /** Null while the evidence loads. */
+    signals: SignalNode[] | null
+    /** The detail lines of this stage. */
+    children?: ReactNode
+}): JSX.Element {
     const summary = parseReportSummary(report.summary)
     const sectionBody = (kind: ReportSummarySectionKind): string | null =>
         summary.sections.find((section) => section.kind === kind)?.body ?? null
     const problem = sectionBody('problem')
     const impact = sectionBody('impact')
     const primaryMetric = report.metrics?.find((metric) => metric.role === 'primary') ?? null
-    const evidence = [...signals].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
+    const evidence = [...(signals ?? [])].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
     const firstEvidenceAt = evidence.length > 0 ? evidence[evidence.length - 1].timestamp : null
 
     return (
         <div className="flex flex-col gap-8">
             <section className="flex flex-col gap-3" aria-label="Problem">
                 <ReportStageSectionTitle>Problem</ReportStageSectionTitle>
-                {summary.lead ? (
-                    <ReportStageProse markdown={summary.lead} />
+                {/* The lead is under the title on every stage, so the problem does not repeat it. */}
+                {problem || summary.lead ? (
+                    <ReportStageProse markdown={problem ?? summary.lead ?? ''} />
                 ) : (
                     <Text size="sm" variant="muted" render={<p className="m-0" />}>
                         No summary yet. An agent is still investigating.
                     </Text>
                 )}
-                {problem && <ReportStageProse markdown={problem} />}
                 <Text
                     size="xs"
                     variant="muted"
@@ -78,7 +91,12 @@ export function ReportSpecStage({ report, signals }: { report: SignalReport; sig
                         {String(report.signal_count)}
                     </Text>
                 </div>
-                {evidence.length === 0 ? (
+                {signals === null ? (
+                    <div className="flex flex-col gap-2 py-2" aria-busy>
+                        <Skeleton className="h-3.5 w-full" />
+                        <Skeleton className="h-3.5 w-2/3" />
+                    </div>
+                ) : evidence.length === 0 ? (
                     <Text size="sm" variant="muted" render={<p className="m-0" />}>
                         No signals are attached to this report yet.
                     </Text>
@@ -90,6 +108,7 @@ export function ReportSpecStage({ report, signals }: { report: SignalReport; sig
                     </div>
                 )}
             </section>
+            <ReportStageDetails>{children}</ReportStageDetails>
         </div>
     )
 }

@@ -1,21 +1,24 @@
+import { ReactNode } from 'react'
+
 import { SignalReport, SignalReportArtefact } from '../../../types'
 import { reportPullRequests } from '../../../utils/reportPullRequests'
-import { ImplementationAgent } from '../implementationAgents'
 import { ReportActionCard } from './ReportActionCard'
-import { ReportExecuteFacts } from './ReportExecuteFacts'
+import { ReportStageDetails } from './ReportStageDetails'
 import { ReportStageSectionTitle } from './ReportStageSectionTitle'
 
 /** The work that fixes the problem: the proposed change, its pull request, and who and what is on it. */
 export function ReportExecuteStage({
     report,
     artefacts,
-    isClaimedByMe,
-    onSendTo,
+    note,
+    children,
 }: {
     report: SignalReport
     artefacts: SignalReportArtefact[]
-    isClaimedByMe: boolean
-    onSendTo: (agent: ImplementationAgent) => void
+    /** Shown inside the action card, under the proposed change. */
+    note?: ReactNode
+    /** The detail lines of this stage. */
+    children?: ReactNode
 }): JSX.Element {
     const workStarted = reportPullRequests(report).length > 0 || !!report.implementation_in_flight
 
@@ -25,12 +28,11 @@ export function ReportExecuteStage({
                 <ReportStageSectionTitle>
                     {workStarted ? 'Implementation' : 'Recommended action'}
                 </ReportStageSectionTitle>
-                <ReportActionCard report={report} artefacts={artefacts} onSendTo={onSendTo} />
+                <ReportActionCard report={report} artefacts={artefacts}>
+                    {note}
+                </ReportActionCard>
             </section>
-            <section className="flex flex-col gap-1" aria-label="Details">
-                <ReportStageSectionTitle>Details</ReportStageSectionTitle>
-                <ReportExecuteFacts report={report} artefacts={artefacts} isClaimedByMe={isClaimedByMe} />
-            </section>
+            <ReportStageDetails>{children}</ReportStageDetails>
         </div>
     )
 }
