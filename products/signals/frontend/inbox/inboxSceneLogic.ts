@@ -1088,9 +1088,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
-            // A report page is a Reports-tab surface even when reached from a scout page, so its
-            // back button returns to the report list.
-            if (values.activeTab !== 'reports') {
+            // Keep Monitoring behind its report so closing the report does not add a Reports entry to browser history.
+            if (values.activeTab !== 'reports' && values.activeTab !== 'monitoring') {
                 actions.setActiveTab('reports')
             }
             // Reuse the list row if we already have it (instant render), then refresh from the server.
@@ -1515,9 +1514,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (tab !== 'reports') {
                     router.actions.replace(urls.inboxReport('reports', reportId), searchParams, hashParams)
                     return
-                }
-                if (values.activeTab !== 'reports') {
-                    actions.setActiveTab('reports')
                 }
                 if (values.selectedReportId !== reportId) {
                     // A `back` pointing at triage means the open came from the triage card's "Full
