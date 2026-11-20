@@ -84,6 +84,7 @@ rules:
       owners: platform-ux
     - match:
           - '/usage_ingestion/test_*.py'
+          - '/billing/test/test_*.py'
       owners: team-billing
     - match:
           - '/async_migrations/examples/test_*.py'

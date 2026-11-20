@@ -19,6 +19,7 @@ import structlog
 import dateutil.parser
 import posthoganalytics
 
+from posthog.billing.entitlements_contract import check_billed_resources, load_contract
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import AvailableFeature
@@ -74,7 +75,8 @@ class OrgQuotaLimitingInformation(TypedDict):
     quota_limiting_suspended_until: Optional[int]
 
 
-# These quota resource identifiers match billing default_plans_config.yml usage_key.
+# These quota resource identifiers match billing's usage keys. The check below the class fails at import when `billed`
+# disagrees with the vendored entitlements contract.
 # These keys should match OrganizationUsageInfo and UsageCounters.
 class QuotaResource(Enum):
     EVENTS = "events"
@@ -98,6 +100,23 @@ class QuotaResource(Enum):
     # Covers logs and traces together: they are one product with one free tier and one price.
     LOGS_MB_INGESTED = "logs_mb_ingested"
     REPLAY_VISION_CREDITS = "replay_vision_credits"
+
+    @property
+    def billed(self) -> bool:
+        return self not in UNBILLED_QUOTA_RESOURCES
+
+
+# A new resource counts as billed until it is listed here, so the import check forces a decision about it.
+UNBILLED_QUOTA_RESOURCES: frozenset[QuotaResource] = frozenset(
+    {QuotaResource.API_QUERIES, QuotaResource.MCP_EVENTS, QuotaResource.WORKFLOW_PUSH}
+)
+
+
+check_billed_resources(
+    billed=(resource.value for resource in QuotaResource if resource.billed),
+    known=(resource.value for resource in QuotaResource),
+    contract=load_contract(),
+)
 
 
 class QuotaLimitingCaches(Enum):
