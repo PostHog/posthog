@@ -11,7 +11,7 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_TIME_SERIES_CHARTS_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -20,6 +20,7 @@ import { MCPClientProfile } from '@/lib/client-detection'
 import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
+import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
@@ -339,7 +340,7 @@ describe('ToolExecutor', () => {
                     toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
-                        isCliModeEnabled: vi.fn(() => true),
+                        prefersFormattedText: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
                         drawsTimeSeriesCharts: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
@@ -596,7 +597,7 @@ describe('ToolExecutor', () => {
                         distinctId,
                         clientProfile: {
                             capabilities: { supportsInstructions },
-                            isCliModeEnabled: vi.fn(() => true),
+                            prefersFormattedText: vi.fn(() => true),
                             isInlineExecUiHost: vi.fn(() => false),
                             drawsTimeSeriesCharts: vi.fn(() => false),
                             isClaudeChatHost: vi.fn(() => isClaudeChatHost),
@@ -687,7 +688,7 @@ describe('ToolExecutor', () => {
                     renderUiEnabled: true,
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
-                        isCliModeEnabled: vi.fn(() => true),
+                        prefersFormattedText: vi.fn(() => true),
                         isInlineExecUiHost: vi.fn(() => false),
                         drawsTimeSeriesCharts: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => true),
@@ -953,7 +954,7 @@ describe('ToolExecutor', () => {
             } as any)
 
             const state = makeToolExecutorState([uiAppTool], { useSingleExec, renderUiEnabled })
-            vi.mocked(state.clientProfile.isCliModeEnabled).mockReturnValue(true)
+            vi.mocked(state.clientProfile.prefersFormattedText).mockReturnValue(true)
             if (posthogAi) {
                 state.clientProfile = { ...state.clientProfile, consumer: 'posthog_ai' } as typeof state.clientProfile
             }
@@ -967,6 +968,42 @@ describe('ToolExecutor', () => {
                     results: [{ count: 28, label: '$pageview' }],
                 })
             }
+        })
+    })
+
+    describe('time series chart data', () => {
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        it.each([
+            { label: 'appends it when the flag is on', flagEnabled: true },
+            { label: 'leaves it out when the flag is off', flagEnabled: false },
+            { label: 'leaves it out when the flag is not evaluated', flagEnabled: undefined },
+        ])('$label', async ({ flagEnabled }) => {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => ({
+                        results: [{ label: '$pageview', days: ['2026-11-01', '2026-11-02'], data: [3, 5] }],
+                    }),
+                },
+            } as any)
+            const state = makeToolExecutorState([{ name: 'query-trends' }], {
+                toolFeatureFlags: { [MCP_TIME_SERIES_CHARTS_FLAG]: flagEnabled },
+            })
+            vi.mocked(state.clientProfile.drawsTimeSeriesCharts).mockReturnValue(true)
+
+            const result = (await executor.handleToolCall({ name: 'query-trends', arguments: {} }, state)) as any
+
+            const text = result.content.map((c: { text: string }) => c.text).join('\n')
+            expect(text.includes(CHART_DATA_PREAMBLE)).toBe(flagEnabled === true)
         })
     })
 

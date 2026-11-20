@@ -2226,6 +2226,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "budget_guard",
                 "benjamin_version",
                 "agent_version",
+                "upstream_turn_retry",
             }:
                 return False
         return True

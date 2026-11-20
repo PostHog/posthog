@@ -11,6 +11,7 @@ export interface ProjectListItem {
     id: number
     team: OrganizationType['teams'][number]
     isCurrent: boolean
+    logoMediaId: string | null
 }
 
 export interface CreateProjectItem {
@@ -178,9 +179,18 @@ export const newAccountMenuLogic = kea<newAccountMenuLogicType>([
                 currentTeam: TeamPublicType | TeamType | null,
                 searchValue: string
             ): ListItem[] => {
+                const logoMediaIds = new Map(
+                    (organization?.projects ?? []).map((project) => [project.id, project.logo_media_id ?? null])
+                )
                 const projects: ProjectListItem[] = (organization?.teams ?? [])
                     .filter((team) => matchesSwitcherSearch(team.name, searchValue))
-                    .map((team) => ({ type: 'project', id: team.id, team, isCurrent: team.id === currentTeam?.id }))
+                    .map((team) => ({
+                        type: 'project',
+                        id: team.id,
+                        team,
+                        isCurrent: team.id === currentTeam?.id,
+                        logoMediaId: logoMediaIds.get(team.project_id) ?? null,
+                    }))
                 const externalProjects: ExternalProjectItem[] = (organization?.external_project_links ?? [])
                     .filter((link) => matchesSwitcherSearch(link.name, searchValue))
                     .map((link) => ({ type: 'external', id: `external-${link.id}`, name: link.name, url: link.url }))

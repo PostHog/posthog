@@ -310,7 +310,7 @@ export function ServicePageScene(): JSX.Element {
                                 Couldn't load dependencies.
                             </LemonBanner>
                         ) : (
-                            <div className="grid gap-4 @min-[64rem]/main-content:grid-cols-2">
+                            <div className="grid gap-4 @min-[80rem]/main-content:grid-cols-2">
                                 <DependencyTable
                                     title={`Upstream: calls into ${serviceName}`}
                                     edges={dependencySplit.upstream}

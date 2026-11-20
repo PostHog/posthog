@@ -1,4 +1,4 @@
-import { ComponentProps, ReactNode, SyntheticEvent } from 'react'
+import { ComponentProps, ReactNode, SyntheticEvent, useState } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
@@ -15,6 +15,7 @@ type PopoverContentProps = ComponentProps<typeof PopoverContent>
 interface QuillHoverCardProps extends Pick<PopoverContentProps, 'side' | 'align' | 'arrow' | 'className'> {
     children: ReactNode
     content: ReactNode
+    disabled?: boolean
 }
 
 /** A card that opens on a settled hover over inline content. It can hold buttons and links, unlike a tooltip. */
@@ -25,9 +26,12 @@ export function QuillHoverCard({
     align,
     arrow,
     className,
+    disabled = false,
 }: QuillHoverCardProps): JSX.Element {
+    const [open, setOpen] = useState(false)
+
     return (
-        <Popover>
+        <Popover open={open && !disabled} onOpenChange={setOpen}>
             <PopoverTrigger
                 openOnHover
                 delay={OPEN_DELAY_MS}

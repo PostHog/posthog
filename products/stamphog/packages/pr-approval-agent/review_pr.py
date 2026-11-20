@@ -342,7 +342,7 @@ class Pipeline:
         unproven = self.classification.get("unattested_files", [])
         if not deny and not unproven:
             return []
-        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths)
+        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths, self.pr.title)
         if any(not any(covers(attestation, path) for attestation in pending) for path in unproven):
             return []
         if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
@@ -361,15 +361,46 @@ class Pipeline:
         return self.pending_lifting_attestations()
 
     @property
-    def _attestations(self) -> tuple[Attestation, ...]:
-        """The policy attestations that count for this PR's author.
+    def _publisher_pinned_attestations(self) -> tuple[Attestation, ...]:
+        """The usable policy attestations that pin their publisher, the only ones an admitted bot and routing count.
 
-        For an admitted bot only an entry that declares `publisher_files` counts, because a job of
-        any PR can post the check of every other entry.
+        A job of any PR can post the check of every other entry. An unusable entry proves nothing, so
+        routing never waits for its check.
         """
+        return tuple(
+            attestation for attestation in POLICY.attestations if attestation.pins_publisher and attestation.usable
+        )
+
+    @property
+    def _attestations(self) -> tuple[Attestation, ...]:
+        """The policy attestations that count for this PR's author."""
         if not self.admitted_bot:
             return POLICY.attestations
-        return tuple(attestation for attestation in POLICY.attestations if attestation.publisher_files)
+        return self._publisher_pinned_attestations
+
+    def attestation_proof(self) -> dict:
+        """What the pinned attestations prove about every path of the diff, for the server's reviewer routing.
+
+        Only an entry that pins its publisher counts, as for an admitted bot (see
+        ``_publisher_pinned_attestations``). ``checks`` names each such entry whose `paths` match a path
+        of the diff, and stays empty unless together they match every path. ``proven`` is True only when
+        their verified proofs name every path, the old path of a rename included.
+        """
+        paths = self.pr.deny_paths
+        matching = [
+            attestation
+            for attestation in self._publisher_pinned_attestations
+            if any(covers(attestation, path) for path in paths)
+        ]
+        if not paths or any(not any(covers(attestation, path) for attestation in matching) for path in paths):
+            return {"checks": [], "proven": False}
+        pr = self.pr
+        reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
+        proven = pinned_files(matching, pr.check_runs, paths, reviewed)
+        return {
+            "checks": [{"check": attestation.check, "app_id": attestation.app_id} for attestation in matching],
+            "proven": set(paths) <= proven,
+        }
 
     def refuses_bot_author(self) -> bool:
         """True when the PR author is a bot that neither carve-out admits.
@@ -509,13 +540,14 @@ class Pipeline:
         # A proof may name a rename's old path, so the old path is matched like a changed file.
         pinned = pinned_files(self._attestations, pr.check_runs, pr.deny_paths, reviewed)
         unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
-        pending = pending_attestations(self._attestations, pr.check_runs, file_paths)
+        pending = pending_attestations(self._attestations, pr.check_runs, file_paths, pr.title)
         additive = additive_files(pr.files)
         deny_files = deny_matches(pr.deny_paths, lifted, additive=additive)
         deny = list(deny_files)
-        exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False, additive=additive) != deny
-        )
+        # Compared with a deny that skips nothing, so a file that a deny exception, an attestation
+        # and an edit_paths addition each skip still counts. Comparing each skip with the other two
+        # applied let one hide another.
+        deny_skipped = detect_deny_categories(pr.deny_paths, apply_exceptions=False) != deny
         additions_lifted = detect_deny_categories(pr.deny_paths, lifted) != deny
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
@@ -552,18 +584,17 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
-        # so without this it rides the allow-list to a T0 approval with no reviewer.
-        # An addition to an edit_paths file (an owners.yaml rule) is the same case.
+        # An owner-only exemption, a deny exception, an attestation or an addition to an edit_paths
+        # file (an owners.yaml rule) lifts the deny, not the review: a workflow is .yml, so without
+        # this it rides the allow-list to a T0 approval with no reviewer.
         allow_only = (
             is_allow_listed_only(file_paths)
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
-            and not exception_lifted
-            and not additions_lifted
+            and not deny_skipped
         )
-        is_test = test_only(categories) and not owner_exempted and not exception_lifted and not additions_lifted
+        is_test = test_only(categories) and not owner_exempted and not deny_skipped
         # The checkout is the PR head, so a PR that changes an ownership file could name the
         # author's team as the owner of its own files. Such a PR, which only an addition lift or an
         # owner exemption lets through, reads ownership at the merge base instead.
@@ -796,7 +827,7 @@ class Pipeline:
 
         A human author is trusted for the files no check covers. A bot has no such trust, so a file
         outside every proof, a workflow edit for example, refuses the PR. Only a proof from an
-        attestation that declares `publisher_files` counts, because a check that a job of the PR
+        attestation that pins its publisher counts, because a check that a job of the PR
         can post proves nothing about a PR nobody wrote. A rename's old path counts as a file too,
         so content cannot leave a proven path unproven.
         """

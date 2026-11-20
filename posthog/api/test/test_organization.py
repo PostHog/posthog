@@ -110,6 +110,32 @@ class TestOrganizationAPI(APIBaseTest):
         )
         self.assertEqual(OrganizationExternalProjectLink.objects.count(), 2)
 
+    def test_project_logo_changes_show_in_organization_projects(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        media = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            media_location="http://example.com/logo.png",
+            content_type="image/png",
+            file_name="logo.png",
+        )
+        # Fills the per-user cache of the org's project list before the logo exists.
+        self.client.get("/api/organizations/@current")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            updated = self.client.patch(
+                f"/api/projects/{self.project.id}/",
+                {"logo_media_id": str(media.id)},
+                format="json",
+            )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.json())
+
+        organization = self.client.get("/api/organizations/@current")
+        self.assertEqual(organization.status_code, status.HTTP_200_OK, organization.json())
+        projects = {project["id"]: project for project in organization.json()["projects"]}
+        self.assertEqual(projects[self.project.id]["logo_media_id"], str(media.id))
+
     def test_get_current_team_fields(self):
         self.organization.setup_section_2_completed = False
         self.organization.save()
@@ -182,6 +208,54 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Organization.objects.count(), 1)
+
+    @parameterized.expand(
+        [
+            ("unscoped_oauth_token", "oauth", False, status.HTTP_201_CREATED),
+            ("org_scoped_oauth_token", "oauth", True, status.HTTP_403_FORBIDDEN),
+            ("org_scoped_personal_api_key", "personal_api_key", True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_organization_with_token(
+        self, _name: str, credential: str, org_scoped: bool, expected_status: int
+    ) -> None:
+        scoped_organizations = [str(self.organization.id)] if org_scoped else []
+        if credential == "oauth":
+            oauth_app = OAuthApplication.objects.create(
+                name="Test OAuth App",
+                client_id="test_client_id",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                user=self.user,
+            )
+            token = "pha_test_org_create_token"
+            OAuthAccessToken.objects.create(
+                application=oauth_app,
+                user=self.user,
+                token=token,
+                scope="organization:write",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_organizations=scoped_organizations,
+            )
+        else:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="X",
+                user=self.user,
+                secure_value=hash_key_value(token),
+                scoped_organizations=scoped_organizations,
+                scopes=["organization:write"],
+            )
+
+        with self.is_cloud(True):
+            response = self.client.post(
+                "/api/organizations/", {"name": "New org"}, headers={"authorization": f"Bearer {token}"}
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(Organization.objects.count(), 2 if expected_status == status.HTTP_201_CREATED else 1)
 
     # Updating organizations
 

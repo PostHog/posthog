@@ -79,17 +79,13 @@ export function TodayProjectMenu({ placement = 'top-bar' }: { placement?: 'top-b
             groups={[
                 ...projectGroups.map((group) => ({
                     label: group.name ?? 'Projects',
-                    rows: group.projects.map(({ team }) => {
-                        // The org's project list carries no logos, so only the current project shows its upload.
-                        const mediaId = team.project_id === currentProject?.id ? currentProject.logo_media_id : null
-                        return {
-                            value: String(team.id),
-                            label: nameBesideLogo(team.name, mediaId),
-                            leading: <TodayLogo name={team.name} mediaId={mediaId} colorSeed={null} size="row" />,
-                            dataAttr: 'today-top-bar-project-item',
-                            onSelect: () => switchProject(team.id, team.project_id),
-                        }
-                    }),
+                    rows: group.projects.map(({ team, logoMediaId }) => ({
+                        value: String(team.id),
+                        label: nameBesideLogo(team.name, logoMediaId),
+                        leading: <TodayLogo name={team.name} mediaId={logoMediaId} colorSeed={null} size="row" />,
+                        dataAttr: 'today-top-bar-project-item',
+                        onSelect: () => switchProject(team.id, team.project_id),
+                    })),
                 })),
                 {
                     label: 'Other regions',

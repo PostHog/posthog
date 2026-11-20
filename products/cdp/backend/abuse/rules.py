@@ -13,7 +13,7 @@ from enum import StrEnum
 from urllib.parse import unquote, urlsplit
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_program, parse_string_template
+from posthog.hogql.parser import CacheOrigin, parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
@@ -23,6 +23,9 @@ from posthog.security.url_validation import canonicalize_host, internal_host_nam
 
 from products.cdp.backend.abuse.classifier import MAX_STATE_CHARS, HogFunctionContent
 from products.ml_inference.backend.facade.contracts import JsonValue
+
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
 
 
 class Rule(StrEnum):
@@ -66,6 +69,22 @@ INTERNAL_FUNCTIONS = frozenset(
     }
 )
 
+# Every async function in `nodejs/src/cdp/async-functions/`, and `postHogCapture`. A function added there must be
+# added here too, or code that calls only that function counts as making no outbound call.
+OUTBOUND_FUNCTIONS = INTERNAL_FUNCTIONS | {
+    "fetch",
+    "postHogCapture",
+    "postHogGetTicket",
+    "postHogSendTicketMessage",
+    "postHogUpdateTicket",
+}
+
+# A function from one of these templates runs plugin, Segment or native destination code instead of its `hog` field.
+_NON_HOG_TEMPLATE_PREFIXES = ("plugin-", "segment-", "native-")
+
+_CALLBACK_FUNCTIONS = frozenset({"arrayCount", "arrayExists", "arrayFilter", "arrayMap", "arrayReduce"})
+_BUILTIN_FUNCTIONS = frozenset(STL) | frozenset(BYTECODE_STL)
+
 # Source that names none of these cannot match a rule that reads parsed Hog, so it is not parsed.
 _HOG_RULE_NAMES = re.compile("|".join(sorted(INTERNAL_FUNCTIONS | {"range", "replaceAll"})))
 
@@ -105,13 +124,19 @@ _QUOTE = re.compile(r"['\"]")
 _LIQUID_STRING_PATTERN = r"""'(?:[^'\\]++|\\.)*+'|"(?:[^"\\]++|\\.)*+\""""
 _LIQUID_STRING = re.compile(_LIQUID_STRING_PATTERN, re.DOTALL)
 # LiquidJS reads the inside of these blocks as text, so no expression in them runs.
-_LIQUID_BLOCK_ENDS = {
-    "comment": re.compile(r"\{%-?\s*endcomment(?![\w?-])"),
-    "raw": re.compile(r"\{%-?\s*endraw(?![\w?-])"),
-}
+_LIQUID_TEXT_BLOCKS = frozenset({"comment", "raw"})
+# The characters LiquidJS skips as blanks, which are not the characters `\s` matches.
+_LIQUID_BLANKS = "\t\n\v\f\r \xa0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
+_LIQUID_BLANK = rf"[{_LIQUID_BLANKS}]"
 # A LiquidJS tag name is `#` for an inline comment, or a run of word characters, which include `?`, `-` and any
-# character past ASCII that is not a space.
-_LIQUID_TAG_NAME = re.compile(r"\s*+(#|(?:[\w?-]|[^\x00-\x7f\s])*+)")
+# character past ASCII that is not a blank or a curly double quote.
+_LIQUID_WORD_CHAR = rf"(?:[-0-9?A-Z_a-z]|[^\x00-\x7f{_LIQUID_BLANKS}\u201c\u201d])"
+_LIQUID_TAG_NAME = re.compile(rf"{_LIQUID_BLANK}*+(#|{_LIQUID_WORD_CHAR}*+)")
+# LiquidJS reads each statement of a `{% liquid %}` block as a tag, which drops a leading `-` as whitespace control.
+_LIQUID_STATEMENT_TRIM = re.compile(rf"\A{_LIQUID_BLANK}*+-")
+# LiquidJS reads `{%- endraw` and `endraw-` as other identifiers, so neither of them ends a raw block.
+_LIQUID_RAW_END = re.compile(rf"\{{%{_LIQUID_BLANK}*endraw(?!{_LIQUID_WORD_CHAR})")
+_LIQUID_DELIMITER = re.compile(r"%\}|\{%")
 _LIQUID_BOUND = rf"""([+-]?\d++(?:\.(?!\.)\d*+)?|{_LIQUID_STRING_PATTERN})"""
 _LIQUID_RANGE = re.compile(rf"""\(\s*+{_LIQUID_BOUND}\s*+\.\.\s*+{_LIQUID_BOUND}\s*+\)""", re.DOTALL)
 _LIQUID_STRING_OR_PAREN = re.compile(r"['\"(]")
@@ -148,14 +173,34 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
     return tuple(rule for rule in Rule if rule in matched)
 
 
+def has_outbound_call(content: HogFunctionContent) -> bool:
+    """Whether the code or a Hog template can call a function that sends a request. Code that does not parse counts,
+    as does unedited template code, which still runs."""
+    if (content.template_id or "").startswith(_NON_HOG_TEMPLATE_PREFIXES):
+        return True
+    return _calls_out(_parse_code, content.hog) or any(
+        _calls_out(_parse_template, template) for template in _hog_templates(content)
+    )
+
+
+def _calls_out(parse: Callable[[str], ast.AST], hog: str) -> bool:
+    visitor = _HogCodeVisitor()
+    try:
+        visitor.visit(parse(hog))
+    except Exception:
+        return True
+    return visitor.calls_out
+
+
 def _parse_code(hog: str) -> ast.AST:
-    """Parsed without the shadow parser, as is every template here. A shadow parse sends a diverging statement to
-    error tracking, and a template can be the decrypted value of a secret input."""
-    return parse_program(hog, parser_mode=ParserMode.RUST_PY_ONLY)
+    """Parsed without the shadow parser and the parse cache, as is every template here. A shadow parse sends a
+    diverging statement to error tracking, the cache keeps the statement in memory after the parse, and a template
+    can be the decrypted value of a secret input."""
+    return parse_program(hog, parser_mode=ParserMode.RUST_PY_ONLY, cache_origin=CacheOrigin.SENSITIVE)
 
 
 def _parse_template(template: str) -> ast.AST:
-    return parse_string_template(template, parser_mode=ParserMode.RUST_PY_ONLY)
+    return parse_string_template(template, parser_mode=ParserMode.RUST_PY_ONLY, cache_origin=CacheOrigin.SENSITIVE)
 
 
 def _hog_code_rules(parse: Callable[[str], ast.AST], hog: str) -> set[Rule]:
@@ -195,15 +240,16 @@ def _hog_template_inputs(inputs: JsonValue, inputs_schema: JsonValue) -> Iterato
 
 class _HogCodeVisitor(TraversingVisitor):
     """Tracks the names in scope in source order, as the bytecode compiler does, because a call to a declared name
-    runs the local and never reaches the async function registry."""
+    runs the local and never reaches the standard library or the async function registry."""
 
     def __init__(self) -> None:
         super().__init__()
         self.matched: set[Rule] = set()
+        self.calls_out = False
         self._scopes: list[set[str]] = [set()]
 
-    def _calls_internal_function(self, name: str) -> bool:
-        return name in INTERNAL_FUNCTIONS and not any(name in scope for scope in self._scopes)
+    def _is_local(self, name: str) -> bool:
+        return any(name in scope for scope in self._scopes)
 
     @contextmanager
     def _scope(self, names: Iterable[str] = ()) -> Iterator[None]:
@@ -235,13 +281,52 @@ class _HogCodeVisitor(TraversingVisitor):
         with self._scope():
             super().visit_for_statement(node)
 
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
+        self.visit(node.try_stmt)
+        for name, _error_type, handler in node.catches:
+            with self._scope([name] if name else []):
+                self.visit(handler)
+        self.visit(node.finally_stmt)
+
     def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
         super().visit_variable_declaration(node)
         self._scopes[-1].add(node.name)
 
+    # An input can hold a closure that calls an async function, and code can swap a local function's upvalues, so any
+    # call that does not name a builtin could reach one. A lambda literal callback is safe because its body is visited.
+    def visit_expr_call(self, node: ast.ExprCall) -> None:
+        super().visit_expr_call(node)
+        self.calls_out = True
+
+    # The compiler runs every placeholder of an inline query, even in `SAMPLE`, and a function has no use for Hog SQL.
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        super().visit_join_expr(node)
+        self.visit(node.sample)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.calls_out = True
+        super().visit_select_query(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.calls_out = True
+        super().visit_select_set_query(node)
+
+    # A tag calls the local of its name, including compiler temporaries such as `__expr__`, so any tag counts.
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+        super().visit_hogqlx_tag(node)
+        self.calls_out = True
+
     def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
-        if self._calls_internal_function(node.name):
+        if self._is_local(node.name):
+            self.calls_out = True
+            return
+        self.calls_out |= (
+            node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS
+        )
+        if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
+            self.calls_out = True
+        if node.name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
         elif node.name == "range" and _hog_range_size(node.args) > MAX_RANGE_SIZE:
             self.matched.add(Rule.HUGE_RANGE)
@@ -251,7 +336,13 @@ class _HogCodeVisitor(TraversingVisitor):
     def visit_field(self, node: ast.Field) -> None:
         # `let run := postHogCreateTask` followed by `run()` reaches the same handler as a direct call.
         super().visit_field(node)
-        if len(node.chain) == 1 and self._calls_internal_function(str(node.chain[0])):
+        if len(node.chain) != 1:
+            return
+        name = str(node.chain[0])
+        if self._is_local(name):
+            return
+        self.calls_out |= name in OUTBOUND_FUNCTIONS
+        if name in INTERNAL_FUNCTIONS:
             self.matched.add(Rule.INTERNAL_FUNCTION)
 
 
@@ -375,31 +466,66 @@ def _decode_encoded_spaces(tag: str) -> str:
     return "".join(out)
 
 
+@frozen
+class _LiquidTag:
+    inside: str
+    name: str
+    is_output: bool
+
+
 def _liquid_tags(template: str) -> Iterator[str]:
     """The inside of each output and logic tag that LiquidJS evaluates, in document order. Comments and raw blocks
-    are left out. A template that LiquidJS cannot tokenize ends the scan, because none of it renders."""
+    are left out."""
+    in_comment = False
+    for tag in _liquid_tokens(template):
+        if in_comment:
+            # A comment block reads its body as tokens and ends at the first logic tag named `endcomment`, so an end
+            # tag in a quoted string or in the arguments of another tag does not end it.
+            in_comment = tag.is_output or tag.name != "endcomment"
+        elif not tag.is_output and tag.name == "comment":
+            in_comment = True
+        elif tag.name == "liquid":
+            yield from _liquid_block_statements(tag.inside)
+        elif tag.name != "#":
+            yield tag.inside
+
+
+def _liquid_tokens(template: str) -> Iterator[_LiquidTag]:
+    """Each output and logic tag as the LiquidJS tokenizer reads it, in document order, without the inside of raw
+    blocks. A template that LiquidJS cannot tokenize ends the scan, because none of it renders."""
     position = 0
     while (opener := _LIQUID_OPENER.search(template, position)) is not None:
         is_output = opener.group() == "{{"
         end = _output_tag_end(template, opener.end()) if is_output else template.find("%}", opener.end())
         if end == -1:
             return
-        tag = template[opener.end() : end]
+        inside = template[opener.end() : end]
         position = end + 2
-        name = _liquid_tag_name(tag.removeprefix("-").removesuffix("-"))
-        if name == "#":
-            continue
-        if not is_output and (block_end := _LIQUID_BLOCK_ENDS.get(name)) is not None:
-            closing = block_end.search(template, position)
-            closing_end = -1 if closing is None else template.find("%}", closing.end())
-            if closing_end == -1:
+        name = _liquid_tag_name(inside.removeprefix("-").removesuffix("-"))
+        if not is_output and name == "raw":
+            position = _raw_block_end(template, position)
+            if position == -1:
                 return
-            position = closing_end + 2
             continue
-        if name == "liquid":
-            yield from _liquid_block_statements(tag)
+        yield _LiquidTag(inside=inside, name=name, is_output=is_output)
+
+
+def _raw_block_end(template: str, position: int) -> int:
+    """Where the raw block whose text starts at `position` ends, after its `endraw` tag, or -1. A port of
+    `readEndrawOrRawContent` in LiquidJS, where an `endraw` that meets another `{%` before its `%}` gives way to it."""
+    candidate = template.find("{%", position)
+    while candidate != -1:
+        end_tag = _LIQUID_RAW_END.match(template, candidate)
+        if end_tag is None:
+            candidate = template.find("{%", candidate + 2)
             continue
-        yield tag
+        delimiter = _LIQUID_DELIMITER.search(template, end_tag.end())
+        if delimiter is None:
+            return -1
+        if delimiter.group() == "%}":
+            return delimiter.end()
+        candidate = delimiter.start()
+    return -1
 
 
 def _liquid_tag_name(tag: str) -> str:
@@ -414,10 +540,10 @@ def _liquid_block_statements(tag: str) -> Iterator[str]:
     block_end: str | None = None
     # LiquidJS splits statements at `\n` only, while `splitlines` also splits at `\r` and Unicode separators.
     for line in tag.split("\n"):
-        name = _liquid_tag_name(line)
+        name = _liquid_tag_name(_LIQUID_STATEMENT_TRIM.sub("", line, count=1))
         if block_end is not None:
             block_end = None if name == block_end else block_end
-        elif name in _LIQUID_BLOCK_ENDS:
+        elif name in _LIQUID_TEXT_BLOCKS:
             block_end = f"end{name}"
         elif name != "#":
             yield line

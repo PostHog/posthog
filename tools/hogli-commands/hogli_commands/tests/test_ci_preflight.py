@@ -206,6 +206,21 @@ class TestProjectionsDriftCheck:
         check = next(chk for chk in DIFF_CHECKS if chk.key == "projections")
         assert matches_globs(changed, check.triggers)
 
+    @pytest.mark.parametrize(
+        "changed",
+        [
+            "products/warehouse_sources/sources/stripe/source.py",
+            "products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv",
+        ],
+    )
+    def test_ci_tier_sources_get_advice_instead_of_a_blocking_render(self, changed: str) -> None:
+        blocking = next(chk for chk in DIFF_CHECKS if chk.key == "projections")
+        advisory = next(chk for chk in DIFF_CHECKS if chk.key == "ci-projections")
+
+        assert not matches_globs(changed, blocking.triggers)
+        assert matches_globs(changed, advisory.triggers)
+        assert advisory.verify is None
+
     def test_concrete_triggers_still_point_at_real_files(self) -> None:
         check = next(chk for chk in DIFF_CHECKS if chk.key == "projections")
         # Renaming the generator or its output leaves these triggers matching nothing,
@@ -278,7 +293,7 @@ class TestProjectionsDriftCheck:
         # exit 0, so a drifted push would report pass instead of blocking.
         assert result.exit_code == 1
         dispatched = [call.args[0] for call in mock_run.call_args_list]
-        assert ["hogli", "build:projections", "--check"] in dispatched
+        assert ["hogli", "build:projections", "--check", "--tier", "preflight"] in dispatched
 
 
 class TestStalenessRisks:

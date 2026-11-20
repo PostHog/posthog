@@ -1,50 +1,52 @@
 ---
 name: monitoring-capture-service
 description: >
-  Guide for using the Grafana MCP to monitor and diagnose the capture service
+  Uses the PostHog MCP to monitor and diagnose the capture service
   (rust/capture) in production. Use when investigating latency, event loss,
   Kafka backpressure, Redis issues, rate limiting, Envoy proxy issues, or any
   capture health question. Covers prod-us and prod-eu environments.
 ---
 
-# Monitoring the capture service with Grafana MCP
+# Monitoring the capture service with PostHog MCP
 
 The capture service (`rust/capture/`) is PostHog's Rust HTTP ingestion endpoint.
 It receives events from SDKs, applies quota/rate limits, and produces to Kafka.
 Five deployments run the same binary with different `CAPTURE_MODE` configs, each in its own K8s namespace.
 
-This skill teaches how to **discover live metrics** using the Grafana MCP tools
+This skill teaches how to **discover live metrics** using the PostHog MCP tools
 rather than memorizing metric names that change as the code evolves.
 
 ## Environment context
 
-The Grafana MCP is connected to a **single Grafana instance** scoped to one environment.
+US and EU use separate internal PostHog projects on separate PostHog instances.
 If the user hasn't specified, **ask which environment** they want to investigate:
 
 - **prod-us** — US production (us-east-1)
 - **prod-eu** — EU production (eu-central-1)
 
-Most capture app metrics (e.g. `capture_*`, `http_requests_*`, `envoy_cluster_*`) are
-environment-specific by virtue of which Grafana you're connected to — they don't carry
-an `environment` label. MSK and CloudWatch metrics do carry `environment` labels but
-are still scoped to the connected Grafana's AWS account.
-
-Cross-environment comparison requires switching Grafana instances (not possible in one session).
+Use the PostHog MCP connection for the region's internal project.
+US metrics carry `environment="prod-us"`.
+For EU, run the same tools through a separate connection to the EU PostHog instance.
+Discover labels and filter or check `environment` where it exists.
+An environment filter does not switch projects or instances.
+If a region's connection is unavailable, report that region as not checked.
 
 ## Observability landscape
 
-Capture spans seven telemetry domains.
-Each has a Grafana datasource and a discovery entry point.
+Capture spans app metrics, infrastructure metrics, logs, profiles, and dashboards.
+Use PostHog for metrics and logs. Confirm each metric exists in the selected region before querying.
 
-| Domain                         | Datasource UID                  | Discovery tool                 | Scope filter                                         |
-| ------------------------------ | ------------------------------- | ------------------------------ | ---------------------------------------------------- |
-| App metrics (VictoriaMetrics)  | `victoriametrics`               | `list_prometheus_metric_names` | `regex: "capture_.*"`                                |
-| App metrics (realtime)         | `victoriametrics-realtime`      | same                           | same (lower retention, higher resolution)            |
-| Logs                           | `P44D702D3E93867EC` (Loki-logs) | `list_loki_label_names`        | `app=~"capture.*"`                                   |
-| Profiling                      | `pyroscope`                     | `list_pyroscope_profile_types` | `service_name="capture-analytics/capture-analytics"` |
-| Dashboards                     | n/a                             | `search_dashboards`            | query `"capture"` or `"ingestion"`                   |
-| CloudWatch (ElastiCache, MSK)  | `P034F075C744B399F`             | `query_prometheus`             | `environment="prod-us"`                              |
-| CloudWatch Root (prod-us only) | `PAAE47F430CFD1449`             | same                           | root account AWS metrics (does NOT exist in prod-eu) |
+| Domain                                         | Discovery or access                                             |
+| ---------------------------------------------- | --------------------------------------------------------------- |
+| App metrics                                    | `posthog:metric-names-list`                                     |
+| Logs                                           | `posthog:logs-attribute-values-list`, then `posthog:query-logs` |
+| Infrastructure metrics (ElastiCache, MSK, K8s) | `posthog:metric-names-list`, then `posthog:query-metrics`       |
+| Profiling                                      | Existing Pyroscope access                                       |
+| Dashboards                                     | Existing Grafana access                                         |
+
+**Fallback:** People on managed devices with an existing Grafana MCP connection can use it.
+It supports metrics, logs, profiles, and dashboards.
+See `tools/infra-scripts/mcp/README.md` for its setup.
 
 ## Stable waypoints
 
@@ -127,8 +129,8 @@ metrics and CloudWatch ElastiCache metrics.
 
 ### Metric prefixes
 
-Every prefix here can be discovered live with `list_prometheus_metric_names`
-using `datasourceUid: "victoriametrics"` and `regex: "<prefix>.*"`.
+Discover each prefix with `posthog:metric-names-list` using `value: "<prefix>"`.
+The default match is a substring. Use `match: "regex"` for a regular expression.
 
 | Prefix                         | Domain                                  | Scope label                                    |
 | ------------------------------ | --------------------------------------- | ---------------------------------------------- |
@@ -205,43 +207,77 @@ plus the overview. Sections for machinery shared by both pipelines (Global Rate
 Limiter, Event restrictions, Hyper server, Contour, billing/quota) appear on
 **both** details boards, so use whichever one you are already on.
 
-One board you will find via `search_dashboards` but should not rely on:
+One board you may find in Grafana but should not rely on:
 `capture-3000-envoy-codes` is a personal, US-only Envoy investigation board (not
 synced to EU).
 
 ## Discovery workflows
 
-### Prometheus / VictoriaMetrics
+### Metrics
 
-1. `list_prometheus_metric_names` — `datasourceUid: "victoriametrics"`, `regex: "capture_.*"` to enumerate app metrics
-2. Pick a metric, then `list_prometheus_label_names` scoped to it — see available dimensions
-3. `list_prometheus_label_values` — discover actual values for a label
-   (e.g. `labelName: "cause"` on `capture_events_dropped_total`)
-4. `query_prometheus` with PromQL — always scope by `namespace` (or `container`) and set a time range
+1. Call `posthog:metric-names-list` with `value: "capture_"` to discover exact names and metric types.
+2. Call `posthog:metric-attributes-list` with `metricName` to discover labels.
+3. Call `posthog:metric-attribute-values-list` to discover values, such as `cause` on `capture_events_dropped_total`.
+4. Call `posthog:query-metrics` with the existing PromQL in `query.promql` as written.
+   Scope new expressions by `namespace` or `container`. Check `environment` where it exists.
 
-### Loki (logs)
+Set `query.dropEmptySeries: false` for health checks so zero-valued series keep their labels.
+This preserves failing cache keys when quota loading stays at zero.
+All query parameters go inside `query`. For a range summary:
 
-1. `list_loki_label_names` — `datasourceUid: "P44D702D3E93867EC"` (Loki-logs; do NOT use primary Loki `P8E80F9AEF21F6940` which 502s intermittently)
-2. `list_loki_label_values` for `app` or `namespace` — find capture containers
-3. `query_loki_logs` — e.g. `{app=~"capture.*"} |= "error"`
+```json
+{
+  "query": {
+    "promql": "capture_kafka_any_brokers_down",
+    "dateFrom": "-1h",
+    "output": "summary",
+    "dropEmptySeries": false
+  }
+}
+```
+
+Use `query.instant: true` for current values. Omit `dateFrom` and `dateTo` for instant queries.
+For a curve, keep the range and omit `output`. Share the returned `_posthogUrl` with the user.
+Keep existing PromQL expressions unchanged. Do not translate them into builder fields.
+If PromQL is unavailable or a metric is missing, report the limit before using the fallback.
+
+### Logs
+
+1. Discover services with `posthog:logs-attribute-values-list` using `key: "service.name"` and `attribute_type: "resource"`.
+2. Select the capture service. Discover resource labels with `posthog:logs-attributes-list` using `attribute_type: "resource"` when needed.
+3. Follow the tool's count and time-window guidance before calling `posthog:query-logs`.
+   Set `query.serviceNames` to the discovered services and always pass `query.dateRange`.
+   For errors, use `query.severityLevels: ["error", "fatal"]`. Use `query.searchTerm` for message text.
+   If severity filters return nothing unexpectedly, discover stored severity values before concluding there are no errors.
+
+Example after confirming the service name:
+
+```json
+{
+  "query": {
+    "serviceNames": ["capture-analytics"],
+    "dateRange": { "date_from": "-1h" },
+    "severityLevels": ["error", "fatal"]
+  }
+}
+```
 
 ### Pyroscope (profiling)
 
-1. `list_pyroscope_profile_types` — `data_source_uid: "pyroscope"`
-2. `fetch_pyroscope_profile` — `matchers: '{service_name="capture-analytics/capture-analytics"}'`,
-   `profile_type: "process_cpu:cpu:nanoseconds:cpu:nanoseconds"`
+Use existing Pyroscope access for profiles. See the service names and profile types above.
+Profiling through Grafana requires the fallback connection.
 
 ### Dashboards
 
-1. `search_dashboards` — query `"capture"` or `"ingestion"`
-2. `get_dashboard_by_uid` — use a known UID (e.g. `"capture"`) to get panel details
-3. `get_dashboard_panel_queries` — extract PromQL from existing panels
+Use existing Grafana access to inspect the dashboards listed above.
+Send a panel's PromQL to `posthog:query-metrics` in `query.promql` as written.
+Dashboard access through MCP requires the fallback connection.
 
 ### Redis / ElastiCache
 
 - Capture-side: discover `capture_billing_*`, `capture_event_restrictions_*`,
-  `capture_quota_*` metrics in VictoriaMetrics
-- Infrastructure: CloudWatch datasource `P034F075C744B399F` for ElastiCache
+  `capture_quota_*` metrics with `posthog:metric-names-list`
+- Infrastructure: ingested CloudWatch metrics in PostHog for ElastiCache
   (CPU, memory, connections, latency).
   Cluster IDs: `capture-globalratelimit-prod-redis`, `posthog-solo` (prod-us primary)
 

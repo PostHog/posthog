@@ -26,8 +26,8 @@ export function QuillScannerPicker({
     const { scanners, scannersLoading, filteredScanners, scannerSearch, scannerPickerOpen, observing } =
         useValues(logic)
     const { observe, setScannerSearch, setScannerPickerOpen } = useActions(logic)
-    const { quota } = useValues(visionQuotaLogic)
-    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+    const { quota, onFreePlan } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota, onFreePlan)
 
     return (
         <Popover open={scannerPickerOpen} onOpenChange={setScannerPickerOpen}>

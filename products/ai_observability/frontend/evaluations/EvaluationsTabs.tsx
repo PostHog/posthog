@@ -1,10 +1,7 @@
-import { useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -22,8 +19,6 @@ export function EvaluationsTabs({
     activeTab: 'online-evals' | 'offline-evals' | 'scorers'
     children?: ReactNode
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <>
             <LemonTabs
@@ -37,16 +32,10 @@ export function EvaluationsTabs({
                         ...accessTab(Scene.AIObservabilityEvaluation, urls.aiObservabilityEvaluations()),
                         'data-attr': 'evaluations-tab',
                     },
-                    (!!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] ||
-                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) && {
+                    {
                         key: 'offline-evals',
                         label: 'Offline evals',
-                        ...accessTab(
-                            Scene.AIObservabilityOfflineExperiments,
-                            featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]
-                                ? urls.aiObservabilityOfflineEvaluations()
-                                : urls.aiObservabilityDatasets()
-                        ),
+                        ...accessTab(Scene.AIObservabilityOfflineExperiments, urls.aiObservabilityOfflineEvaluations()),
                         'data-attr': 'offline-evals-tab',
                     },
                     {

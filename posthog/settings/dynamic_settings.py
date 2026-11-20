@@ -9,6 +9,11 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
+    "STATIC_COHORT_RECONCILIATION_ENABLED": (
+        True,
+        "Copy static cohort members that reached ClickHouse but not Postgres, a few cohorts every 30 minutes.",
+        bool,
+    ),
     "CIMD_PROVISIONING_REQUIRES_ORGANIZATION": (
         False,
         "Require every provisioning partner that registered itself from a client ID metadata document (CIMD) to be "
@@ -443,6 +448,19 @@ CONSTANCE_CONFIG = {
         "run rather than at the end of the cache TTL.",
         bool,
     ),
+    "WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED": (
+        get_from_env("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED", default=True, type_cast=str_to_bool),
+        "Whether web analytics requests record, per team and hour, which query shapes were read. "
+        "Cache warming reads this history to predict demand. Turning it off stops the per-request Redis write.",
+        bool,
+    ),
+    "WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT": (
+        get_from_env("WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT", default=20, type_cast=int),
+        "For projects in the web-analytics-predictive-warming flag, the cache warmer only warms a query shape "
+        "when the demand model gives at least this percent chance of a request in the next four hours. "
+        "Lower values warm more shapes at a higher cost.",
+        int,
+    ),
     "REALTIME_COHORT_JOIN_OPEN": (
         False,
         "Whether a project in this region joins the realtime cohorts beta when a member opts in. "
@@ -466,6 +484,7 @@ CONSTANCE_CONFIG = {
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "STATIC_COHORT_RECONCILIATION_ENABLED",
     "CIMD_PROVISIONING_REQUIRES_ORGANIZATION",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
@@ -533,6 +552,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SHARD_THREADS",
     "WEB_ANALYTICS_WARMING_SHARDS",
     "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
+    "WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED",
+    "WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT",
     "REALTIME_COHORT_JOIN_OPEN",
     "WORKOS_RADAR_LOGIN_MODE",
     "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
