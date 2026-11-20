@@ -1144,3 +1144,8 @@ def board_stream_cached_event(cached: list[dict[str, Any]], *, force: bool) -> D
 def insight_frames(query: Mapping[str, Any], result: InsightResult) -> list[Frame] | None:
     """Chart-ready frames for a cached insight result, or None when its query kind or display has none yet."""
     return frames_logic.insight_frames(query, result)
+
+
+def has_frames(query: Mapping[str, Any]) -> bool:
+    """Whether `insight_frames` can return frames for this query's kind and display."""
+    return frames_logic.has_frames(query)

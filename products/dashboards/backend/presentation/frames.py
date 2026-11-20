@@ -8,7 +8,7 @@ from rest_framework import serializers
 from posthog.caching.insight_result import InsightResult
 from posthog.renderers import SafeJSONRenderer
 
-from products.dashboards.backend.facade.api import insight_frames
+from products.dashboards.backend.facade.api import has_frames, insight_frames
 
 
 class FramesRenderer(SafeJSONRenderer):
@@ -62,10 +62,16 @@ class FrameSerializer(serializers.Serializer):
         return fields
 
 
+def requires_parsed_result(query: Any) -> bool:
+    """Whether a tile's frames are built from its parsed result. Other tiles keep the raw cached bytes."""
+    return isinstance(query, Mapping) and has_frames(query)
+
+
 def cached_tile_format(insight_data: dict[str, Any], query: Any, result: InsightResult) -> dict[str, Any]:
-    """The `format` and `frames` of a cached tile hit. A tile with frames drops its result, which the frames replace."""
+    """The `format` and `frames` of a cached tile hit. A tile with frames nulls its result, which the frames replace."""
     frames = insight_frames(query, result) if isinstance(query, Mapping) else None
     if frames is None:
         return {"format": CachedTileFormat.RESULT}
-    insight_data.pop("result", None)
+    # Null rather than absent: the published schema requires `result`.
+    insight_data["result"] = None
     return {"format": CachedTileFormat.FRAMES, "frames": frames}

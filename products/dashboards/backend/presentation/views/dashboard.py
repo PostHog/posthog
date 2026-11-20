@@ -186,6 +186,7 @@ from products.dashboards.backend.presentation.frames import (
     FrameSerializer,
     FramesRenderer,
     cached_tile_format,
+    requires_parsed_result,
 )
 from products.dashboards.backend.presentation.query_sharing import (
     DashboardQuerySharingParamsSerializer,
@@ -4541,14 +4542,14 @@ class DashboardsViewSet(
         context["dashboard_access_method"] = dashboard_access_method(request)
         context["compute_surface"] = ComputeSurface.DASHBOARD_CACHED_TILES
         wants_frames = request.query_params.get("format") == FramesRenderer.format
-        # Frames are built from the parsed result, not the raw cached bytes.
-        context["require_parsed_results"] = wants_frames
         # Built once: a serializer per tile deep-copies every declared insight field each time.
         insight_serializer = CachedTileInsightResultSerializer(context=context)
 
         def tile_insight(tile_id: int) -> Insight:
             tile, insight = tiles_by_id[tile_id]
             context["dashboard_tile"] = tile
+            # Frames are built from the parsed result, not the raw cached bytes.
+            context["require_parsed_results"] = wants_frames and requires_parsed_result(insight.query)
             return insight
 
         tile_formats: dict[int, dict[str, Any]] = {}

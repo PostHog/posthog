@@ -190,7 +190,7 @@ class TestDashboardCachedTiles(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         trends, table = response.json()["results"]
         self.assertEqual((trends["status"], trends["format"]), ("hit", "frames"))
-        self.assertNotIn("result", trends["insight"])
+        self.assertIsNone(trends["insight"]["result"])
         [frame] = trends["frames"]
         self.assertEqual(frame["name"], "$pageview")
         self.assertEqual(
