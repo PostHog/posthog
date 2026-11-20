@@ -61,7 +61,7 @@ A quote is valid for 7 days. After that, quote again: more data moves to Glacier
 
 Before the start, confirm with the person that the customer has:
 
-- a role-based AWS S3 integration in that project (note its integration ID),
+- a role-based AWS S3 integration in that project (note its integration ID), whose role trusts PostHog's recording-exports role for the region (the README lists the ARNs). An existing batch export role works once it also trusts that role,
 - a role that allows `s3:PutObject` and `s3:AbortMultipartUpload` on the bucket and prefix,
 - for a KMS-encrypted bucket, KMS permissions on the role and a key policy that allows the role, plus the key ID or ARN (not an alias),
 - the bucket in the same AWS account as the role,

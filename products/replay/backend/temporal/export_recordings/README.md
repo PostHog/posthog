@@ -59,10 +59,12 @@ The header carries viewports because file playback has no events to read them fr
 
 ## What the customer sets up
 
-The export writes through the same role-based AWS S3 integration that S3 batch exports use.
+The export writes through a role-based AWS S3 integration, the kind S3 batch exports use, but PostHog assumes it from a dedicated recording-exports role.
 The customer adds it in the project with the AWS S3 setup modal ("assume IAM role"), which lists the trust policy requirements:
 
-- The role trusts PostHog's batch export role for the region.
+- The role trusts PostHog's recording-exports role for the region, not only the batch export role the setup modal shows:
+  - US: `arn:aws:iam::309986977637:role/posthog-external-recording-exports`
+  - EU: `arn:aws:iam::623789312881:role/posthog-external-recording-exports`
 - The trust policy requires `sts:ExternalId` equal to `posthog-<organization id>`.
   PostHog refuses a role that does not enforce it.
 - The role allows `s3:PutObject` and `s3:AbortMultipartUpload` on the bucket and prefix.
