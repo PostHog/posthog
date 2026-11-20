@@ -52,6 +52,7 @@ from products.signals.backend.models import (
     SignalReportMonitoringResult,
     SignalScoutConfig,
     SignalScoutEmission,
+    SignalScratchpadRevision,
     scout_lists_reports_in_inbox,
 )
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutOrigin
@@ -1020,6 +1021,33 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
 # --- Memory ---------------------------------------------------------------
 
 
+class ScratchpadRevisionSerializer(serializers.Serializer):
+    """The state a scratchpad entry held before one write replaced or deleted it."""
+
+    content = serializers.CharField(help_text="The entry's content before the change.")
+    expires_at = serializers.CharField(
+        allow_null=True, help_text="The entry's ISO-8601 expiry before the change, or null if it was durable."
+    )
+    change = serializers.ChoiceField(
+        choices=SignalScratchpadRevision.Change.choices,
+        help_text="`overwrite` when a `remember` replaced this state, `forget` when a delete removed it.",
+    )
+    changed_at = serializers.CharField(help_text="ISO-8601 time of the change.")
+    changed_by_run_id = serializers.CharField(
+        allow_null=True, help_text="Scout run that made the change, or null when a pipeline stage or a person did."
+    )
+    changed_by_skill = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Who made the change: the skill name of the scout run, or the report-pipeline stage "
+            "(`pipeline:report-research`, `pipeline:implementation`). Null when a person deleted the entry."
+        ),
+    )
+    changed_by_run_url = serializers.CharField(
+        allow_null=True, help_text="Relative Tasks UI deep-link to the run that made the change, or null."
+    )
+
+
 class ScratchpadEntrySerializer(serializers.Serializer):
     """`SignalScratchpad` projection used by `search-memory` and `remember`."""
 
@@ -1055,6 +1083,16 @@ class ScratchpadEntrySerializer(serializers.Serializer):
         allow_null=True,
         required=False,
         help_text="Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.",
+    )
+    revisions = ScratchpadRevisionSerializer(
+        many=True,
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Earlier versions of this entry, newest first, when the search set `include_revisions`; null otherwise. "
+            "For a key that was deleted, the entry has blank `content` and null `created_at`, and the newest "
+            "revision is the deleted state."
+        ),
     )
 
 
@@ -1125,6 +1163,15 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
             "full body. Ignored when `keys_only=true`."
         ),
     )
+    include_revisions = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed "
+            "it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two "
+            "weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -1141,6 +1188,11 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
                 "To read one known entry, pass `key` instead."
             )
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("include_revisions") and not attrs.get("key"):
+            raise serializers.ValidationError({"include_revisions": "Pass `key` to read one entry's revisions."})
+        return attrs
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -3648,8 +3700,8 @@ GRANTABLE_REPORT_ACTIONS: list[str] = sorted(kind.value for kind in SCOUT_GRANTA
 
 _REPORT_ACTIONS_HELP = (
     "Report actions this scout may start on inbox reports, from "
-    f"{', '.join(f'`{kind}`' for kind in GRANTABLE_REPORT_ACTIONS)}. Empty by default, so every start is "
-    "refused. A scout cannot send its own message with an action. Each action starts an agent run with "
+    f"{' and '.join(f'`{kind}`' for kind in GRANTABLE_REPORT_ACTIONS)}. Empty by default. A scout "
+    "cannot send its own message with an action. Each action starts an agent run with "
     "the full access of the person the scout's runs act as, so only that person can add one. A project "
     "admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds "
     "the grant. Applies from the scout's next run."

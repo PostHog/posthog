@@ -3,7 +3,7 @@
 Core reaches these through ``facade/temporal.py``.
 """
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from products.messaging.backend.temporal.activities import (
     fail_contacts_cohort_activity,
@@ -15,9 +15,12 @@ from products.messaging.backend.temporal.activities import (
 )
 from products.messaging.backend.temporal.workflow import ProviderContactsImportWorkflow, ProviderImportWorkflow
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [ProviderImportWorkflow, ProviderContactsImportWorkflow]
 
-ACTIVITIES: list[Callable[..., object]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     run_provider_import_step_activity,
     finish_provider_import_run_activity,
     import_contact_chunk_activity,

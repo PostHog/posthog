@@ -29,6 +29,15 @@ import {
 
 export type ContextMillRevalidationSource = 'warmup' | 'initialize' | 'discover'
 
+// A skill (`posthog://skills/<category>/…`) is in `skills` and its category, so clients can keep one category.
+function resourceGroups(uri: string): string[] {
+    if (uri.startsWith('ui://')) {
+        return ['apps']
+    }
+    const [kind = '', category] = uri.replace(/^posthog:\/\//, '').split('/')
+    return kind === 'skills' && category ? [kind, category] : [kind]
+}
+
 export class ResourceCatalog {
     private readonly env: Env
     private readonly contextMillCache: ContextMillResourceCache
@@ -72,8 +81,15 @@ export class ResourceCatalog {
         this.allResources = [...this.resources, ...this.uiAppResources]
     }
 
-    getResourcesList(): ListResourcesResult {
-        return { resources: this.allResources }
+    getResourcesList(groups?: readonly string[]): ListResourcesResult {
+        if (!groups) {
+            return { resources: this.allResources }
+        }
+        return {
+            resources: this.allResources.filter((resource) =>
+                resourceGroups(resource.uri).some((group) => groups.includes(group))
+            ),
+        }
     }
 
     async readResource(params: Record<string, unknown> | undefined): Promise<ReadResourceResult> {
