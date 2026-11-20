@@ -45,11 +45,12 @@ fi
 # manifest. Only the last marker counts, because later exports override earlier ones:
 # after a switch from manifest A to B and back to A, the B block is in effect.
 # The marker goes in the same write as the exports, so a failed write leaves no marker
-# and the next start tries again. The hook only appends and never rewrites the file,
-# because lines in it that this hook did not write are not its to remove.
+# and the next start tries again. Each write starts with a newline, so the first export
+# never joins an unterminated last line. The hook only appends and never rewrites the
+# file, because lines in it that this hook did not write are not its to remove.
 MARKER_PREFIX="# setup-flox manifest-hash: "
 ENV_MARKER="${MARKER_PREFIX}${MANIFEST_HASH}"
-LAST_MARKER=$(grep -F "$MARKER_PREFIX" "$CLAUDE_ENV_FILE" 2>/dev/null | tail -n 1)
+LAST_MARKER=$(grep "^$MARKER_PREFIX" "$CLAUDE_ENV_FILE" 2>/dev/null | tail -n 1)
 if [ "$LAST_MARKER" = "$ENV_MARKER" ]; then
   exit 0
 fi
@@ -61,7 +62,7 @@ if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   CACHED_HASH=$(head -n 1 <<< "$CACHE_CONTENT" | sed 's/^# manifest-hash: //')
   CACHED_ENV=$(tail -n +2 <<< "$CACHE_CONTENT")
   if [ "$CACHED_HASH" = "$MANIFEST_HASH" ] && [ -n "$CACHED_ENV" ]; then
-    printf '%s\n%s\n' "$CACHED_ENV" "$ENV_MARKER" >> "$CLAUDE_ENV_FILE"
+    printf '\n%s\n%s\n' "$CACHED_ENV" "$ENV_MARKER" >> "$CLAUDE_ENV_FILE"
     exit 0
   fi
 fi
@@ -91,10 +92,11 @@ if [ -d "$VENV_DIR/bin" ]; then
 fi
 
 mkdir -p "$(dirname "$CACHE_FILE")"
-printf '%s%s\n' "$ENV_CONTENT" "$ENV_MARKER" >> "$CLAUDE_ENV_FILE"
+printf '\n%s%s\n' "$ENV_CONTENT" "$ENV_MARKER" >> "$CLAUDE_ENV_FILE"
 # Another session can read the cache while this one writes it. The rename makes the
-# reader see the old file or the new one, never a partial file.
-printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE.$$" &&
+# reader see the old file or the new one, never a partial file. The cache can hold
+# credentials, such as FLAGS_REDIS_URL, so only the owner can read it.
+(umask 077 && printf '# manifest-hash: %s\n%s' "$MANIFEST_HASH" "$ENV_CONTENT" > "$CACHE_FILE.$$") &&
   mv -f "$CACHE_FILE.$$" "$CACHE_FILE"
 
 exit 0
