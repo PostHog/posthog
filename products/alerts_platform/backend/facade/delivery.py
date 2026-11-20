@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from products.alerts_platform.backend.delivery import (
     addresses,
@@ -13,11 +14,13 @@ from products.alerts_platform.backend.delivery import (
     recipients,
     refusal_notices,
     subscribers,
+    team_flags,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
     DeliveryPathChooser,
+    DeliveryTestOutcome,
     DestinationResolver,
     LateImageResult,
     LegacyEventEmitter,
@@ -31,6 +34,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceSlackRenderer,
     SubscriberAccess,
 )
+from products.alerts_platform.backend.logic import alert_destinations
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -114,3 +118,32 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
     )
 
     return add_late_image_to_evaluation(request, late_detail)
+
+
+def team_flag_enabled(flag: str, team: Team) -> bool | None:
+    """Whether a PostHog feature flag is on for the team. None when the flag could not be evaluated."""
+    return team_flags.team_flag_enabled(flag, team)
+
+
+def delivery_test_destination_ids(*, team_id: int, public_id: UUID) -> frozenset[UUID]:
+    """The alert's destination rows that `send_delivery_test` sends to: enabled ones that hear firings, on
+    an alert the platform sends, other than subscribers, incident managers, and rows a live HogFunction
+    stands behind. A source sends its own test to its subscribers and its HogFunctions."""
+    return frozenset(
+        destination.id
+        for destination in alert_destinations.delivery_test_destinations(team_id=team_id, public_id=public_id)
+    )
+
+
+def send_delivery_test(
+    *, team_id: int, public_id: UUID, source: SourceKind, alert_name: str, source_alert_url: str
+) -> DeliveryTestOutcome:
+    """Sends one test message, worded as a firing of `alert_name`, to each destination
+    `delivery_test_destination_ids` names, through native delivery. A destination that fails does not
+    stop the others, and is counted in `failed`."""
+    # Imported here, so the modules that import this facade as they load do not pull in every transport.
+    from products.alerts_platform.backend.delivery.trial_send import send_delivery_test as send  # noqa: PLC0415
+
+    return send(
+        team_id=team_id, public_id=public_id, source=source, alert_name=alert_name, source_alert_url=source_alert_url
+    )

@@ -4,22 +4,34 @@ from typing import Any
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.db import transaction
+
 from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.capture import CaptureInternalResult
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.persons import add_cohort_members, create_person
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.cohorts.backend.facade.api import get_cohort_ref
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
-from products.workflows.backend.facade.contracts import PeopleImportInvalid
-from products.workflows.backend.services import people_import
+from products.workflows.backend.facade.contracts import (
+    ContactChunkOutcome,
+    ContactsCohortFilled,
+    ContactsCohortGone,
+    ContactsImportAccessLost,
+    PeopleImportInvalid,
+    ProviderContactsResult,
+)
+from products.workflows.backend.services import people_import, provider_contacts
 from products.workflows.backend.services.people_import import start_people_import
 from products.workflows.backend.tasks import people_import as people_import_tasks
 from products.workflows.backend.tasks.people_import import (
@@ -78,7 +90,8 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
             {"Email": "other@example.com", "Distinct ID": "user-1", "subscriptionPlan": "Same person twice"},
         ]
 
-        summary = start_people_import(team=self.team, user=self.user, name="Spring sale", rows=rows)
+        with self.captureOnCommitCallbacks(execute=True):
+            summary = start_people_import(team=self.team, user=self.user, name="Spring sale", rows=rows)
 
         assert [(p["distinct_id"], p["properties"]) for p in self.stored_people()] == [
             ("user-1", {"email": "ada@example.com", "subscriptionPlan": "Pro"}),
@@ -98,6 +111,51 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         self.dispatch.assert_called_once()
         assert self.stall_check.call_args.kwargs["countdown"] == 3600
 
+    def test_an_import_into_an_existing_cohort_can_skip_new_people_and_events(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-1"], properties={"email": "ada@example.com"})
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(team=self.team, name="Pro customers", is_static=True)
+        rows = [{"email": "Ada@example.com", "plan": "Pro"}, {"email": "new@example.com", "plan": "Free"}]
+
+        with (
+            patch("products.workflows.backend.tasks.people_import.schedule_people_import_fill") as fill,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            summary = start_people_import(
+                team=self.team,
+                user=self.user,
+                name="Ignored",
+                rows=rows,
+                cohort_id=cohort.id,
+                create_missing=False,
+                send_events=False,
+            )
+
+        assert [(p["distinct_id"], p["properties"]) for p in self.stored_people()] == [
+            ("user-1", {"email": "Ada@example.com", "plan": "Pro"})
+        ]
+        assert (summary.cohort_id, summary.row_count, summary.new_people, summary.skipped_new_people) == (
+            cohort.id,
+            1,
+            0,
+            1,
+        )
+        self.dispatch.assert_not_called()
+        assert fill.call_args.kwargs["cohort_id"] == cohort.id
+        assert Cohort.objects.filter(team=self.team).count() == 1
+        cohort.refresh_from_db()
+        assert cohort.is_calculating
+
+    def test_a_rolled_back_caller_sends_no_events_and_still_cleans_up(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True), self.assertRaises(RuntimeError):
+            with transaction.atomic():
+                start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "a@example.com"}])
+                raise RuntimeError("a later list failed")
+
+        self.dispatch.assert_not_called()
+        # The stall check deletes the stored rows once the hour is up, because nothing else will.
+        assert self.stall_check.call_args.kwargs["countdown"] == 3600
+
     @parameterized.expand(
         [
             ("id_names_the_person", {"email": "a@example.com", "ID": "user-7"}, ("user-7", {"email": "a@example.com"})),
@@ -111,7 +169,8 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
     def test_id_column_names_the_person_without_a_distinct_id_column(
         self, _name: str, row: dict[str, str], expected: tuple[str, dict[str, str]]
     ) -> None:
-        start_people_import(team=self.team, user=self.user, name="List", rows=[row])
+        with self.captureOnCommitCallbacks(execute=True):
+            start_people_import(team=self.team, user=self.user, name="List", rows=[row])
 
         assert [(p["distinct_id"], p["properties"]) for p in self.stored_people()] == [expected]
 
@@ -176,7 +235,8 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
             access_level=PropertyAccessLevel.READ_WRITE.value,
         )
 
-        start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "ada@example.com"}])
+        with self.captureOnCommitCallbacks(execute=True):
+            start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "ada@example.com"}])
 
         assert [person["distinct_id"] for person in self.stored_people()] == ["user-1"]
 
@@ -190,18 +250,204 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         self.dispatch.assert_not_called()
 
 
+class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = patch.object(provider_contacts, "object_storage", self.storage)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _stage(self, emails: list[str], **kwargs: Any) -> ProviderContactsResult:
+        return provider_contacts.stage_provider_contacts(
+            self.team.id,
+            self.user.id,
+            [{"email": email} for email in emails],
+            import_key="run-1/list-0",
+            create_people=False,
+            send_events=True,
+            cohort_name="Contacts",
+            cohort_description="Imported from a test list.",
+            source="the test list",
+            **kwargs,
+        )
+
+    def _clickhouse_members(self, cohort_id: int) -> set[str]:
+        rows = sync_execute(
+            "SELECT DISTINCT person_id FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort_id},
+        )
+        return {str(row[0]) for row in rows}
+
+    def _stage_ada_after_a_fill_with_bea(self) -> tuple[ProviderContactsResult, set[str]]:
+        people = [
+            create_person(team=self.team, distinct_ids=[f"user-{name}"], properties={"email": f"{name}@example.com"})
+            for name in ("ada", "bea")
+        ]
+        flush_persons_and_events()
+        first = self._stage(["ada@example.com", "bea@example.com"])
+        assert first.cohort_id is not None
+        provider_contacts.fill_contacts_cohort(
+            self.team.id, first.cohort_id, first.storage_prefix, first.chunks, created_by_id=self.user.id
+        )
+        return self._stage(["ada@example.com"]), {str(person.uuid) for person in people}
+
+    @parameterized.expand(
+        [
+            # Cy left the list and Bea unsubscribed.
+            ("first_try", ["ada", "bea"], False, ["ada"]),
+            # A retry must still find the members to remove, so Postgres can't drop them before ClickHouse does.
+            ("after_a_clickhouse_failure", ["ada", "bea"], True, ["ada"]),
+            ("list_emptied", [], False, []),
+        ]
+    )
+    def test_a_rerun_keeps_the_cohort_to_exactly_the_list(
+        self, _name: str, still_listed: list[str], clickhouse_fails_once: bool, members: list[str]
+    ) -> None:
+        people = {
+            name: create_person(
+                team=self.team, distinct_ids=[f"user-{name}"], properties={"email": f"{name}@example.com"}
+            )
+            for name in ("ada", "bea", "cy")
+        }
+        flush_persons_and_events()
+        first = self._stage([f"{name}@example.com" for name in people])
+        assert first.cohort_id is not None
+        add_cohort_members(Cohort.objects.get(id=first.cohort_id), list(people.values()))
+
+        # One person per part, so the cohort fills from several.
+        with patch.object(provider_contacts, "CONTACT_CHUNK_SIZE", 1):
+            again = self._stage([f"{name}@example.com" for name in still_listed], non_members={"bea@example.com"})
+        assert again.cohort_id == first.cohort_id
+        if clickhouse_fails_once:
+            with (
+                patch(
+                    "products.cohorts.backend.models.util.remove_people_from_static_cohort",
+                    side_effect=ConnectionError("clickhouse is busy"),
+                ),
+                self.assertRaises(ConnectionError),
+            ):
+                provider_contacts.fill_contacts_cohort(
+                    self.team.id, first.cohort_id, again.storage_prefix, again.chunks, created_by_id=self.user.id
+                )
+        filled = provider_contacts.fill_contacts_cohort(
+            self.team.id, first.cohort_id, again.storage_prefix, again.chunks, created_by_id=self.user.id
+        )
+
+        assert self._clickhouse_members(first.cohort_id) == {str(people[name].uuid) for name in members}
+        assert Cohort.objects.get(id=first.cohort_id).count == len(members)
+        assert filled == ContactsCohortFilled(members=len(members), removed=3 - len(members))
+
+    @patch.object(provider_contacts, "capture_batch_internal")
+    def test_a_part_stops_when_the_creator_lost_access_after_staging(self, capture: MagicMock) -> None:
+        staged = self._stage(["ada@example.com"])
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        with self.assertRaises(ContactsImportAccessLost):
+            provider_contacts.import_contact_chunk(
+                self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
+            )
+        capture.assert_not_called()
+
+    def test_a_cohort_deleted_while_the_list_was_sent_is_left_alone(self) -> None:
+        staged, members = self._stage_ada_after_a_fill_with_bea()
+        assert staged.cohort_id is not None
+        Cohort.objects.filter(id=staged.cohort_id).update(deleted=True)
+
+        with self.assertRaises(ContactsCohortGone):
+            provider_contacts.fill_contacts_cohort(
+                self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
+            )
+
+        assert self._clickhouse_members(staged.cohort_id) == members
+
+    def test_a_cohort_deleted_after_the_check_still_keeps_its_members(self) -> None:
+        staged, members = self._stage_ada_after_a_fill_with_bea()
+        assert staged.cohort_id is not None
+        live = get_cohort_ref(team_id=self.team.id, cohort_id=staged.cohort_id)
+        Cohort.objects.filter(id=staged.cohort_id).update(deleted=True)
+
+        # The cohort is deleted between the check and the write.
+        with (
+            patch.object(provider_contacts, "get_cohort_ref", return_value=live),
+            self.assertRaises(Cohort.DoesNotExist),
+        ):
+            provider_contacts.fill_contacts_cohort(
+                self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
+            )
+
+        assert self._clickhouse_members(staged.cohort_id) == members
+
+    def test_the_cohort_keeps_its_members_when_the_creator_lost_edit_access_to_it(self) -> None:
+        staged, members = self._stage_ada_after_a_fill_with_bea()
+        assert staged.cohort_id is not None
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        # Someone else owns the cohort now and made it read-only for the project.
+        Cohort.objects.filter(id=staged.cohort_id).update(created_by=None)
+        AccessControl.objects.create(
+            team=self.team, resource="cohort", resource_id=str(staged.cohort_id), access_level="viewer"
+        )
+
+        with self.assertRaises(ContactsImportAccessLost):
+            provider_contacts.fill_contacts_cohort(
+                self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
+            )
+
+        assert self._clickhouse_members(staged.cohort_id) == members
+
+    @patch.object(provider_contacts, "capture_batch_internal")
+    def test_a_part_resends_only_what_capture_didnt_acknowledge(self, capture: MagicMock) -> None:
+        for name in ("ada", "bea"):
+            create_person(team=self.team, distinct_ids=[f"user-{name}"], properties={"email": f"{name}@example.com"})
+        flush_persons_and_events()
+        staged = self._stage(["ada@example.com", "bea@example.com"])
+        sent: list[list[str]] = []
+
+        def acknowledge_all_but_the_last(*, events: list[dict[str, Any]], **_: Any) -> CaptureInternalResult:
+            sent.append([str(event["distinct_id"]) for event in events])
+            uuids = [str(event["event_uuid"]) for event in events]
+            if len(sent) < 4:
+                return CaptureInternalResult(status_code=200, ok=uuids[:-1], retried=uuids[-1:])
+            return CaptureInternalResult(status_code=200, ok=uuids)
+
+        capture.side_effect = acknowledge_all_but_the_last
+        with self.assertRaises(provider_contacts.ContactsCaptureFailed):
+            provider_contacts.import_contact_chunk(
+                self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
+            )
+        outcome = provider_contacts.import_contact_chunk(
+            self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
+        )
+
+        assert sent == [["user-ada", "user-bea"], ["user-bea"], ["user-bea"], ["user-bea"]]
+        assert outcome == ContactChunkOutcome(people=2, found=2)
+
+
 class TestPeopleImportTasks(_StorageMixin, BaseTest):
-    def _stage(self, distinct_ids: tuple[str, ...] = ("user-1",)) -> tuple[int, str]:
+    def _stage(self, distinct_ids: tuple[str, ...] = ("user-1",), *, fill_only: bool = False) -> tuple[int, str]:
         cohort = Cohort.objects.create(team=self.team, name="List", is_static=True, is_calculating=True)
         key = f"workflows_people_imports/team-{self.team.id}/{cohort.pk}.json"
-        people = [{"distinct_id": d, "properties": {"email": f"{d}@example.com"}} for d in distinct_ids]
+        people = [
+            {
+                "distinct_id": d,
+                "properties": {"email": f"{d}@example.com"},
+                **({"fill_only": True} if fill_only else {}),
+            }
+            for d in distinct_ids
+        ]
         self.storage.write(key, json.dumps(people))
         return cohort.pk, key
 
+    @parameterized.expand([("overwrites", False, "$set"), ("fills_only_what_is_missing", True, "$set_once")])
     @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
     @patch("products.workflows.backend.tasks.people_import.capture_batch_internal")
-    def test_capture_sets_each_row_on_its_person(self, capture: MagicMock, fill: MagicMock) -> None:
-        cohort_id, key = self._stage()
+    def test_capture_sets_each_row_on_its_person(
+        self, _name: str, fill_only: bool, operation: str, capture: MagicMock, fill: MagicMock
+    ) -> None:
+        cohort_id, key = self._stage(fill_only=fill_only)
         capture.return_value.succeeded.return_value = True
 
         capture_people_import(team_id=self.team.id, cohort_id=cohort_id, storage_key=key)
@@ -210,7 +456,7 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         assert (event["event"], event["distinct_id"], event["properties"]) == (
             "$set",
             "user-1",
-            {"$set": {"email": "user-1@example.com"}, "$geoip_disable": True},
+            {operation: {"email": "user-1@example.com"}, "$geoip_disable": True},
         )
         assert capture.call_args.kwargs["process_person_profile"] is True
         fill.assert_called_once()
@@ -310,15 +556,16 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         assert (key in self.storage.objects) is (outcome == "waits")
         assert cohort.is_calculating is (outcome != "fails")
 
-    @parameterized.expand([("still_calculating", True, True), ("finished", False, False)])
-    def test_stall_check_ends_an_import_that_never_finished(self, _name: str, calculating: bool, ended: bool) -> None:
+    @parameterized.expand([("rows_left", True, True), ("finished_while_a_later_import_runs", False, False)])
+    def test_stall_check_ends_only_its_own_unfinished_import(self, _name: str, rows_left: bool, ended: bool) -> None:
         cohort_id, key = self._stage()
-        Cohort.objects.filter(pk=cohort_id).update(is_calculating=calculating)
+        if not rows_left:
+            self.storage.delete(key)
 
         fail_people_import_if_stalled(team_id=self.team.id, cohort_id=cohort_id, storage_key=key)
 
         cohort = Cohort.objects.get(pk=cohort_id)
-        assert (cohort.errors_calculating, key in self.storage.objects) == ((1, False) if ended else (0, True))
+        assert (cohort.errors_calculating, cohort.is_calculating) == ((1, False) if ended else (0, True))
 
 
 class TestPeopleImportAPI(_StorageMixin, ClickhouseTestMixin, APIBaseTest):

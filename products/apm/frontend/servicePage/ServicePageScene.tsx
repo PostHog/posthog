@@ -12,15 +12,20 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { applicationObservabilityTabUrl } from '../applicationObservabilityLogic'
+import { DependencyTable } from '../DependencyTable'
+import { DeploymentVersionsTable } from '../DeploymentVersionsTable'
+import { endpointOperationUrl } from '../endpointOperationUrl'
 import type { EndpointHealthApi } from '../generated/api.schemas'
 import { healthColumns } from '../healthColumns'
 import { formatMs, formatPercent, formatRate } from '../healthDisplay'
 import { HealthStatusTag } from '../HealthStatusTag'
+import { HealthTableLink } from '../HealthTableLink'
 import { Sparkline } from '../Sparkline'
 import { TelemetryLinks } from '../TelemetryLinks'
 import { ServiceLatencyChart } from './ServiceLatencyChart'
 import { readScopeParam, serviceTracesUrl } from './servicePage'
-import { ERROR_SAMPLE_LIMIT, servicePageLogic, ServicePageLogicProps } from './servicePageLogic'
+import { ERROR_SAMPLE_LIMIT, LATEST_VERSIONS_LIMIT, servicePageLogic, ServicePageLogicProps } from './servicePageLogic'
 import { ServiceRequestsChart } from './ServiceRequestsChart'
 import { ServiceScopeSelectors } from './ServiceScopeSelectors'
 import { ServiceSection } from './ServiceSection'
@@ -36,6 +41,8 @@ export const scene: SceneExport<ServicePageLogicProps> = {
 const SECTIONS = [
     { id: 'summary', title: 'Summary' },
     { id: 'endpoints', title: 'Endpoints' },
+    { id: 'deployments', title: 'Deployments' },
+    { id: 'dependencies', title: 'Dependencies' },
     { id: 'errors', title: 'Errors' },
     { id: 'traces', title: 'Traces' },
     { id: 'logs', title: 'Logs' },
@@ -110,6 +117,13 @@ export function ServicePageScene(): JSX.Element {
         statusCodeErrors,
         statusCodeErrorsLoading,
         statusCodeErrorsFailed,
+        dependencies,
+        dependencySplit,
+        dependenciesLoading,
+        dependenciesFailed,
+        latestVersions,
+        deploymentsLoading,
+        deploymentsFailed,
     } = useValues(servicePageLogic)
     const {
         fetchServicesHealth,
@@ -118,6 +132,8 @@ export function ServicePageScene(): JSX.Element {
         fetchLatencyHeatmap,
         fetchStatusCodeErrors,
         fetchErrorSpans,
+        fetchDependencies,
+        fetchDeployments,
     } = useActions(servicePageLogic)
 
     if (!featureFlags[FEATURE_FLAGS.APPLICATION_OBSERVABILITY]) {
@@ -140,17 +156,18 @@ export function ServicePageScene(): JSX.Element {
             title: 'Endpoint',
             key: 'endpoint',
             render: (_, row) => (
-                <Link
-                    to={urls.tracingOperation(row.service_name, row.endpoint, dateRange)}
-                    className="font-semibold"
-                    data-attr="apm-service-endpoint-operation"
-                >
+                <HealthTableLink to={endpointOperationUrl(row, dateRange)} data-attr="apm-service-endpoint-operation">
                     {row.endpoint}
-                </Link>
+                </HealthTableLink>
             ),
         },
-        ...healthColumns<EndpointHealthApi>(),
+        ...healthColumns<EndpointHealthApi>(endpoints),
     ]
+
+    const tabLinkParams = { service: serviceName, timeRange, environment: scope.environment }
+    const serviceLink = (name: string): { to: string } => ({
+        to: urls.applicationObservabilityService(name, { range: timeRange, environment: scope.environment }),
+    })
 
     return (
         <SceneContent>
@@ -260,6 +277,67 @@ export function ServicePageScene(): JSX.Element {
                                 data-attr="apm-service-endpoints-table"
                             />
                         )}
+                    </ServiceSection>
+                    <ServiceSection id="deployments" title="Deployments">
+                        {deploymentsFailed && !deploymentsLoading ? (
+                            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => fetchDeployments() }}>
+                                Couldn't load versions.
+                            </LemonBanner>
+                        ) : (
+                            <DeploymentVersionsTable
+                                versions={latestVersions}
+                                loading={deploymentsLoading}
+                                emptyState="No versions in this environment and range. Set service.version on your spans to see deployments."
+                                dataAttr="apm-service-deployments-table"
+                            />
+                        )}
+                        <span className="text-xs text-muted">
+                            <span>The newest {LATEST_VERSIONS_LIMIT} versions. </span>
+                            <Link
+                                to={applicationObservabilityTabUrl('deployments', tabLinkParams)}
+                                data-attr="apm-service-deployments-link"
+                            >
+                                See every version
+                            </Link>
+                        </span>
+                    </ServiceSection>
+                    <ServiceSection id="dependencies" title="Dependencies">
+                        {dependenciesFailed && !dependenciesLoading ? (
+                            <LemonBanner
+                                type="error"
+                                action={{ children: 'Retry', onClick: () => fetchDependencies() }}
+                            >
+                                Couldn't load dependencies.
+                            </LemonBanner>
+                        ) : (
+                            <div className="grid gap-4 @min-[80rem]/main-content:grid-cols-2">
+                                <DependencyTable
+                                    title={`Upstream: calls into ${serviceName}`}
+                                    edges={dependencySplit.upstream}
+                                    loading={dependenciesLoading}
+                                    emptyState={`Nothing called ${serviceName} in this range.`}
+                                    dataAttr="apm-service-dependencies-upstream"
+                                    serviceLink={serviceLink}
+                                />
+                                <DependencyTable
+                                    title={`Downstream: calls from ${serviceName}`}
+                                    edges={dependencySplit.downstream}
+                                    loading={dependenciesLoading}
+                                    emptyState={`${serviceName} called nothing in this range.`}
+                                    dataAttr="apm-service-dependencies-downstream"
+                                    serviceLink={serviceLink}
+                                />
+                            </div>
+                        )}
+                        <span className="text-xs text-muted">
+                            {dependencies?.truncated ? <span>Only the busiest calls are shown. </span> : null}
+                            <Link
+                                to={applicationObservabilityTabUrl('dependencies', tabLinkParams)}
+                                data-attr="apm-service-dependencies-link"
+                            >
+                                Open the dependency map for this service
+                            </Link>
+                        </span>
                     </ServiceSection>
                     <ServiceSection id="errors" title="Errors">
                         <ServiceTopErrors

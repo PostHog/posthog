@@ -49,12 +49,6 @@ export function splitScratchpadKey(key: string): {
     : { kind: null, body: key };
 }
 
-/** `signals-scout-apm` → `apm`. The fleet prefix is noise once you're inside
- * the scouts surface. */
-export function scoutDisplayName(skill: string): string {
-  return skill.replace(/^signals-scout-/, "");
-}
-
 /**
  * Group entries by their key namespace. Entries arrive newest-first; that order
  * is preserved within each cluster, and the clusters are ordered by their most

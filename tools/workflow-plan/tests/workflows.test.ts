@@ -2,11 +2,18 @@
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { load } from 'js-yaml'
 import { spawnSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { type JsonValue, evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
+import {
+    type JsonValue,
+    evaluateCondition,
+    evaluateTemplate,
+    evaluateValue,
+    planFunctions,
+} from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -91,6 +98,7 @@ const DEPOT_BACKEND = '.depot/workflows/ci-backend.yml'
 const depotBackend = suite(DEPOT_BACKEND, backendSelectors)
 const frontend = suite('ci-frontend.yml', frontendSelectors)
 const deltalite = suite('build-deltalite.yml')
+const agentEgress = suite('ci-agent-egress.yml')
 const PINNED_WORKFLOWS = [DEPOT_BACKEND, 'ci-frontend.yml']
 
 interface ReleaseWorkflow {
@@ -184,6 +192,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'test-selection-verdict',
             ],
         }
@@ -229,12 +238,21 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'prime-schema-cache',
                 'test-selection-verdict',
                 'capture-test-selection',
             ],
             skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
         }
+    ),
+    depotBackend(
+        { name: 'ready PR with Trunk uploads', vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { runs: ['trunk-ownership-map', 'turbo-tests', 'django'] }
+    ),
+    depotBackend(
+        { name: 'master push with Trunk uploads', github: push(), vars: { TRUNK_UPLOAD_ENABLED: 'true' } },
+        { skipped: ['trunk-ownership-map'] }
     ),
     depotBackend(
         { name: 'merge queue', github: mergeQueue() },
@@ -306,6 +324,7 @@ const EXPECTATIONS: Expectation[] = [
                 'django',
                 'get_clickhouse_versions',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'sdk-major-guard',
                 'backend-coverage-report',
             ],
@@ -404,6 +423,51 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     ...RELEASE_WORKFLOWS.flatMap(releaseExpectations),
+    ...[pullRequest(), pullRequest({ fork: true })].map((github, index) =>
+        agentEgress(
+            { name: index ? 'fork PR' : 'ready PR', github, vars: { CD_DEPLOY_ENABLED: 'true' } },
+            { runs: ['test', 'images'], skipped: ['publish'] }
+        )
+    ),
+    ...[push(), workflowDispatch()].map((github, index) =>
+        agentEgress(
+            { name: index ? 'master dispatch' : 'master push', github, vars: { CD_DEPLOY_ENABLED: 'true' } },
+            { runs: ['test', 'images', 'publish'] }
+        )
+    ),
+    agentEgress(
+        { name: 'branch dispatch', github: workflowDispatch('feat/example'), vars: { CD_DEPLOY_ENABLED: 'true' } },
+        { runs: ['test', 'images'], skipped: ['publish'] }
+    ),
+    agentEgress(
+        { name: 'publishing disabled', github: push(), vars: { CD_DEPLOY_ENABLED: 'false' } },
+        { skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'publication paused',
+            github: push(),
+            vars: { CD_DEPLOY_ENABLED: 'true', ORDERED_IMAGE_ALIAS_PAUSED: 'true' },
+        },
+        { runs: ['test', 'images'], skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'foreign repository',
+            github: { ...push(), repository_owner: 'octocat' },
+            vars: { CD_DEPLOY_ENABLED: 'true' },
+        },
+        { skipped: ['publish'] }
+    ),
+    agentEgress(
+        {
+            name: 'failed image smoke check',
+            github: push(),
+            vars: { CD_DEPLOY_ENABLED: 'true' },
+            steps: { images: { 'Check runtime startup, relay transport and enrollment': { outcome: 'failure' } } },
+        },
+        { results: { images: 'failure', publish: 'skipped' } }
+    ),
     deltalite({ name: 'ready PR' }, { runs: ['check-version', 'build-wheels'], skipped: ['publish'] }),
     deltalite(
         { name: 'fork PR', github: pullRequest({ fork: true }) },
@@ -479,6 +543,31 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
                     },
                 },
             },
+        },
+        runs,
+    })),
+    // The backend test selector runs on a legacy diff, and on a ready PR's product-only diff,
+    // where turbo-discover.js trusts a product cascade's selection by phase.
+    ...[
+        { name: 'ready legacy PR', legacy: true, github: pullRequest(), runs: true },
+        { name: 'ready product-only PR', legacy: false, github: pullRequest(), runs: true },
+        { name: 'draft legacy PR', legacy: true, github: pullRequest({ draft: true }), runs: true },
+        { name: 'draft product-only PR', legacy: false, github: pullRequest({ draft: true }), runs: false },
+        {
+            name: 'product-only PR labeled run-ci-backend',
+            legacy: false,
+            github: pullRequest({ labels: ['run-ci-backend'] }),
+            runs: false,
+        },
+        { name: 'merge queue product-only PR', legacy: false, github: mergeQueue(), runs: false },
+    ].map(({ name, legacy, github, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'turbo-discover',
+        step: 'select',
+        scenario: {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ backend: true, legacy }) } },
         },
         runs,
     })),
@@ -602,6 +691,79 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
         },
         runs,
     })),
+    ...(
+        [
+            {
+                name: 'passing shard',
+                tests: 'success',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: false,
+            },
+            {
+                name: 'masked failure the rerun clears',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: true,
+                verdictFails: false,
+            },
+            {
+                name: 'masked failure the rerun does not clear',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'failure',
+                reruns: true,
+                verdictFails: true,
+            },
+            {
+                name: 'failure the gate does not clear',
+                tests: 'failure',
+                gate: 'failure',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: true,
+            },
+            {
+                name: 'failure with quarantine off',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'false',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: true,
+            },
+        ] as const
+    ).flatMap(({ name, tests, gate, quarantine, rerun, reruns, verdictFails }) =>
+        [
+            { step: 'quarantine_rerun', runs: reruns },
+            { step: 'test_verdict', runs: verdictFails },
+        ].map(({ step, runs }) => ({
+            file: DEPOT_BACKEND,
+            job: 'turbo-tests',
+            step,
+            scenario: {
+                name: `merge queue, ${name}`,
+                github: mergeQueue(),
+                vars: { TRUNK_UPLOAD_ENABLED: 'true', TRUNK_QUARANTINE_ENABLED: quarantine },
+                steps: {
+                    ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                    ...backendSelectors,
+                    'turbo-tests': {
+                        'run-product-tests': { outcome: tests },
+                        quarantine_gate: { outcome: gate },
+                        quarantine_rerun: { outcome: rerun },
+                    },
+                },
+            },
+            runs,
+        }))
+    ),
 ]
 
 const namedJobs = (file: string): Set<string> =>
@@ -1122,28 +1284,38 @@ describe('CI workflow run plans', () => {
         expect(cleanup?.runs ?? false).toBe(runs)
     })
 
-    it.each([
-        { result: 'success', exitCode: 0 },
-        { result: 'failure', exitCode: 1 },
-        { result: 'cancelled', exitCode: 1 },
-    ])('mobile gate reports an API-only typecheck $result', ({ result, exitCode }) => {
-        const script = evaluateValue(
-            workflow('mobile-ci.yml').jobs.mobile_checks?.steps?.[0]?.run,
-            {
-                needs: {
-                    changes: { result: 'success', outputs: { mobile: 'false', api_types: 'true' } },
-                    check: { result },
+    describe.each([
+        { name: 'API-only typecheck', output: 'api_types', job: 'check' },
+        { name: 'replay bundle verification', output: 'replay_bundle', job: 'replay_bundle' },
+    ])('mobile gate for $name', ({ output, job }) => {
+        it.each([
+            { result: 'success', exitCode: 0 },
+            { result: 'failure', exitCode: 1 },
+            { result: 'cancelled', exitCode: 1 },
+        ])('reports $result', ({ result, exitCode }) => {
+            const script = evaluateValue(
+                workflow('mobile-ci.yml').jobs.mobile_checks?.steps?.[0]?.run,
+                {
+                    needs: {
+                        changes: {
+                            result: 'success',
+                            outputs: { mobile: 'false', api_types: 'false', replay_bundle: 'false', [output]: 'true' },
+                        },
+                        check: { result: 'skipped' },
+                        replay_bundle: { result: 'skipped' },
+                        [job]: { result },
+                    },
                 },
-            },
-            planFunctions({
-                dependenciesSucceeded: result === 'success',
-                dependenciesFailed: result === 'failure',
-                cancelled: false,
-            })
-        )
-        const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
-        expect(gate.error).toBeUndefined()
-        expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+                planFunctions({
+                    dependenciesSucceeded: result === 'success',
+                    dependenciesFailed: result === 'failure',
+                    cancelled: false,
+                })
+            )
+            const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
+            expect(gate.error).toBeUndefined()
+            expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+        })
     })
 
     it.each([
@@ -1240,20 +1412,69 @@ describe('CI workflow run plans', () => {
         }).toEqual({ didNotRun: [], didNotSkip: [], filterRuns: false, productTimings: true })
     })
 
+    const fullDjangoLegs = ['Core', 'Core poe', 'Temporal', 'compat', 'json-targets']
     it.each([
-        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, false],
+        ['3-hourly schedule', { ...schedule(), event: { schedule: '23 */3 * * *' } }, fullDjangoLegs, 1],
         [
             'off-hour schedule',
             { ...schedule(), event: { schedule: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *' } },
-            true,
+            ['Core'],
+            0,
         ],
-        ['schedule without a cron string', { ...schedule(), event: {} }, false],
-        ['manual dispatch', workflowDispatch(), false],
-        ['merge queue', mergeQueue(), false],
-    ] as const)('the core-only scheduled scope on %s', (_name, github, coreOnly) => {
+        ['schedule without a cron string', { ...schedule(), event: {} }, fullDjangoLegs, 1],
+        ['manual dispatch', workflowDispatch(), fullDjangoLegs, 1],
+        ['merge queue', mergeQueue(), ['Core', 'Temporal', 'compat', 'json-targets'], 1],
+    ] as const)('the core-only scheduled scope on %s', (_name, github, djangoLegs, productJobs) => {
         const depot = workflow(DEPOT_BACKEND)
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
-        expect(evaluateValue(depot.env?.CORE_ONLY_RUN, { github }, functions)).toBe(coreOnly)
+        const context = {
+            github,
+            needs: {
+                changes: { outputs: { legacy: 'true' } },
+                get_clickhouse_versions: {
+                    outputs: {
+                        oldest_supported_image: 'clickhouse/clickhouse-server:old',
+                        compat_matrix: '[{"clickhouse-server-image":"clickhouse/clickhouse-server:compat"}]',
+                    },
+                },
+                'turbo-discover': { outputs: { mode: 'full', run_legacy: 'true', matrix: '[{"group":"a"}]' } },
+            },
+        }
+        const buildInclude = (job: string): Record<string, JsonValue>[] => {
+            const step = depot.jobs[job]?.steps?.find((candidate) => candidate.id === 'build')
+            const env = Object.fromEntries(
+                Object.entries({ CORE_ONLY_RUN: depot.env?.CORE_ONLY_RUN, ...step?.env }).map(([name, value]) => [
+                    name,
+                    evaluateTemplate(value, context, functions),
+                ])
+            )
+            const dir = mkdtempSync(path.join(tmpdir(), 'matrix-'))
+            try {
+                const output = path.join(dir, 'output')
+                const result = spawnSync(
+                    'bash',
+                    ['--noprofile', '--norc', '-eo', 'pipefail', '-c', String(step?.run)],
+                    {
+                        env: { PATH: process.env.PATH, ...env, GITHUB_OUTPUT: output },
+                        encoding: 'utf8',
+                    }
+                )
+                expect(result.status, result.stderr || result.stdout).toBe(0)
+                return JSON.parse(/^include=(.*)$/m.exec(readFileSync(output, 'utf8'))![1]!)
+            } finally {
+                rmSync(dir, { recursive: true, force: true })
+            }
+        }
+        const legName = (entry: Record<string, JsonValue>): string =>
+            entry.compat
+                ? 'compat'
+                : entry['json-targets']
+                  ? 'json-targets'
+                  : `${entry.segment}${entry['person-on-events'] ? ' poe' : ''}`
+        expect({
+            djangoLegs: [...new Set(buildInclude('build_django_matrix').map(legName))],
+            productJobs: buildInclude('build-product-test-matrix').length,
+        }).toEqual({ djangoLegs, productJobs })
     })
 
     it.each([
@@ -1337,11 +1558,11 @@ describe('CI workflow run plans', () => {
             github,
             steps: {
                 ...allFiltersChanged(wf),
-                'code-quality': { 'Check static typing': { outcome } },
+                mypy: { 'Check static typing': { outcome } },
             },
         })
         expect(plan.errors).toEqual([])
-        expect(plan.jobs['code-quality']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+        expect(plan.jobs['mypy']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
     })
 
     it.each([
@@ -1391,6 +1612,25 @@ describe('CI workflow run plans', () => {
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
         const groupFor = (github: Scenario['github']): unknown => evaluateValue(group, { github }, functions)
         expect(groupFor(pullRequest({ headRef: 'scheduled' }))).not.toBe(groupFor(schedule()))
+    })
+
+    it('agent egress serializes publication by commit and cancels only superseded PR runs', () => {
+        const concurrency = workflow('ci-agent-egress.yml').concurrency
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (github: Scenario['github']): unknown =>
+            evaluateValue(concurrency?.group, { github }, functions)
+        const otherCommit = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+        expect(groupFor(push())).toBe(groupFor(workflowDispatch()))
+        expect(groupFor(push())).not.toBe(groupFor({ ...push(), sha: otherCommit }))
+        expect(groupFor(pullRequest())).toBe(groupFor({ ...pullRequest(), sha: otherCommit }))
+        expect(groupFor(pullRequest())).not.toBe(groupFor(pullRequest({ headRef: 'feat/other' })))
+        expect(groupFor(pullRequest({ fork: true, headRef: String(push().sha) }))).not.toBe(groupFor(push()))
+        for (const github of [push(), workflowDispatch(), pullRequest()]) {
+            expect(evaluateValue(concurrency?.['cancel-in-progress'], { github }, functions)).toBe(
+                github.event_name === 'pull_request'
+            )
+        }
     })
 
     it.each([

@@ -62,7 +62,7 @@ AppStoreConnect,issuer_id key_id private_key vendor_number,,,app_ids,,app-store-
 Appcues,api_key api_secret account_id region,,,,,appcues
 Appdirect,,,,,,appdirect
 Appdynamics,host account_name auth_method,,,metric_paths event_types,,appdynamics
-Appfigures,personal_access_token,,,aso_countries,,appfigures
+Appfigures,personal_access_token,,,aso_countries estimate_products,,appfigures
 Appfolio,,,,,,appfolio
 Appfollow,api_key,,,,,appfollow
 AppleSearchAds,auth_method ad_account_id org_id,auth_method=oauth,,start_date,,apple-ads
@@ -461,7 +461,7 @@ Fillout,api_key api_base_url,,,,,fillout
 Finage,api_key,,,symbols forex_symbols crypto_symbols start_date,,finage
 FinancialModelling,api_key,,,symbols,,financial-modelling
 Finnhub,api_key,,,symbols indices exchange,,finnhub
-Finnworlds,api_key,,,tickers countries,,finnworlds
+Finnworlds,api_key,,,tickers countries currencies,,finnworlds
 Finout,,,,,,finout
 Fintoc,api_key link_tokens,,,,,fintoc
 FireHydrant,api_key region,,,,,fire-hydrant
@@ -703,7 +703,7 @@ Klar,,,,,,klar
 Klarna,api_key username region environment,,,,,klarna
 Klaus,subdomain api_token,,,,,klaus
 Klaviyo,api_key,,,conversion_metric_id,,klaviyo
-Knock,api_key,,,object_collections audience_keys,,knock
+Knock,api_key,,,object_collections audience_keys in_app_feed_channel_ids,,knock
 Knowbe4,api_key region,,,,,knowbe4
 Kommo,subdomain api_key,,,,,kommo
 Komodor,api_key region,,,,,komodor

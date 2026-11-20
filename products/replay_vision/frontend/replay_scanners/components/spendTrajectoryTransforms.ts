@@ -207,7 +207,8 @@ export function buildSpendTrajectory({
     const pausedAtLimit = cap !== null && spentTotal >= cap
     const crossing = resolveSpendCrossing(capReachDate, cap, spentTotal, axis)
     const free = quota.free_monthly_credits
-    const freeCredits = resolveFreeCreditsLine(free, cap, Math.max(cap ?? 0, endValue, spentTotal, free, 1))
+    const freeCredits =
+        free === null ? null : resolveFreeCreditsLine(free, cap, Math.max(cap ?? 0, endValue, spentTotal, free, 1))
 
     const series: Series[] = [
         {

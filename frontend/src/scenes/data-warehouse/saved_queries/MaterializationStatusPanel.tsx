@@ -392,6 +392,7 @@ export function MaterializationStatusPanel({
                         pageSize: DEFAULT_JOBS_PAGE_SIZE,
                         currentPage: jobsPage,
                         entryCount: jobsPageResults?.count,
+                        entryCountIsLowerBound: jobsPageResults?.count_is_capped,
                         // PaginationControl decides whether an arrow is enabled from the entry count, not
                         // from these handlers, so withholding one while a page loads would leave a live
                         // arrow that does nothing. Let the click through: the page loader breakpoints, so

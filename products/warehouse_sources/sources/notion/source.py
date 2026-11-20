@@ -8,7 +8,7 @@ from products.warehouse_sources.sources.notion.notion import (
     NOTION_VERSION_2025_09_03,
     NOTION_VERSION_2026_03_11,
     NotionResumeConfig,
-    check_permission_groups_access,
+    check_admin_endpoints_access,
     notion_source,
     validate_credentials as validate_notion_credentials,
 )
@@ -75,7 +75,7 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # The Admin API entries come first: they share the api.notion.com prefix, and the first match wins.
         return {
-            "Notion permission_groups table requires an organization bot token": ADMIN_TOKEN_MISSING_ERROR,
+            "Notion Admin API tables require an organization bot token": ADMIN_TOKEN_MISSING_ERROR,
             "401 Client Error: Unauthorized for url: https://api.notion.com/admin": ADMIN_TOKEN_INVALID_ERROR,
             "403 Client Error: Forbidden for url: https://api.notion.com/admin": ADMIN_TOKEN_FORBIDDEN_ERROR,
             "401 Client Error: Unauthorized for url: https://api.notion.com": "Your Notion integration token is invalid or expired. Please generate a new token and reconnect.",
@@ -121,7 +121,13 @@ Create an internal integration at [notion.so/my-integrations](https://www.notion
 
 Then **share** each page or database you want to sync with the integration (via the page's `•••` menu → Connections), otherwise it will not be visible to the sync.
 
-To sync the `permission_groups` table, also enter an organization bot token with the `permission-group:read` scope. Organization owners create these tokens in the Notion organization console. This needs a Notion Enterprise plan.
+Internal integrations work on every Notion plan. If you can't create one, ask a workspace owner in Notion.
+
+Optional: to also sync the Notion Admin API tables, enter an organization bot token. Only these tables need a Notion Enterprise plan. Organization owners create these tokens in the Notion organization console. Give the token the scope of each table you want:
+
+- `permission_groups` and `permission_group_members`: `permission-group:read`
+- `user_credit_usage`: `user:read`
+- `agent_credit_usage`: `workflows:read`
 """,
             iconPath="/static/services/notion.png",
             docsUrl="https://posthog.com/docs/cdp/sources/notion",
@@ -143,6 +149,7 @@ To sync the `permission_groups` table, also enter an organization bot token with
                         required=False,
                         placeholder="",
                         secret=True,
+                        caption="Only for the permission group and credit usage tables. Leave empty to sync everything else.",
                     ),
                 ],
             ),
@@ -195,10 +202,11 @@ To sync the `permission_groups` table, also enter an organization bot token with
         api_version: str | None = None,
     ) -> dict[str, str | None]:
         permissions: dict[str, str | None] = dict.fromkeys(endpoints)
-        if "permission_groups" in permissions:
-            permissions["permission_groups"] = check_permission_groups_access(
-                config.api_key, config.admin_api_key, self.resolve_api_version(api_version)
+        permissions.update(
+            check_admin_endpoints_access(
+                config.api_key, config.admin_api_key, self.resolve_api_version(api_version), endpoints
             )
+        )
         return permissions
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[NotionResumeConfig]:

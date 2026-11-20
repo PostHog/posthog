@@ -6,11 +6,13 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
@@ -88,10 +90,6 @@ class TestWelcomeEndpoint(APIBaseTest):
         self.assertNotIn(self.user.email, emails)
 
     def test_team_members_respect_member_list_visibility(self):
-        from posthog.constants import AvailableFeature
-
-        from products.access_control.backend.models.access_control import AccessControl
-
         project_mate = User.objects.create_and_join(self.organization, "mate@example.com", None, "Mate")
         User.objects.create_and_join(self.organization, "hidden@example.com", None, "Hidden")
         # Private project: default "none" with explicit grants for the requester and one project mate
@@ -212,13 +210,25 @@ class TestWelcomeEndpoint(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["recent_activity"][0]["entity_name"]), 200)
 
-    def test_recent_activity_excludes_foreign_team_rows(self):
+    @parameterized.expand([("foreign_team",), ("private_project",)])
+    def test_recent_activity_excludes_foreign_team_rows(self, source: str):
         """Rows from teams the user can't access (or teams outside this org) must not leak."""
-        # Use a team id that doesn't belong to this org — we don't need a real Team row, the endpoint
-        # only filters by team_id membership in the current org's team set.
-        foreign_team_id = 9_999_999
+        if source == "private_project":
+            private_team = Team.objects.create(organization=self.organization, name="Private")
+            AccessControl.objects.create(
+                team=private_team, resource="project", resource_id=str(private_team.id), access_level="none"
+            )
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            team_id = private_team.id
+        else:
+            # Use a team id that doesn't belong to this org — we don't need a real Team row, the endpoint
+            # only filters by team_id membership in the current org's team set.
+            team_id = 9_999_999
         ActivityLog.objects.create(
-            team_id=foreign_team_id,
+            team_id=team_id,
             scope="Insight",
             activity="created",
             item_id="42",

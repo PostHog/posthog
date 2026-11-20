@@ -51,7 +51,9 @@ from products.signals.backend.activity_summary.search import (
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
+from products.signals.backend.anomaly_scores.read import MIN_CHART_BUCKETS as MIN_CHART_BUCKETS
 from products.signals.backend.anomaly_scores.search import (
+    DEFAULT_MAX_ANOMALY_RATE as DEFAULT_MAX_ANOMALY_RATE,
     AnomalyDashboardNotFound as AnomalyDashboardNotFound,
     AnomalyGroupBy as AnomalyGroupBy,
     AnomalyHistoryFilters as AnomalyHistoryFilters,
@@ -60,6 +62,8 @@ from products.signals.backend.anomaly_scores.search import (
     AnomalyOrder as AnomalyOrder,
     AnomalySearchFilters as AnomalySearchFilters,
     AnomalySearchResult as AnomalySearchResult,
+    AnomalySeriesPoints as AnomalySeriesPoints,
+    AnomalySeriesRef as AnomalySeriesRef,
 )
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
@@ -326,6 +330,13 @@ def search_activity_summaries(
 def search_anomalies(*, team: Team, user: User, filters: AnomalySearchFilters, now: datetime) -> AnomalySearchResult:
     """The anomaly rate of each scored insight series the user can read, most anomalous first."""
     return anomaly_search.search(team, user, filters, now)
+
+
+def get_anomaly_series_points(
+    *, team: Team, user: User, series: Sequence[AnomalySeriesRef], now: datetime
+) -> list[AnomalySeriesPoints]:
+    """The chart points of each requested series the user can read, over the chart window of its interval."""
+    return anomaly_search.chart_points(team, user, series, now)
 
 
 def get_anomaly_insight_history(

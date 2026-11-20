@@ -4545,7 +4545,17 @@ mod tests {
             .with_capture_mode(CaptureMode::Ai)
             .build();
         let mut ctx = test_utils::test_analytics_context();
-        let ai = named_event("$ai_generation");
+        let ai = Event {
+            session_id: Some("sess-ai".to_string()),
+            window_id: Some("win-ai".to_string()),
+            options: crate::v1::analytics::types::RawOptions(serde_json::json!({
+                "process_person_profile": false,
+                "cookieless_mode": false,
+                "disable_skew_correction": true,
+                "product_tour_id": "tour-ai",
+            })),
+            ..named_event("$ai_generation")
+        };
         let ai_uuid = ai.uuid.clone();
         let batch = valid_batch(vec![
             ai,
@@ -4570,6 +4580,22 @@ mod tests {
         let records = ts.mock_producer.get_records();
         assert_eq!(records.len(), 1, "only the AI event may publish");
         assert_eq!(&*records[0].topic, "ai_events");
+        // Ingestion writes these values into properties only from the published options.
+        let captured: common_types::CapturedEvent =
+            serde_json::from_slice(&records[0].payload).unwrap();
+        assert_eq!(
+            captured.options.map(serde_json::Value::Object),
+            Some(serde_json::json!({
+                "session_id": "sess-ai",
+                "window_id": "win-ai",
+                "process_person_profile": false,
+                "cookieless_mode": false,
+                "disable_skew_correction": true,
+                "product_tour_id": "tour-ai",
+                "req_lib": "posthog-rs",
+                "req_lib_version": "1.0.0",
+            }))
+        );
     }
 
     /// Any `$ai_*` name is admitted; every other name drops.

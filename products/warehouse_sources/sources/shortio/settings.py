@@ -27,6 +27,21 @@ SHORTIO_ENDPOINTS: dict[str, ShortioEndpointConfig] = {
         path="https://statistics.short.io/statistics/link/{link_id}/by_interval",
         primary_keys=["domain_id", "link_id", "x"],
     ),
+    "domain_by_interval": ShortioEndpointConfig(
+        name="domain_by_interval",
+        path="https://statistics.short.io/statistics/domain/{domain_id}/by_interval",
+        primary_keys=["domain_id", "x"],
+    ),
+    "domain_top": ShortioEndpointConfig(
+        name="domain_top",
+        path="https://statistics.short.io/statistics/domain/{domain_id}/top?column={dimension}",
+        primary_keys=["domain_id", "dimension", "value"],
+    ),
+    "link_top": ShortioEndpointConfig(
+        name="link_top",
+        path="https://statistics.short.io/statistics/link/{link_id}/top?column={dimension}",
+        primary_keys=["domain_id", "link_id", "dimension", "value"],
+    ),
 }
 
 ENDPOINTS = tuple(SHORTIO_ENDPOINTS.keys())

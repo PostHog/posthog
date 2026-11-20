@@ -98,6 +98,7 @@ SANDBOX_PROVIDER: str | None = get_from_env(
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
 AGENT_EGRESS_PROBE_CONFIG_DIR: str = get_from_env("AGENT_EGRESS_PROBE_CONFIG_DIR", "")
+AGENT_EGRESS_STAGING_PROBE_RUN_ID: str = get_from_env("AGENT_EGRESS_STAGING_PROBE_RUN_ID", "")
 AGENT_EGRESS_OBSERVATION_CONFIG: str = get_from_env("AGENT_EGRESS_OBSERVATION_CONFIG", "")
 # Hogland (Firecracker microVM sandbox service) control plane. Deliberately not
 # SANDBOX_*-prefixed: agentsh folds SANDBOX_* URL settings into the in-box egress

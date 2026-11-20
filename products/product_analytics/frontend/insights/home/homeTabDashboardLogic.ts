@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import type { DashboardLoadAction } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
@@ -37,8 +38,8 @@ export interface homeTabDashboardLogicActions {
     dashboardNotFound: () => {
         value: true
     } // dashboardLogic
-    loadDashboard: (payload: { action: import('scenes/dashboard/dashboardLogic').DashboardLoadAction }) => {
-        action: import('scenes/dashboard/dashboardLogic').DashboardLoadAction
+    loadDashboard: (payload: { action: DashboardLoadAction }) => {
+        action: DashboardLoadAction
     } // dashboardLogic
     loadCurrentTeam: () => any // teamLogic
 }

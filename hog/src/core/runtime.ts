@@ -10,6 +10,8 @@ import type {
     SkillsLibraryOptions,
 } from '@posthog/mcp/src/cli/library-types'
 
+import { BUILD_DATE, VERSION } from '@/version'
+
 import { HogError } from './errors'
 import { clackPrompts, type Prompts } from './prompts'
 import { DEFAULT_TELEMETRY_TOKEN } from './telemetry'
@@ -39,9 +41,17 @@ export interface Secrets {
 export interface Runtime {
     env: Env
     platform: NodeJS.Platform
+    arch: string
     // True for `bun src/index.ts`, false for a compiled hog. A run from source keeps its credentials
     // and settings apart, so it never reads or replaces those of an installed hog.
     isDevelopment: boolean
+    // A local build has no date, and never checks for updates.
+    build: { version: string; date: string | undefined }
+    execPath: string
+    isMusl: () => Promise<boolean>
+    runCommand: (argv: string[]) => Promise<number>
+    // Windows can't replace a running exe, so it renames the old one to hog.old.exe, which the next run deletes.
+    replaceExecutable: (path: string, contents: Uint8Array) => Promise<void>
     stdinIsTTY: boolean
     stdoutIsTTY: boolean
     stdoutHasColors: boolean
@@ -101,7 +111,7 @@ async function loadMcpLibrary<T>(load: () => Promise<T>, code: string, name: str
             throw new HogError(
                 code,
                 `hog couldn't find ${name}.`,
-                'Run `pnpm --filter @posthog/hog build:mcp`, then run the command again.'
+                'Run `pnpm --filter hog build:mcp`, then run the command again.'
             )
         }
         throw error
@@ -217,11 +227,53 @@ async function realPath(path: string): Promise<string> {
     }
 }
 
+async function replaceExecutable(path: string, contents: Uint8Array): Promise<void> {
+    const temporary = join(dirname(path), `.hog.${randomUUID()}.tmp`)
+    const old = join(dirname(path), 'hog.old.exe')
+    let movedAside = false
+    try {
+        await writeFile(temporary, contents, { flag: 'wx', mode: 0o755 })
+        await chmod(temporary, 0o755)
+        if (process.platform === 'win32') {
+            await rm(old, { force: true })
+            await rename(path, old)
+            movedAside = true
+        }
+        await rename(temporary, path)
+    } catch (error) {
+        await rm(temporary, { force: true })
+        if (movedAside) {
+            await rename(old, path).catch(() => {})
+        }
+        throw error
+    }
+}
+
+async function isMusl(): Promise<boolean> {
+    for (const folder of ['/lib', '/usr/lib']) {
+        const names = await readdir(folder).catch(() => [] as string[])
+        if (names.some((name) => name.startsWith('ld-musl-'))) {
+            return true
+        }
+    }
+    return false
+}
+
 export function processRuntime(): Runtime {
     return {
         env: process.env,
         platform: process.platform,
+        arch: process.arch,
         isDevelopment: FROM_SOURCE,
+        build: { version: VERSION, date: BUILD_DATE },
+        execPath: process.execPath,
+        isMusl: () => (process.platform === 'linux' ? isMusl() : Promise.resolve(false)),
+        runCommand: async (argv) => {
+            // Not the caller's folder: pnpm reads a project's .pnpmfile.cjs even for a global install.
+            const child = Bun.spawn(argv, { cwd: homedir(), stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' })
+            return child.exited
+        },
+        replaceExecutable,
         stdinIsTTY: process.stdin.isTTY === true,
         stdoutIsTTY: process.stdout.isTTY === true,
         stdoutHasColors: process.stdout.isTTY === true && process.stdout.hasColors(),
@@ -232,11 +284,13 @@ export function processRuntime(): Runtime {
         writeStderr: (text) => {
             process.stderr.write(text)
         },
-        fetch: (input, { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = {}) =>
-            globalThis.fetch(
+        fetch: (input, options) => {
+            const { timeoutMs, skipRateLimit: _skipRateLimit, ...init } = options ?? {}
+            return globalThis.fetch(
                 input,
                 timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }
-            ),
+            )
+        },
         now: () => Date.now(),
         sleep,
         homeDir: () => {

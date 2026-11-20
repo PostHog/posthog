@@ -99,7 +99,7 @@ export function TimeSeriesPanel({
     const markers = exemplars?.length ? <MetricsExemplarMarkers exemplars={exemplars} /> : null
 
     return (
-        <div className="relative flex h-full w-full min-h-0 flex-col">
+        <div className="relative flex h-full w-full min-h-0 flex-1 flex-col">
             {isBar ? (
                 <TimeSeriesBarChart
                     series={chartSeries}

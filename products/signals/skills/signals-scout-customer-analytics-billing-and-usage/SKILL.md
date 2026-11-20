@@ -199,7 +199,7 @@ An unexplained one files with the sweep's negative result stated — "no noteboo
 - `pattern:customer_analytics_billing_and_usage:billing-source` — the billing tables, account key, product-column ↔ line-item pairing.
 - `watchlist:customer_analytics_billing_and_usage:account:<external_id>` — staked accounts worth scoring (staked per the definition above), their product mix, `last_scored` + `next_due`.
 - `baseline:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — the learned same-weekday band (median + MAD) per pair, so re-scoring is cheap.
-- `dedupe:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — a shift already surfaced, with the re-escalation condition (further move, or recovery then relapse).
+- `dedupe:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — a shift already surfaced, with the re-escalation condition (further move, or recovery then relapse). Set `expires_at` about four weeks past the last read that confirmed the shift: after that the shift is inside the trailing 4-week baseline, so a later move scores fresh.
 - `noise:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — explained moves (planned migration, known seasonal pattern, sandbox).
 - `report:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — the report_id covering a live shift, so the next run edits instead of duplicating.
 - `reviewer:customer_analytics_billing_and_usage:account:<external_id>` — the account's resolved managers (user_uuid + relationship name), refreshed when the relationship query disagrees.

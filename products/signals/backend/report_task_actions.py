@@ -46,6 +46,7 @@ from products.signals.backend.report_urls import ReportLinkSource, build_report_
 from products.signals.backend.task_profiles import INBOX
 from products.signals.backend.typed_report_links import incoming_links
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agent_run_starts import AGENT_PARENT_RUN_ID_STATE_KEY, AGENT_PARENT_TASK_ID_STATE_KEY
 from products.tasks.backend.facade.ai_run_defaults import resolve_ai_run_defaults
 
 logger = structlog.get_logger(__name__)
@@ -666,14 +667,27 @@ def task_create_data(report: SignalReport, prompt: str, relationship: str = TASK
     }
 
 
-def task_run_data(*, report: SignalReport, prompt: str, user_id: int) -> dict:
-    return {
+@frozen
+class ParentRun:
+    """The run whose sandbox started a report action."""
+
+    task_id: str
+    run_id: str
+
+
+def task_run_data(*, report: SignalReport, prompt: str, user_id: int, parent: ParentRun | None = None) -> dict:
+    data = {
         "run_source": "signal_report",
         "signal_report_id": str(report.id),
         "mode": "background",
         "pending_user_message": prompt,
         **runtime_selection(team_id=report.team_id, user_id=user_id),
     }
+    if parent is not None:
+        # Tasks reads these keys to treat the run as one an agent started.
+        data[AGENT_PARENT_TASK_ID_STATE_KEY] = parent.task_id
+        data[AGENT_PARENT_RUN_ID_STATE_KEY] = parent.run_id
+    return data
 
 
 @frozen
@@ -733,12 +747,19 @@ def select_implementation_repository(
 
 
 def start_report_task_action(
-    context: ReportTaskActionContext, report: SignalReport, action: ReportTaskAction, *, code_access_allowed: bool
+    context: ReportTaskActionContext,
+    report: SignalReport,
+    action: ReportTaskAction,
+    *,
+    code_access_allowed: bool,
+    parent: ParentRun | None = None,
 ) -> StartedReportTaskAction:
     """Create the report-linked task and its first background run.
 
     `implement` creates an implementation task, which claims the report and attaches the pull request
     it opens. Every other action creates a discussion.
+
+    `parent` is the run whose sandbox asked for the action. None means a person asked.
 
     Raises `ReportTaskCapExceeded` when the report has spent its task allowance.
     """
@@ -751,7 +772,7 @@ def start_report_task_action(
             context.team.id,
             context.user.id,
             validated_data=task_create_data(report, prompt, relationship),
-            run_data=task_run_data(report=report, prompt=prompt, user_id=context.user.id),
+            run_data=task_run_data(report=report, prompt=prompt, user_id=context.user.id, parent=parent),
             code_access_allowed=code_access_allowed,
         )
     except ValidationError as error:
@@ -780,6 +801,7 @@ def inbox_report_action_properties(
     outcome: str,
     state: ReportActionState | None = None,
     limit_code: str | None = None,
+    scout_skill_name: str | None = None,
 ) -> dict[str, object]:
     """Properties of the server-side `Inbox report action` event, in the shape the inbox sends."""
     properties: dict[str, object] = {
@@ -803,4 +825,6 @@ def inbox_report_action_properties(
         properties["question_intent"] = action.intent.value
     if limit_code is not None:
         properties["limit_code"] = limit_code
+    if scout_skill_name is not None:
+        properties["scout_skill_name"] = scout_skill_name
     return properties

@@ -380,6 +380,8 @@ export interface EmailTemplaterLogicProps {
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
     fieldErrors?: EmailFieldErrors
+    /** Shows the sender, recipient and subject in the redesigned look, for hosts behind the redesign flag. */
+    quillHeader?: boolean
 }
 
 function autoRevealAdvancedFields(

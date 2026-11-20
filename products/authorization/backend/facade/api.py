@@ -126,7 +126,8 @@ def list_objects(
     the rules permit it.
 
     The current access rules list only VIEW and QUERY. `resource` names a type and its `project_id`,
-    or `ResourceType.PROJECT` and an `organization_id`. VIEW gives the rows of today's list filter,
+    or `ResourceType.PROJECT` and an `organization_id`. A project list without an `organization_id`
+    lists the projects of every organization the subject belongs to. VIEW gives the rows of today's list filter,
     which applies object rules to org admins too. QUERY gives the rows the query guard reads, so an
     org admin gets every row. To filter a QuerySet, use `presentation.querysets` instead.
     """

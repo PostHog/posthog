@@ -13,10 +13,16 @@ export interface AnomalyBucketShadingProps {
     /** Indices into the chart labels of the buckets to shade. */
     dataIndices: number[]
     color: string
+    /** Opacity 0-1 of the fill. */
+    opacity?: number
 }
 
 /** Shades the full height of the plot behind each given bucket. Renders inside a quill chart. */
-export function AnomalyBucketShading({ dataIndices, color }: AnomalyBucketShadingProps): JSX.Element | null {
+export function AnomalyBucketShading({
+    dataIndices,
+    color,
+    opacity = FILL_OPACITY,
+}: AnomalyBucketShadingProps): JSX.Element | null {
     const { scales, dimensions, labels } = useChartLayout()
     const runs = useMemo(() => contiguousRuns(dataIndices), [dataIndices])
 
@@ -68,7 +74,7 @@ export function AnomalyBucketShading({ dataIndices, color }: AnomalyBucketShadin
                     width: right - left,
                     height: plotHeight,
                     backgroundColor: color,
-                    opacity: FILL_OPACITY,
+                    opacity,
                 }}
             />
         )
