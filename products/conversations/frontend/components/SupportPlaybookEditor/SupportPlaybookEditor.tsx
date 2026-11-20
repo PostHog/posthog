@@ -10,6 +10,10 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { QuillSupportPlaybookEditor } from './QuillSupportPlaybookEditor'
+
 export interface SupportPlaybookEditorProps {
     inheritedInstructions: string
     draft: string
@@ -37,6 +41,48 @@ export function SupportPlaybookEditor({
     onSave,
     onReset,
 }: SupportPlaybookEditorProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const confirmReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset to default instructions?',
+            description: 'This removes your team instructions. Replies will use the default playbook again.',
+            primaryButton: {
+                children: 'Reset',
+                type: 'primary',
+                onClick: onReset,
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    const resetDisabledReason = saving ? 'Saving…' : undefined
+    const saveDisabledReason = saving ? 'Saving…' : !dirty ? 'No changes to save' : undefined
+
+    if (todayRailNav) {
+        return (
+            <QuillSupportPlaybookEditor
+                inheritedInstructions={inheritedInstructions}
+                draft={draft}
+                isCustomized={isCustomized}
+                maxChars={maxChars}
+                saving={saving}
+                loading={loading}
+                error={error}
+                resetDisabledReason={resetDisabledReason}
+                saveDisabledReason={saveDisabledReason}
+                onDraftChange={onDraftChange}
+                onSave={onSave}
+                onReset={confirmReset}
+            />
+        )
+    }
+
     if (loading && !inheritedInstructions) {
         return (
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
@@ -64,26 +110,9 @@ export function SupportPlaybookEditor({
                     <LemonButton
                         type="secondary"
                         size="small"
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: 'Reset to default instructions?',
-                                description:
-                                    'This removes your team instructions. Replies will use the default playbook again.',
-                                primaryButton: {
-                                    children: 'Reset',
-                                    type: 'primary',
-                                    onClick: onReset,
-                                    size: 'small',
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                    type: 'tertiary',
-                                    size: 'small',
-                                },
-                            })
-                        }}
+                        onClick={confirmReset}
                         loading={saving}
-                        disabledReason={saving ? 'Saving…' : undefined}
+                        disabledReason={resetDisabledReason}
                         data-attr="support-playbook-reset"
                     >
                         Reset to default
@@ -126,7 +155,7 @@ export function SupportPlaybookEditor({
                     size="small"
                     onClick={onSave}
                     loading={saving}
-                    disabledReason={saving ? 'Saving…' : !dirty ? 'No changes to save' : undefined}
+                    disabledReason={saveDisabledReason}
                     data-attr="support-playbook-save"
                 >
                     Save playbook

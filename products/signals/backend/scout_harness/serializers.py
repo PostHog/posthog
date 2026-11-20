@@ -1030,7 +1030,10 @@ class ScratchpadRevisionSerializer(serializers.Serializer):
     )
     change = serializers.ChoiceField(
         choices=SignalScratchpadRevision.Change.choices,
-        help_text="`overwrite` when a `remember` replaced this state, `forget` when a delete removed it.",
+        help_text=(
+            "`overwrite` when a `remember` or the daily report-pointer sweep replaced this state, "
+            "`forget` when a delete removed it."
+        ),
     )
     changed_at = serializers.CharField(help_text="ISO-8601 time of the change.")
     changed_by_run_id = serializers.CharField(
@@ -1039,13 +1042,28 @@ class ScratchpadRevisionSerializer(serializers.Serializer):
     changed_by_skill = serializers.CharField(
         allow_null=True,
         help_text=(
-            "Who made the change: the skill name of the scout run, or the report-pipeline stage "
-            "(`pipeline:report-research`, `pipeline:implementation`). Null when a person deleted the entry."
+            "Who made the change: the skill name of the scout run, the report-pipeline stage "
+            "(`pipeline:report-research`, `pipeline:implementation`), or `system:report-pointer-sweep` when the "
+            "daily sweep expired a `report:` pointer to a deleted report. Null when a person deleted the entry."
         ),
     )
     changed_by_run_url = serializers.CharField(
         allow_null=True, help_text="Relative Tasks UI deep-link to the run that made the change, or null."
     )
+
+
+class ScratchpadRevivedExpirySerializer(serializers.Serializer):
+    """The expiry a `remember` overruled when it wrote onto an expired entry."""
+
+    expires_at = serializers.CharField(help_text="ISO-8601 expiry the entry had before this write replaced it.")
+    set_by_skill = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Who set that expiry: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. "
+            "Null when the entry was created with the expiry or no saved version shows who set it."
+        ),
+    )
+    set_at = serializers.CharField(allow_null=True, help_text="ISO-8601 time the expiry was set, or null.")
 
 
 class ScratchpadEntrySerializer(serializers.Serializer):
@@ -1094,6 +1112,39 @@ class ScratchpadEntrySerializer(serializers.Serializer):
             "revision is the deleted state."
         ),
     )
+    expired = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when an exact `key` search found the entry but its `expires_at` has passed. `content` is blank. "
+            "Another writer or a time limit retired the entry on purpose, so read it with `include_expired=true` "
+            "and weigh why before you rebuild it. The body stays readable until the janitor deletes the entry."
+        ),
+    )
+    last_changed_by_skill = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Exact `key` searches only. Who last changed the entry after its creator wrote it: a scout skill name, "
+            "a `pipeline:*` stage, or `system:report-pointer-sweep`. When `expired` is true, it names who set the "
+            "expiry. Null when no saved version shows a writer, and on every other search."
+        ),
+    )
+    last_changed_at = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Exact `key` searches only. ISO-8601 time of the change `last_changed_by_skill` describes, or null when "
+            "no saved version records one."
+        ),
+    )
+    revived_expiry = ScratchpadRevivedExpirySerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Set on a `remember` response when the write landed on an entry whose `expires_at` had passed. The write "
+            "succeeded and replaced that expiry. Null otherwise."
+        ),
+    )
 
 
 # pg_trgm pads a word where a literal separator bounds it, so `ai_` still yields the trigram "AI ".
@@ -1116,7 +1167,8 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         help_text=(
             "Exact key match — returns the single entry with this key, or nothing. Use this to "
             "re-read a known entry; `text` searches key *and* content, so it can push the row you "
-            "asked for past the limit."
+            "asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` "
+            "and a blank `content`, and every entry it returns carries `last_changed_by_skill` / `last_changed_at`."
         ),
     )
     key_prefix = serializers.CharField(

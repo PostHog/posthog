@@ -5,11 +5,13 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { CampaignFieldPreference, MatchField } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { getEnabledNativeMarketingSources } from '../../logic/utils'
+import { QuillCampaignFieldPreferencesConfiguration } from './QuillCampaignFieldPreferencesConfiguration'
 
 export interface CampaignFieldPreferencesConfigurationProps {
     sourceFilter?: string
@@ -27,6 +29,7 @@ export function CampaignFieldPreferencesConfiguration({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const quillSurface = useQuillSurface()
 
     const preferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
 
@@ -44,6 +47,18 @@ export function CampaignFieldPreferencesConfiguration({
 
     const getMatchField = (integration: string): CampaignFieldPreference['match_field'] => {
         return preferences[integration]?.match_field || DEFAULT_MATCH_FIELD
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillCampaignFieldPreferencesConfiguration
+                sourceFilter={sourceFilter}
+                integrationsToShow={integrationsToShow}
+                getMatchField={getMatchField}
+                onPreferenceChange={updatePreference}
+                restrictedReason={restrictedReason}
+            />
+        )
     }
 
     return (

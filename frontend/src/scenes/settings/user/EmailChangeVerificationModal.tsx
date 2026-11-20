@@ -4,6 +4,7 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
@@ -11,6 +12,7 @@ import { VerificationCodeInput } from 'scenes/authentication/shared/Verification
 import { userLogic } from 'scenes/userLogic'
 
 import { MAX_RESENDS, emailChangeVerificationLogic } from './emailChangeVerificationLogic'
+import { QuillEmailChangeVerificationModal } from './QuillEmailChangeVerificationModal'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -28,6 +30,22 @@ export function EmailChangeVerificationModal(): JSX.Element {
         useActions(emailChangeVerificationLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const submitIfIdle = (): void => {
+        if (!verificationResultLoading) {
+            submitVerificationCode()
+        }
+    }
+
+    const contactSupport = (): void => {
+        closeModal()
+        openSupportForm({ kind: 'support' })
+    }
+
+    if (todayRailNav) {
+        return <QuillEmailChangeVerificationModal onSubmit={submitIfIdle} onContactSupport={contactSupport} />
+    }
 
     return (
         // 400px gives the same content width as the auth card, so the button does not dwarf the code boxes
@@ -39,9 +57,7 @@ export function EmailChangeVerificationModal(): JSX.Element {
                 noValidate
                 onSubmit={(e) => {
                     e.preventDefault()
-                    if (!verificationResultLoading) {
-                        submitVerificationCode()
-                    }
+                    submitIfIdle()
                 }}
             >
                 <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
@@ -53,11 +69,7 @@ export function EmailChangeVerificationModal(): JSX.Element {
                 <VerificationCodeInput
                     value={verificationCode}
                     onChange={setVerificationCode}
-                    onComplete={() => {
-                        if (!verificationResultLoading) {
-                            submitVerificationCode()
-                        }
-                    }}
+                    onComplete={submitIfIdle}
                     disabled={verificationResultLoading}
                     data-attr="email-change-verification-code"
                     status={verificationCodeError ? 'danger' : 'default'}
@@ -96,10 +108,7 @@ export function EmailChangeVerificationModal(): JSX.Element {
                     <LemonButton
                         size="small"
                         center
-                        onClick={() => {
-                            closeModal()
-                            openSupportForm({ kind: 'support' })
-                        }}
+                        onClick={contactSupport}
                         data-attr="email-change-verification-contact-support"
                     >
                         Still not seeing it? Contact support
