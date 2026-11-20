@@ -207,47 +207,71 @@ export function resolveGroupLabel(group: LogsAlertDestinationGroup, slackChannel
     return group.label
 }
 
+type DestinationIdentity = Pick<LogsAlertDestinationGroup, 'key' | 'type' | 'label'>
+type DestinationIdentifier = (
+    hf: HogFunctionType,
+    resolveSlackLabel: (channelValue: string) => string | null
+) => DestinationIdentity
+
+function inputString(hf: HogFunctionType, key: string): string | undefined {
+    return hf.inputs?.[key]?.value as string | undefined
+}
+
+const DESTINATION_IDENTIFIERS: Record<string, DestinationIdentifier> = {
+    'template-slack': (hf, resolveSlackLabel) => {
+        const channelValue = inputString(hf, 'channel')
+        const channelName = channelValue ? resolveSlackLabel(channelValue) : null
+        return {
+            type: LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+            key: `slack:${channelValue ?? hf.id}`,
+            label: channelName ? `Slack #${channelName}` : 'Slack',
+        }
+    },
+    'template-microsoft-teams': (hf) => {
+        const url = inputString(hf, 'webhookUrl')
+        return {
+            type: LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
+            key: `teams:${url ?? hf.id}`,
+            label: url ? `Microsoft Teams ${url}` : 'Microsoft Teams',
+        }
+    },
+    'template-discord': (hf) => ({
+        type: LOGS_ALERT_NOTIFICATION_TYPE_DISCORD,
+        key: `discord:${inputString(hf, 'webhookUrl') ?? hf.id}`,
+        label: 'Discord',
+    }),
+    'template-webhook': (hf) => {
+        const url = inputString(hf, 'url')
+        return {
+            type: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
+            key: `webhook:${url ?? hf.id}`,
+            label: url ? `Webhook ${url}` : 'Webhook',
+        }
+    },
+    'template-pagerduty': (hf) => {
+        const destinationSegment = pagerDutyDestinationLabel(hf)
+        return {
+            type: LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY,
+            key: `pagerduty:${destinationSegment ?? hf.id}`,
+            label: destinationSegment ?? 'PagerDuty',
+        }
+    },
+}
+
+const identifyUnknownDestination: DestinationIdentifier = (hf) => ({
+    type: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
+    key: `unknown:${hf.id}`,
+    label: hf.name,
+})
+
 export function groupLogsAlertDestinations(
     hogFunctions: HogFunctionType[],
     resolveSlackLabel: (channelValue: string) => string | null
 ): LogsAlertDestinationGroup[] {
     const groups = new Map<string, LogsAlertDestinationGroup>()
     for (const hf of hogFunctions) {
-        const templateId = hf.template_id ?? hf.template?.id
-        const slackChannelValue = hf.inputs?.channel?.value as string | undefined
-        const destinationWebhookUrl = hf.inputs?.webhookUrl?.value as string | undefined
-        const webhookUrl = hf.inputs?.url?.value as string | undefined
-        let key: string
-        let type: LogsAlertNotificationType
-        let label: string
-
-        if (templateId === 'template-slack') {
-            type = LOGS_ALERT_NOTIFICATION_TYPE_SLACK
-            key = `slack:${slackChannelValue ?? hf.id}`
-            const channelName = slackChannelValue ? resolveSlackLabel(slackChannelValue) : null
-            label = channelName ? `Slack #${channelName}` : 'Slack'
-        } else if (templateId === 'template-microsoft-teams') {
-            type = LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
-            key = `teams:${destinationWebhookUrl ?? hf.id}`
-            label = destinationWebhookUrl ? `Microsoft Teams ${destinationWebhookUrl}` : 'Microsoft Teams'
-        } else if (templateId === 'template-discord') {
-            type = LOGS_ALERT_NOTIFICATION_TYPE_DISCORD
-            key = `discord:${destinationWebhookUrl ?? hf.id}`
-            label = 'Discord'
-        } else if (templateId === 'template-webhook') {
-            type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
-            key = `webhook:${webhookUrl ?? hf.id}`
-            label = webhookUrl ? `Webhook ${webhookUrl}` : 'Webhook'
-        } else if (templateId === 'template-pagerduty') {
-            const destinationSegment = pagerDutyDestinationLabel(hf)
-            type = LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
-            key = `pagerduty:${destinationSegment ?? hf.id}`
-            label = destinationSegment ?? 'PagerDuty'
-        } else {
-            type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
-            key = `unknown:${hf.id}`
-            label = hf.name
-        }
+        const identify = DESTINATION_IDENTIFIERS[hf.template_id ?? hf.template?.id ?? ''] ?? identifyUnknownDestination
+        const { key, type, label } = identify(hf, resolveSlackLabel)
 
         const existing = groups.get(key)
         if (existing) {
