@@ -204,7 +204,14 @@ export const SeriesCapped: Story = {
     },
     decorators: [
         mswDecorator({
-            get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES, truncated: true, series_capped: true }) },
+            get: {
+                [SEARCH_URL]: searchResponse({
+                    series: FLAGGED_SERIES.map(({ row }) => row),
+                    truncated: true,
+                    series_capped: true,
+                }),
+            },
+            post: { [POINTS_URL]: pointsResponse() },
         }),
     ],
 }
