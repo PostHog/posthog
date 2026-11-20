@@ -13,6 +13,7 @@ from prometheus_client import REGISTRY
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.user_push_token import UserPushToken
+from posthog.push_notifications import mobile_push_delivery_allowed
 from posthog.tasks.push_notifications import send_user_push
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -111,6 +112,28 @@ class TestPushDispatcher(TestCase):
                 notify_task_run_completed(self.task_run)
 
         self.assertEqual(queued, [])
+
+    @parameterized.expand([("task",), ("report",)])
+    def test_queued_push_is_refused_once_the_organization_is_deactivated(self, kind):
+        payload = (
+            {"type": "task", "taskId": str(self.task.id), "projectId": self.team.id, "notificationKind": "completed"}
+            if kind == "task"
+            else {
+                "type": "report",
+                "project_id": self.team.id,
+                "report_id": str(uuid4()),
+                "notificationKind": "report_completed",
+            }
+        )
+
+        with (
+            patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.signals.backend.facade.reports.user_may_receive_report_push", return_value=True),
+        ):
+            self.assertTrue(mobile_push_delivery_allowed(self.user, payload))
+            self.organization.is_active = False
+            self.organization.save()
+            self.assertFalse(mobile_push_delivery_allowed(self.user, payload))
 
     @parameterized.expand([(True,), (False,)])
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
