@@ -108,39 +108,63 @@ function setup(args: string[], options: FakeRuntimeOptions): ReturnType<typeof r
 }
 
 describe('hog ci setup', () => {
-    test('asks for a policy for the repository it runs in, and hands an agent the link and the snippet', async () => {
-        const run = await setup(
-            ['--preset', 'branch_push=main', '--scope', 'query:read,error_tracking:write', '--scope', 'query:read'],
+    test.each([
+        [
+            'a member, who must send it to an admin',
+            false,
             {
-                respond: policyApi(),
-            }
-        )
+                canApprove: false,
+                approver: 'an organization admin',
+                approverNames: ['Olive Owner'],
+                instructions: expect.not.stringContaining('Olive'),
+            },
+        ],
+        [
+            'an admin, who can approve it themselves',
+            true,
+            {
+                canApprove: true,
+                instructions: expect.stringContaining(
+                    'They are an organization admin, so they can approve it themselves.'
+                ),
+            },
+        ],
+    ])(
+        'asks for a policy for the repository it runs in, and hands an agent the link for %s',
+        async (_name, canApprove, expected) => {
+            const run = await setup(
+                ['--preset', 'branch_push=main', '--scope', 'query:read,error_tracking:write', '--scope', 'query:read'],
+                {
+                    respond: policyApi({ canApprove }),
+                }
+            )
 
-        expect(run.exitCode).toBe(EXIT_NEEDS_PERSON)
-        expect(run.requests.find((request) => request.url === REQUESTS)?.body).toEqual({
-            name: 'Acme/Web on Fake CI',
-            issuer: 'https://ci.example.com',
-            subject: '123',
-            subject_name: 'Acme/Web',
-            conditions: { event_name: 'push', ref: 'refs/heads/main' },
-            scopes: ['error_tracking:write', 'query:read'],
-        })
-        expect(run.json()).toMatchObject({
-            status: 'pending',
-            url: CREATED.approval_url,
-            approver: 'an organization admin',
-            approverNames: ['Olive Owner'],
-            instructions: expect.not.stringContaining('Olive'),
-            next: 'hog ci setup --wait',
-            posthogJson: { projectId: 7 },
-            host: HOST,
-        })
-        expect(readJson(run.files[PENDING_FILE] ?? '{}')).toMatchObject({ requestId: 'req-1', provider: 'fake_ci' })
-    })
+            expect(run.exitCode).toBe(EXIT_NEEDS_PERSON)
+            expect(run.requests.find((request) => request.url === REQUESTS)?.body).toEqual({
+                name: 'Acme/Web on Fake CI',
+                issuer: 'https://ci.example.com',
+                subject: '123',
+                subject_name: 'Acme/Web',
+                conditions: { event_name: 'push', ref: 'refs/heads/main' },
+                scopes: ['error_tracking:write', 'query:read'],
+            })
+            expect(run.json()).toMatchObject({
+                status: 'pending',
+                url: CREATED.approval_url,
+                ...expected,
+                next: 'hog ci setup --wait',
+                posthogJson: { projectId: 7 },
+                host: HOST,
+            })
+            expect('approver' in run.json(z.looseObject({}))).toBe(!canApprove)
+            expect(readJson(run.files[PENDING_FILE] ?? '{}')).toMatchObject({ requestId: 'req-1', provider: 'fake_ci' })
+        }
+    )
 
     test.each([
         [
             'an admin waits at the terminal until they approve it',
+            true,
             true,
             'Fake CI jobs can now use hog in this project',
             2,
@@ -148,20 +172,30 @@ describe('hog ci setup', () => {
         [
             'a member gets the link to send an admin and does not wait',
             false,
+            true,
             'Only an organization admin (Olive Owner) can approve it',
             0,
         ],
-    ])('%s', async (_name, canApprove, shown, polls) => {
+        [
+            'an admin whose terminal takes no answers gets the link to approve it themselves',
+            true,
+            false,
+            'You can approve it yourself. Open this link:',
+            0,
+        ],
+    ])('%s', async (_name, canApprove, stdinIsTTY, shown, polls) => {
         const run = await setup(['--preset', 'environment=production', '--scope', 'query:read'], {
             stdoutIsTTY: true,
+            stdinIsTTY,
             respond: policyApi({ canApprove, pendingPolls: 1 }),
         })
+        const waited = polls > 0
 
-        expect(run.exitCode).toBe(canApprove ? EXIT_SUCCESS : EXIT_NEEDS_PERSON)
+        expect(run.exitCode).toBe(waited ? EXIT_SUCCESS : EXIT_NEEDS_PERSON)
         expect(run.stdout).toContain(shown)
         expect(run.stdout).toContain('the job also needs HOG_HOST=https://ph.example.com')
         expect(run.requests.filter((request) => request.url === `${REQUESTS}req-1/`)).toHaveLength(polls)
-        expect(PENDING_FILE in run.files).toBe(!canApprove)
+        expect(PENDING_FILE in run.files).toBe(!waited)
     })
 
     test('--wait resumes the request an earlier run started and prints the snippet once approved', async () => {
@@ -204,6 +238,11 @@ describe('hog ci setup', () => {
         expect(run.requests.filter((request) => request.url === REQUESTS && request.method === 'POST')).toHaveLength(
             created - 1
         )
+        // The person who runs it is a member, so an approval by an admin never makes them one, and once
+        // it is approved nobody is left to send it to.
+        expect(run.json(z.looseObject({}))).not.toMatchObject({ canApprove: true })
+        expect(run.stdout).not.toContain('they can approve it themselves')
+        expect('approver' in run.json(z.looseObject({}))).toBe(lastStatus !== 'approved')
     })
 
     test('--wait after the deadline still picks up an approval that came in before it', async () => {

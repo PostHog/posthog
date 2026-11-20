@@ -15,6 +15,8 @@ rules:
       owners: team-devex
     - match: '/scripts/storybook-sequencer.test.js'
       owners: team-devex
+    - match: ['/scripts/ordered-image-alias-alerts.js', '/scripts/ordered-image-alias-alerts.test.js']
+      owners: team-cloud-platform
     - match: '/auto-assign-labels.json'
       owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']

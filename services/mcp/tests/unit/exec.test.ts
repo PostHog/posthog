@@ -396,6 +396,25 @@ describe('exec tool', () => {
             expect((result as string).endsWith(`\n\n${CHART_DATA_PREAMBLE}\n${block}`)).toBe(appended)
         })
 
+        it('tells the agent how to read the next page of a partial list', async () => {
+            const handlerResult = {
+                count: 230,
+                next: 'https://example.com/api/projects/1/things/?limit=100&offset=100',
+                previous: null,
+                results: [{ id: 1 }, { id: 2 }, { id: 3 }],
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })])
+
+            const text = await exec.handler(mockContext, { command: 'call mock-tool' })
+            const json = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+
+            expect(text).toBe(
+                `${formatResponse(handlerResult.results)}\n\nShowing 3 of 230 results. More results exist: call mock-tool again with the same arguments and set offset=100 and limit=100 to get the next page.`
+            )
+            // JSON output keeps `next` and `count`, so it needs no footer.
+            expect(json).toBe(JSON.stringify(handlerResult))
+        })
+
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
             const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
@@ -794,6 +813,17 @@ describe('exec tool', () => {
                 command: `call --json mock-tool ${encode(payload)}`,
             })
             expect(JSON.parse(result as string)).toEqual({ name: 'skill', content })
+        })
+
+        it('runs a bare SQL string sent to execute-sql as its query', async () => {
+            const tool = makeMockTool({
+                name: 'execute-sql',
+                schema: z.object({ query: z.string() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call --json execute-sql "SELECT 1"' })
+            expect(JSON.parse(result as string)).toEqual({ query: 'SELECT 1' })
         })
 
         it.each([
@@ -2050,6 +2080,38 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toMatchObject({
                 reason: 'unknown_tool',
             })
+        })
+    })
+
+    describe('refusing writes', () => {
+        const writeAnnotations = {
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: true,
+            readOnlyHint: false,
+        }
+        const readOnlyConnectedTool = makeMockTool({ name: 'linear__list_issues' })
+        const exec = createExec(
+            [
+                makeMockTool({ name: 'dashboard-get' }),
+                makeMockTool({ name: 'dashboard-delete', annotations: writeAnnotations }),
+            ],
+            undefined,
+            { refuseWrites: true, gatewayToolsProvider: async () => [readOnlyConnectedTool] }
+        )
+
+        it.each(['call dashboard-delete {}', 'call --confirm dashboard-delete {}', 'call linear__list_issues {}'])(
+            'sends %s to exec-write',
+            async (command) => {
+                await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
+                    reason: 'needs_write_tool',
+                    message: expect.stringContaining('exec-write'),
+                })
+            }
+        )
+
+        it('runs a read-only PostHog tool', async () => {
+            await expect(exec.handler(mockContext, { command: 'call dashboard-get {}' })).resolves.toBeDefined()
         })
     })
 

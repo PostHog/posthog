@@ -43,6 +43,14 @@ def has_enabled_source(team_id: int) -> bool:
     return signals_has_enabled_source(team_id)
 
 
+def enabled_source_keys(team_id: int) -> list[str]:
+    from products.signals.backend.facade.api import (
+        onboarding_sources,  # noqa: PLC0415 — keeps the signals stack off the slack import path
+    )
+
+    return [source.key for source in onboarding_sources(team_id) if source.enabled]
+
+
 def approve_ai_data_processing_for_team(team_id: int) -> bool:
     """Set the org consent for the team's organization. The caller checks that the person is an org admin."""
     org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()

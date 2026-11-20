@@ -23,6 +23,9 @@ The scratchpad is durable, per-team prose keyed by string.
 It has no tags: **the category is encoded in the key prefix** so a future run finds an entry with a single `text=` search.
 Re-using a key rewrites the entry in place (the idempotent refresh — use it to confirm a quiet observation without duplicating entries).
 An entry can carry an optional `expires_at`: expired entries drop out of searches (unless `include_expired=true`) and a daily janitor deletes them two weeks past expiry, so set it on anything with a natural shelf life (a `watch:` on a live issue, a cursor) and leave baselines and allowlists unexpiring.
+The most common case is a ledger row, one entry per item the scout handled (a `dedupe:` row for one issue, a verdict on one report, session or pull request): it stays true, but it is useful only while that item can come back.
+Tell the scout to set `expires_at` at the write, at the point a repeat stops being possible or stops mattering, and give it the horizon for your domain (how long such an item stays live, how far back the scout's reads look).
+Knowledge that should outlive single items belongs in a durable `noise:` or `pattern:` entry, and a ledger the scout's job really needs to keep can stay unexpired.
 
 **One keyspace, several writers.** Every scout on the team shares it, and so do the two report-pipeline stages: the research run and the self-driving implementation run.
 Each search result carries `created_by_skill`, which reads a scout's skill name for a scout entry and `pipeline:report-research` or `pipeline:implementation` for a pipeline one. It names the entry's original creator only: a rewrite of an existing key keeps the creator, so the field does not say who last wrote the content, and the current writer of a shared key is unknown.
