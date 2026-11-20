@@ -481,16 +481,13 @@ pub async fn export_vercel_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let token = service
-        .authorizer
-        .authorize_from_path_header_or_query(
-            path_token.as_ref().map(|Path(token)| token.as_str()),
-            &headers,
-            query_params.token.as_deref(),
-            Signal::Logs,
-        )?
-        .to_string();
-    tracing::Span::current().record("token", &token);
+    let token = service.authorizer.authorize_from_path_header_or_query(
+        path_token.as_ref().map(|Path(token)| token.as_str()),
+        &headers,
+        query_params.token.as_deref(),
+        Signal::Logs,
+    )?;
+    tracing::Span::current().record("token", token);
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
@@ -551,7 +548,7 @@ pub async fn export_vercel_logs_http(
     let results: Vec<(KafkaLogRow, bool)> = parsed
         .logs
         .into_iter()
-        .map(|log| vercel_log_to_kafka_row(log, &token))
+        .map(|log| vercel_log_to_kafka_row(log, token))
         .collect();
     let row_count = results.len();
     let timestamps_overridden = results.iter().filter(|(_, overridden)| *overridden).count() as u64;
@@ -560,7 +557,7 @@ pub async fn export_vercel_logs_http(
     if let Err(e) = service
         .sink
         .write(
-            &token,
+            token,
             rows,
             body.len() as u64,
             timestamps_overridden,

@@ -442,17 +442,14 @@ pub async fn export_prometheus_remote_write_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-    let token = service
-        .authorizer
-        .authorize_from_path_header_or_query(
-            path_token.as_ref().map(|Path(token)| token.as_str()),
-            &headers,
-            query_params.token.as_deref(),
-            Signal::Metrics,
-        )?
-        .to_string();
+    let token = service.authorizer.authorize_from_path_header_or_query(
+        path_token.as_ref().map(|Path(token)| token.as_str()),
+        &headers,
+        query_params.token.as_deref(),
+        Signal::Metrics,
+    )?;
 
-    tracing::Span::current().record("token", &token);
+    tracing::Span::current().record("token", token);
 
     let encoding = RemoteWriteEncoding::from_headers(&headers);
     counter!(
@@ -494,13 +491,7 @@ pub async fn export_prometheus_remote_write_http(
 
     if let Err(e) = service
         .sink
-        .write_metrics(
-            &token,
-            rows,
-            uncompressed_bytes,
-            None,
-            timestamps_overridden,
-        )
+        .write_metrics(token, rows, uncompressed_bytes, None, timestamps_overridden)
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");

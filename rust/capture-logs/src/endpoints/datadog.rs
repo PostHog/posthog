@@ -277,17 +277,14 @@ pub async fn export_datadog_logs_http(
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     // Datadog agents ship logs, so this shares the logs signal.
-    let token = service
-        .authorizer
-        .authorize_from_path_header_or_query(
-            path_token.as_ref().map(|Path(token)| token.as_str()),
-            &headers,
-            query_params.token.as_deref(),
-            Signal::Logs,
-        )?
-        .to_string();
+    let token = service.authorizer.authorize_from_path_header_or_query(
+        path_token.as_ref().map(|Path(token)| token.as_str()),
+        &headers,
+        query_params.token.as_deref(),
+        Signal::Logs,
+    )?;
 
-    tracing::Span::current().record("token", &token);
+    tracing::Span::current().record("token", token);
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
@@ -322,7 +319,7 @@ pub async fn export_datadog_logs_http(
     if let Err(e) = service
         .sink
         .write(
-            &token,
+            token,
             rows,
             body.len() as u64,
             timestamps_overridden,

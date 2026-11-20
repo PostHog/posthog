@@ -100,8 +100,8 @@ impl Authorizer {
     }
 
     /// Resolve the token from the URL path, then the `Authorization` header, then the `token` query
-    /// parameter, and authorize it for `signal`. For vendor intakes, whose senders can often set
-    /// only a URL, and write the header as `Bearer`, as `bearer` or with no scheme.
+    /// parameter, and authorize it for `signal`. Vendor senders can often set only a URL, and they
+    /// write the header as `Bearer`, as `bearer` or with no scheme.
     pub fn authorize_from_path_header_or_query<'a>(
         &self,
         path_token: Option<&'a str>,
@@ -249,6 +249,12 @@ mod tests {
             (None, Some("bearer phc_header "), None, Some("phc_header")),
             (None, Some("phc_bare"), None, Some("phc_bare")),
             (None, Some("Bearer "), Some("phc_query"), Some("phc_query")),
+            (
+                None,
+                Some("Bearer phc_header"),
+                Some("phc_query"),
+                Some("phc_header"),
+            ),
             (None, None, Some(""), None),
             (None, None, None, None),
         ] {
