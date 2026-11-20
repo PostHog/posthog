@@ -29,6 +29,11 @@ def attachment(
             attachment("image", url="https://cdn.example.com/receipt.png"),
         ),
         (
+            "video_url",
+            {"type": "video_url", "video_url": {"url": "https://cdn.example.com/clip.mp4"}},
+            attachment("video", url="https://cdn.example.com/clip.mp4"),
+        ),
+        (
             "openai_input_audio_raw_base64",
             {"type": "input_audio", "input_audio": {"data": "UklGRg==", "format": "wav"}},
             attachment("audio", mime_type="audio/wav", url="data:audio/wav;base64,UklGRg=="),

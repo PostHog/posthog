@@ -55,7 +55,6 @@ class TestAppearanceAlerts(BaseTest):
             check_interval_minutes=1,
             next_check_at=T0,
             owner=PlatformAlertConfiguration.Owner.PLATFORM,
-            destinations_owner=PlatformAlertConfiguration.Owner.PLATFORM,
         )
         PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(created_at=T0)
 

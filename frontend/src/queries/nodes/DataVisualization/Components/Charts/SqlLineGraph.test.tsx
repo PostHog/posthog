@@ -552,14 +552,13 @@ describe('SqlLineGraph', () => {
         })
     })
 
-    describe('trend lines', () => {
-        it('adds a trend-line series without adding a tooltip row', async () => {
-            renderLine(
-                { yAxis: [{ column: 'a', settings: { display: { trendLine: true } } }] },
-                lineFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }])
-            )
+    describe('statistical overlays', () => {
+        it.each<[string, ChartSettings]>([
+            ['trend line', { yAxis: [{ column: 'a', settings: { display: { trendLine: true } } }] }],
+            ['moving average', { yAxis: [{ column: 'a' }], showMovingAverage: true, movingAverageIntervals: 3 }],
+        ])('adds a %s without adding a tooltip row', async (_name, settings) => {
+            renderLine(settings, lineFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }]))
 
-            // One data series + one trend line = 2 rendered series.
             await waitFor(() => expect(getChart().seriesCount).toBe(2))
 
             const tooltip = await sqlChart.hoverTooltip(HOVER)

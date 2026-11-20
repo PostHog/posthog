@@ -12,10 +12,25 @@ import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogi
 import { AnomalyInsightGroup } from './AnomalyInsightGroup'
 
 export function AnomaliesTab(): JSX.Element {
-    const { anomalies, anomaliesLoading, loadingMore, loadError, series, insightGroups, expandedInsightIds, hasMore } =
-        useValues(anomaliesTabLogic)
-    const { loadAnomalies, loadMoreAnomalies, reportInsightOpened, toggleInsightExpanded } =
-        useActions(anomaliesTabLogic)
+    const {
+        anomalies,
+        anomaliesLoading,
+        loadingMore,
+        loadError,
+        series,
+        insightGroups,
+        expandedInsightIds,
+        hasMore,
+        seriesRatings,
+    } = useValues(anomaliesTabLogic)
+    const {
+        loadAnomalies,
+        loadMoreAnomalies,
+        reportInsightOpened,
+        toggleInsightExpanded,
+        rateSeries,
+        reportCreateAlertOpened,
+    } = useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
     const scoredThrough = series
@@ -59,6 +74,14 @@ export function AnomaliesTab(): JSX.Element {
                             {`This project has ${anomalies.scored_days} of ${SCORED_HISTORY_READY_DAYS} days of scored history. Until it has ${SCORED_HISTORY_READY_DAYS}, flags are less reliable.`}
                         </LemonBanner>
                     )}
+                    {anomalies.series_capped && (
+                        <div data-attr="anomalies-tab-series-capped">
+                            <LemonBanner type="warning">
+                                This search found more series than it can read at once, so some anomalies may be
+                                missing. Narrow the date range or the filters to see them all.
+                            </LemonBanner>
+                        </div>
+                    )}
                     <div className="text-secondary text-sm" data-attr="anomalies-tab-coverage">
                         <span>
                             {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
@@ -78,8 +101,11 @@ export function AnomaliesTab(): JSX.Element {
                                 expanded={!!expandedInsightIds[group.insightId]}
                                 dateFrom={anomalies.date_from}
                                 dateTo={anomalies.date_to}
+                                seriesRatings={seriesRatings}
                                 onToggleExpanded={() => toggleInsightExpanded(group.insightId, index)}
                                 onOpenInsight={(row) => reportInsightOpened(row, index)}
+                                onRateSeries={(row, rating) => rateSeries(row, rating, index)}
+                                onCreateAlert={(row) => reportCreateAlertOpened(row, index)}
                             />
                         ))}
                     </div>

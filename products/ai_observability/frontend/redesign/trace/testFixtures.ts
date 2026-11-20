@@ -18,6 +18,8 @@ import type {
     TraceNodeStatsApi,
     TraceSurveyResponseApi,
 } from '../../generated/api.schemas'
+import type { TraceListRow } from './traceListRows'
+import type { TraceOverview } from './types'
 
 export function makeEvent(overrides: Partial<LLMTraceEvent> & { id: string }): LLMTraceEvent {
     return { event: '$ai_span', properties: {}, createdAt: '2026-09-01T10:15:00Z', ...overrides }
@@ -133,6 +135,7 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
         totals: emptyStats,
         hasError: false,
         errorCount: 0,
+        totalsPartial: false,
         tree: [
             {
                 id: 'trace-1',
@@ -169,6 +172,18 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
         nodeIdsByAlias: {},
         git: null,
         ...overrides,
+    }
+}
+
+/** A list row that carries the trace's overview, as the traces list hands it to the drawer. */
+export function makeSeededRow(overrides: Partial<TraceOverview> = {}, defaultStepId?: string): TraceListRow {
+    const { id, name, createdAt, sessionId, totals, hasError, errorCount, totalsPartial } = makeTraceResource(overrides)
+    return {
+        traceId: id,
+        timestamp: createdAt,
+        stepId: null,
+        overview: { id, name, createdAt, sessionId, totals, hasError, errorCount, totalsPartial },
+        defaultStepId,
     }
 }
 

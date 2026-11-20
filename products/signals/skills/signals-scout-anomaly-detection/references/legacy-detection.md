@@ -25,7 +25,7 @@ Cycle between these moves; skip what's not useful. Aim to spend the bulk of a ru
 
 Three cheap reads cold-start every run:
 
-- `scout-scratchpad-search` (`text=watchlist` with `limit=100`, then `text=anomaly`) — your durable watchlist, per-insight baselines, and what you've ruled out. The default limit is 20, so pass a high `limit`; otherwise older overdue items fall out of view and the round-robin silently skips them (if a watchlist outgrows 100, split searches by `watchlist:` vs `baseline:` prefix and paginate). This is what makes you cheaper and smarter each run.
+- `scout-scratchpad-search` (`text=watchlist`, then `text=anomaly`) — your durable watchlist, per-insight baselines, and what you've ruled out. The default limit is 20, so pass a `limit` above your watchlist's size (it goes up to 1000); otherwise older overdue items fall out of view and the round-robin silently skips them. A result as long as your limit is probably cut off: raise the limit or walk back with `date_to`. This is what makes you cheaper and smarter each run.
 - `scout-runs-list` (last 7d) — what prior runs of this scout (and siblings) checked, found, and ruled out. Don't re-walk ground a recent run already covered.
 - `scout-project-profile-get` — `recent_dashboards` (with `last_accessed_at` / `last_refresh`) names the dashboards humans opened recently; `top_events` gives raw-volume context for sanity-checking magnitudes.
 

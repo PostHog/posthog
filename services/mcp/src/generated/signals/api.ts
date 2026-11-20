@@ -282,7 +282,7 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .boolean()
         .default(signalsAnomaliesSearchRetrieveQueryIncludePointsDefault)
         .describe(
-            'Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.'
+            'Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 14 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.'
         ),
     insight_id: zod.number().optional().describe('Only the series of this insight, by numeric id.'),
     interval: zod
@@ -315,7 +315,7 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .enum(['unusual', 'recent', 'rate'])
         .default(signalsAnomaliesSearchRetrieveQueryOrderDefault)
         .describe(
-            '`unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
+            '`unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
         ),
     search: zod
         .string()
@@ -562,6 +562,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.'
         ),
+    connected: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated ways the requesting user is connected to a report; a report matching any of them is kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. 'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me."
+        ),
     count_only: zod
         .boolean()
         .default(signalsReportsListQueryCountOnlyDefault)
@@ -727,7 +733,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
+            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, monitoring_recent, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. monitoring_recent adds the resolved and closed reports whose Monitoring ended in the last 14 days, each with its `monitoring_outcome` and the final state of every check. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
         ),
 })
 
@@ -2256,7 +2262,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
 export const signalsScoutCreateBodyConfigOneWriteScopesMax = 16
 
-export const signalsScoutCreateBodyConfigOneReportActionsMax = 1
+export const signalsScoutCreateBodyConfigOneReportActionsMax = 2
 
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMin = 0
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMax = 20
@@ -2376,7 +2382,7 @@ export const SignalsScoutCreateBody = () => zod
                     .max(signalsScoutCreateBodyConfigOneReportActionsMax)
                     .optional()
                     .describe(
-                        "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                        "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
                     ),
                 max_report_actions_per_day: zod
                     .number()
@@ -2584,7 +2590,7 @@ export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigCreateBodyWriteScopesMax = 16
 
-export const signalsScoutConfigCreateBodyReportActionsMax = 1
+export const signalsScoutConfigCreateBodyReportActionsMax = 2
 
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMax = 20
@@ -2664,7 +2670,7 @@ export const SignalsScoutConfigCreateBody = () => zod
             .max(signalsScoutConfigCreateBodyReportActionsMax)
             .optional()
             .describe(
-                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
             ),
         max_report_actions_per_day: zod
             .number()
@@ -2860,7 +2866,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigUpdateBodyWriteScopesMax = 16
 
-export const signalsScoutConfigUpdateBodyReportActionsMax = 1
+export const signalsScoutConfigUpdateBodyReportActionsMax = 2
 
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMax = 20
@@ -3038,7 +3044,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .max(signalsScoutConfigUpdateBodyReportActionsMax)
             .optional()
             .describe(
-                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
             ),
         max_report_actions_per_day: zod
             .number()
@@ -5323,7 +5329,7 @@ export const SignalsScoutReportCheckListQueryParams = () => zod.object({
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank `content` instead of nothing. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = () => zod.object({
@@ -5337,6 +5343,7 @@ export const SignalsScoutScratchpadSearchParams = () => zod.object({
 export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
 
 export const signalsScoutScratchpadSearchQueryIncludeExpiredDefault = false
+export const signalsScoutScratchpadSearchQueryIncludeRevisionsDefault = false
 export const signalsScoutScratchpadSearchQueryLimitMax = 1000
 
 export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
@@ -5363,12 +5370,24 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
         .describe(
             'Include entries whose `expires_at` has passed. Off by default so a time-boxed memory retires itself; turn it on to audit what the fleet remembered and when it lapsed.'
         ),
+    include_revisions: zod
+        .boolean()
+        .default(signalsScoutScratchpadSearchQueryIncludeRevisionsDefault)
+        .describe(
+            "With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content."
+        ),
     key: zod
         .string()
         .min(1)
         .optional()
         .describe(
-            'Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key \*and\* content, so it can push the row you asked for past the limit.'
+            'Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key \*and\* content, so it can push the row you asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` and a blank `content`, and every entry it returns carries `last_changed_by_skill` \/ `last_changed_at`.'
+        ),
+    key_prefix: zod
+        .string()
+        .optional()
+        .describe(
+            'Return only the entries whose key starts with this prefix, case-sensitive, with `%` and `_` matched literally. Use it to read one family of keys, such as `followup:<skill-name>:`; unlike `text`, it ignores what entry bodies say. Combines with every other filter.'
         ),
     keys_only: zod
         .boolean()
@@ -5397,7 +5416,7 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
 })
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read. A write onto an expired entry succeeds, and the response's `revived_expiry` reports the expiry it replaced.
  * @summary Remember a scratchpad entry
  */
 export const SignalsScoutScratchpadRememberParams = () => zod.object({
@@ -5437,6 +5456,12 @@ export const SignalsScoutScratchpadRememberBody = () => zod
             .nullish()
             .describe(
                 "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost."
+            ),
+        if_updated_at: zod
+            .string()
+            .optional()
+            .describe(
+                "Optional precondition: the `updated_at` you read for this key from `scout-scratchpad-search`, sent back unchanged. The write happens only when the stored entry still has this `updated_at`. When the entry changed since you read it, or no entry has this key, nothing is written and the call returns 409 with the entry's current `updated_at`. Read the entry again and decide. Omit it to overwrite unconditionally. A value that can't be parsed is rejected, not dropped."
             ),
     })
     .describe('Request body for `remember`.')

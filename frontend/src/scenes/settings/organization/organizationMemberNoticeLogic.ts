@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
 import { organizationLogic } from 'scenes/organizationLogic'
+import type { OrganizationUpdatePayload } from 'scenes/organizationLogic'
 
 import type { OrganizationMemberNoticeApi } from '~/generated/core/api.schemas'
 import { OrganizationType } from '~/types'
@@ -89,7 +90,7 @@ export interface organizationMemberNoticeLogicActions {
             | undefined
     ) => {
         currentOrganization: OrganizationType | null
-        payload?: import('scenes/organizationLogic').OrganizationUpdatePayload
+        payload?: OrganizationUpdatePayload
     } // organizationLogic
     removeMemberNotice: () => {
         value: true

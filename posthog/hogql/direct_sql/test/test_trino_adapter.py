@@ -12,6 +12,7 @@ from posthog.hogql.direct_sql.trino_adapter import (
     ensure_read_only_raw_trino_statement,
 )
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.query_stats import query_stats_scope
 
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTarget
 
@@ -82,10 +83,14 @@ def test_execute_returns_rows_and_types(
             "products.warehouse_sources.backend.facade.source_management.connect_trino",
             return_value=connection_context,
         ),
+        query_stats_scope() as stats,
     ):
+        starts: list[bool] = []
+        stats.query_start_listeners.append(lambda: starts.append(True))
         result = adapter.execute(request)
 
     cursor.execute.assert_called_once_with(*expected_execute_args)
+    assert starts == [True]
     cursor.fetchmany.assert_called_once_with(1_000_001)
     assert result.results == [(1, True)]
     assert result.print_columns == ["id", "active"]
