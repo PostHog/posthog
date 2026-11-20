@@ -2221,8 +2221,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert [row[0] for row in from_events] == ["probe-distinct-id"]
         assert swapped.clickhouse is not None
         assert "FROM flag_evaluations" in swapped.clickhouse
-        # The test events table has no materialized column, so it returns the JSON text. Production materializes
-        # `$feature_flag_response`, which reads "" and "null" as NULL, as the typed column does.
+        # The test events table has no materialized column, so it returns the JSON text where production reads NULL.
         expected = [(distinct_id, None if reads_as_null else read) for distinct_id, read in from_events]
         assert swapped.results == expected
 

@@ -121,9 +121,7 @@ _ELEMENT_ARRAY_STAND_INS = ("elements_chain_texts", "elements_chain_ids", "eleme
 ELEMENT_STAND_INS = frozenset(_ELEMENT_STRING_STAND_INS + _ELEMENT_ARRAY_STAND_INS)
 
 
-# The properties that this table also stores in a typed column, and the HogQL field that names that column. Each column
-# is defined as a materialized column of `properties` in posthog/models/flag_evaluations/sql.py. `response` maps to the
-# hidden stored field, because the `response` field is an expression that already scrubs the sentinels.
+# `response` maps to the hidden stored field, because the `response` field is an expression that scrubs the sentinels.
 FLAG_EVALUATIONS_PROPERTY_COLUMNS: dict[str, str] = {
     "$feature_flag": "flag_key",
     "$feature_flag_response": "flag_evaluation_response",
