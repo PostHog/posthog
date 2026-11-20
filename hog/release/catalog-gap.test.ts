@@ -216,6 +216,28 @@ describe('catalog gaps', () => {
             {},
         ],
         [
+            'a function the prelude of a carried generated module calls',
+            [GENERATED],
+            { [GENERATED]: `${MODULES[GENERATED]}function setup() { ${FETCH} }\nsetup()\n` },
+            { [GENERATED]: `${MODULES[GENERATED]}function setup() {}\nsetup()\n` },
+        ],
+        [
+            'a function a carried generated module calls through a computed global',
+            [GENERATED],
+            { [GENERATED]: `${MODULES[GENERATED]}function setup() { ${FETCH} }\nglobalThis['set' + 'up']()\n` },
+            { [GENERATED]: `${MODULES[GENERATED]}function setup() {}\nglobalThis['set' + 'up']()\n` },
+        ],
+        [
+            'a const that a function the prelude of a schema file calls reads',
+            [SCHEMAS],
+            {
+                [SCHEMAS]: `${MODULES[SCHEMAS]}const host = 'b.example.com'\nfunction setup() { void fetch(host) }\nsetup()\n`,
+            },
+            {
+                [SCHEMAS]: `${MODULES[SCHEMAS]}const host = 'a.example.com'\nfunction setup() { void fetch(host) }\nsetup()\n`,
+            },
+        ],
+        [
             'a registered module whose tools the catalog carries, which imports code hog runs on load',
             [REGISTRY],
             { [REGISTRY]: registry('actions') },
