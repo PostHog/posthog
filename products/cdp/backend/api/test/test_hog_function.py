@@ -405,12 +405,20 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 status.HTTP_403_FORBIDDEN,
             ),
             (
-                "metrics edit with metrics write",
+                "metrics edit with metrics and alert write",
+                "patch",
+                "",
+                ["hog_function:write", "metrics:write", "alert:write"],
+                status.HTTP_200_OK,
+                ("$metrics_alert_firing",),
+            ),
+            (
+                "metrics edit without alert write",
                 "patch",
                 "",
                 ["hog_function:write", "metrics:write"],
-                status.HTTP_200_OK,
-                "$metrics_alert_firing",
+                status.HTTP_403_FORBIDDEN,
+                ("$metrics_alert_firing",),
             ),
             (
                 "metrics edit with logs write",
@@ -418,15 +426,31 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 "",
                 ["hog_function:write", "logs:write"],
                 status.HTTP_403_FORBIDDEN,
-                "$metrics_alert_firing",
+                ("$metrics_alert_firing",),
             ),
             (
-                "traces edit with tracing write",
+                "traces edit with tracing and alert write",
                 "patch",
                 "",
-                ["hog_function:write", "tracing:write"],
+                ["hog_function:write", "tracing:write", "alert:write"],
                 status.HTTP_200_OK,
-                "$traces_alert_resolved",
+                ("$traces_alert_resolved",),
+            ),
+            (
+                "logs and metrics edit with logs write only",
+                "patch",
+                "",
+                ["hog_function:write", "logs:write"],
+                status.HTTP_403_FORBIDDEN,
+                ("$logs_alert_firing", "$metrics_alert_firing"),
+            ),
+            (
+                "logs and metrics edit with every write scope",
+                "patch",
+                "",
+                ["hog_function:write", "logs:write", "metrics:write", "alert:write"],
+                status.HTTP_200_OK,
+                ("$logs_alert_firing", "$metrics_alert_firing"),
             ),
             (
                 "traces edit with hog function write only",
@@ -434,14 +458,16 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 "",
                 ["hog_function:write"],
                 status.HTTP_403_FORBIDDEN,
-                "$traces_alert_resolved",
+                ("$traces_alert_resolved",),
             ),
         ]
     )
     def test_writing_to_an_alert_destination_needs_its_sources_write_scope_too(
-        self, _name, method, path, scopes, expected_status, event_id="$logs_alert_firing"
+        self, _name, method, path, scopes, expected_status, event_ids=("$logs_alert_firing",)
     ):
-        managed = self._create_internal_destination(_alert_filters(event_id))
+        managed = self._create_internal_destination(
+            _alert_filters(events=[{"id": event_id, "type": "events"} for event_id in event_ids])
+        )
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
