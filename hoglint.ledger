@@ -335,6 +335,7 @@ export-shape	products.access_control.backend.facade.user_access_control.UserAcce
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.send_calendar	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.workflows.backend.facade.workflows	export-shape(class)	1
 export-shape	products.aeo.backend.temporal.brand_sentiment.WORKFLOWS	products.aeo.backend.facade.temporal	export-unknown	1
+export-shape	products.ai_observability.backend.logic.traces.trace_selection.QUERY_SCOPED_FILTERS	products.ai_observability.backend.facade.api	export-unknown	1
 export-shape	products.ai_observability.backend.models.eval_suggestions.EvalSuggestionReviewVerdict	products.ai_observability.backend.facade.admin	export-shape(class)	1
 export-shape	products.ai_observability.backend.temporal.registry.WORKFLOWS	products.ai_observability.backend.facade.temporal	export-unknown	1
 export-shape	products.alerts.backend.evaluation.contract.ExtractionResult	products.alerts.backend.facade.evaluation	export-shape(class)	1
@@ -409,10 +410,13 @@ export-shape	products.customer_analytics.backend.temporal.WORKFLOWS	products.cus
 export-shape	products.customer_analytics.backend.temporal.account_property_sync.ACCOUNT_PROPERTY_SYNC_WORKFLOWS	products.customer_analytics.backend.facade.temporal	export-unknown	1
 export-shape	products.dashboards.backend.facade.api.InsightTilePlacement	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_debug.DashboardSharingOutcome	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
+export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.api	export-shape(class)	1
+export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCachedEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingCompleteEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingErrorEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingStream	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
 export-shape	products.dashboards.backend.query_sharing_stream.DashboardQuerySharingTileEvent	products.dashboards.backend.facade.query_sharing	export-shape(class)	1
+export-shape	products.dashboards.backend.v2.cached_tiles.CachedTileStatus	products.dashboards.backend.facade.api	export-shape(class)	1
 export-shape	products.data_catalog.backend.logic.metrics._Unset	products.data_catalog.backend.facade.api	export-shape(class)	1
 export-shape	products.data_catalog.backend.models.certification.TableCertification	products.data_catalog.backend.facade.api	export-denied(model)	1
 export-shape	products.data_catalog.backend.models.certification.TableCertification	products.data_catalog.backend.facade.models	export-denied(model)	1
@@ -857,7 +861,6 @@ facade-signature	products.access_control.backend.facade.user_access_control	visi
 facade-signature	products.actions.backend.facade.api	readable_action_ids	param:required_level	typing.Any	1
 facade-signature	products.actions.backend.facade.api	search_actions	return	typing.Any	1
 facade-signature	products.actions.backend.facade.contracts	ActionStep.__init__	field:properties	builtins.dict	1
-facade-signature	products.aeo.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.ai_observability.backend.facade.api	resolve_evaluation_pass_markers	param:properties	products.ai_observability.backend.facade.api.P	1
 facade-signature	products.ai_observability.backend.facade.api	resolve_evaluation_pass_markers	return	products.ai_observability.backend.facade.api.P	1
 facade-signature	products.ai_observability.backend.facade.clustering_runtime	scope_key	param:event_filters	builtins.dict	1
@@ -880,7 +883,6 @@ facade-signature	products.ai_observability.backend.facade.evaluation_runtime	ext
 facade-signature	products.ai_observability.backend.facade.evaluation_runtime	format_tool_definitions	param:tools	typing.Any	1
 facade-signature	products.ai_observability.backend.facade.evaluation_runtime	hog_bytecode_references_global	param:bytecode	typing.Any	1
 facade-signature	products.ai_observability.backend.facade.evaluation_runtime	last_message_text	param:messages	builtins.dict	1
-facade-signature	products.ai_observability.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.alerts.backend.facade.api	LLMAlertWrite.__init__	field:existing	products.alerts.backend.models.alert.AlertConfiguration	1
 facade-signature	products.alerts.backend.facade.api	calls_ai_gateway	param:detector_config	typing.Any	1
 facade-signature	products.alerts.backend.facade.api	forecast_detector_access_error	param:organization	typing.Any	1
@@ -892,8 +894,6 @@ facade-signature	products.alerts.backend.facade.destinations	insight_alert_slack
 facade-signature	products.alerts.backend.facade.destinations	serialize_deliveries	return	typing.Any	1
 facade-signature	products.alerts.backend.facade.evaluation	validate_evaluation_delay	param:config	builtins.object	1
 facade-signature	products.alerts.backend.facade.evaluation	validate_evaluation_delay	param:query	builtins.object	1
-facade-signature	products.alerts.backend.facade.temporal	PLATFORM_AI_QUEUE_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.alerts.backend.facade.temporal	PLATFORM_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.alerts_platform.backend.facade.api	enabled_native_configurations	param:values	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.api	native_configuration_ids_by_source_config	param:values	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.api	native_configuration_ids_by_source_config	return	typing.Any	1
@@ -927,9 +927,6 @@ facade-signature	products.alerts_platform.backend.facade.scheduling	normalize_sc
 facade-signature	products.alerts_platform.backend.facade.scheduling	validate_and_normalize_schedule_restriction	param:raw	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.scheduling	validate_and_normalize_schedule_restriction	return	typing.Any	1
 facade-signature	products.alerts_platform.backend.facade.scheduling	validate_and_normalize_schedule_start_time	param:raw	typing.Any	1
-facade-signature	products.alerts_platform.backend.facade.temporal	DELIVERY_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.alerts_platform.backend.facade.temporal	EVALUATION_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.alerts_platform.backend.facade.temporal	SHARED_ORCHESTRATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.annotations.backend.facade.api	build_snapshot_annotations_block	param:content_snapshots	builtins.dict	1
 facade-signature	products.annotations.backend.facade.contracts	AnnotationWrite.changes	return	typing.Any	1
 facade-signature	products.autoresearch.backend.facade.api	complete_run	param:best_iteration_id	typing.Any	1
@@ -938,7 +935,6 @@ facade-signature	products.autoresearch.backend.facade.api	create_suggestion	para
 facade-signature	products.autoresearch.backend.facade.api	resolve_action_target	param:action_id	typing.Any	1
 facade-signature	products.autoresearch.backend.facade.contracts	Pipeline.__init__	field:created_by	typing.Any	1
 facade-signature	products.autoresearch.backend.facade.contracts	Suggestion.__init__	field:created_by	typing.Any	1
-facade-signature	products.autoresearch.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.batch_exports.backend.facade.api	create_batch_export_backfill	param:end_at	builtins.object	1
 facade-signature	products.batch_exports.backend.facade.api	create_batch_export_backfill	param:start_at	builtins.object	1
 facade-signature	products.batch_exports.backend.facade.api	drop_unknown_hogql_modifiers	return	typing.Any	1
@@ -949,7 +945,6 @@ facade-signature	products.batch_exports.backend.facade.contracts	BatchExportUpda
 facade-signature	products.batch_exports.backend.facade.contracts	NewBatchExport.__init__	field:filters	typing.Any	1
 facade-signature	products.batch_exports.backend.facade.destinations.postgres	run_in_retryable_transaction	param:fn	products.batch_exports.backend.temporal.destinations.postgres_batch_export._TransactionResult	1
 facade-signature	products.batch_exports.backend.facade.destinations.postgres	run_in_retryable_transaction	return	products.batch_exports.backend.temporal.destinations.postgres_batch_export._TransactionResult	1
-facade-signature	products.batch_exports.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.batch_exports.backend.facade.temporal	__getattr__	return	typing.Any	1
 facade-signature	products.billing_alerts.backend.facade.api	BillingAlertDispatchResult.__init__	field:event	products.billing_alerts.backend.models.BillingAlertEvent	1
 facade-signature	products.billing_alerts.backend.facade.api	apply_billing_alert_configuration_lifecycle	param:alert	products.billing_alerts.backend.models.BillingAlertConfiguration	1
@@ -994,7 +989,6 @@ facade-signature	products.canvas.backend.facade.contracts	CanvasFieldChange.__in
 facade-signature	products.canvas.backend.facade.contracts	CanvasFieldChange.__init__	field:before	typing.Any	1
 facade-signature	products.canvas.backend.facade.contracts	CanvasStateEntry.__init__	field:value	typing.Any	1
 facade-signature	products.canvas.backend.facade.notebooks	validate_notebook_canvas_source	return	typing.Any	1
-facade-signature	products.canvas.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.cohorts.backend.facade.ready_signals	connect_realtime_cohort_ready	param:receiver	builtins.object	1
 facade-signature	products.context_layer.backend.facade.api	enable_context_layer	return	products.context_layer.backend.models.ContextLayerConfig	1
 facade-signature	products.context_layer.backend.facade.api	get_config	return	products.context_layer.backend.models.ContextLayerConfig	1
@@ -1042,13 +1036,12 @@ facade-signature	products.customer_analytics.backend.facade.contracts	FeatureReq
 facade-signature	products.customer_analytics.backend.facade.contracts	FeatureRequestHistoryChange	attr:before	builtins.object	1
 facade-signature	products.customer_analytics.backend.facade.contracts	UpdateAccountInput.__init__	field:properties	builtins.dict	1
 facade-signature	products.customer_analytics.backend.facade.contracts	UserBasicInfo.__init__	field:hedgehog_config	typing.Any	1
-facade-signature	products.customer_analytics.backend.facade.temporal	ACCOUNT_PROPERTY_SYNC_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.customer_analytics.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.dashboards.backend.facade.api	InsightTilePlacement.__init__	param:dashboards	products.dashboards.backend.models.dashboard.Dashboard	1
 facade-signature	products.dashboards.backend.facade.api	InsightTilePlacement.create_tiles	param:insight	products.product_analytics.backend.models.insight.Insight	1
 facade-signature	products.dashboards.backend.facade.api	add_insight_to_dashboard	param:query	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	insight_ids_on_dashboard	return	django.db.models.query.QuerySet	1
 facade-signature	products.dashboards.backend.facade.api	plan_insight_tile_placement	param:query	typing.Any	1
+facade-signature	products.dashboards.backend.facade.api	read_cached_tiles	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	search_dashboards	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	tile_filters_overrides	return	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	tile_for_insight_on_dashboard	return	products.dashboards.backend.models.dashboard_tile.DashboardTile	1
@@ -1102,7 +1095,6 @@ facade-signature	products.data_catalog.backend.facade.api	upsert_metric	param:de
 facade-signature	products.data_catalog.backend.facade.api	upsert_metric	return	products.data_catalog.backend.models.metric.Metric	1
 facade-signature	products.data_catalog.backend.facade.api	validate_metric_definition	param:definition	builtins.dict	1
 facade-signature	products.data_catalog.backend.facade.api	validate_metric_definition	return	builtins.dict	1
-facade-signature	products.data_catalog.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.data_modeling.backend.facade.api	apply_incremental_filter	param:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.api	apply_saved_query_frequency_anchor	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	apply_saved_query_frequency_target	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
@@ -1130,6 +1122,7 @@ facade-signature	products.data_modeling.backend.facade.api	latest_saved_query_ma
 facade-signature	products.data_modeling.backend.facade.api	latest_saved_query_materialization_job	return	products.data_modeling.backend.models.data_modeling_job.DataModelingJob	1
 facade-signature	products.data_modeling.backend.facade.api	mark_node_suspended	param:node	products.data_modeling.backend.models.node.Node	1
 facade-signature	products.data_modeling.backend.facade.api	materialize_saved_query	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
+facade-signature	products.data_modeling.backend.facade.api	narrow_to_incremental_window	param:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.api	promote_view_nodes_to_matview	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	query_fingerprint	param:query	builtins.dict	1
 facade-signature	products.data_modeling.backend.facade.api	record_incremental_history	param:saved_query	?	1
@@ -1151,7 +1144,9 @@ facade-signature	products.data_modeling.backend.facade.api	unsuspend_nodes	param
 facade-signature	products.data_modeling.backend.facade.api	unsuspend_nodes	param:only_if	products.data_modeling.backend.models.node.Node	1
 facade-signature	products.data_modeling.backend.facade.api	unsuspend_saved_query	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	update_node_type	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
+facade-signature	products.data_modeling.backend.facade.api	view_ready_for_enrichment	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.api	window_start	return	typing.Any	1
+facade-signature	products.data_modeling.backend.facade.api	wrap_with_incremental_guard	param:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.contracts	IncrementalConfig.canonical	return	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.contracts	IncrementalState.__init__	field:watermark	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.contracts	ViewEngine.from_annotated	param:row	typing.Any	1
@@ -1159,8 +1154,6 @@ facade-signature	products.data_modeling.backend.facade.contracts	ViewEngine.from
 facade-signature	products.data_modeling.backend.facade.contracts	WritePlan.__init__	field:since	typing.Any	1
 facade-signature	products.data_modeling.backend.facade.models	aget_saved_query_by_id	return	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.data_modeling.backend.facade.models	asave_saved_query	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
-facade-signature	products.data_modeling.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
-facade-signature	products.data_modeling.backend.facade.temporal	SEMANTIC_ENRICHMENT_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.data_quality.backend.facade.activity	model_activity	param:queryset	django.db.models.query.QuerySet	1
 facade-signature	products.data_quality.backend.facade.activity	model_activity	param:queryset	posthog.models.activity_logging.activity_log.ActivityLog	1
 facade-signature	products.data_quality.backend.facade.activity	model_activity	return	django.db.models.query.QuerySet	1
@@ -1201,7 +1194,6 @@ facade-signature	products.data_quality.backend.facade.api	visible_checks	param:c
 facade-signature	products.data_quality.backend.facade.api	visible_checks	return	products.data_quality.backend.models.check.DataQualityCheck	1
 facade-signature	products.data_quality.backend.facade.api	without_denied_runs	param:runs	django.db.models.query.QuerySet	1
 facade-signature	products.data_quality.backend.facade.api	without_denied_runs	return	django.db.models.query.QuerySet	1
-facade-signature	products.data_quality.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
 facade-signature	products.data_warehouse.backend.facade.api	CreateTableResult.__init__	field:table	products.warehouse_sources.backend.models.table.DataWarehouseTable	1
 facade-signature	products.data_warehouse.backend.facade.api	apply_on_refresh	param:source	products.warehouse_sources.backend.models.external_data_source.ExternalDataSource	1
 facade-signature	products.data_warehouse.backend.facade.api	apply_on_schema_clear	param:source	products.warehouse_sources.backend.models.external_data_source.ExternalDataSource	1
@@ -1268,8 +1260,6 @@ facade-signature	products.endpoints.backend.facade.api	validate_update_request	p
 facade-signature	products.endpoints.backend.facade.contracts	EndpointVersionInfo.__init__	field:query	builtins.dict	1
 facade-signature	products.endpoints.backend.facade.temporal	prepare_executable_query	param:saved_query	products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery	1
 facade-signature	products.endpoints.backend.facade.temporal	update_materialization_ready_for_saved_query	param:saved_query	?	1
-facade-signature	products.engineering_analytics.backend.facade.temporal	CI_SIGNALS_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.engineering_analytics.backend.facade.temporal	JOB_LOGS_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.error_tracking.backend.facade	build_error_tracking_config	return	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade	override_error_tracking_issue_fingerprint	param:version	?	1
 facade-signature	products.error_tracking.backend.facade.alerts	compile_signal_source_filters	return	typing.Any	1
@@ -1284,6 +1274,7 @@ facade-signature	products.error_tracking.backend.facade.api	create_assignment_ru
 facade-signature	products.error_tracking.backend.facade.api	create_bypass_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_grouping_rule	param:assignee	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_grouping_rule	param:filters	builtins.dict	1
+facade-signature	products.error_tracking.backend.facade.api	create_issue_tag_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_release	param:metadata	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_severity_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	create_suppression_rule	param:filters	builtins.dict	1
@@ -1307,6 +1298,7 @@ facade-signature	products.error_tracking.backend.facade.api	update_assignment_ru
 facade-signature	products.error_tracking.backend.facade.api	update_assignment_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_bypass_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_grouping_rule	param:filters	builtins.dict	1
+facade-signature	products.error_tracking.backend.facade.api	update_issue_tag_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_release	param:metadata	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_severity_rule	param:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.api	update_suppression_rule	param:filters	builtins.dict	1
@@ -1320,6 +1312,8 @@ facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingB
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingBypassRule.__init__	field:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingGroupingRule.__init__	field:disabled_data	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingGroupingRule.__init__	field:filters	builtins.dict	1
+facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingIssueTagRule.__init__	field:disabled_data	builtins.dict	1
+facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingIssueTagRule.__init__	field:filters	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingRecommendation.__init__	field:meta	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingRelease.__init__	field:metadata	builtins.dict	1
 facade-signature	products.error_tracking.backend.facade.contracts	ErrorTrackingSeverityRule.__init__	field:disabled_data	builtins.dict	1
@@ -1401,12 +1395,6 @@ facade-signature	products.experiments.backend.facade.contracts	CreateExperimentI
 facade-signature	products.experiments.backend.facade.contracts	ExperimentExposureLinkage.__init__	field:_resolution	builtins.object	1
 facade-signature	products.experiments.backend.facade.launch_signals	connect_experiment_launched	param:receiver	builtins.object	1
 facade-signature	products.experiments.backend.facade.search	search_experiments	return	typing.Any	1
-facade-signature	products.experiments.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
-facade-signature	products.experiments.backend.facade.temporal	EXPERIMENT_CANARY_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.experiments.backend.facade.temporal	EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.experiments.backend.facade.temporal	EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.experiments.backend.facade.temporal	EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.experiments.backend.facade.temporal	TIMESERIES_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.experiments.backend.facade.timeseries	apply_saved_metric_overrides	return	typing.Any	1
 facade-signature	products.experiments.backend.facade.timeseries	backfill_experiment_timeseries	return	typing.Any	1
 facade-signature	products.experiments.backend.facade.timeseries	previous_completed_metric_result	return	typing.Any	1
@@ -1514,19 +1502,15 @@ facade-signature	products.feature_flags.backend.facade.rules	experiment_rule_fro
 facade-signature	products.feature_flags.backend.facade.rules	experiment_rule_snapshot	return	typing.Any	1
 facade-signature	products.feature_flags.backend.facade.rules	same_rule_id	param:stored	builtins.object	1
 facade-signature	products.feature_flags.backend.facade.rules	same_rule_id	param:wanted	builtins.object	1
-facade-signature	products.knowledge_writer.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.legal_documents.backend.facade.api	annotate_signed_baa	param:queryset	django.db.models.query.QuerySet	1
 facade-signature	products.legal_documents.backend.facade.api	annotate_signed_baa	return	django.db.models.query.QuerySet	1
 facade-signature	products.logs.backend.facade.retention	suggest_retention_rule_name	param:filter_group	typing.Any	1
-facade-signature	products.logs.backend.facade.temporal	PLATFORM_SIGNAL_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.logs.backend.facade.temporal	SOURCE_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.managed_warehouse.backend.facade.api	duckgres_data_imports_table_name	param:schema	products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema	1
 facade-signature	products.managed_warehouse.backend.facade.client	execute_trino_model	param:source_query	builtins.object	1
 facade-signature	products.managed_warehouse.backend.facade.client	execute_trino_shadow_materialization	param:source_query	builtins.object	1
 facade-signature	products.managed_warehouse.backend.facade.contracts	DuckLakeQueryResult.__init__	field:results	typing.Any	1
 facade-signature	products.managed_warehouse.backend.facade.contracts	DuckLakeTableResult.__init__	field:watermark	typing.Any	1
 facade-signature	products.managed_warehouse.backend.facade.contracts	TrinoIncrementalWrite.__init__	field:since	typing.Any	1
-facade-signature	products.managed_warehouse.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.mcp_store.backend.facade.api	member_installation_for_host	return	products.mcp_store.backend.models.MCPServerInstallation	1
 facade-signature	products.mcp_store.backend.facade.contracts	ConnectorCallOutcome.__init__	field:structured_content	typing.Any	1
 facade-signature	products.messaging.backend.facade.api	apply_design_operations	param:design	builtins.dict	1
@@ -1540,13 +1524,10 @@ facade-signature	products.messaging.backend.facade.customerio	import_preferences
 facade-signature	products.messaging.backend.facade.preferences	recipient_preferences	return	typing.Any	1
 facade-signature	products.messaging.backend.facade.preferences	transition_preferences	return	typing.Any	1
 facade-signature	products.messaging.backend.facade.templates	team_category_id	param:category_id	typing.Any	1
-facade-signature	products.messaging.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.metrics.backend.facade.api	list_metric_attribute_keys	return	typing.Any	1
 facade-signature	products.metrics.backend.facade.api	list_metric_attribute_values	return	typing.Any	1
 facade-signature	products.metrics.backend.facade.api	list_metric_names	return	typing.Any	1
 facade-signature	products.metrics.backend.facade.api	list_metric_picker_names	return	typing.Any	1
-facade-signature	products.metrics.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
-facade-signature	products.metrics.backend.facade.temporal	METRICS_ALERT_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.notebooks.backend.facade.api	create_account_notebook	param:content	typing.Any	1
 facade-signature	products.notebooks.backend.facade.api	create_group_notebook	param:content	typing.Any	1
 facade-signature	products.notebooks.backend.facade.api	create_notebook	param:content	typing.Any	1
@@ -1579,7 +1560,6 @@ facade-signature	products.notebooks.backend.facade.contracts	NotebookData.__init
 facade-signature	products.notebooks.backend.facade.contracts	NotebookUserInfo.__init__	field:hedgehog_config	typing.Any	1
 facade-signature	products.notebooks.backend.facade.notebook_run	read_notebook_run	return	typing.Any	1
 facade-signature	products.notebooks.backend.facade.sql_v2	notebook_sql_v2_callback	param:request	?	1
-facade-signature	products.notebooks.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.notebooks.backend.facade.widgets	cancel_widget_generation	param:notebook	products.notebooks.backend.models.Notebook	1
 facade-signature	products.notebooks.backend.facade.widgets	get_widget_status	param:notebook	products.notebooks.backend.models.Notebook	1
 facade-signature	products.notebooks.backend.facade.widgets	infer_widget_inputs	param:notebook	products.notebooks.backend.models.Notebook	1
@@ -1608,10 +1588,8 @@ facade-signature	products.product_analytics.backend.facade.models	generate_insig
 facade-signature	products.product_analytics.backend.facade.models	resolve_insight_by_id_or_short_id	param:queryset	django.db.models.query.QuerySet	1
 facade-signature	products.product_analytics.backend.facade.models	resolve_insight_by_id_or_short_id	param:queryset	products.product_analytics.backend.models.insight.Insight	1
 facade-signature	products.product_analytics.backend.facade.models	resolve_insight_by_id_or_short_id	return	products.product_analytics.backend.models.insight.Insight	1
-facade-signature	products.product_analytics.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.release.backend.facade.contracts	UnknownLinkedObjectsError.__init__	param:ids	typing.Any	1
 facade-signature	products.replay_vision.backend.facade.api	parse_workflow_scan_setup	param:setup	typing.Any	1
-facade-signature	products.security.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
 facade-signature	products.signals.backend.facade.api	ScoutCreated.__init__	field:config	typing.Any	1
 facade-signature	products.signals.backend.facade.api	ScoutCreated.__init__	field:skill	typing.Any	1
 facade-signature	products.signals.backend.facade.api	create_scout_for_source	param:files	typing.Any	1
@@ -1634,15 +1612,11 @@ facade-signature	products.signals.backend.facade.onboarding	InboxOnboarding.stat
 facade-signature	products.signals.backend.facade.scout_access	has_canonical_team_access	param:user_permissions	posthog.rbac.user_permissions.UserPermissions	1
 facade-signature	products.signals.backend.facade.scout_reports	render_report_charts	return	typing.Any	1
 facade-signature	products.signals.backend.facade.source_configs	enabled_issue_filters	return	builtins.object	1
-facade-signature	products.signals.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
-facade-signature	products.signals.backend.facade.temporal	EMIT_SIGNALS_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.signals.backend.facade.temporal	SELF_DRIVING_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.signals.backend.facade.tool_policy	scout_tool_denial	param:data	typing.Any	1
 facade-signature	products.signals.backend.facade.tool_policy	scout_tool_denial	param:view	typing.Any	1
 facade-signature	products.slack_app.backend.facade.api	slack_followup_invite	return	typing.Any	1
 facade-signature	products.slack_app.backend.facade.api	slack_report_implementation_button	return	typing.Any	1
 facade-signature	products.slack_app.backend.facade.api	slack_report_state_followup_blocks	return	typing.Any	1
-facade-signature	products.slack_app.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.stamphog.backend.facade.api	LazyDTOList.__getitem__	return	products.stamphog.backend.facade.api._DTO	1
 facade-signature	products.stamphog.backend.facade.api	LazyDTOList.__init__	param:queryset	django.db.models.query.QuerySet	1
 facade-signature	products.stamphog.backend.facade.api	LazyDTOList.__init__	param:to_dto	products.stamphog.backend.facade.api._DTO	1
@@ -1652,7 +1626,6 @@ facade-signature	products.stamphog.backend.facade.api	update_repo_config	param:f
 facade-signature	products.stamphog.backend.facade.contracts	DigestRunDTO.__init__	field:summary	builtins.dict	1
 facade-signature	products.stamphog.backend.facade.contracts	ReviewRunDTO.__init__	field:gate_result	builtins.dict	1
 facade-signature	products.stamphog.backend.facade.contracts	ReviewRunDTO.__init__	field:output	builtins.dict	1
-facade-signature	products.stamphog.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.streamlit_apps.backend.facade.api	execute_bridge_query	return	builtins.dict	1
 facade-signature	products.streamlit_apps.backend.facade.api	get_streamlit_oauth_app	return	posthog.models.oauth.OAuthApplication	1
 facade-signature	products.streamlit_apps.backend.facade.contracts	StreamlitAppUserInfo.__init__	field:hedgehog_config	builtins.dict	1
@@ -1668,7 +1641,6 @@ facade-signature	products.subscriptions.backend.facade.contracts	SubscriptionRec
 facade-signature	products.subscriptions.backend.facade.contracts	SubscriptionRecord.__init__	field:delivery_config	builtins.object	1
 facade-signature	products.subscriptions.backend.facade.contracts	SubscriptionWrite.__init__	field:ai_prompt_config	builtins.object	1
 facade-signature	products.subscriptions.backend.facade.contracts	SubscriptionWrite.__init__	field:delivery_config	builtins.object	1
-facade-signature	products.subscriptions.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.tasks.backend.facade.access	analytics_context_reader	return	builtins.object	1
 facade-signature	products.tasks.backend.facade.access	may_read_task_run_context	param:reader	builtins.object	1
 facade-signature	products.tasks.backend.facade.access	usage_limit_response	param:user	?	1
@@ -1801,7 +1773,6 @@ facade-signature	products.tasks.backend.facade.streams	run_stream_presence_gated
 facade-signature	products.tasks.backend.facade.streams	run_stream_thin_tail	param:state	builtins.dict	1
 facade-signature	products.tasks.backend.facade.streams	run_uses_dedicated_stream	param:state	builtins.dict	1
 facade-signature	products.tasks.backend.facade.streams	session_update_type	param:event	builtins.dict	1
-facade-signature	products.tasks.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.tasks.backend.facade.temporal	execute_task_processing_workflow	param:slack_thread_context	typing.Any	1
 facade-signature	products.tasks.backend.facade.temporal	execute_task_processing_workflow_async	param:slack_thread_context	typing.Any	1
 facade-signature	products.tasks.backend.facade.temporal	mcp_exclude_tools_for_task	param:task	products.tasks.backend.models.Task	1
@@ -1815,7 +1786,6 @@ facade-signature	products.tracing.backend.facade.api	annotate_self_time	param:sp
 facade-signature	products.tracing.backend.facade.api	run_service_health_query	return	typing.Any	1
 facade-signature	products.tracing.backend.facade.api	summarize_trace	param:spans	builtins.dict	1
 facade-signature	products.tracing.backend.facade.api	summarize_trace	return	builtins.dict	1
-facade-signature	products.tracing.backend.facade.temporal	TRACES_ALERT_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.ui_customization.backend.facade.api	validate_customization_layout	param:layout	builtins.object	1
 facade-signature	products.visual_review.backend.facade.contracts	CreateRunInput.__init__	field:metadata	builtins.dict	1
 facade-signature	products.visual_review.backend.facade.contracts	Run.__init__	field:metadata	builtins.dict	1
@@ -1934,13 +1904,7 @@ facade-signature	products.warehouse_sources.backend.facade.source_management	sta
 facade-signature	products.warehouse_sources.backend.facade.source_management	tables_wait_for_repair	param:source	products.warehouse_sources.backend.models.external_data_source.ExternalDataSource	1
 facade-signature	products.warehouse_sources.backend.facade.source_management	tls_options	param:config	builtins.object	1
 facade-signature	products.warehouse_sources.backend.facade.source_management	validate_and_coerce_row_filters	param:row_filters	typing.Any	1
-facade-signature	products.warehouse_sources.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
-facade-signature	products.warehouse_sources.backend.facade.temporal	METADATA_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.warehouse_sources.backend.facade.temporal	PERSON_PROPERTY_BACKFILL_ACTIVITIES	constant	builtins.object	1
-facade-signature	products.warehouse_sources.backend.facade.temporal	PERSON_PROPERTY_SYNC_ACTIVITIES	constant	typing.Any	1
-facade-signature	products.warehouse_sources.backend.facade.temporal	WAREHOUSE_ALERT_EVALUATION_ACTIVITIES	constant	builtins.object	1
 facade-signature	products.warehouse_sources.backend.facade.types	external_data_source_type_choices	return	typing.Any	1
-facade-signature	products.warehouse_suggestions.backend.facade.temporal	ACTIVITIES	constant	typing.Any	1
 facade-signature	products.web_analytics.backend.facade.capture_settings	effective_capture_settings	param:config	posthog.models.team.team_heatmap_config.TeamHeatmapConfig	1
 facade-signature	products.web_analytics.backend.facade.capture_settings	save_capture_settings	return	posthog.models.team.team_heatmap_config.TeamHeatmapConfig	1
 facade-signature	products.web_analytics.backend.facade.capture_settings	top_heatmap_pages	return	typing.Any	1
@@ -1953,7 +1917,6 @@ facade-signature	products.web_analytics.backend.facade.content_autopilot	start_r
 facade-signature	products.web_analytics.backend.facade.screenshot_settings	save_screenshot_hostnames	return	posthog.models.team.team_heatmap_config.TeamHeatmapConfig	1
 facade-signature	products.wizard.backend.facade.api	subscribe_to_updates	return	typing.Any	1
 facade-signature	products.wizard.backend.facade.api	validate_wizard_version	param:wizard_version	builtins.object	1
-facade-signature	products.wizard.backend.facade.temporal	ACTIVITIES	constant	builtins.object	1
 facade-signature	products.wizard.backend.facade.validation	is_context_mill_version	param:value	builtins.object	1
 facade-signature	products.wizard.backend.facade.validation	is_executable_wizard_version	param:value	builtins.object	1
 facade-signature	products.wizard.backend.facade.validation	is_wizard_error_code	param:value	builtins.object	1
@@ -2074,6 +2037,8 @@ facade-signature	products.workflows.backend.facade.writes	build_publish_impact	r
 facade-signature	products.workflows.backend.facade.writes	create_workflow	param:validated_data	builtins.dict	1
 facade-signature	products.workflows.backend.facade.writes	edit_workflow_content	param:edit	builtins.dict	1
 facade-signature	products.workflows.backend.facade.writes	publish_draft	param:validate	builtins.dict	1
+facade-signature	products.workflows.backend.facade.writes	publish_moves_to_sandbox_sender	param:draft	typing.Any	1
+facade-signature	products.workflows.backend.facade.writes	publish_moves_to_sandbox_sender	param:live_actions	typing.Any	1
 facade-signature	products.workflows.backend.facade.writes	save_validated_workflow	param:validated_data	builtins.dict	1
 facade-signature	products.workflows.backend.facade.writes	trigger_has_audience	param:trigger	builtins.dict	1
 facade-signature	products.workflows.backend.facade.writes	update_workflow	param:validated_data	builtins.dict	1
@@ -2615,6 +2580,7 @@ no-product-lists-in-core	posthog.tasks.scheduled	products.legal_documents.backen
 no-product-lists-in-core	posthog.tasks.scheduled	products.logs.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.managed_warehouse.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.messaging.backend.tasks.tasks	1
+no-product-lists-in-core	posthog.tasks.scheduled	products.metrics.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.notebooks.backend.tasks.widget_snapshots	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.product_analytics.backend.tasks.tasks	1
 no-product-lists-in-core	posthog.tasks.scheduled	products.pulse.backend.tasks	1
@@ -3370,6 +3336,17 @@ temporal-placement	cleanup_property_definitions	posthog.temporal.cleanup_propert
 temporal-placement	cleanup_property_definitions	posthog.temporal.cleanup_property_definitions.activities	1
 temporal-placement	cleanup_property_definitions	posthog.temporal.cleanup_property_definitions.types	1
 temporal-placement	cleanup_property_definitions	posthog.temporal.cleanup_property_definitions.workflows	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.activities	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.contracts	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.registration	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.repair	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.schedule	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.test_dispatch	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.test_repair_workflow	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.test_schedule	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.test_workflow	1
+temporal-placement	entitlement_reactions	posthog.temporal.entitlement_reactions.workflow	1
 temporal-placement	event_screenshots	posthog.temporal.event_screenshots	1
 temporal-placement	event_screenshots	posthog.temporal.event_screenshots.activities	1
 temporal-placement	event_screenshots	posthog.temporal.event_screenshots.types	1
@@ -3611,6 +3588,8 @@ thin-commands	products.error_tracking.backend.management.commands.backfill_error
 thin-commands	products.error_tracking.backend.management.commands.backfill_error_tracking_release_metadata	products.error_tracking.backend.logic	1
 thin-commands	products.error_tracking.backend.management.commands.backfill_error_tracking_release_metadata	products.error_tracking.backend.models	1
 thin-commands	products.error_tracking.backend.management.commands.drop_error_tracking_stack_frame_code_variables	products.error_tracking.backend.models	1
+thin-commands	products.error_tracking.backend.management.commands.rerun_error_tracking_issue_taggers	products.error_tracking.backend.logic.issue_tags.rerun	1
+thin-commands	products.error_tracking.backend.management.commands.rerun_error_tracking_issue_taggers	products.error_tracking.backend.logic.issue_tags.runner	1
 thin-commands	products.feature_flags.backend.management.commands.audit_flag_filters	products.feature_flags.backend.models.feature_flag	1
 thin-commands	products.feature_flags.backend.management.commands.delete_feature_flag_usage_insights	products.feature_flags.backend.models.feature_flag	1
 thin-commands	products.feature_flags.backend.management.commands.repair_replay_linked_flag_keys	products.feature_flags.backend.models.feature_flag	1
@@ -3637,6 +3616,8 @@ thin-commands	products.signals.backend.management.commands.emit_signals_from_llm
 thin-commands	products.signals.backend.management.commands.exempt_signal_report_billing	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.ingest_report_json	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.list_signal_reports	products.signals.backend.models	1
+thin-commands	products.signals.backend.management.commands.purge_signal_reports	products.signals.backend.models	1
+thin-commands	products.signals.backend.management.commands.purge_signal_scratchpad	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.reingest_signal_report	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.rerun_signal_report	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.reset_signals_self_driving	products.signals.backend.models	1
@@ -3712,6 +3693,7 @@ wiring-watched	products/managed_warehouse/backend/admin/view_translation_admin.p
 wiring-watched	products/messaging/backend/admin.py	1
 wiring-watched	products/product_analytics/backend/admin.py	1
 wiring-watched	products/product_analytics/backend/hogql_queries/__init__.py	1
+wiring-watched	products/product_analytics/backend/logic.py	1
 wiring-watched	products/subscriptions/backend/admin.py	1
 wiring-watched	products/visual_review/backend/admin.py	1
 wiring-watched	products/warehouse_sources/backend/admin/__init__.py	1
@@ -3719,6 +3701,12 @@ wiring-watched	products/warehouse_sources/backend/admin/custom_oauth2_integratio
 wiring-watched	products/warehouse_sources/backend/admin/data_warehouse_table_admin.py	1
 wiring-watched	products/warehouse_sources/backend/admin/external_data_schema_admin.py	1
 wiring-watched	products/warehouse_sources/backend/admin/external_data_source_admin.py	1
+wiring-watched	products/warehouse_sources/backend/file_uploads.py	1
+wiring-watched	products/warehouse_sources/backend/logic/credential_auth_types.py	1
+wiring-watched	products/warehouse_sources/backend/logic/source_credentials.py	1
+wiring-watched	products/warehouse_sources/backend/logic/source_credentials_rollout.py	1
+wiring-watched	products/warehouse_sources/backend/logic/source_inputs.py	1
+wiring-watched	products/warehouse_sources/backend/temporal/data_imports/retry_limits.py	1
 wiring-watched	products/workflows/backend/admin/__init__.py	1
 wiring-watched	products/workflows/backend/admin/hog_flow_admin.py	1
 wiring-watched	products/workflows/backend/admin/hog_flow_batch_job_admin.py	1
