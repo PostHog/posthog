@@ -98,6 +98,23 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
+def reproject_organization_gateway_credentials_task(organization_id: str) -> None:
+    for secret_key in ProjectSecretAPIKey.objects.select_related("team").filter(
+        team__organization_id=organization_id,
+        scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
+    ):
+        project_gateway_credential(secret_key)
+
+    for token in (
+        OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
+        .select_related("user", "application")
+        .filter(application__organization_id=organization_id)
+    ):
+        project_gateway_credential(token)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
 def drain_gateway_credential_last_used_task() -> None:
     """Stamp last_used_at for phs_ keys from the gateway's coalesced Valkey hash,
     since gateway traffic never hits the Django auth path that would stamp it."""
