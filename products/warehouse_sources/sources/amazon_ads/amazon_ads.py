@@ -6,7 +6,7 @@ import datetime as dt
 from collections.abc import Callable, Iterator
 from itertools import batched
 from typing import Any, Optional
-from urllib.parse import parse_qsl, urlparse, urlsplit
+from urllib.parse import parse_qsl, quote, urlparse, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -394,9 +394,20 @@ def _report_start_date(
     return max(cursor, earliest) if cursor is not None else earliest
 
 
-def _batched_report_rows(rows: list[dict[str, Any]], profile_id: str) -> Iterator[list[dict[str, Any]]]:
+def _report_row_id(row: dict[str, Any], key_columns: tuple[str, ...]) -> str:
+    return hashlib.sha256(json.dumps([row.get(column) for column in key_columns], default=str).encode()).hexdigest()
+
+
+def _batched_report_rows(
+    rows: list[dict[str, Any]], profile_id: str, report: AmazonAdsReportConfig
+) -> Iterator[list[dict[str, Any]]]:
     for chunk in batched(rows, REPORT_ROWS_PER_BATCH, strict=False):
-        yield [{**row, "_profile_id": profile_id} for row in chunk]
+        if report.key_columns:
+            yield [
+                {**row, "_profile_id": profile_id, "_row_id": _report_row_id(row, report.key_columns)} for row in chunk
+            ]
+        else:
+            yield [{**row, "_profile_id": profile_id} for row in chunk]
 
 
 def _report_rows(
@@ -454,26 +465,31 @@ def _report_rows(
             # Amazon does not order the file. The sort gives each report an ascending `date`, but
             # the run has no order: the dates start again for each profile in a window.
             rows.sort(key=lambda row: str(row.get("date") or ""))
-            yield from _batched_report_rows(rows, profile_id)
+            yield from _batched_report_rows(rows, profile_id, report)
 
     if resumable_source_manager is not None:
         resumable_source_manager.clear_state()
 
 
 def _list_page(
-    client: AmazonAdsClient, profile_id: Optional[str], query: dict[str, Any], next_token: Optional[str]
+    client: AmazonAdsClient,
+    profile_id: Optional[str],
+    query: dict[str, Any],
+    next_token: Optional[str],
+    config: Optional[AmazonAdsEndpointConfig] = None,
+    path: Optional[str] = None,
 ) -> dict[str, Any]:
-    config = client.config
+    config = config or client.config
+    path = path or config.path
     query = dict(query)
     if next_token:
         query[config.next_token_key] = next_token
-    if config.method == "GET":
-        # `/invoices` refuses a page size next to a cursor, so only the first page sends one.
-        if next_token:
+        if not config.page_size_with_token:
             query.pop(config.page_size_key, None)
-        response = client.request("GET", config.path, profile_id=profile_id, params=query)
+    if config.method == "GET":
+        response = client.request("GET", path, profile_id=profile_id, params=query)
     else:
-        response = client.request("POST", config.path, profile_id=profile_id, body=query)
+        response = client.request("POST", path, profile_id=profile_id, body=query)
 
     data = response.json()
     if not isinstance(data, dict):
@@ -489,13 +505,17 @@ def _page_items(data: dict[str, Any], config: AmazonAdsEndpointConfig) -> list[d
 
 
 def _paged_rows(
-    client: AmazonAdsClient, profile_id: Optional[str], query: dict[str, Any]
+    client: AmazonAdsClient,
+    profile_id: Optional[str],
+    query: dict[str, Any],
+    config: Optional[AmazonAdsEndpointConfig] = None,
+    path: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    config = client.config
+    config = config or client.config
     next_token_key = config.next_token_response_key or config.next_token_key
     next_token: Optional[str] = None
     while True:
-        data = _list_page(client, profile_id, query, next_token)
+        data = _list_page(client, profile_id, query, next_token, config, path)
         items = _page_items(data, config)
         if profile_id is not None:
             items = [{**item, "_profile_id": profile_id} for item in items]
@@ -519,6 +539,31 @@ def _entity_rows(client: AmazonAdsClient, profile_ids: list[str]) -> Iterator[li
     """Entity list endpoints, fanned out per profile."""
     for profile_id in profile_ids:
         yield from _paged_rows(client, profile_id, _list_query(client.config))
+
+
+def _fan_out_rows(
+    client: AmazonAdsClient,
+    parent: AmazonAdsEndpointConfig,
+    parent_key: str,
+    profile_ids: list[str],
+    resumable_source_manager: Optional[ResumableSourceManager[AmazonAdsResumeConfig]],
+) -> Iterator[list[dict[str, Any]]]:
+    """A child endpoint read once per parent row, in each profile."""
+    config = client.config
+    for profile_id in profile_ids:
+        for parent_page in _paged_rows(client, profile_id, _list_query(parent), parent):
+            for parent_row in parent_page:
+                parent_id = parent_row.get(parent_key)
+                if parent_id is None:
+                    continue
+                path = config.path.format(parent_id=quote(str(parent_id), safe=""))
+                found = False
+                for page in _paged_rows(client, profile_id, _list_query(config), config, path):
+                    found = True
+                    yield [{**row, parent_key: parent_id} for row in page]
+                # Nothing is staged for this full refresh table, so a hand-off here only restarts it.
+                if not found and resumable_source_manager is not None:
+                    resumable_source_manager.safe_point()
 
 
 def _history_event_id(event: dict[str, Any]) -> str:
@@ -644,6 +689,16 @@ def get_rows(
             resumable_source_manager,
             should_use_incremental_field,
             db_incremental_field_last_value,
+        )
+        return
+
+    if config.fan_out_parent is not None and config.fan_out_parent_key is not None:
+        yield from _fan_out_rows(
+            client,
+            AMAZON_ADS_ENDPOINTS[config.fan_out_parent],
+            config.fan_out_parent_key,
+            profile_ids,
+            resumable_source_manager,
         )
         return
 

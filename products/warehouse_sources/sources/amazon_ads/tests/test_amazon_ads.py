@@ -215,6 +215,9 @@ class TestGetRows:
             ("sb_targets", {"maxResults": 5000, "adProductFilter": {"include": ["SPONSORED_BRANDS"]}}),
             ("sd_ads", {"maxResults": 100, "adProductFilter": {"include": ["SPONSORED_DISPLAY"]}}),
             ("sd_targets", {"maxResults": 5000, "adProductFilter": {"include": ["SPONSORED_DISPLAY"]}}),
+            # The Sponsored TV lists cap `maxResults` at 100.
+            ("st_campaigns", {"maxResults": 100}),
+            ("st_targets", {"maxResults": 100}),
         ],
     )
     def test_list_request_body_per_endpoint(self, endpoint: str, expected_body: dict[str, Any]) -> None:
@@ -404,6 +407,119 @@ class TestReportRows:
         assert isinstance(result.raised, ValueError)
         assert "outside Amazon" in str(result.raised)
         assert not any(request.origin == "https://attacker.example.com" for request in result.requests)
+
+
+class TestBreakdownReportRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(_TODAY, tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        "endpoint, report_type_id, ad_product, group_by",
+        [
+            ("sp_search_term_reports", "spSearchTerm", "SPONSORED_PRODUCTS", ["searchTerm"]),
+            ("sp_advertised_product_reports", "spAdvertisedProduct", "SPONSORED_PRODUCTS", ["advertiser"]),
+            ("sp_targeting_reports", "spTargeting", "SPONSORED_PRODUCTS", ["targeting"]),
+            ("sp_purchased_product_reports", "spPurchasedProduct", "SPONSORED_PRODUCTS", ["asin"]),
+            ("sb_purchased_product_reports", "sbPurchasedProduct", "SPONSORED_BRANDS", ["purchasedAsin"]),
+        ],
+    )
+    def test_report_rows_get_a_stable_row_id_from_the_grouping_columns(
+        self, endpoint: str, report_type_id: str, ad_product: str, group_by: list[str]
+    ) -> None:
+        report = AMAZON_ADS_ENDPOINTS[endpoint].report
+        assert report is not None
+        base = {column: f"{column}-1" for column in report.key_columns}
+        # The second row differs only in a metric, the third in one grouping column, and the
+        # fourth has a null grouping column.
+        first_key = report.key_columns[0]
+        rows = [
+            {**base, "date": "2026-06-25", "clicks": 1},
+            {**base, "date": "2026-06-26", "clicks": 2},
+            {**base, first_key: "other", "date": "2026-06-26", "clicks": 3},
+            {**base, report.key_columns[-1]: None, "date": "2026-06-26", "clicks": 4},
+        ]
+        script = _report_script(rows=rows)
+
+        first = _driver().run(
+            endpoint, script, should_use_incremental_field=True, db_incremental_field_last_value="2026-06-20"
+        )
+        second = _driver().run(
+            endpoint,
+            _report_script(rows=list(reversed(rows))),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-20",
+        )
+
+        assert first.raised is None
+        body = _report_requests(first.requests)[0].json()["configuration"]
+        assert (body["reportTypeId"], body["adProduct"], body["groupBy"]) == (report_type_id, ad_product, group_by)
+        by_clicks = {row["clicks"]: row["_row_id"] for row in first.rows}
+        assert by_clicks[1] == by_clicks[2]
+        assert len({by_clicks[2], by_clicks[3], by_clicks[4]}) == 3
+        assert {row["clicks"]: row["_row_id"] for row in second.rows} == by_clicks
+        keys = {tuple(row[key] for key in AMAZON_ADS_ENDPOINTS[endpoint].primary_keys) for row in first.rows}
+        assert len(keys) == len(rows)
+
+
+class TestBudgetRuleRows:
+    def test_budget_rules_send_the_page_size_on_every_page(self) -> None:
+        result = _driver().run(
+            "sp_budget_rules",
+            [
+                _token(),
+                _profiles([{"profileId": 1}]),
+                ScriptedResponse(json={"budgetRulesForAdvertiserResponse": [{"ruleId": "r1"}], "nextToken": "tok"}),
+                ScriptedResponse(json={"budgetRulesForAdvertiserResponse": [{"ruleId": "r2"}]}),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [{"ruleId": "r1", "_profile_id": "1"}, {"ruleId": "r2", "_profile_id": "1"}]
+        first, second = result.requests[2:]
+        assert (first.method, first.path, second.method, second.path) == (
+            "GET",
+            "/sp/budgetRules",
+            "GET",
+            "/sp/budgetRules",
+        )
+        assert first.query == {"pageSize": ("30",)}
+        assert second.query == {"pageSize": ("30",), "nextToken": ("tok",)}
+        assert first.headers["amazon-advertising-api-scope"] == "1"
+
+    def test_rule_campaigns_fan_out_per_profile_and_rule(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.url == LWA_TOKEN_URL:
+                return _token()
+            if request.path == "/v2/profiles":
+                return _profiles([{"profileId": 1}, {"profileId": 2}])
+            profile = request.headers["amazon-advertising-api-scope"]
+            if request.path == "/sp/budgetRules":
+                rules = [{"ruleId": "r/1"}, {"ruleId": "r2"}] if profile == "1" else [{"ruleId": "r3"}]
+                return ScriptedResponse(json={"budgetRulesForAdvertiserResponse": rules})
+            if request.path == "/sp/budgetRules/r%2F1/campaigns" and "nextToken" not in request.query:
+                return ScriptedResponse(json={"associatedCampaigns": [{"campaignId": "c1"}], "nextToken": "tok"})
+            if request.path == "/sp/budgetRules/r%2F1/campaigns":
+                return ScriptedResponse(json={"associatedCampaigns": [{"campaignId": "c2"}]})
+            if request.path == "/sp/budgetRules/r3/campaigns":
+                return ScriptedResponse(json={"associatedCampaigns": [{"campaignId": "c1"}]})
+            return ScriptedResponse(json={"associatedCampaigns": []})
+
+        result = _driver().run("sp_budget_rule_campaigns", respond)
+        assert result.raised is None
+        assert [(row["_profile_id"], row["ruleId"], row["campaignId"]) for row in result.rows] == [
+            ("1", "r/1", "c1"),
+            ("1", "r/1", "c2"),
+            ("2", "r3", "c1"),
+        ]
+        campaign_requests = [request for request in result.requests if request.path.endswith("/campaigns")]
+        assert [request.path for request in campaign_requests] == [
+            "/sp/budgetRules/r%2F1/campaigns",
+            "/sp/budgetRules/r%2F1/campaigns",
+            "/sp/budgetRules/r2/campaigns",
+            "/sp/budgetRules/r3/campaigns",
+        ]
+        assert all(request.query["pageSize"] == ("30",) for request in campaign_requests)
 
 
 class TestAccountAndBillingRows:
