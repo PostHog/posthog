@@ -1,4 +1,6 @@
+import { execFile } from 'child_process'
 import { AddressInfo, Server, Socket, connect, createServer } from 'net'
+import path from 'path'
 
 import { defaultConfig } from '~/common/config/config'
 import { RedisV2 } from '~/common/redis/redis-v2'
@@ -10,6 +12,8 @@ const LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS = 5_000
 const PORT_NOTHING_LISTENS_ON = 1
 const HALF_THE_SHADOW_COMMAND_TIMEOUT_MS = 500
 const ONE_SHARED_CONNECTION = { REDIS_POOL_MIN_SIZE: 1, REDIS_POOL_MAX_SIZE: 1 }
+
+const NODEJS_ROOT = path.resolve(__dirname, '../..')
 
 const yieldToIo = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
@@ -24,13 +28,54 @@ const shadowConfig = {
     REDIS_POOL_MAX_SIZE: 4,
 }
 
-describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
-    let kill: jest.SpyInstance
-    let exit: jest.SpyInstance
+const shadowCallsAgainstAnUnreachableValkey = `
+import { createCdpValkeyShadowPools } from './src/cdp/cdp-services'
 
+const { writer } = createCdpValkeyShadowPools(
+    ${JSON.stringify({ ...shadowConfig, CDP_VALKEY_PORT: PORT_NOTHING_LISTENS_ON })},
+    'test-unreachable-valkey'
+)
+
+const callUntilTheOutageEnds = async () => {
+    const outcomes = new Set()
+    const outageEndsAt = Date.now() + ${LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS}
+    while (Date.now() < outageEndsAt) {
+        outcomes.add(await writer.useClient({ name: 'probe' }, (client) => client.ping()).then(() => 'answered', () => 'failed'))
+        await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    process.stdout.write('\\noutcomes=' + [...outcomes].join(',') + '\\n')
+    process.exit(0)
+}
+
+void callUntilTheOutageEnds()
+`
+
+type ChildProcessOutcome = { code: number | null; signal: NodeJS.Signals | null; stdout: string }
+
+const runInChildProcess = (script: string): Promise<ChildProcessOutcome> =>
+    new Promise((resolve) => {
+        execFile(
+            process.execPath,
+            ['--import', 'tsx', '--input-type=module', '--eval', script],
+            {
+                cwd: NODEJS_ROOT,
+                env: { ...process.env, NODE_OPTIONS: '' },
+                timeout: 30_000,
+                maxBuffer: 16 * 1024 * 1024,
+            },
+            (error, stdout) =>
+                resolve({
+                    code: error ? (typeof error.code === 'number' ? error.code : null) : 0,
+                    signal: error?.signal ?? null,
+                    stdout,
+                })
+        )
+    })
+
+describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
     beforeEach(() => {
-        kill = jest.spyOn(process, 'kill').mockImplementation(() => true)
-        exit = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+        jest.spyOn(process, 'kill').mockImplementation(() => true)
+        jest.spyOn(process, 'exit').mockImplementation(() => undefined as never)
     })
 
     afterEach(() => {
@@ -44,19 +89,10 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
         ).writer
 
     it('keeps the process up while every shadow call fails', async () => {
-        const writer = unreachable()
+        const child = await runInChildProcess(shadowCallsAgainstAnUnreachableValkey)
 
-        const probes: Promise<unknown>[] = []
-        const outageEndsAt = Date.now() + LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS
-        while (Date.now() < outageEndsAt && kill.mock.calls.length === 0) {
-            probes.push(writer.useClient({ name: 'probe' }, (client) => client.ping()).catch((error) => error))
-            await new Promise((resolve) => setTimeout(resolve, 100))
-        }
-
-        expect(kill).not.toHaveBeenCalled()
-        expect(exit).not.toHaveBeenCalled()
-        expect((await Promise.all(probes)).every((outcome) => outcome instanceof Error)).toBe(true)
-    }, 30_000)
+        expect(child).toEqual({ code: 0, signal: null, stdout: expect.stringMatching(/^outcomes=failed$/m) })
+    }, 60_000)
 
     it('gives a caller that fails open no result instead of an error', async () => {
         const writer = unreachable()
