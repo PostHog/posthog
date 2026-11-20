@@ -9,6 +9,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { objectsEqual } from 'lib/utils/objects'
 
+import { IntegrationType } from '~/types'
+
 import { EmailSetupModal } from 'products/workflows/frontend/Channels/EmailSetup/EmailSetupModal'
 
 import { EmailHeaderRow } from './EmailHeaderRow'
@@ -34,6 +36,7 @@ export function EmailSenderRow(): JSX.Element {
     const { flushPendingDesignEdit } = useAsyncActions(emailTemplaterLogic)
     const sandbox = useContext(SandboxSenderChoiceContext)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useAsyncActions(integrationsLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
     const [isEditing, setIsEditing] = useState(false)
     const [senderSetupOpen, setSenderSetupOpen] = useState(false)
@@ -81,10 +84,22 @@ export function EmailSenderRow(): JSX.Element {
             return
         }
         // A test sender step only leaves it for a sender that can send, so closing during DNS setup keeps it.
-        const sender = senders.find((candidate) => candidate.id === integrationId)
-        if (sender?.config?.verified === true && !isSendingStopped(sender)) {
-            changeFrom({ ...from, integrationId })
+        const canSend = (list: IntegrationType[] | null | undefined): boolean => {
+            const sender = list?.find((candidate) => candidate.kind === 'email' && candidate.id === integrationId)
+            return sender?.config?.verified === true && !isSendingStopped(sender)
         }
+        if (canSend(senders)) {
+            changeFrom({ ...from, integrationId })
+            return
+        }
+        // The sender list reloads only after the domain verifies, so a quick click can still see it unverified.
+        void loadIntegrations()
+            .then(() => {
+                if (canSend(integrationsLogic.findMounted()?.values.integrations)) {
+                    changeFrom({ ...from, integrationId })
+                }
+            })
+            .catch(() => {})
     }
     const senderSetup = senderSetupOpen ? (
         <EmailSetupModal

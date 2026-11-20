@@ -59,9 +59,9 @@ export function EmailDomainSetupModal({
                             type="tertiary"
                             className="self-center"
                             to={emailDomainSetupPath(integrationId)}
-                            // A broadcast saves its new sender a moment after the modal hands it over, so leaving the
-                            // page right away would drop it. The full page opens next to the broadcast instead.
-                            targetBlank={entry === 'broadcast'}
+                            // An email saves its new sender a moment after the modal hands it over, so leaving the page
+                            // right away would drop it. The full page opens next to the email instead.
+                            targetBlank={RETURNS_TO_EMAIL.includes(entry)}
                             onClick={() => onComplete(integrationId)}
                             sideIcon={<IconExternal />}
                         >

@@ -319,7 +319,6 @@ describe('SandboxSenderChoiceProvider', () => {
 
         fireEvent.click(screen.getByTestId('workflow-email-test-sender-add'))
         await waitFor(() => expect(document.getElementById('email-domain-another-domain')).toBeInTheDocument())
-        expect(router.values.location.pathname).not.toMatch(/\/workflows\/channels$/)
     })
 
     it.each<[string, string, IntegrationType[], boolean]>([

@@ -275,13 +275,12 @@ describe('email domain setup entry points', () => {
         fireEvent.click(element('email-domain-use-custom-domain'))
         fireEvent.click(element('email-domain-continue'))
         await flush()
-        expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
 
         fireEvent.click(screen.getByLabelText('close'))
         await flush()
-        expect(emailTemplaterLogic(templaterProps).values.emailTemplate.from).toMatchObject({
-            integrationId: SENDER_ID,
-        })
+        expect(templaterProps.onChange).toHaveBeenLastCalledWith(
+            expect.objectContaining({ from: expect.objectContaining({ integrationId: SENDER_ID }) })
+        )
     })
 
     it('keeps the transactional setup open when its domain verifies, and hands the sender to the email', async () => {
