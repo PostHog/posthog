@@ -29,7 +29,8 @@ WEBHOOK_VERSION: Final = "2"
 _NOT_ENDED: Final = "0001-01-01T00:00:00Z"
 
 _BREACH_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
-_ENDED_KINDS: Final = (AlertEventKind.RESOLVED, AlertEventKind.VERDICT_CHANGED)
+# An appearance is a point in time, so a receiver must not hold it open.
+_ENDED_KINDS: Final = (AlertEventKind.RESOLVED, AlertEventKind.VERDICT_CHANGED, AlertEventKind.APPEARED)
 
 
 def _fingerprint(configuration_id: str, transition: AnnouncedTransition) -> str:

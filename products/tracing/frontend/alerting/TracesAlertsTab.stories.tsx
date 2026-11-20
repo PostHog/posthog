@@ -15,6 +15,7 @@ const BASE: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000501',
     name: 'Checkout error rate',
     enabled: true,
+    alert_kind: 'threshold',
     labels: {},
     annotations: {},
     created_by: {

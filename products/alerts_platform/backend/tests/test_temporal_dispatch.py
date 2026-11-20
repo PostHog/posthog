@@ -16,6 +16,7 @@ import uuid
 import asyncio
 import datetime as dt
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from dataclasses import replace
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -41,13 +42,14 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDispatchReport,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind
 from products.alerts_platform.backend.facade.temporal import (
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
     SHARED_ORCHESTRATION_WORKFLOWS,
 )
 from products.alerts_platform.backend.temporal import postgres, workflows
-from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, SourceBinding
+from products.alerts_platform.backend.temporal.sources import APPEARANCE_WORKFLOW_NAME, SOURCE_BINDINGS, SourceBinding
 from products.alerts_platform.backend.temporal.workflows import (
     AlertsPlatformEvaluateWorkflow,
     AlertsPlatformInputs,
@@ -310,6 +312,44 @@ async def test_a_bound_source_evaluates_on_its_own_queue_under_its_own_timeout(
         binding.task_queue,
         binding.evaluation_timeout,
     )
+
+
+@pytest.mark.asyncio
+async def test_an_appearance_key_starts_the_platform_evaluation_beside_the_source_one(
+    environment: WorkflowEnvironment,
+) -> None:
+    client = environment.client
+    dispatcher_id = f"dispatch-{uuid.uuid4()}"
+    threshold = key("both")
+    appearance = replace(threshold, alert_kind=PlatformAlertKind.APPEARANCE)
+    orchestration_worker, evaluation_worker = workers(client)
+    async with orchestration_worker, evaluation_worker:
+        report = await client.execute_workflow(
+            AlertsPlatformSourceDispatchWorkflow.run,
+            SourceDispatchInputs(
+                tick_id="tick",
+                source=SourceKind.LOGS,
+                page=0,
+                batch_keys=[threshold, appearance],
+                cutoff="2026-09-16T10:00:00+00:00",
+            ),
+            id=dispatcher_id,
+            task_queue=ORCHESTRATION_QUEUE,
+            execution_timeout=dt.timedelta(seconds=30),
+        )
+
+    history = await client.get_workflow_handle(dispatcher_id).fetch_history()
+    started = {
+        event.start_child_workflow_execution_initiated_event_attributes.workflow_id: (
+            event.start_child_workflow_execution_initiated_event_attributes.workflow_type.name
+        )
+        for event in events_of(history, EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED)
+    }
+    threshold_id = f"alerts-eval-logs-{threshold.team_id}-{threshold.slot}"
+    assert set(started) == {threshold_id, f"{threshold_id}-appearance"}
+    assert started[f"{threshold_id}-appearance"] == APPEARANCE_WORKFLOW_NAME
+    assert started[threshold_id] != APPEARANCE_WORKFLOW_NAME
+    assert report.dispatched == 2
 
 
 async def test_a_key_whose_evaluation_still_runs_is_skipped_without_losing_the_page(

@@ -1,12 +1,13 @@
 # Alerts noop workers
 
-The alerts platform registers three queues through `products/alerts_platform/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
+The alerts platform registers four queues through `products/alerts_platform/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
-| Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                      |
-| ------------------------------------------------- | ------------------------------------------------- | ----------------------------- |
-| `ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-platform-shared-orchestration-task-queue` | `alerts-platform-orchestrate` |
-| `ALERTS_PLATFORM_EVALUATION_TASK_QUEUE`           | `alerts-platform-evaluation-task-queue`           | `alerts-platform-evaluate`    |
-| `ALERTS_PLATFORM_DELIVERY_TASK_QUEUE`             | `alerts-platform-delivery-task-queue`             | `alerts-platform-deliver`     |
+| Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                               |
+| ------------------------------------------------- | ------------------------------------------------- | -------------------------------------- |
+| `ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-platform-shared-orchestration-task-queue` | `alerts-platform-orchestrate`          |
+| `ALERTS_PLATFORM_EVALUATION_TASK_QUEUE`           | `alerts-platform-evaluation-task-queue`           | `alerts-platform-evaluate`             |
+| `ALERTS_PLATFORM_DELIVERY_TASK_QUEUE`             | `alerts-platform-delivery-task-queue`             | `alerts-platform-deliver`              |
+| `ALERTS_PLATFORM_REGISTRAR_TASK_QUEUE`            | `alerts-platform-registrar-task-queue`            | `alerts-platform-register-occurrences` |
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
 Shared orchestration registers the orchestration workflow, the source dispatcher and a synthetic demand-discovery activity.
@@ -19,6 +20,7 @@ Start one worker for each queue:
 python manage.py start_temporal_worker --task-queue alerts-platform-shared-orchestration-task-queue --metrics-port 8104
 python manage.py start_temporal_worker --task-queue alerts-platform-evaluation-task-queue --metrics-port 8102
 python manage.py start_temporal_worker --task-queue alerts-platform-delivery-task-queue --metrics-port 8103
+python manage.py start_temporal_worker --task-queue alerts-platform-registrar-task-queue --metrics-port 8105
 ```
 
 Give every worker its own `--metrics-port`.
@@ -633,6 +635,24 @@ More slots do not raise these limits:
 3. Add the cap to the sum of slot-holding pools, and check that every region still fits. Add pods before raising a cap past the free slots.
 4. Give the source its own queue if its checks hold a slot for minutes.
 5. Watch `alerts_platform_checks_deferred_total` and scheduler lag for the source while its share grows.
+
+## Occurrence registrar
+
+Appearance alerts read the occurrence registry, `PlatformOccurrence`, and never a source's own store.
+A source that detects new identities itself pushes facts with `record_occurrence`.
+A source that only reports what it saw registers a feed, and the registrar records what the feed saw.
+
+`alerts-platform-register-occurrences-schedule` starts `alerts-platform-register-occurrences` on the registrar queue every minute.
+It uses SKIP overlap, a one-minute catchup window, a ten-minute execution timeout and one workflow attempt.
+The workflow lists each source with a feed and each project with an enabled appearance alert on it, then reads up to eight projects at once.
+Each project's activity reads span after span for up to 60 seconds, so a project that is far behind, such as one seeding its lookback, catches up over several runs.
+
+The registrar runs on a worker of its own because a feed read is a ClickHouse scan that can take its whole query budget.
+On the evaluation queue, that scan would hold a slot a check needs.
+A read the feed cannot finish halves the span the project's cursor keeps, down to five minutes, and a read that finishes doubles it back.
+So a busy project still advances, and a failed run records nothing but leaves the next run a smaller read.
+
+A check reads facts by when the registrar recorded them, not by when they happened, so a fact recorded late is still read by the next check.
 
 ## Held deliveries
 

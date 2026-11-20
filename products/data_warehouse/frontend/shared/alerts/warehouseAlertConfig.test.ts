@@ -14,6 +14,7 @@ function makeAlert(overrides: Partial<PlatformAlertConfigurationApi> = {}): Plat
         id: 'alert-1',
         name: 'Warehouse sync failures',
         enabled: true,
+        alert_kind: 'threshold',
         source_kind: 'warehouse_source',
         source_config: { source_ids: [], group_by: 'source', email_project_members: true },
         check_interval_minutes: 5,

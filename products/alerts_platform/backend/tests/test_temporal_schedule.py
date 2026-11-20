@@ -11,15 +11,25 @@ from temporalio.common import Priority
 
 from products.alerts_platform.backend.temporal.schedule import (
     INVENTORY_SCHEDULE_ID,
+    REGISTRAR_SCHEDULE_ID,
     SCHEDULE_ID,
     create_alerts_platform_inventory_schedule,
+    create_alerts_platform_registrar_schedule,
     create_alerts_platform_tick_schedule,
 )
 
 MODULE = "products.alerts_platform.backend.temporal.schedule"
 
 
-TICK = (create_alerts_platform_tick_schedule, SCHEDULE_ID, "alerts-platform-orchestrate", "* * * * *", 50, Priority())
+TICK = (
+    create_alerts_platform_tick_schedule,
+    SCHEDULE_ID,
+    "alerts-platform-orchestrate",
+    "* * * * *",
+    50,
+    Priority(),
+    "orchestration-test-queue",
+)
 INVENTORY = (
     create_alerts_platform_inventory_schedule,
     INVENTORY_SCHEDULE_ID,
@@ -27,18 +37,28 @@ INVENTORY = (
     "*/5 * * * *",
     30,
     Priority(priority_key=5),
+    "orchestration-test-queue",
+)
+REGISTRAR = (
+    create_alerts_platform_registrar_schedule,
+    REGISTRAR_SCHEDULE_ID,
+    "alerts-platform-register-occurrences",
+    "* * * * *",
+    600,
+    Priority(),
+    "registrar-test-queue",
 )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("target", [TICK, INVENTORY], ids=["tick", "inventory"])
+@pytest.mark.parametrize("target", [TICK, INVENTORY, REGISTRAR], ids=["tick", "inventory", "registrar"])
 @pytest.mark.parametrize("already_exists, paused", [(False, False), (True, False), (True, True)])
 async def test_schedule_creates_or_updates_with_bounded_policy(
     already_exists: bool,
     paused: bool,
-    target: tuple[Callable[[Client], Awaitable[None]], str, str, str, int, Priority],
+    target: tuple[Callable[[Client], Awaitable[None]], str, str, str, int, Priority, str],
 ) -> None:
-    create_schedule, schedule_id, workflow_name, cron, timeout_seconds, priority = target
+    create_schedule, schedule_id, workflow_name, cron, timeout_seconds, priority, task_queue = target
     client = MagicMock(spec=Client)
     state = ScheduleState(paused=paused, note="Operator-controlled state")
     client.get_schedule_handle.return_value.describe = AsyncMock(
@@ -49,6 +69,7 @@ async def test_schedule_creates_or_updates_with_bounded_policy(
             # A non-DEV deployment, because DEV would pass even if a region gate returned early.
             CLOUD_DEPLOYMENT="US",
             ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE="orchestration-test-queue",
+            ALERTS_PLATFORM_REGISTRAR_TASK_QUEUE="registrar-test-queue",
         ),
         patch(f"{MODULE}.a_schedule_exists", return_value=already_exists) as exists,
         patch(f"{MODULE}.a_create_schedule") as create,
@@ -70,7 +91,7 @@ async def test_schedule_creates_or_updates_with_bounded_policy(
     assert action.workflow == workflow_name
     assert list(action.args) == [{}]
     assert action.id == schedule_id
-    assert action.task_queue == "orchestration-test-queue"
+    assert action.task_queue == task_queue
     assert action.execution_timeout == dt.timedelta(seconds=timeout_seconds)
     assert action.priority == priority
     assert action.retry_policy is not None
