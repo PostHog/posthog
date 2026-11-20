@@ -146,6 +146,8 @@ def _schema(**overrides: Any) -> MagicMock:
     schema.partition_mode = overrides.get("partition_mode")
     schema.partition_format = overrides.get("partition_format")
     schema.partitioning_keys = overrides.get("partitioning_keys")
+    schema.partition_count = overrides.get("partition_count")
+    schema.partition_size = overrides.get("partition_size")
     schema.set_partitioning_enabled = MagicMock()
     return schema
 
@@ -205,6 +207,48 @@ class TestApplyPartitioning:
         else:
             assert PARTITION_KEY not in result.column_names
             assert result.equals(pa_table)
+
+    @parameterized.expand(
+        [
+            # Sparse ids: detection on this batch alone would switch to weekly created_at partitions.
+            ("numerical_by_id", [5_000, 900_000], "numerical", ["id"], None, ["5", "900"]),
+            # Dense ids: detection would key on the signal's id and the default week format.
+            ("monthly_by_created_at", [1, 2], "datetime", ["created_at"], "month", ["2024-01", "2026-11"]),
+        ]
+    )
+    def test_later_batch_keeps_the_scheme_an_earlier_batch_of_the_table_chose(
+        self,
+        _case: str,
+        ids: list[int],
+        saved_mode: str,
+        saved_keys: list[str],
+        saved_format: str | None,
+        expected_partitions: list[str],
+    ):
+        pa_table = pa.table(
+            {
+                "id": ids,
+                "created_at": pa.array([dt.datetime(2024, 1, 2), dt.datetime(2026, 11, 3)], type=pa.timestamp("us")),
+            }
+        )
+        delta_table = mock_delta_table(schema_fields=[_COL_ID, _COL_PARTITION], partition_columns=[PARTITION_KEY])
+        schema = _schema(
+            partitioning_enabled=True,
+            partition_mode=saved_mode,
+            partitioning_keys=saved_keys,
+            partition_format=saved_format,
+            partition_size=1_000,
+        )
+
+        result = _apply_partitioning(
+            export_signal=_export_signal(partition_keys=["id"]),
+            pa_table=pa_table,
+            existing_delta_table=delta_table,
+            schema=schema,
+        )
+
+        assert result.column(PARTITION_KEY).to_pylist() == expected_partitions
+        schema.set_partitioning_enabled.assert_not_called()
 
     def test_skips_partitioning_when_no_partition_keys(self):
         pa_table = pa.table({"id": [1, 2, 3]})

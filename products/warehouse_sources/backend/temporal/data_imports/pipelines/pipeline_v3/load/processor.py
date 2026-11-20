@@ -350,6 +350,10 @@ def _apply_partitioning(
 ) -> pa.Table:
     """Apply partitioning to the table if configured."""
     partition_keys = export_signal.partition_keys
+    partition_mode = export_signal.partition_mode
+    partition_format = export_signal.partition_format
+    partition_count = export_signal.partition_count
+    partition_size = export_signal.partition_size
 
     if not partition_keys:
         logger.debug("No partition keys, skipping partitioning")
@@ -367,13 +371,26 @@ def _apply_partitioning(
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
 
+        # The extractor fixes the scheme when the job starts. When nothing pins a mode, every batch of
+        # a table's first sync arrives without one. Detection looks at one batch only and can choose
+        # another mode for a later batch, for example when that batch has sparse ids. A merge rewrites
+        # only the partitions of the rows it receives, so a row that a later sync updates would then
+        # stay in the old partition as a duplicate. The schema holds the scheme that the first batch
+        # written to this table saved, so later batches reuse it.
+        if partition_mode is None and schema.partition_mode and schema.partitioning_keys:
+            partition_mode = schema.partition_mode
+            partition_keys = schema.partitioning_keys
+            partition_format = schema.partition_format
+            partition_count = schema.partition_count or partition_count
+            partition_size = schema.partition_size or partition_size
+
     partition_result = append_partition_key_to_table(
         table=pa_table,
-        partition_count=export_signal.partition_count,
-        partition_size=export_signal.partition_size,
+        partition_count=partition_count,
+        partition_size=partition_size,
         partition_keys=partition_keys,
-        partition_mode=export_signal.partition_mode,
-        partition_format=export_signal.partition_format,
+        partition_mode=partition_mode,
+        partition_format=partition_format,
         logger=logger,
     )
 
@@ -387,12 +404,12 @@ def _apply_partitioning(
             or schema.partitioning_keys != partition_result.partition_keys
         ):
             logger.debug(
-                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={export_signal.partition_count}. partition_mode={partition_result.partition_mode}. partition_format={partition_result.partition_format}"
+                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_result.partition_mode}. partition_format={partition_result.partition_format}"
             )
             schema.set_partitioning_enabled(
                 partition_result.partition_keys,
-                export_signal.partition_count,
-                export_signal.partition_size,
+                partition_count,
+                partition_size,
                 partition_result.partition_mode,
                 partition_result.partition_format,
             )
