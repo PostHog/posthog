@@ -67,8 +67,9 @@ class SyncFrequencyBoundSerializer(serializers.Serializer):
     )
     pinned = serializers.BooleanField(
         help_text="True when an upstream view held at its pinned cadence sets this bound, so unpinning "
-        "or speeding up that view lifts it. False when a source sync sets it. Always false for "
-        "`plan_floor` and `ceiling`."
+        "or speeding up that view lifts it. False when a source sync sets it, and also when the pinned "
+        "view sits outside the caller's access grants, like `blocker`. Always false for `plan_floor` "
+        "and `ceiling`."
     )
 
 
@@ -249,7 +250,8 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
     def bound(value: Any, *, pinned: bool = False) -> dict[str, Any] | None:
         if value is None:
             return None
-        return {"label": humanize_cadence(value.value), "blocker": blocker(value.blocker), "pinned": pinned}
+        named = blocker(value.blocker)
+        return {"label": humanize_cadence(value.value), "blocker": named, "pinned": pinned and named is not None}
 
     def sped_up(option: Any) -> list[str]:
         if not option.allowed:

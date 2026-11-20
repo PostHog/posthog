@@ -2099,7 +2099,7 @@ export interface SyncFrequencyBoundApi {
     label: string
     /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
     blocker: SyncFrequencyBlockerApi | null
-    /** True when an upstream view held at its pinned cadence sets this bound, so unpinning or speeding up that view lifts it. False when a source sync sets it. Always false for `plan_floor` and `ceiling`. */
+    /** True when an upstream view held at its pinned cadence sets this bound, so unpinning or speeding up that view lifts it. False when a source sync sets it, and also when the pinned view sits outside the caller's access grants, like `blocker`. Always false for `plan_floor` and `ceiling`. */
     pinned: boolean
 }
 
