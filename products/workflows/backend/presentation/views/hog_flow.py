@@ -3443,21 +3443,27 @@ def _live_test_sender_steps(hog_flow: Workflow) -> list[dict]:
 
 def _test_sender_live_warning(team_id: int, steps: list[dict]) -> dict[str, str]:
     setup_url = absolute_uri(f"/project/{team_id}/workflows/channels/email/new")
-    # The sender switch refuses a step written in Hog, so the caller needs the replacement it asks for instead.
-    hog_steps = (
-        ", and replace any step written in Hog with a new Liquid email step on that sender"
-        if any(not written_in_liquid(step) for step in steps)
-        else ""
-    )
     return {
         "code": HogFlowWarningCode.TEST_SENDER_LIVE,
         "message": (
             "This live workflow has email steps on the PostHog test sender. They reach only verified members "
-            "of your organization, and everyone else is skipped. To reach your users, switch those steps to a "
-            f"verified sender{hog_steps}. If you don't have a verified sender yet, set up your sending domain: "
-            f"{setup_url}"
+            f"of your organization, and everyone else is skipped. To reach your users, {_test_sender_next_step(steps)}. "
+            f"If you don't have a verified sender yet, set up your sending domain: {setup_url}"
         ),
     }
+
+
+def _test_sender_next_step(steps: list[dict]) -> str:
+    # The sender switch refuses a step written in Hog, so those steps need a replacement instead.
+    hog_steps = sum(1 for step in steps if not written_in_liquid(step))
+    if hog_steps == 0:
+        return "switch those steps to a verified sender"
+    if hog_steps == len(steps):
+        return "replace each one with a new Liquid email step on a verified sender, as a step written in Hog can't switch senders"
+    return (
+        "switch the steps written in Liquid to a verified sender, and replace each step written in Hog "
+        "with a new Liquid email step on that sender"
+    )
 
 
 # Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.

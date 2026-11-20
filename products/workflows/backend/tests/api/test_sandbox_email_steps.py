@@ -38,6 +38,16 @@ def _flag(enabled: bool):
     )
 
 
+_SWITCH = "switch those steps to a verified sender"
+_REPLACE = (
+    "replace each one with a new Liquid email step on a verified sender, as a step written in Hog can't switch senders"
+)
+_SWITCH_AND_REPLACE = (
+    "switch the steps written in Liquid to a verified sender, and replace each step written in Hog "
+    "with a new Liquid email step on that sender"
+)
+
+
 def _trigger() -> dict[str, Any]:
     return {
         "id": "trigger_node",
@@ -240,23 +250,30 @@ class TestSandboxEmailSteps(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("live_on_the_sandbox_sender", "active", [_sandbox_step()], ["test_sender_live"], False),
+            ("live_on_the_sandbox_sender", "active", [_sandbox_step()], ["test_sender_live"], _SWITCH),
             (
                 "live_on_both_senders",
                 "active",
                 [_own_email_step(sender_id=1), _sandbox_step()],
                 ["test_sender_live"],
-                False,
+                _SWITCH,
             ),
-            ("live_on_a_hog_sandbox_step", "active", [_sandbox_step(templating="hog")], ["test_sender_live"], True),
-            ("draft_on_the_sandbox_sender", "draft", [_sandbox_step()], [], False),
-            ("live_on_an_own_sender", "active", [_own_email_step(sender_id=1)], [], False),
+            ("live_on_a_hog_sandbox_step", "active", [_sandbox_step(templating="hog")], ["test_sender_live"], _REPLACE),
+            (
+                "live_on_liquid_and_hog_sandbox_steps",
+                "active",
+                [_sandbox_step(), {**_sandbox_step(templating="hog"), "id": "action_email_sandbox_2"}],
+                ["test_sender_live"],
+                _SWITCH_AND_REPLACE,
+            ),
+            ("draft_on_the_sandbox_sender", "draft", [_sandbox_step()], [], None),
+            ("live_on_an_own_sender", "active", [_own_email_step(sender_id=1)], [], None),
             (
                 "live_on_an_own_sender_with_a_staged_test_sender_step",
                 "active",
                 [_own_email_step(sender_id=1)],
                 [],
-                False,
+                None,
                 [_sandbox_step()],
             ),
             (
@@ -264,7 +281,7 @@ class TestSandboxEmailSteps(APIBaseTest):
                 "active",
                 [_sandbox_step()],
                 ["test_sender_live"],
-                False,
+                _SWITCH,
                 [_own_email_step(sender_id=1)],
             ),
         ]
@@ -275,7 +292,7 @@ class TestSandboxEmailSteps(APIBaseTest):
         status: str,
         steps: list[dict[str, Any]],
         expected: list[str],
-        names_hog_steps: bool,
+        next_step: str | None,
         staged: list[dict[str, Any]] | None = None,
     ) -> None:
         flow = HogFlow.objects.create(
@@ -294,8 +311,7 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert listed["warnings"] == detail["warnings"]
         assert listed_for_mcp["warnings"] == detail["warnings"]
         for warning in detail["warnings"]:
-            assert "switch those steps to a verified sender" in warning["message"]
-            assert ("new Liquid email step" in warning["message"]) == names_hog_steps
+            assert f"To reach your users, {next_step}. " in warning["message"]
 
     @parameterized.expand([("live", False), ("staged_draft", True)])
     def test_a_stored_sandbox_step_stays_editable_without_the_flag(self, _name: str, in_draft: bool) -> None:

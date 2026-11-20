@@ -130,11 +130,15 @@ describe('workflow write response shape', () => {
     }
 
     const routes = ['the MCP server', 'the CLI'] as const
-    const throughEachRoute = (rows: any[][]): any[][] =>
-        rows.flatMap(([name, ...rest]) => routes.map((route) => [name, route, ...rest]))
+    const throughEachRoute = <Rest extends unknown[]>(
+        rows: [string, ...Rest][]
+    ): [string, (typeof routes)[number], ...Rest][] =>
+        rows.flatMap(([name, ...rest]) =>
+            routes.map((route) => [name, route, ...rest] as [string, (typeof routes)[number], ...Rest])
+        )
 
     it.each(
-        throughEachRoute([
+        throughEachRoute<[string | undefined, unknown[], boolean, string]>([
             [
                 'a draft workflow on the test sender',
                 undefined,
@@ -179,7 +183,7 @@ describe('workflow write response shape', () => {
     )
 
     it.each(
-        throughEachRoute([
+        throughEachRoute<[Record<string, unknown>, Record<string, unknown>, boolean]>([
             [
                 'a publish onto the test sender',
                 { confirm: true, confirm_token: 'preview-token' },
