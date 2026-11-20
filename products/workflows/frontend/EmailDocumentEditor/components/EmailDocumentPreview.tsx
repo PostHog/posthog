@@ -10,12 +10,15 @@ import { withoutLiquidBetweenRows } from '../renderEmailHtml'
 const WIDTHS = { desktop: '100%', tablet: '600px', phone: '375px', small: '320px' }
 
 // Conditions and assignments run against a person with no properties, so the preview lays out like a sent email
-// instead of showing the Liquid code. Variables with no value stay as written.
+// instead of showing the Liquid code. A plain variable with no value stays as written.
 const PREVIEW_PERSON = { id: 'preview', properties: {} }
 
 function showsAnything(html: string): boolean {
     const doc = new DOMParser().parseFromString(html, 'text/html')
-    doc.querySelectorAll('style, script, title').forEach((element) => element.remove())
+    // Hidden preview text isn't something the reader sees.
+    doc.querySelectorAll('style, script, title, [style*="display:none"], [style*="display: none"]').forEach((element) =>
+        element.remove()
+    )
     return !!doc.body?.textContent?.trim() || !!doc.querySelector('img')
 }
 
