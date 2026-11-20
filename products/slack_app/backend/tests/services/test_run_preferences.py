@@ -26,6 +26,7 @@ CATALOGUE = (
     ModelChoice("claude", "claude-sonnet-4-6", "Claude Sonnet 4.6", ("low", "medium", "high")),
     ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("low", "medium", "high", "xhigh", "max")),
     ModelChoice("claude", "moonshotai/kimi-k3", "Moonshotai Kimi K3", ()),
+    ModelChoice("claude", "claude-haiku-4-5", "Claude Haiku 4.5", ()),
     ModelChoice("codex", "gpt-5.6-sol", "gpt-5.6-sol", ("low", "medium", "high", "xhigh", "max")),
 )
 
@@ -74,8 +75,18 @@ class TestResolveRunPreferences:
             (None, None, AIPreferences(None, None, None)),
             # `xhigh` is real for Fable but not for Sonnet 4.6, so it is dropped.
             ("claude-sonnet-4-6", "xhigh", AIPreferences("claude", "claude-sonnet-4-6", None)),
-            # A model that exposes no effort setting at all takes none.
-            ("moonshotai/kimi-k3", "high", AIPreferences("claude", "moonshotai/kimi-k3", None)),
+            pytest.param(
+                "claude-haiku-4-5",
+                "high",
+                AIPreferences("claude", "claude-haiku-4-5", None),
+                id="a_model_listing_no_efforts_takes_none",
+            ),
+            pytest.param(
+                "moonshotai/kimi-k3",
+                "high",
+                AIPreferences("claude", "moonshotai/kimi-k3", "high"),
+                id="a_model_the_gateway_does_not_describe_keeps_its_effort",
+            ),
         ],
     )
     def test_mention_override_precedence_over_a_central_default(

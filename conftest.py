@@ -402,6 +402,17 @@ def _link_raw_warehouse_source_credentials(request):
 
 
 @pytest.fixture(autouse=True)
+def _serve_saved_gateway_model_listing(request):
+    if request.node.get_closest_marker("live_gateway_model_listing"):
+        yield
+        return
+    from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing  # noqa: PLC0415
+
+    with serve_gateway_listing():
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _clean_persons_db_for_direct_tests(request):
     """Truncate the persons DB before each persons_db_direct test.
 

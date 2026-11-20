@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from types import SimpleNamespace
 from typing import Any, Final
 
@@ -12,7 +12,14 @@ from openai import OpenAI
 from openai.types import Model
 
 from products.tasks.backend.logic.services import gateway_models
-from products.tasks.backend.logic.services.gateway_models import GatewayModel, list_gateway_models
+from products.tasks.backend.logic.services.gateway_models import (
+    GatewayModel,
+    cached_gateway_models,
+    known_gateway_models,
+    list_gateway_models,
+)
+
+pytestmark = pytest.mark.live_gateway_model_listing
 
 _BUILD_CLIENT = "posthog.llm.gateway_client.build_openai_client"
 _PRODUCT: Final = "posthog_code"
@@ -49,6 +56,7 @@ def _empty_cache() -> Iterator[None]:
                 "release_date": "2026-11-17",
                 "reasoning": {"efforts": ["low", "medium", "high", "xhigh", "max"], "can_disable": False},
                 "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+                "api_shapes": ["openai-chat-completions", "openai-responses"],
             },
             GatewayModel(
                 id="gpt-6.2-sol",
@@ -60,6 +68,7 @@ def _empty_cache() -> Iterator[None]:
                 reasoning_efforts=("low", "medium", "high", "xhigh", "max"),
                 input_per_mtok=2.0,
                 output_per_mtok=10.0,
+                api_shapes=("openai-chat-completions", "openai-responses"),
             ),
             id="every_fact",
         ),
@@ -76,9 +85,14 @@ def _empty_cache() -> Iterator[None]:
             id="unparseable_price",
         ),
         pytest.param(
-            {**_BARE_ROW, "reasoning": None},
+            _BARE_ROW,
             GatewayModel(id="gpt-6.2-sol", owned_by="openai", context_window=0),
             id="no_facts",
+        ),
+        pytest.param(
+            {**_BARE_ROW, "reasoning": None},
+            GatewayModel(id="gpt-6.2-sol", owned_by="openai", context_window=0, reasoning_efforts=()),
+            id="does_not_reason",
         ),
         pytest.param(
             {**_BARE_ROW, "reasoning": {"efforts": [], "can_disable": True}},
@@ -150,3 +164,32 @@ def test_retries_a_failed_fetch_once(failures: int, expected: list[str]) -> None
 
     with patch(_BUILD_CLIENT, return_value=client):
         assert [model.id for model in list_gateway_models(_PRODUCT)] == expected
+
+
+@pytest.mark.parametrize(
+    "read,expire_fresh,fetched_before,expected_ids",
+    [
+        pytest.param(cached_gateway_models, False, True, ["gpt-6.2-sol"], id="cached_fresh_listing"),
+        pytest.param(cached_gateway_models, True, True, ["gpt-6.2-sol"], id="cached_last_listing_after_expiry"),
+        pytest.param(cached_gateway_models, False, False, [], id="cached_nothing_fetched_yet"),
+        pytest.param(known_gateway_models, False, True, ["gpt-6.2-sol"], id="known_fresh_listing"),
+        pytest.param(known_gateway_models, True, True, ["gpt-6.2-sol"], id="known_last_listing_after_expiry"),
+        pytest.param(known_gateway_models, False, False, ["fetched-on-read"], id="known_nothing_fetched_yet"),
+    ],
+)
+def test_a_cached_listing_is_read_without_calling_the_gateway(
+    read: Callable[[Any], tuple[GatewayModel, ...]], expire_fresh: bool, fetched_before: bool, expected_ids: list[str]
+) -> None:
+    if fetched_before:
+        with patch(_BUILD_CLIENT, return_value=_client([_BARE_ROW])):
+            list_gateway_models(_PRODUCT)
+    if expire_fresh:
+        cache.delete(_FRESH_KEY)
+
+    with patch(_BUILD_CLIENT, return_value=_client([{**_BARE_ROW, "id": "fetched-on-read"}])):
+        assert [model.id for model in read(_PRODUCT)] == expected_ids
+
+
+def test_cached_listing_is_empty_when_the_cache_is_down() -> None:
+    with patch.object(cache, "get", side_effect=RuntimeError("cache down")):
+        assert cached_gateway_models(_PRODUCT) == ()
