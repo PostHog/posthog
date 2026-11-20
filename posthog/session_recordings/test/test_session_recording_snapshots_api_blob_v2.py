@@ -16,6 +16,7 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, listing_cache_key
+from posthog.test.id_jag import id_jag_access_token
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
@@ -1010,7 +1011,11 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.json()["deleted_at"] == 1700000000
 
     @parameterized.expand(
-        [("enforced", True, status.HTTP_429_TOO_MANY_REQUESTS), ("log_only", False, status.HTTP_200_OK)]
+        [
+            ("enforced", True, False, status.HTTP_429_TOO_MANY_REQUESTS),
+            ("log_only", False, False, status.HTTP_200_OK),
+            ("id_jag_enforced", True, True, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
     )
     @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
@@ -1024,6 +1029,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         self,
         _name,
         enforced,
+        id_jag,
         expected_status_over_quota,
         mock_get_session_recording,
         _mock_exists,
@@ -1048,10 +1054,18 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
 
+        client = self.client
+        if id_jag:
+            client = self.client_class()
+            token = id_jag_access_token(self.user, self.organization, "session_recording:read")
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
         with override_settings(SNAPSHOT_USER_RATE_BURST="2/minute", SNAPSHOT_USER_RATE_LIMIT_ENFORCED=enforced):
-            assert self.client.get(url).status_code == status.HTTP_200_OK
-            assert self.client.get(url).status_code == status.HTTP_200_OK
-            assert self.client.get(url).status_code == expected_status_over_quota
+            assert client.get(url).status_code == status.HTTP_200_OK
+            assert client.get(url).status_code == status.HTTP_200_OK
+            assert client.get(url).status_code == expected_status_over_quota
+            if id_jag:
+                assert self.client.get(url).status_code == status.HTTP_200_OK
         cache.clear()
 
     @patch(

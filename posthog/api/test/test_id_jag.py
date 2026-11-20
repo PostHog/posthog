@@ -1155,7 +1155,6 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
 
     @parameterized.expand([(PersonalAPIKeyAuthentication,), (ExportRendererAuthentication,)])
     def test_other_bearer_authenticators_leave_the_token_to_the_id_jag_authenticator(self, authenticator_class) -> None:
-        # GET, because ExportRendererAuthentication reads a bearer token only on GET.
         request = Request(
             RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {self._mint_access_token(scope='user:read')}")
         )
