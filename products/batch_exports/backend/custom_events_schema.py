@@ -176,9 +176,9 @@ def recompile_stored_schema(
 ) -> tuple[list["BatchExportField"], dict[str, typing.Any]]:
     """Recompile the stored query of a schema for the native events table, keeping the stored aliases.
 
-    The stored query reads every property it names, including those the stored fields hide. The recompile hides the
-    properties the user who saved the schema could not read, and also the properties the team's rules hide from every
-    user now.
+    `hogql_query` can name properties that the stored fields replaced with NULL because the user who saved the schema
+    could not read them. We pass those restrictions back in, along with the team's current default rules, so the
+    recompiled fields hide the same properties.
 
     Returns the fields and the query values a run sends with them.
     """
