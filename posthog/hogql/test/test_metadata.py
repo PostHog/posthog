@@ -404,6 +404,17 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(f"({alternatives}). Use a qualified field name.", error.message)
         self.assertTrue(self._select(f"SELECT {qualified} FROM {sources}").isValid)
 
+    @override_settings(DEBUG=False)
+    def test_metadata_keeps_ambiguous_field_error_when_suggestion_parser_fails(self):
+        query = "SELECT label FROM (SELECT 1 AS label) AS a CROSS JOIN (SELECT 2 AS label) AS b"
+        with patch("posthog.hogql.parser.parse_expr", side_effect=RuntimeError("Parser unavailable")):
+            metadata = self._select(query)
+
+        self.assertFalse(metadata.internalError)
+        [error] = metadata.errors
+        self.assertEqual(query[error.start : error.end], "label")
+        self.assertIn("(`a`.`label`, `b`.`label`). Use a qualified field name.", error.message)
+
     @parameterized.expand(
         [
             (

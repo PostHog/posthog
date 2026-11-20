@@ -79,14 +79,15 @@ def lookup_field_by_name(
 
 
 def qualified_field_suggestion(source: str, name: str) -> str:
-    from posthog.hogql.parser import parse_expr  # noqa: PLC0415 -- the parser imports the AST
-
-    candidate = f"{quote_hogql_identifier(source)}.{quote_hogql_identifier(name)}"
     try:
+        from posthog.hogql.parser import parse_expr  # noqa: PLC0415 -- the parser imports the AST
+
+        candidate = f"{quote_hogql_identifier(source)}.{quote_hogql_identifier(name)}"
         parsed = parse_expr(candidate)
         if isinstance(parsed, ast.Field) and parsed.chain == [source, name]:
             return candidate
-    except (QueryError, SyntaxError):
+    except Exception:
+        # Formatting is best effort. A parser failure must not hide the original query error.
         pass
     return f"{backquote_clickhouse_identifier(source)}.{backquote_clickhouse_identifier(name)}"
 
