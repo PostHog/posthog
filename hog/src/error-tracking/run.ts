@@ -47,7 +47,14 @@ import { sourceStep } from './native/sources'
 import { plistRelease } from './plist'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
 import { Scratch, sizeOnly } from './scratch'
-import { SymbolSetClient, uploadBytes, type StoredData, type SymbolSetUpload, type UploadStatus } from './upload'
+import {
+    SymbolSetClient,
+    uploadBytes,
+    type KeepData,
+    type StoredData,
+    type SymbolSetUpload,
+    type UploadStatus,
+} from './upload'
 
 export interface ErrorTrackingOptions {
     kind?: ArtifactKind
@@ -783,7 +790,14 @@ async function uploadArtifacts(
     )
     if (nativeArtifacts.length > 0) {
         const before = skipped.length
-        const native = packageNative(nativeArtifacts, selection.cwd, options.includeSource, skipped, warnings)
+        const native = packageNative(
+            nativeArtifacts,
+            selection.cwd,
+            options.includeSource,
+            options.dryRun ? sizeOnly : scratch.write,
+            skipped,
+            warnings
+        )
         if (native.length === 0 && planned.length === 0) {
             const details = skipped
                 .slice(before)
@@ -1082,6 +1096,7 @@ function packageNative(
     artifacts: Artifact[],
     cwd: string,
     includeSource: boolean,
+    keep: KeepData,
     skipped: Skip[],
     warnings: string[]
 ): { artifact: Artifact; upload: SymbolSetUpload }[] {
@@ -1118,7 +1133,7 @@ function packageNative(
         const sources = includeSource
             ? sourceStep(file.data, 'native', warnings, sourceIgnored(root, folder))
             : undefined
-        const upload = nativeUpload(file, sources)
+        const upload = nativeUpload(file, keep, sources)
         owners.set(upload, byFile.get(file)!)
         return upload
     })
@@ -1128,16 +1143,19 @@ function packageNative(
             // Sources come from the whole binary, so every slice of a fat binary carries all of them.
             const steps = new Map<string, ReturnType<typeof sourceStep>>()
             const folder = resolve(cwd, artifact.root.path)
-            const slices = dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))
-            const uploads = slices.map((slice) => {
+            // A bundle that fails part of the way through uploads nothing, so its symbol sets wait
+            // here until every slice is packaged.
+            const uploads: SymbolSetUpload[] = []
+            for (const slice of dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))) {
                 if (includeSource && !steps.has(slice.path)) {
                     steps.set(
                         slice.path,
                         sourceStep(slice.file, 'dsym', warnings, sourceIgnored(artifact.root, folder))
                     )
                 }
-                return dsymUpload(slice, steps.get(slice.path))
-            })
+                uploads.push(dsymUpload(slice, keep, steps.get(slice.path)))
+            }
+
             for (const upload of uploads) {
                 owners.set(upload, artifact)
                 dsyms.push(upload)

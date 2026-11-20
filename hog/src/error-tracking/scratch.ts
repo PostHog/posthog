@@ -11,16 +11,18 @@ export class Scratch {
     private file: { descriptor: number; folder: string | undefined } | undefined
     private size = 0
 
-    write = (bytes: Uint8Array): StoredData => {
+    write = (...parts: Uint8Array[]): StoredData => {
         const descriptor = this.open()
         const start = this.size
-        // writeSync can write fewer bytes than asked, so it runs until every byte is written.
-        for (let written = 0; written < bytes.length; ) {
-            written += writeSync(descriptor, bytes, written, bytes.length - written, start + written)
+        for (const bytes of parts) {
+            // writeSync can write fewer bytes than asked, so it runs until every byte is written.
+            for (let written = 0; written < bytes.length; ) {
+                written += writeSync(descriptor, bytes, written, bytes.length - written, this.size + written)
+            }
+            this.size += bytes.length
         }
-        this.size += bytes.length
 
-        const length = bytes.length
+        const length = this.size - start
         return {
             length,
             read: () => {
@@ -68,8 +70,8 @@ export class Scratch {
     }
 }
 
-export const sizeOnly = (bytes: Uint8Array): StoredData => ({
-    length: bytes.length,
+export const sizeOnly = (...parts: Uint8Array[]): StoredData => ({
+    length: parts.reduce((sum, bytes) => sum + bytes.length, 0),
     read: () => {
         throw new Error('A dry run keeps no upload data.')
     },

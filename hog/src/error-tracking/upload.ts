@@ -21,6 +21,8 @@ export interface StoredData {
     read(): Uint8Array
 }
 
+export type KeepData = (...parts: Uint8Array[]) => StoredData
+
 export const uploadBytes = (data: Uint8Array | StoredData): Uint8Array =>
     data instanceof Uint8Array ? data : data.read()
 
@@ -28,7 +30,8 @@ export interface SymbolSetUpload {
     chunkId: string
     releaseId: string | null
     data: Uint8Array | StoredData
-    // Set when the hash covers something other than the whole container, like event-mode sourcemaps.
+    // Set when the hash covers something other than the whole container, like event-mode sourcemaps,
+    // or when the container waits on disk, so that nothing reads it back only to hash it.
     contentHash?: string
 }
 

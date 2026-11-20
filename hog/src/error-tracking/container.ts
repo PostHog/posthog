@@ -62,13 +62,17 @@ function appendEmptyLastBlock(frame: Buffer): Buffer {
     }
 }
 
-export function writeSymbolData(type: SymbolDataType, raw: Uint8Array): Buffer {
+export function symbolDataParts(type: SymbolDataType, raw: Uint8Array): [header: Buffer, payload: Buffer] {
     const header = Buffer.alloc(HEADER_LENGTH)
     MAGIC.copy(header)
     header.writeUInt32LE(VERSION, MAGIC.length)
     header.writeUInt32LE(type, MAGIC.length + 4)
     header.writeUInt8(COMPRESSION_ZSTD, MAGIC.length + 8)
-    return Buffer.concat([header, zstdCompressLikeRust(raw)])
+    return [header, zstdCompressLikeRust(raw)]
+}
+
+export function writeSymbolData(type: SymbolDataType, raw: Uint8Array): Buffer {
+    return Buffer.concat(symbolDataParts(type, raw))
 }
 
 export function readSymbolData(bytes: Uint8Array): { type: number; payload: Buffer } {

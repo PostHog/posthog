@@ -1,8 +1,10 @@
-import { deflateRaw } from 'pako'
+import { crc32 as zlibCrc32 } from 'node:zlib'
+import { Deflate } from 'pako'
 
 // The zip posthog-cli builds with the `zip` crate 2.4.2: deflate at level 6 through stock zlib,
 // the fixed 1980-01-01 timestamp, Unix 0644 attributes, no extra fields, no data descriptor.
 // pako reproduces stock zlib's output. Bun's own deflate does not, and the zip is hashed.
+// A CRC-32 has one right answer, so that part runs in Bun's native zlib.
 
 const LOCAL_HEADER = 0x04034b50
 const CENTRAL_HEADER = 0x02014b50
@@ -17,24 +19,27 @@ const DOS_DATE = 0x0021
 const UNIX_FILE_0644 = 0x81a40000
 const UTF8_NAME = 0x0800
 
-const CRC_TABLE = (() => {
-    const table = new Uint32Array(256)
-    for (let index = 0; index < 256; index++) {
-        let value = index
-        for (let bit = 0; bit < 8; bit++) {
-            value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
-        }
-        table[index] = value >>> 0
-    }
-    return table
-})()
+// Stock zlib's settings for level 6. Any other value changes the compressed bytes.
+const DEFLATE_OPTIONS = { raw: true, level: 6, windowBits: 15, memLevel: 8, strategy: 0 } as const
+// The size of each piece of compressed output, which doesn't change the bytes.
+const DEFLATE_CHUNK_SIZE = 1024 * 1024
 
-export function crc32(bytes: Uint8Array): number {
-    let crc = 0xffffffff
-    for (const byte of bytes) {
-        crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8)
+export const crc32 = (bytes: Uint8Array): number => zlibCrc32(bytes)
+
+function deflateChunks(data: Uint8Array): Uint8Array[] {
+    const chunks: Uint8Array[] = []
+    const deflater = new Deflate({ ...DEFLATE_OPTIONS, chunkSize: DEFLATE_CHUNK_SIZE })
+    deflater.onData = (chunk) => {
+        chunks.push(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk))
     }
-    return (crc ^ 0xffffffff) >>> 0
+    deflater.onEnd = () => {}
+
+    deflater.push(data, true)
+
+    if (deflater.err !== 0) {
+        throw new ZipError(`Deflate failed: ${deflater.msg}`)
+    }
+    return chunks
 }
 
 export class ZipError extends Error {}
@@ -63,12 +68,13 @@ export class ZipWriter {
         }
         this.names.add(name)
         const encoded = Buffer.from(name, 'utf8')
-        const compressed = deflateRaw(data, { level: 6, windowBits: 15, memLevel: 8, strategy: 0 })
+        const compressed = deflateChunks(data)
+        const compressedSize = compressed.reduce((sum, chunk) => sum + chunk.length, 0)
         const entry: Entry = {
             name: encoded,
             flags: encoded.every((byte) => byte < 0x80) ? 0 : UTF8_NAME,
             crc: crc32(data),
-            compressedSize: compressed.length,
+            compressedSize,
             size: data.length,
             offset: this.length,
         }
@@ -84,7 +90,7 @@ export class ZipWriter {
         header.writeUInt32LE(entry.size, 22)
         header.writeUInt16LE(encoded.length, 26)
         header.writeUInt16LE(0, 28)
-        this.push(header, encoded, compressed)
+        this.push(header, encoded, ...compressed)
         this.entries.push(entry)
     }
 
@@ -137,7 +143,11 @@ export class ZipWriter {
         end.writeUInt32LE(directorySize, 12)
         end.writeUInt32LE(directoryOffset, 16)
         this.push(end)
-        return Buffer.concat(this.chunks)
+
+        const archive = Buffer.concat(this.chunks, this.length)
+        // The pieces are a second copy of the archive, so they go before the caller compresses it.
+        this.chunks.length = 0
+        return archive
     }
 
     private push(...parts: Uint8Array[]): void {

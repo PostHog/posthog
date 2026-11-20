@@ -1,8 +1,8 @@
 import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { SymbolDataType, writeSymbolData } from '../container'
-import { MAX_FILE_SIZE, type SymbolSetUpload } from '../upload'
+import { contentHash, SymbolDataType, symbolDataParts } from '../container'
+import { MAX_FILE_SIZE, type KeepData, type SymbolSetUpload } from '../upload'
 import { DwarfError } from './bytes'
 import { archiveObjects, BufferSource, fatArches, openArchive, type NativeObject } from './object'
 import { ZipWriter } from './zip'
@@ -83,12 +83,26 @@ export function nativeCandidates(path: string): NativeCandidate[] {
     return candidates
 }
 
-export function nativeUpload(file: NativeFile, sources?: (zip: ZipWriter) => void): SymbolSetUpload {
+// The container is hashed here, while it is in memory, and then handed to `keep`. The upload
+// and the report read the hash from the symbol set, so neither loads the container to hash it again.
+function debugSymbolSet(
+    chunkId: string,
+    type: SymbolDataType,
+    dwarf: Uint8Array,
+    keep: KeepData,
+    sources?: (zip: ZipWriter) => void
+): SymbolSetUpload {
     const zip = new ZipWriter()
-    zip.add('dwarf', file.data)
+    zip.add('dwarf', dwarf)
     sources?.(zip)
+
+    const parts = symbolDataParts(type, zip.finish())
+    return { chunkId, releaseId: null, contentHash: contentHash(...parts), data: keep(...parts) }
+}
+
+export function nativeUpload(file: NativeFile, keep: KeepData, sources?: (zip: ZipWriter) => void): SymbolSetUpload {
     const type = file.format === 'macho' ? SymbolDataType.AppleDsym : SymbolDataType.ElfDebugInfo
-    return { chunkId: file.debugId, releaseId: null, data: writeSymbolData(type, zip.finish()) }
+    return debugSymbolSet(file.debugId, type, file.data, keep, sources)
 }
 
 export interface DsymSlice {
@@ -103,12 +117,12 @@ export interface DsymSlice {
 // bundle, with its uppercase UUID and its own bytes. A thin binary is its whole file.
 // Symlinks inside the bundle are followed, as those tools follow them. `include` applies the
 // source's ignore globs to members.
-export function dsymSlices(bundle: string, include: (path: string) => boolean = () => true): DsymSlice[] {
+export function* dsymSlices(bundle: string, include: (path: string) => boolean = () => true): Generator<DsymSlice> {
     if (!statSync(bundle).isDirectory()) {
         throw new Error(`${bundle} is not a directory`)
     }
     const folder = join(bundle, 'Contents', 'Resources', 'DWARF')
-    const slices: DsymSlice[] = []
+    let found = 0
     for (const name of readdirSync(folder).sort()) {
         const path = join(folder, name)
         if (!statSync(path).isFile() || !include(path)) {
@@ -122,21 +136,18 @@ export function dsymSlices(bundle: string, include: (path: string) => boolean = 
             const [object] = openArchive(new BufferSource(part))
             const uuid = object?.debugId()
             if (object?.format === 'macho' && uuid) {
-                slices.push({ uuid: uuid.toUpperCase(), path, data: part, file: bytes })
+                found++
+                yield { uuid: uuid.toUpperCase(), path, data: part, file: bytes }
             }
         }
     }
-    if (slices.length === 0) {
+    if (found === 0) {
         throw new Error(`hog found no UUIDs in the dSYM at ${bundle}`)
     }
-    return slices
 }
 
-export function dsymUpload(slice: DsymSlice, sources?: (zip: ZipWriter) => void): SymbolSetUpload {
-    const zip = new ZipWriter()
-    zip.add('dwarf', slice.data)
-    sources?.(zip)
-    return { chunkId: slice.uuid, releaseId: null, data: writeSymbolData(SymbolDataType.AppleDsym, zip.finish()) }
+export function dsymUpload(slice: DsymSlice, keep: KeepData, sources?: (zip: ZipWriter) => void): SymbolSetUpload {
+    return debugSymbolSet(slice.uuid, SymbolDataType.AppleDsym, slice.data, keep, sources)
 }
 
 // `merge_uploads_prefer_dsym`: dSYM symbol sets that fit go first, so they win over a native file
