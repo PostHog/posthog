@@ -23,6 +23,11 @@
             "description": "Include entries whose `expires_at` has passed. Off by default so a time-boxed memory retires itself; turn it on to audit what the fleet remembered and when it lapsed.",
             "type": "boolean"
         },
+        "include_revisions": {
+            "default": false,
+            "description": "With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content.",
+            "type": "boolean"
+        },
         "key": {
             "description": "Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.",
             "minLength": 1,
