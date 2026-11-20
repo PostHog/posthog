@@ -1938,21 +1938,25 @@ class TestScannerScope(_VisionAPITestCase):
             enabled=False,
         )
         scanner.refresh_from_db()
-        self.assertEqual(scanner.scope.get("balance"), False)
-        self.assertEqual(scanner.scope.get("start_on_launch"), True)
+        mirrored = scanner.scope
+        assert isinstance(mirrored, dict)
+        self.assertEqual(mirrored.get("balance"), False)
+        self.assertEqual(mirrored.get("start_on_launch"), True)
 
         with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
             resp = self.client.patch(
                 f"{self.scanners_url}{scanner.id}/",
-                data={"name": "renamed", "scope": scanner.scope},
+                data={"name": "renamed", "scope": mirrored},
                 format="json",
             )
 
         self.assertEqual(resp.status_code, 200, resp.json())
         scanner.refresh_from_db()
         self.assertEqual(scanner.name, "renamed")
-        self.assertEqual(scanner.scope.get("balance"), False)
-        self.assertEqual(scanner.scope.get("start_on_launch"), True)
+        saved = scanner.scope
+        assert isinstance(saved, dict)
+        self.assertEqual(saved.get("balance"), False)
+        self.assertEqual(saved.get("start_on_launch"), True)
 
     def test_a_save_that_resends_targeting_and_its_mirrored_scope_passes(self) -> None:
         # A read of a targeted scanner returns both stores, so the editor sends both back.
