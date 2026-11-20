@@ -8,12 +8,17 @@ ENDPOINTS = {
     "execution_metrics": "metrics/{executionId}",
     "flow_revisions": "flows/{namespace}/{id}/revisions",
     "logs": "logs/search",
+    "task_outputs": "outputs/tasks/{executionId}/{taskRunId}",
+    "daily_execution_statistics": "usages/all",
 }
+# Lists the task runs of an execution that stored outputs; task_outputs then reads each one.
+TASK_OUTPUT_RUNS_PATH = "outputs/tasks/{executionId}"
 # Child tables read one parent row at a time, so a credential probe reads the parent list instead.
 FANOUT_PARENTS = {
     "task_runs": "executions",
     "execution_metrics": "executions",
     "flow_revisions": "flows",
+    "task_outputs": "executions",
 }
 PRIMARY_KEYS = {
     "executions": ["id"],
@@ -23,12 +28,16 @@ PRIMARY_KEYS = {
     "execution_metrics": ["entry_id"],
     "flow_revisions": ["namespace", "id", "revision"],
     "logs": ["entry_id"],
+    "task_outputs": ["executionId", "taskRunId"],
+    "daily_execution_statistics": ["start_date"],
 }
 INCREMENTAL_FIELDS = {
     "executions": [incremental_field("start_date")],
     "task_runs": [incremental_field("execution_start_date")],
     "execution_metrics": [incremental_field("execution_start_date")],
     "logs": [incremental_field("timestamp")],
+    "task_outputs": [incremental_field("execution_start_date")],
+    "daily_execution_statistics": [incremental_field("start_date")],
 }
 PAGE_SIZE = 100
 # Kestra's maximum page size. Log and metric pages are small rows read in bulk.
@@ -41,6 +50,9 @@ LOOKBACK_SECONDS = {
     "task_runs": EXECUTION_LOOKBACK_SECONDS,
     "execution_metrics": EXECUTION_LOOKBACK_SECONDS,
     "logs": LOG_LOOKBACK_SECONDS,
+    "task_outputs": EXECUTION_LOOKBACK_SECONDS,
 }
+# Kestra's maximum usage window. Each sync reads all of it, so the merge keeps days older than the window.
+USAGE_DAYS = 30
 AUTH_ERROR = "Kestra rejected your credentials. Check your API token or Basic authentication details."
 PERMISSION_ERROR = "Kestra denied access. Grant read permission for this table in the selected tenant."

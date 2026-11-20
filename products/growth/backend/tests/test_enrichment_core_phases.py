@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, call, patch
 
 from asgiref.sync import async_to_sync
 
-from products.growth.backend.enrichment.bridge import ClayBridgeInputs, OrganizationBridgeInputs, WizardBridgeInputs
+from products.growth.backend.enrichment.bridge import OrganizationBridgeInputs, WizardBridgeInputs
 from products.growth.backend.enrichment.context import EnrichmentContext, EnrichmentPhase
 from products.growth.backend.enrichment.core import enrich_organization
 from products.growth.backend.enrichment.fields import EnrichmentFields
@@ -89,7 +89,6 @@ class TestEnrichmentCorePhases(BaseTest):
         distinct_id,
         domain,
         bridge_inputs,
-        person,
     ):
         ctx = EnrichmentContext(
             organization_id=str(self.organization.id),
@@ -104,7 +103,6 @@ class TestEnrichmentCorePhases(BaseTest):
                 "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
                 return_value=bridge_inputs,
             ),
-            patch("products.growth.backend.enrichment.core.get_person_by_distinct_id", return_value=person),
         ):
             return async_to_sync(enrich_organization)(ctx, provider=provider, pha_client=pha_client)
 
@@ -144,10 +142,7 @@ class TestEnrichmentCorePhases(BaseTest):
             geoip_country_code="US",
             distinct_id="d1",
             domain="acme.com",
-            bridge_inputs=OrganizationBridgeInputs(
-                clay=ClayBridgeInputs(est_revenue=None), wizard=WizardBridgeInputs()
-            ),
-            person=None,
+            bridge_inputs=OrganizationBridgeInputs(wizard=WizardBridgeInputs()),
         )
 
         self.assertEqual(
@@ -158,8 +153,6 @@ class TestEnrichmentCorePhases(BaseTest):
                 "founded_year": 2020,
                 "ownership_status": "PRIVATE",
                 "country": "US",
-                "icp_score": 12,
-                "icp_score_version": "clay-parity-2",
                 "icp_fit_status": "scored",
                 "icp_fit_version": "v0.7",
                 "icp_fit_lists_version": "test-lists-1",
@@ -196,8 +189,6 @@ class TestEnrichmentCorePhases(BaseTest):
                         "icp_country": "US",
                         "enrichment_founded_year": 2020,
                         "enrichment_ownership_status": "PRIVATE",
-                        "icp_score": 12,
-                        "icp_score_version": "clay-parity-2",
                         "icp_fit_score": 100,
                         "icp_fit_version": "v0.7",
                         "icp_fit_status": "scored",
@@ -243,8 +234,6 @@ class TestEnrichmentCorePhases(BaseTest):
         )
         pha_client = MagicMock()
         provider = _FakeProvider(ProviderLookup(fields=None, raw_payload=None, enrichment_urn=None), status="COMPLETED")
-        person = MagicMock()
-        person.properties = {"icp_score": 7, "icp_score_version": "clay-parity-2"}
 
         outcome = self._run(
             provider=provider,
@@ -254,10 +243,7 @@ class TestEnrichmentCorePhases(BaseTest):
             geoip_country_code=None,
             distinct_id="d1",
             domain="acme.com",
-            bridge_inputs=OrganizationBridgeInputs(
-                clay=ClayBridgeInputs(est_revenue=None), wizard=WizardBridgeInputs(ai_sdk_detected=True)
-            ),
-            person=person,
+            bridge_inputs=OrganizationBridgeInputs(wizard=WizardBridgeInputs(ai_sdk_detected=True)),
         )
 
         self.assertEqual(
@@ -270,8 +256,6 @@ class TestEnrichmentCorePhases(BaseTest):
                 "founded_year": 2020,
                 "ownership_status": "PRIVATE",
                 "country": "US",
-                "icp_score": 12,
-                "icp_score_version": "clay-parity-2",
                 "icp_fit_status": "scored",
                 "icp_fit_version": "v0.7",
                 "icp_fit_lists_version": "test-lists-1",
@@ -314,8 +298,6 @@ class TestEnrichmentCorePhases(BaseTest):
                         "icp_country": "US",
                         "enrichment_founded_year": 2020,
                         "enrichment_ownership_status": "PRIVATE",
-                        "icp_score": 12,
-                        "icp_score_version": "clay-parity-2",
                         "icp_fit_score": 100,
                         "icp_fit_version": "v0.7",
                         "icp_fit_status": "scored",
@@ -326,7 +308,6 @@ class TestEnrichmentCorePhases(BaseTest):
         self.assertEqual(
             pha_client.set.call_args_list,
             [
-                call(distinct_id="d1", properties={"icp_score": 12, "icp_score_version": "clay-parity-2"}),
                 call(
                     distinct_id="d1",
                     properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},
@@ -361,7 +342,6 @@ class TestEnrichmentCorePhases(BaseTest):
             distinct_id="d2",
             domain="acme.com",
             bridge_inputs=OrganizationBridgeInputs(),
-            person=None,
         )
 
         self.assertEqual(
@@ -371,8 +351,6 @@ class TestEnrichmentCorePhases(BaseTest):
                 "country": "DE",
                 "company_type": "STARTUP",
                 "headcount": 40,
-                "icp_score": 0,
-                "icp_score_version": "clay-parity-2",
                 "icp_fit_status": "scored",
                 "icp_fit_version": "v0.7",
                 "icp_fit_lists_version": "test-lists-1",
@@ -410,8 +388,6 @@ class TestEnrichmentCorePhases(BaseTest):
                         "enrichment_company_type": "STARTUP",
                         "icp_employees": 40,
                         "icp_country": "DE",
-                        "icp_score": 0,
-                        "icp_score_version": "clay-parity-2",
                         "icp_fit_score": 100,
                         "icp_fit_version": "v0.7",
                         "icp_fit_status": "scored",
@@ -422,7 +398,6 @@ class TestEnrichmentCorePhases(BaseTest):
         self.assertEqual(
             pha_client.set.call_args_list,
             [
-                call(distinct_id="d2", properties={"icp_score": 0, "icp_score_version": "clay-parity-2"}),
                 call(
                     distinct_id="d2",
                     properties={"icp_fit_score": 100, "icp_fit_version": "v0.7", "icp_fit_status": "scored"},

@@ -2312,18 +2312,6 @@ export interface AcknowledgeCelebrationResponseApi {
     acknowledged: boolean
 }
 
-/**
- * * `user` - user
- * * `team` - team
- */
-export type AchievementDefinitionScopeEnumApi =
-    (typeof AchievementDefinitionScopeEnumApi)[keyof typeof AchievementDefinitionScopeEnumApi]
-
-export const AchievementDefinitionScopeEnumApi = {
-    User: 'user',
-    Team: 'team',
-} as const
-
 export interface AchievementStageApi {
     /** Stage number within the track, 1-5. */
     stage: number
@@ -2340,11 +2328,6 @@ export interface AchievementDefinitionApi {
     display_name: string
     /** One-line description of what the track rewards. */
     description: string
-    /** Whether the track is tracked per user or per team.
-     *
-     * * `user` - user
-     * * `team` - team */
-    scope: AchievementDefinitionScopeEnumApi
     /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
     is_experiment_track: boolean
     /** The five stages of this track, in ascending threshold order. */
@@ -2384,10 +2367,8 @@ export interface PendingCelebrationApi {
 export interface AchievementsListResponseApi {
     /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
     definitions: AchievementDefinitionApi[]
-    /** The requesting user's progress on per-user tracks. */
+    /** The requesting user's progress on each track. */
     user_progress: AchievementProgressApi[]
-    /** The team's progress on per-team tracks. */
-    team_progress: AchievementProgressApi[]
     /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
     pending_celebrations: PendingCelebrationApi[]
 }

@@ -59,13 +59,14 @@ class SpanWriter:
         env: str = "",
         trace: int | None = None,
         parent: str = "",
+        start: dt.datetime | None = None,
         attributes: dict[str, str] | None = None,
         resource: dict[str, str] | None = None,
     ) -> str:
         self.n += 1
         span_id = b64(self.n.to_bytes(8, "big"))
         trace_id = b64((trace if trace is not None else self.n).to_bytes(16, "big"))
-        start = self.base + dt.timedelta(seconds=self.n)
+        start = start or self.base + dt.timedelta(seconds=self.n)
         end = start + dt.timedelta(milliseconds=ms)
         resource_attributes = {**({"deployment.environment.name": env} if env else {}), **(resource or {})}
         span_attributes = {f"{key}__str": value for key, value in (attributes or {}).items()}

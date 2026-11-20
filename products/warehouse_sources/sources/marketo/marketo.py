@@ -3,7 +3,7 @@ import re
 import csv
 import time
 import dataclasses
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import IO, Any, Optional, cast
 
@@ -19,7 +19,14 @@ from products.warehouse_sources.sources.marketo.settings import (
     REST_BATCH_SIZE,
     MarketoEndpointConfig,
 )
-from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    JobStatus,
+    ResumableSourceManager,
+    SourceResponse,
+    WorkerShuttingDownError,
+    make_tracked_session,
+    poll_until_done,
+)
 
 # Every Marketo instance is reachable at <munchkin id>.mktorest.com — the host is not
 # customer-supplied, so there is no credential-retargeting surface here.
@@ -34,7 +41,9 @@ MAX_RETRY_ATTEMPTS = 5
 
 # Marketo asks callers to check bulk export status no more than once a minute.
 BULK_POLL_INTERVAL_SECONDS = 60
-BULK_MAX_POLL_ATTEMPTS = 120
+BULK_POLL_BUDGET_SECONDS = 2 * 60 * 60
+# The cancel runs while the worker shuts down, so it gets one short try.
+BULK_CANCEL_TIMEOUT_SECONDS = 10
 BULK_CHUNK_ROWS = 2000
 # Bulk lead exports name every column explicitly; keep the request body bounded on instances
 # with thousands of custom fields.
@@ -235,6 +244,7 @@ class MarketoClient:
         params: Optional[Mapping[str, Any]] = None,
         json_body: Optional[Mapping[str, Any]] = None,
         stream: bool = False,
+        timeout: float = REQUEST_TIMEOUT_SECONDS,
     ) -> requests.Response:
         """Issue one request, re-minting the token once on an HTTP 401."""
 
@@ -245,7 +255,7 @@ class MarketoClient:
                 params=dict(params) if params else None,
                 json=dict(json_body) if json_body is not None else None,
                 headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                timeout=timeout,
                 stream=stream,
             )
 
@@ -367,26 +377,50 @@ def _create_bulk_export(
     return str(results[0]["exportId"])
 
 
-def _await_bulk_export(client: MarketoClient, obj: str, export_id: str, logger: FilteringBoundLogger) -> None:
-    for _ in range(BULK_MAX_POLL_ATTEMPTS):
-        # Sleep before the first poll: Marketo never completes a job instantly and polling
-        # faster than once a minute is rejected.
-        time.sleep(BULK_POLL_INTERVAL_SECONDS)
+def _await_bulk_export(
+    client: MarketoClient, obj: str, export_id: str, logger: FilteringBoundLogger, safe_point: Callable[[], None]
+) -> None:
+    def check() -> JobStatus[None]:
         body = client.request_json("GET", f"/bulk/v1/{obj}/export/{export_id}/status.json")
         results = body.get("result") or []
         status = results[0].get("status") if results else None
 
         if status == "Completed":
-            return
+            return JobStatus(done=True)
         if status in ("Failed", "Cancelled"):
             reason = results[0].get("errorMsg") or "no reason given"
             raise MarketoAPIError(f"Marketo bulk export {export_id} ended as {status}: {reason}")
         logger.debug(f"Marketo bulk export {export_id} status={status}")
+        return JobStatus(message=str(status))
 
-    raise MarketoAPIError(
-        f"Marketo bulk export {export_id} did not complete within "
-        f"{BULK_MAX_POLL_ATTEMPTS * BULK_POLL_INTERVAL_SECONDS} seconds"
-    )
+    try:
+        poll_until_done(
+            check,
+            interval=BULK_POLL_INTERVAL_SECONDS,
+            budget_seconds=BULK_POLL_BUDGET_SECONDS,
+            safe_point=safe_point,
+            # Marketo never completes a job instantly, and it rejects polls faster than once a minute.
+            wait_first=True,
+            timeout_error=lambda _status: MarketoAPIError(
+                f"Marketo bulk export {export_id} did not complete within {BULK_POLL_BUDGET_SECONDS} seconds"
+            ),
+        )
+    except WorkerShuttingDownError:
+        # The resume state does not keep the export, and the next worker creates a new one, so free its
+        # place in the instance's export queue.
+        _cancel_bulk_export(client, obj, export_id, logger)
+        raise
+
+
+def _cancel_bulk_export(client: MarketoClient, obj: str, export_id: str, logger: FilteringBoundLogger) -> None:
+    # Not `request_json`: its retries wait with `time.sleep`, which a shutdown cannot end.
+    try:
+        response = client.request(
+            "POST", f"/bulk/v1/{obj}/export/{export_id}/cancel.json", timeout=BULK_CANCEL_TIMEOUT_SECONDS
+        )
+        raise_for_marketo_errors(response.json())
+    except Exception:
+        logger.warning(f"Marketo: failed to cancel bulk export {export_id}")
 
 
 def _download_bulk_export(
@@ -432,7 +466,8 @@ def _bulk_rows(
     for window_start, window_end in bulk_windows(start, end):
         export_id = _create_bulk_export(client, config.path, (window_start, window_end), fields)
         client.request_json("POST", f"/bulk/v1/{config.path}/export/{export_id}/enqueue.json")
-        _await_bulk_export(client, config.path, export_id, logger)
+        # Earlier windows are yielded in full and the source holds no rows, so the poll is a safe point.
+        _await_bulk_export(client, config.path, export_id, logger, resumable_source_manager.safe_point)
 
         yield from _download_bulk_export(client, config.path, export_id, config.int_columns)
 

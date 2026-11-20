@@ -44,6 +44,7 @@ from products.metrics.backend.facade.enums import (
     MetricType,
 )
 from products.metrics.backend.metric_query_runner import (
+    _SERVICE_NAME_KEYS,
     AttributeScope,
     _align_to_interval,
     _finite_or_none,
@@ -53,6 +54,7 @@ from products.metrics.backend.metric_query_runner import (
     attribute_field,
     filters_expr,
 )
+from products.metrics.backend.search import ilike_pattern
 
 logger = structlog.get_logger(__name__)
 
@@ -68,6 +70,13 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 )
 
 _DATA_PRESENCE_WINDOW = dt.timedelta(hours=24)
+_AUTOCOMPLETE_WINDOW = dt.timedelta(hours=24)
+# Autocomplete tolerates partial results, so a read stops at the budget instead of failing.
+_AUTOCOMPLETE_SETTINGS = HogQLGlobalSettings(
+    max_execution_time=10,
+    max_bytes_to_read=10_000_000_000,
+    read_overflow_mode="break",
+)
 _DATA_PRESENCE_CACHE_TTL_SECONDS = 300
 # An empty or partly failed answer is held briefly: new spans or logs show up within a minute,
 # and a caller that polls does not re-run the probes on every request.
@@ -149,6 +158,21 @@ DERIVED_METRICS: tuple[DerivedMetric, ...] = (
     ),
 )
 
+# The keys the filter bar suggests for a derived metric: what request and latency charts slice by.
+_PICKER_KEYS: dict[DerivedSource, tuple[str, ...]] = {
+    DerivedSource.SPANS: (
+        "service.name",
+        "span.name",
+        "span.kind",
+        "span.status_code",
+        "deployment.environment",
+        "service.version",
+        "http.route",
+        "http.status_code",
+    ),
+    DerivedSource.LOGS: ("service.name", "severity_text"),
+}
+
 _DERIVED_METRICS_BY_NAME: dict[str, DerivedMetric] = {metric.name: metric for metric in DERIVED_METRICS}
 
 # The access-control resource and API scope object that guard each source.
@@ -210,6 +234,48 @@ _REQUEST_PREDICATE = """
 _SERVICE_SCOPE_KEYS = frozenset(
     {"service.name", "service_name", "deployment.environment", "deployment.environment.name", "env"}
 )
+
+
+def _source_field(source: DerivedSource, name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
+    column = _COLUMN_KEYS[source].get(name)
+    if column is not None:
+        return ast.Field(chain=[column])
+    enum_column = _ENUM_COLUMN_KEYS[source].get(name)
+    if enum_column is not None:
+        column, labels = enum_column
+        return parse_expr(
+            "transform({column}, {codes}, {labels}, toString({column}))",
+            placeholders={
+                "column": ast.Field(chain=[column]),
+                "codes": ast.Array(exprs=[ast.Constant(value=code) for code in range(len(labels))]),
+                "labels": ast.Array(exprs=[ast.Constant(value=label) for label in labels]),
+            },
+        )
+    return attribute_field(name, scope=scope)
+
+
+def _picker_field(source: DerivedSource, name: str) -> ast.Expr:
+    """`_source_field` for the key and value pickers, with bare reads of the physical attribute maps.
+
+    The span and log `attributes` column aliases a `mapApply` over all of `attributes_map_str`, and a
+    property-group read adds a `has()` guard that reads every map bucket. A bare `arrayElement` on the
+    physical map reads only the bucket that holds the key. A missing key reads as ''.
+    """
+    if name in _COLUMN_KEYS[source] or name in _ENUM_COLUMN_KEYS[source] or name in _SERVICE_NAME_KEYS:
+        return _source_field(source, name)
+    # Explicit calls, so the resolver does not fold the reads back into property chains.
+    resource = ast.Call(name="arrayElement", args=[ast.Field(chain=["resource_attributes"]), ast.Constant(value=name)])
+    attribute = ast.Call(
+        name="arrayElement", args=[ast.Field(chain=["attributes_map_str"]), ast.Constant(value=f"{name}__str")]
+    )
+    return ast.Call(
+        name="if",
+        args=[
+            ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=resource, right=ast.Constant(value="")),
+            resource,
+            attribute,
+        ],
+    )
 
 
 def is_derived_metric_name(name: str) -> bool:
@@ -415,21 +481,7 @@ class DerivedMetricQueryRunner:
         ]
 
     def _field(self, name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
-        column = _COLUMN_KEYS[self.metric.source].get(name)
-        if column is not None:
-            return ast.Field(chain=[column])
-        enum_column = _ENUM_COLUMN_KEYS[self.metric.source].get(name)
-        if enum_column is not None:
-            column, labels = enum_column
-            return parse_expr(
-                "transform({column}, {codes}, {labels}, toString({column}))",
-                placeholders={
-                    "column": ast.Field(chain=[column]),
-                    "codes": ast.Array(exprs=[ast.Constant(value=code) for code in range(len(labels))]),
-                    "labels": ast.Array(exprs=[ast.Constant(value=label) for label in labels]),
-                },
-            )
-        return attribute_field(name, scope=scope)
+        return _source_field(self.metric.source, name, scope=scope)
 
     def _value_expr(self) -> ast.Expr:
         if self.metric.value is DerivedValue.APDEX:
@@ -531,3 +583,101 @@ class DerivedMetricQueryRunner:
         )
         assert isinstance(query, ast.SelectQuery)
         return query
+
+
+@frozen
+class _AutocompleteWindow:
+    date_from: dt.datetime
+    date_to: dt.datetime
+
+
+def _autocomplete_window(date_from: dt.datetime | None, date_to: dt.datetime | None) -> _AutocompleteWindow:
+    resolved_to = date_to or timezone.now()
+    resolved_from = date_from or resolved_to - _AUTOCOMPLETE_WINDOW
+    if resolved_to <= resolved_from:
+        raise ValueError("date_to must be after date_from")
+    return _AutocompleteWindow(date_from=resolved_from, date_to=resolved_to)
+
+
+def list_derived_attribute_keys(
+    team: Team,
+    *,
+    metric_name: str,
+    search: str = "",
+    date_from: dt.datetime | None = None,
+    date_to: dt.datetime | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """The filter and group-by keys for a derived metric that have values in the window,
+    most distinct values first, as `{"name", "value_count"}` dicts."""
+    source = get_derived_metric(metric_name).source
+    needle = search.strip().lower()
+    keys = [key for key in _PICKER_KEYS[source] if needle in key.lower()]
+    if not keys:
+        return []
+    window = _autocomplete_window(date_from, date_to)
+    counts = [
+        parse_expr(
+            "uniqIf(toString({field}), toString({field}) != '')", placeholders={"field": _picker_field(source, key)}
+        )
+        for key in keys
+    ]
+    query = ast.SelectQuery(
+        select=counts,
+        select_from=ast.JoinExpr(table=ast.Field(chain=_TABLES[source])),
+        where=_window_expr(window.date_from, window.date_to),
+    )
+    response = execute_hogql_query(
+        query_type="DerivedMetricAttributeKeysQuery",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,
+        settings=_AUTOCOMPLETE_SETTINGS,
+    )
+    row = response.results[0] if response.results else [0] * len(keys)
+    found = sorted(((key, int(count)) for key, count in zip(keys, row) if count), key=lambda pair: -pair[1])
+    return [{"name": key, "value_count": count} for key, count in found[:limit]]
+
+
+def list_derived_attribute_values(
+    team: Team,
+    *,
+    metric_name: str,
+    key: str,
+    search: str = "",
+    date_from: dt.datetime | None = None,
+    date_to: dt.datetime | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """Observed values of one key for a derived metric, most frequent first, as `{"id", "name", "count"}` dicts."""
+    source = get_derived_metric(metric_name).source
+    window = _autocomplete_window(date_from, date_to)
+    table = ".".join(str(part) for part in _TABLES[source])
+    # Span metrics count request spans, which are mostly server spans, so values seen on server
+    # spans rank first. Without this, client spans, which outnumber them, put `client` first.
+    rank = "countIf(kind = 2)" if source is DerivedSource.SPANS else "count()"
+    query = parse_select(
+        f"""
+            SELECT toString({{field}}) AS value, count() AS occurrences
+            FROM {table}
+            WHERE {{window}} AND value != '' AND value ILIKE {{pattern}}
+            GROUP BY value
+            ORDER BY {rank} DESC, occurrences DESC, value
+            LIMIT {{limit}}
+        """,
+        placeholders={
+            "field": _picker_field(source, key),
+            "window": _window_expr(window.date_from, window.date_to),
+            "pattern": ast.Constant(value=ilike_pattern(search.strip())),
+            "limit": ast.Constant(value=limit),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    response = execute_hogql_query(
+        query_type="DerivedMetricAttributeValuesQuery",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,
+        settings=_AUTOCOMPLETE_SETTINGS,
+    )
+    return [{"id": value, "name": value, "count": count} for value, count in response.results]

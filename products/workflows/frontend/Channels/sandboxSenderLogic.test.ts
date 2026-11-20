@@ -10,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { sandboxSenderLogic } from './sandboxSenderLogic'
 
 describe('sandboxSenderLogic', () => {
-    it('reads and sets up the sandbox sender in the selected environment rather than its project', async () => {
+    it('reads and sets up the PostHog test sender in the selected environment rather than its project', async () => {
         const projectId = String(MOCK_DEFAULT_TEAM.id)
         const environmentId = String(MOCK_DEFAULT_TEAM.id + 1)
         const sendersByEnvironment: Record<string, number> = { [projectId]: 99 }
@@ -54,39 +54,45 @@ describe('sandboxSenderLogic', () => {
             'the sender was never set up',
             {},
             'not attempted',
-            { problem: "The sandbox sender isn't set up for this project yet.", canSetUp: true },
+            { problem: "The PostHog test sender isn't set up for this project yet.", canSetUp: true },
         ],
         [
             'the sender is being set up',
             {},
             'in flight',
-            { problem: "The sandbox sender isn't set up for this project yet.", canSetUp: true },
+            { problem: "The PostHog test sender isn't set up for this project yet.", canSetUp: true },
         ],
         [
             'setting up the sender failed',
             {},
             'fails',
-            { problem: "This organization can't use the sandbox sender.", canSetUp: true },
+            { problem: "This organization can't use the PostHog test sender.", canSetUp: true },
         ],
         ['setting up the sender succeeded', {}, 'succeeds', null],
         [
             'the organization is blocked',
             { organization_blocked: true },
             'not attempted',
-            { problem: 'Sandbox email is turned off for your organization. Choose your own sender.', canSetUp: false },
+            {
+                problem: 'The PostHog test sender is turned off for your organization. Choose your own sender.',
+                canSetUp: false,
+            },
         ],
         [
             'the organization is blocked after the sender was set up',
             { integration_id: 11, organization_blocked: true },
             'not attempted',
-            { problem: 'Sandbox email is turned off for your organization. Choose your own sender.', canSetUp: false },
+            {
+                problem: 'The PostHog test sender is turned off for your organization. Choose your own sender.',
+                canSetUp: false,
+            },
         ],
         [
             'the project cannot adopt the sender',
             { adoption_enabled: false },
             'not attempted',
             {
-                problem: "The sandbox sender isn't available for this project. Choose your own sender.",
+                problem: "The PostHog test sender isn't available for this project. Choose your own sender.",
                 canSetUp: false,
             },
         ],
@@ -109,7 +115,7 @@ describe('sandboxSenderLogic', () => {
                         await new Promise(() => {})
                     }
                     return provisioning === 'fails'
-                        ? [403, { detail: "This organization can't use the sandbox sender." }]
+                        ? [403, { detail: "This organization can't use the PostHog test sender." }]
                         : [200, { integration_id: 11 }]
                 },
             },

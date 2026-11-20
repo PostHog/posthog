@@ -19,7 +19,7 @@ from typing import Literal
 
 from posthog.dataclasses import frozen
 
-FIXTURE_VERSION = "2026-11-11.1"
+FIXTURE_VERSION = "2026-11-18.1"
 
 ORG = "fernhill"
 BOT_MENTION = "@PostHog"
@@ -36,6 +36,8 @@ ATLAS = f"{ORG}/atlas"
 SHOP_WEB = f"{ORG}/shop-web"
 OPENAPI_SNAPSHOTS = f"{ORG}/openapi-snapshots"
 CHECKOUT_EXPERIMENTS = f"{ORG}/checkout-experiments"
+CHAT_WIDGET = f"{ORG}/chat-widget"
+CHAT_WIDGET_INTERNAL = f"{ORG}/chat-widget-internal"
 
 
 @frozen
@@ -377,6 +379,69 @@ REPOSITORIES += (
     ),
 )
 
+_CHAT_WIDGET_LOCALES = (
+    "ar", "cs", "cy", "da", "de", "el", "en", "es", "fi", "fr", "he", "hu", "it",
+    "ja", "ko", "nb", "nl", "pl", "pt", "ro", "ru", "sv", "tr", "uk", "zh",
+)  # fmt: skip
+
+_CHAT_WIDGET = FixtureRepository(
+    full_name=CHAT_WIDGET,
+    description="Embeddable chat widget that customer sites load from a script tag.",
+    primary_language="TypeScript",
+    topics=("widget", "chat", "typescript"),
+    private=False,
+    readme=(
+        "# Chat widget\n\n"
+        "The embeddable chat widget that customer sites load from a script tag. It renders the launcher, "
+        "the chat window, and the unread badge, and keeps a socket open to the chat backend.\n\n"
+        "## Translations\n\n"
+        "Each language has one JSON file in `src/i18n/locales/`. Message timestamps are formatted by "
+        "`src/i18n/format-timestamp.ts`.\n\n"
+        "## Development\n\n`pnpm install && pnpm build`\n"
+    ),
+    tree_paths=(
+        "package.json",
+        "rollup.config.mjs",
+        "src/index.ts",
+        "src/widget/ChatLauncher.ts",
+        "src/widget/ChatWindow.ts",
+        "src/widget/MessageList.ts",
+        "src/widget/Composer.ts",
+        "src/widget/unread-badge.ts",
+        "src/transport/socket-client.ts",
+        "src/transport/reconnect.ts",
+        "src/i18n/format-timestamp.ts",
+        "src/i18n/load-locale.ts",
+        *(f"src/i18n/locales/{locale}.json" for locale in _CHAT_WIDGET_LOCALES),
+        "tests/widget/unread-badge.test.ts",
+        "tests/transport/reconnect.test.ts",
+        "tests/i18n/format-timestamp.test.ts",
+    ),
+    commits_last_30_days=130,
+    recent_author_count=7,
+    merged_pull_request_count=1300,
+)
+
+# A public repository and its private copy. Only the figures and the `same files as` note separate
+# them. The copy is seeded first, so a path query with one shared limit returns only the copy's
+# locale files.
+REPOSITORIES += (
+    # Synced from the public repository, so it has the same commits and authors, but no pull request is merged there.
+    FixtureRepository(
+        full_name=CHAT_WIDGET_INTERNAL,
+        description=_CHAT_WIDGET.description,
+        primary_language=_CHAT_WIDGET.primary_language,
+        topics=_CHAT_WIDGET.topics,
+        private=True,
+        readme=_CHAT_WIDGET.readme,
+        tree_paths=_CHAT_WIDGET.tree_paths,
+        commits_last_30_days=130,
+        recent_author_count=7,
+        merged_pull_request_count=0,
+    ),
+    _CHAT_WIDGET,
+)
+
 REPOSITORY_NAMES: tuple[str, ...] = tuple(repo.full_name for repo in REPOSITORIES)
 
 
@@ -427,6 +492,8 @@ class RepoSelectionScenario:
     description: str
     thread: tuple[ThreadMessage, ...]
     routing_rules: tuple[RoutingRuleFixture, ...] = ()
+    # The repository the request was filed in, as for a GitHub issue. Its visibility limits the candidates.
+    source_repository: str | None = None
 
     @property
     def mention_text(self) -> str:
@@ -472,8 +539,15 @@ def _scenario(
     description: str,
     thread: tuple[ThreadMessage, ...],
     routing_rules: Sequence[RoutingRuleFixture] = (),
+    source_repository: str | None = None,
 ) -> RepoSelectionScenario:
-    return RepoSelectionScenario(name=name, description=description, thread=thread, routing_rules=tuple(routing_rules))
+    return RepoSelectionScenario(
+        name=name,
+        description=description,
+        thread=thread,
+        routing_rules=tuple(routing_rules),
+        source_repository=source_repository,
+    )
 
 
 # Scenarios that reach the discovery agent, shared by both suites so a selector change and an
@@ -756,6 +830,63 @@ SELECTOR_CASES: tuple[SelectorCase, ...] = (
         ),
         expected=SelectorExpectation(accepted=(STOREFRONT,)),
         category="stale",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "same_tree_copy_support_ticket",
+            "A customer support ticket about public widget code; a private copy has the same files.",
+            _ask(
+                "@PostHog a customer support ticket says the unread badge on our chat launcher still shows 1 "
+                "after they read every message, can you fix it"
+            ),
+        ),
+        expected=SelectorExpectation(accepted=(CHAT_WIDGET,)),
+        category="same_tree",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "same_tree_copy_stack_trace",
+            "An error tracking stack trace from public widget code; a private copy has the same files.",
+            _thread(
+                (
+                    "tester",
+                    "@PostHog this error keeps showing up in error tracking from the chat widget, can you fix it",
+                ),
+                (
+                    "other",
+                    "TypeError: Cannot read properties of undefined (reading 'close')\n"
+                    "    at scheduleReconnect (src/transport/reconnect.ts:42:18)\n"
+                    "    at SocketClient.onClose (src/transport/socket-client.ts:88:9)",
+                ),
+            ),
+        ),
+        expected=SelectorExpectation(accepted=(CHAT_WIDGET,)),
+        category="same_tree",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "same_tree_copy_private_source",
+            "Filed in a private repository, so the code filter drops the public widget and the private copy is right.",
+            _ask(
+                "@PostHog the chat widget reconnects in a tight loop when the socket closes and floods the API "
+                "with requests, can you add a backoff to the widget's reconnect"
+            ),
+            source_repository=CORE_API,
+        ),
+        expected=SelectorExpectation(accepted=(CHAT_WIDGET_INTERNAL,)),
+        category="same_tree",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "same_tree_copy_shared_limit",
+            "A path search for locale files fills a shared row limit with the private copy's paths.",
+            _ask(
+                "@PostHog the Welsh translation of the chat widget shows English month names in message "
+                "timestamps, can you fix the locale file"
+            ),
+        ),
+        expected=SelectorExpectation(accepted=(CHAT_WIDGET,)),
+        category="shared_limit",
     ),
 )
 

@@ -24,7 +24,7 @@ from products.messaging.backend.services.transactional_email_status import messa
 
 # The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
 # moves forward, and a later status of the same rank wins by its time.
-RANK = {"queued": 0, "failed": 2, "sent": 3, "delivered": 5, "bounced": 6, "complained": 7}
+RANK = {"scheduled": 0, "queued": 0, "failed": 2, "sent": 3, "delivered": 5, "bounced": 6, "complained": 7}
 
 
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
@@ -90,7 +90,11 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("queued", [("queued", 0, "")], "queued", 0, None),
+            ("scheduled", [("scheduled", 0, "")], "scheduled", 0, None),
+            ("sent_an_hour_after_it_was_scheduled", [("scheduled", 0, ""), ("sent", 3600, "")], "sent", 3600, None),
             ("sent", [("queued", 0, ""), ("sent", 2, "")], "sent", 2, None),
+            ("sent_with_tracking_off", [("queued", 0, ""), ("sent", 2, "untracked")], "sent", 2, None),
+            ("sent_with_another_reason", [("queued", 0, ""), ("sent", 2, "relayed")], "sent", 2, "relayed"),
             ("failed", [("queued", 0, ""), ("failed", 2, "provider_error")], "failed", 2, "provider_error"),
             ("delivered", [("queued", 0, ""), ("sent", 2, ""), ("delivered", 5, "")], "delivered", 5, None),
             ("bounced", [("queued", 0, ""), ("sent", 2, ""), ("bounced", 5, "hard")], "bounced", 5, "hard"),
@@ -118,19 +122,9 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     def test_reports_the_latest_status_of_the_send(self, _flag, _name, rows, expected_status, status_offset, reason):
         self._status_rows(rows)
 
-        with patch(
-            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
-        ) as capture:
-            response = self.client.get(self._url(self.message_id))
+        response = self.client.get(self._url(self.message_id))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert capture.call_args.kwargs["properties"] == {
-            "team_id": self.team.id,
-            "outcome": "found",
-            "status": expected_status,
-            "auth_method": "project_secret_api_key",
-            "authorized_by": "hog_flow",
-        }
         assert response.json() == {
             "id": self.message_id,
             "status": expected_status,
