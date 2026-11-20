@@ -5,6 +5,8 @@ import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
+import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
+import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
@@ -12,6 +14,7 @@ export function TransactionalEmailResults(): JSX.Element {
     const { resultsQuery, resultsEmailOptions, results, resultsLoading, resultsFailed, canLoadResults } =
         useValues(transactionalEmailMetricsLogic)
     const { setResultsQuery, loadResults } = useActions(transactionalEmailMetricsLogic)
+    const { transactionalTemplatesFailed } = useValues(transactionalTemplatesLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -61,7 +64,12 @@ export function TransactionalEmailResults(): JSX.Element {
                     data-attr="transactional-email-results-revenue"
                 />
             </div>
-            {!canLoadResults ? (
+            {transactionalTemplatesFailed ? (
+                <TransactionalTemplatesLoadError
+                    message="Your emails couldn't load, so there's nothing to pick yet. Check your connection and try again."
+                    dataAttr="transactional-email-results-templates-retry"
+                />
+            ) : !canLoadResults ? (
                 <p className="text-secondary text-sm m-0">
                     Choose an email and the event that counts as a conversion, such as a signup or a purchase.
                 </p>
