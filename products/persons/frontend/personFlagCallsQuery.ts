@@ -1,31 +1,11 @@
-import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
+import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
+import { FLAG_CALLS_COLUMNS, flagCallsListQuery } from 'scenes/feature-flags/flagCallsListQuery'
 
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/queries/schema/schema-general'
 
 export function createInitialFlagCallsPayload(personId: string): DataTableNode {
-    return {
-        kind: NodeKind.DataTableNode,
-        full: true,
-        // EventsQueryRunner reads flag_evaluations only while the event filter is exactly $feature_flag_called.
-        // Another event, an action, a saved table view, or a saved query would send the list back to events.
-        showEventFilter: false,
-        showEventsFilter: false,
-        showTableViews: false,
-        showSavedQueries: false,
-        showSavedFilters: false,
-        source: {
-            kind: NodeKind.EventsQuery,
-            select: [
-                '*',
-                'properties.$feature_flag',
-                'properties.$feature_flag_response',
-                'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
-                'properties.$lib',
-                'timestamp',
-            ],
-            event: FEATURE_FLAG_CALLED_EVENT,
-            personId,
-            after: '-24h',
-        },
-    }
+    return flagCallsListQuery({
+        select: FLAG_CALLS_COLUMNS.filter((column) => column !== PERSON_DISPLAY_NAME_COLUMN_NAME),
+        personId,
+    })
 }

@@ -276,4 +276,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "user_id": "User who performed the activity. Empty for system messages.",
         },
     },
+    "InvoiceComments": {
+        "description": "A comment on an invoice, entered by a user or written by the system for an invoice action.",
+        "docs_url": "https://www.billomat.com/en/api/invoices/comments/",
+        "columns": {
+            "id": "Unique identifier for the comment.",
+            "created": "Time the comment was created.",
+            "invoice_id": "Invoice the comment belongs to.",
+            "user_id": "User who wrote the comment or triggered the action.",
+            "comment": "Comment text.",
+            "actionkey": "Kind of comment, such as COMMENT for a user comment, or a system action like CREATE, STATUS, PAYMENT, MAIL or CANCEL.",
+            "public": "Whether the comment shows in the customer portal (1) or not (0).",
+        },
+    },
 }

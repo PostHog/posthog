@@ -244,4 +244,46 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "The time at which the schedule entry was created.",
         },
     },
+    "SubscriptionUsage": {
+        "description": "A day-by-day series of each subscription's usage per billable metric over its current "
+        "billing period, in usage units rather than a currency. Quantities are cumulative from the start of "
+        "the billing period. Synced per subscription as a full refresh.",
+        "docs_url": "https://docs.withorb.com/api-reference/subscription/fetch-subscription-usage",
+        "columns": {
+            "subscription_id": "The Orb ID of the subscription that the usage belongs to.",
+            "billable_metric_id": "The Orb ID of the billable metric that the usage is measured with.",
+            "billable_metric_name": "The name of the billable metric.",
+            "view_mode": "Whether quantities are cumulative from the start of the billing period or per window.",
+            "quantity": "The usage quantity of the billable metric for the window.",
+            "timeframe_start": "The start of the window, inclusive.",
+            "timeframe_end": "The end of the window, exclusive.",
+        },
+    },
+    "SubscriptionChanges": {
+        "description": "Subscription changes: proposed changes to a subscription that can be previewed, then "
+        "applied or cancelled before they expire.",
+        "docs_url": "https://docs.withorb.com/api-reference/subscription-change/list-subscription-changes",
+        "columns": {
+            "id": "Orb-assigned unique identifier for the subscription change.",
+            "subscription_id": "The Orb ID of the subscription that the change applies to.",
+            "status": "The status of the change: pending, applied or cancelled.",
+            "expiration_time": "The time at which a pending change is cancelled and can no longer be applied.",
+            "applied_at": "The time at which the change was applied.",
+            "cancelled_at": "The time at which the change was cancelled.",
+        },
+    },
+    "DimensionalPriceGroups": {
+        "description": "Dimensional price groups, which partition the result of a billable metric by a set of "
+        "dimensions so that prices in the group can charge differently per partition.",
+        "docs_url": "https://docs.withorb.com/api-reference/dimensional-price-group/list-dimensional-price-groups",
+        "columns": {
+            "id": "Orb-assigned unique identifier for the dimensional price group.",
+            "name": "The name of the dimensional price group.",
+            "external_dimensional_price_group_id": "Your own alias for the dimensional price group.",
+            "billable_metric_id": "The billable metric that all prices in the group are computed with.",
+            "dimensions": "The dimensions that the group is defined over.",
+            "price_count": "The number of prices in the group, excluding archived prices and subscription overrides.",
+            "metadata": "User-defined key/value pairs attached to the dimensional price group.",
+        },
+    },
 }

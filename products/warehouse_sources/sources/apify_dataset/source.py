@@ -7,12 +7,16 @@ from products.warehouse_sources.sources.apify_dataset.apify_dataset import (
     validate_credentials as validate_apify_credentials,
 )
 from products.warehouse_sources.sources.apify_dataset.settings import (
+    ACTOR_BUILDS_ENDPOINT,
     ACTOR_RUNS_ENDPOINT,
+    ACTOR_TASKS_ENDPOINT,
     ACTORS_ENDPOINT,
     DATASET_ITEMS_ENDPOINT,
+    DATASET_STATISTICS_ENDPOINT,
     DATASETS_ENDPOINT,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    REQUEST_QUEUES_ENDPOINT,
     USAGE_MONTHLY_ENDPOINT,
 )
 from products.warehouse_sources.sources.sdk import (
@@ -68,7 +72,7 @@ class ApifyDatasetSource(ResumableSource[ApifyDatasetSourceConfig, ApifyResumeCo
 
 You can create an API token in your [Apify account settings](https://console.apify.com/settings/integrations), and find a dataset ID in the [Apify Console](https://console.apify.com/storage/datasets) (or use the `username~dataset-name` shorthand).
 
-The token needs read access to the dataset's storage. The account-level tables (runs, Actors, datasets and monthly usage) come from the same token.""",
+The token needs read access to the dataset's storage. The account-level tables (runs, builds, tasks, Actors, datasets, request queues and monthly usage) come from the same token.""",
             iconPath="/static/services/apify_dataset.png",
             docsUrl="https://posthog.com/docs/cdp/sources/apify-dataset",
             fields=cast(
@@ -123,6 +127,10 @@ The token needs read access to the dataset's storage. The account-level tables (
                 ACTORS_ENDPOINT: "The Actors the account has created or used, with build and run counts. Resolves the actor ID carried on runs and datasets. Full refresh only.",
                 DATASETS_ENDPOINT: "The account's datasets, including the unnamed ones an Actor run creates, with item counts and the run that produced them. Full refresh only.",
                 USAGE_MONTHLY_ENDPOINT: "Platform usage and spend for the current monthly cycle, one row per day. Full refresh only: the cycle is re-imported on every sync.",
+                DATASET_STATISTICS_ENDPOINT: "Field statistics (min, max, null and empty counts) for the configured dataset, one row per field of the Actor's fields schema. Empty when the Actor declares no fields schema. Full refresh only.",
+                ACTOR_TASKS_ENDPOINT: "The saved Actor tasks the account created or used, with the Actor each task runs. Resolves the task ID carried on runs. Full refresh only.",
+                ACTOR_BUILDS_ENDPOINT: "Every Actor build on the account, with its status, timings, cost and build number. Resolves the build ID carried on runs. Full refresh only.",
+                REQUEST_QUEUES_ENDPOINT: "The account's request queues, including the unnamed ones an Actor run crawls from, with total, handled and pending request counts. Full refresh only.",
             },
         )
 
