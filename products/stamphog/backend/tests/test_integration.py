@@ -44,7 +44,7 @@ from products.stamphog.backend.logic.channel_resolution import (
 from products.stamphog.backend.logic.engine_pregate import EnginePregateError, GateAttestation, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
-from products.stamphog.backend.logic.workflow_proofs import RunOrder
+from products.stamphog.backend.logic.workflow_proofs import RunOrder, seen_on_head
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import (
@@ -62,7 +62,8 @@ from products.stamphog.backend.temporal.activities import (
     ReviewSandboxInput,
     StamphogReviewInput,
     _attest_gates,
-    _seen_workflow_runs,
+    _merge_run_output,
+    _record_seen_workflow_runs,
     destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -2430,12 +2431,16 @@ def test_a_wait_on_attestation_checks_is_reviewed_again_only_when_all_of_them_re
     assert all(run.output.get("attestation_check_wake") for run in new_runs)
 
 
-def _verified(name: str, run_id: int, run_attempt: int = 1) -> dict:
-    return {"name": "Dependency proof", "stamphog_workflow_proof": name, "stamphog_workflow_run": [run_id, run_attempt]}
+def _verified(run_id: int, run_attempt: int = 1) -> dict:
+    return {
+        "name": "Dependency proof",
+        "stamphog_workflow_proof": "dependency_proof",
+        "stamphog_workflow_run": [run_id, run_attempt],
+    }
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_review_reads_the_newest_publisher_run_that_reviews_of_the_same_head_verified(team) -> None:
+def test_the_newest_verified_publisher_run_of_a_head_survives_retries_and_other_heads(team) -> None:
     repo_config = _repo_config(team.id)
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=131, author_login="renovate[bot]"
@@ -2443,21 +2448,34 @@ def test_a_review_reads_the_newest_publisher_run_that_reviews_of_the_same_head_v
     other = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=132, author_login="renovate[bot]"
     )
-    stored = [
-        (pull_request, "sha131", [_verified("dependency_proof", 76), {"name": "Migration risk", "app": {"id": 1}}]),
-        (pull_request, "sha131", [_verified("dependency_proof", 77, 2)]),
-        (pull_request, "sha131", []),
-        # Another head, or another pull request, says nothing about this head's results.
-        (pull_request, "sha131-older", [_verified("dependency_proof", 90)]),
-        (other, "sha131", [_verified("dependency_proof", 91)]),
-    ]
-    for owner, head_sha, check_runs in stored:
-        ReviewRun.objects.for_team(team.id).create(
-            team_id=team.id, pull_request=owner, head_sha=head_sha, output={"check_runs": check_runs}
-        )
-    current = ReviewRun.objects.for_team(team.id).create(team_id=team.id, pull_request=pull_request, head_sha="sha131")
+    runs = {
+        key: ReviewRun.objects.for_team(team.id).create(team_id=team.id, pull_request=owner, head_sha=head_sha)
+        for key, owner, head_sha in [
+            ("review", pull_request, "sha131"),
+            ("older_head", pull_request, "sha131-older"),
+            ("other_pr", other, "sha131"),
+        ]
+    }
 
-    assert _seen_workflow_runs(current) == {"dependency_proof": RunOrder(run_id=77, run_attempt=2)}
+    def record(key: str, check_runs: list[dict]) -> None:
+        run = runs[key]
+        seen = seen_on_head(
+            team.id, repo_config_id=repo_config.id, pr_number=run.pull_request.pr_number, head_sha=run.head_sha
+        )
+        _record_seen_workflow_runs(run, seen, check_runs)
+
+    record("review", [_verified(76), {"name": "Migration risk", "app": {"id": 1}}])
+    # The posting-time check of the same run verified a newer run, which only that read saw.
+    record("review", [_verified(77, 2)])
+    # A writer then hid run 77. A retry of the context fetch verifies only run 76 and rewrites check_runs.
+    record("review", [_verified(76)])
+    _merge_run_output(runs["review"], {"check_runs": [_verified(76)]})
+    # Another head, or another pull request, says nothing about this head.
+    record("older_head", [_verified(90)])
+    record("other_pr", [_verified(91)])
+
+    seen = seen_on_head(team.id, repo_config_id=repo_config.id, pr_number=131, head_sha="sha131")
+    assert seen == {"dependency_proof": RunOrder(run_id=77, run_attempt=2)}
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

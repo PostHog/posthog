@@ -74,6 +74,7 @@ from products.stamphog.backend.logic.routing.triggers import (
     verdict_outcome,
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
+from products.stamphog.backend.logic.workflow_proofs import seen_on_head
 from products.stamphog.backend.models import (
     PullRequest,
     PullRequestAudience,
@@ -2146,7 +2147,12 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     if latest.id != run.id and not stranded:
         return True
     client = StamphogGitHubClient(repo_config.installation_id)
-    if not all_reported(client, repo_config.repository, run.head_sha, pending, pr_number=pull_request.pr_number):
+    seen = seen_on_head(
+        run.team_id, repo_config_id=repo_config.id, pr_number=pull_request.pr_number, head_sha=run.head_sha
+    )
+    if not all_reported(
+        client, repo_config.repository, run.head_sha, pending, pr_number=pull_request.pr_number, seen=seen
+    ):
         return False
     _rereview_waiting_run(
         repo_config, pull_request.pr_number, run.head_sha, wake=_ATTESTATION_WAKE, waiting=waits_on_attestations

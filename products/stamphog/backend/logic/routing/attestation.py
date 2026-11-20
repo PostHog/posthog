@@ -20,7 +20,8 @@ from products.stamphog.backend.logic.engine_pregate import (
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.issuer_manifests import issuer_manifest_paths
 from products.stamphog.backend.logic.routing.candidates import files_truncated
-from products.stamphog.backend.logic.workflow_proofs import proven_check_runs
+from products.stamphog.backend.logic.workflow_proofs import proven_check_runs, seen_on_head
+from products.stamphog.backend.models import StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import STAMPHOG_POLICY_ENTRYPOINT
 
 logger = structlog.get_logger(__name__)
@@ -83,8 +84,9 @@ def attestation_checks_to_wait_for(
     return _run_proof(repository, pr, policy_files, context).checks
 
 
-def attestation_proven(client: StamphogGitHubClient, repository: str, pr: Mapping[str, Any]) -> bool:
+def attestation_proven(client: StamphogGitHubClient, repo_config: StamphogRepoConfig, pr: Mapping[str, Any]) -> bool:
     """Whether the engine verified that the attestations of the live pull request ``pr`` cover every changed file."""
+    repository = repo_config.repository
     policy_files = _policy_files(client, repository)
     if policy_files is None:
         return False
@@ -106,6 +108,13 @@ def attestation_proven(client: StamphogGitHubClient, repository: str, pr: Mappin
             head_sha=head_sha,
             check_runs=client.get_check_runs(repository, head_sha),
             policy=policy_files[STAMPHOG_POLICY_ENTRYPOINT],
+            # Routing and the review agree on what a proof covers, so routing refuses the same older results.
+            seen=seen_on_head(
+                repo_config.team_id,
+                repo_config_id=repo_config.id,
+                pr_number=int(pr.get("number") or 0),
+                head_sha=head_sha,
+            ),
         ),
         "merge_base_sha": merge_base_sha,
         "files": files,

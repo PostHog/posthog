@@ -113,7 +113,14 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
-from products.stamphog.backend.logic.workflow_proofs import RunOrder, proven_check_runs, seen_runs
+from products.stamphog.backend.logic.workflow_proofs import (
+    SEEN_OUTPUT_KEY,
+    RunOrder,
+    proven_check_runs,
+    seen_entries,
+    seen_on_head,
+    seen_runs,
+)
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     queue_routing_after_verdict,
@@ -222,19 +229,15 @@ def _output_merge(updates: dict[str, Any]) -> Func:
     )
 
 
-def _seen_workflow_runs(run: ReviewRun) -> dict[str, RunOrder]:
-    """The newest run of each workflow publisher that a review of this head verified, from the writer.
+def _record_seen_workflow_runs(run: ReviewRun, seen: dict[str, RunOrder], check_runs: list[dict]) -> None:
+    """Store the newest publisher runs that this run verified, never lower than `seen`.
 
-    A writer's job can hide a newer result, so a review must not let an older one decide once a
-    review has seen the newer one.
+    A writer's job can hide a newer result, so once any read of the head verified a run, an older
+    result must never decide for the head again.
     """
-    stored = (
-        ReviewRun.objects.for_team(run.team_id)
-        .using(router.db_for_write(ReviewRun))
-        .filter(pull_request_id=run.pull_request_id, head_sha=run.head_sha)
-        .values_list("output__check_runs", flat=True)
-    )
-    return seen_runs(stored)
+    newest = seen_runs([seen_entries(seen), check_runs])
+    if newest != seen:
+        _merge_run_output(run, {SEEN_OUTPUT_KEY: seen_entries(newest)})
 
 
 def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
@@ -593,6 +596,12 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 if content is not None:
                     policy_files[path] = content
         with timer.step("check_run_proofs"):
+            seen = seen_on_head(
+                run.team_id,
+                repo_config_id=run.pull_request.repo_config_id,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+            )
             check_runs = proven_check_runs(
                 client,
                 repo,
@@ -600,8 +609,9 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 head_sha=run.head_sha,
                 check_runs=check_runs_future.result(),
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
-                seen=_seen_workflow_runs(run),
+                seen=seen,
             )
+            _record_seen_workflow_runs(run, seen, check_runs)
         history: ReviewHistory = history_future.result()
 
         context = {
@@ -1035,6 +1045,12 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
         # the check runs are read again. A failed read lifts nothing, which refuses only the
         # approvals that need a lift.
         try:
+            seen = seen_on_head(
+                run.team_id,
+                repo_config_id=run.pull_request.repo_config_id,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+            )
             context["check_runs"] = proven_check_runs(
                 client,
                 repo,
@@ -1042,8 +1058,9 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
                 head_sha=run.head_sha,
                 check_runs=client.get_check_runs(repo, run.head_sha),
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
-                seen=_seen_workflow_runs(run),
+                seen=seen,
             )
+            _record_seen_workflow_runs(run, seen, context["check_runs"])
         except Exception:
             activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
             context["check_runs"] = []

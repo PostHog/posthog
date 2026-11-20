@@ -1204,8 +1204,18 @@ class WorkflowProofTests(SimpleTestCase):
         # A writer's job renamed the newer check run, so only the older success is listed.
         hidden = _WorkflowClient([older], jobs)
 
-        assert _proofs(hidden, seen=seen_runs([[verified_by_an_earlier_review]])).verified_result(_PUBLISHER) is None
-        assert _proofs(hidden, seen=seen_runs([[{**older, "id": 5}]])).verified_result(_PUBLISHER) is not None
+        seen = seen_runs([[verified_by_an_earlier_review]])
+        assert _proofs(hidden, seen=seen).verified_result(_PUBLISHER) is None
+        assert _proofs(hidden).verified_result(_PUBLISHER) is not None
+        # The poll must not spend one of the head's re-reviews on the result a review would refuse.
+        with patch(
+            "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
+            side_effect=lambda _, token: _test_signing_key(token),
+        ):
+            polled = all_reported(
+                cast(StamphogGitHubClient, hidden), "acme/widgets", "sha", [_PUBLISHER], pr_number=7, seen=seen
+            )
+        assert polled is False
 
     @parameterized.expand(
         [
@@ -1258,7 +1268,9 @@ class WorkflowProofTests(SimpleTestCase):
             "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
             side_effect=lambda _, token: _test_signing_key(token),
         ):
-            polled = all_reported(cast(StamphogGitHubClient, client), "acme/widgets", "sha", [_PUBLISHER], pr_number=7)
+            polled = all_reported(
+                cast(StamphogGitHubClient, client), "acme/widgets", "sha", [_PUBLISHER], pr_number=7, seen={}
+            )
         assert polled is reported
 
     @parameterized.expand(
@@ -1383,6 +1395,7 @@ class WorkflowProofTests(SimpleTestCase):
                 head_sha="sha",
                 check_runs=[check_run],
                 policy=policy,
+                seen={},
             )
 
         [carrier, proof] = check_runs
