@@ -6,28 +6,19 @@ import { mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { binaryName, findTarget, TARGETS } from '../src/updates/targets'
-import { parseVersion } from '../src/updates/version'
+import { binaryName } from '../src/updates/targets'
+import { BUILD_OPTIONS, buildTargets, HOG_ROOT, RELEASE_FOLDER, run, targetFolder } from './shared'
 
-const HOG_ROOT = resolve(import.meta.dir, '..')
 const MCP_LIBRARY = resolve(HOG_ROOT, '../services/mcp/dist/cli-library.mjs')
 
 const { values } = parseArgs({
-    options: {
-        target: { type: 'string', multiple: true },
-        out: { type: 'string', default: join(HOG_ROOT, 'dist/release') },
-        version: { type: 'string' },
-        'build-date': { type: 'string' },
-    },
+    options: { ...BUILD_OPTIONS, out: { type: 'string', default: RELEASE_FOLDER }, 'build-date': { type: 'string' } },
 })
+const { version } = values
+const targets = buildTargets(values.target, version)
 
 if (!existsSync(MCP_LIBRARY)) {
     console.error(`Missing ${MCP_LIBRARY}. Run \`pnpm --filter hog build:mcp\` first.`)
-    process.exit(1)
-}
-
-if (values.version !== undefined && !parseVersion(values.version)) {
-    console.error(`--version ${values.version} isn't a semver version.`)
     process.exit(1)
 }
 
@@ -38,23 +29,21 @@ if (Number.isNaN(Date.parse(buildDate))) {
 }
 
 const defines =
-    values.version === undefined
+    version === undefined
         ? []
         : [
-              `--define=HOG_RELEASE_VERSION=${JSON.stringify(values.version)}`,
+              `--define=HOG_RELEASE_VERSION=${JSON.stringify(version)}`,
               `--define=HOG_BUILD_DATE=${JSON.stringify(buildDate)}`,
           ]
 
-const targets = values.target ? values.target.map(findTarget) : TARGETS
-
 for (const target of targets) {
-    const folder = join(resolve(values.out), 'bin', target.id)
+    const folder = targetFolder(values.out, target)
     await mkdir(folder, { recursive: true })
     const outfile = join(folder, binaryName(target))
 
     console.info(`Compiling ${target.id} -> ${outfile}`)
     // The flags of `pnpm run compile`: a compiled hog never loads a .env or bunfig.toml from its folder.
-    const build = Bun.spawn(
+    await run(
         [
             'bun',
             'build',
@@ -67,10 +56,6 @@ for (const target of targets) {
             '--outfile',
             outfile,
         ],
-        { cwd: HOG_ROOT, stdout: 'inherit', stderr: 'inherit' }
+        HOG_ROOT
     )
-    if ((await build.exited) !== 0) {
-        console.error(`Compiling ${target.id} failed.`)
-        process.exit(1)
-    }
 }

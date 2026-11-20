@@ -41,6 +41,7 @@ jobs:
                       /packages/quill/
                       /.github/actions/pnpm-install/
                       /.github/actions/setup-pnpm/
+                      /.github/actions/setup-rust/
                       /patches/
                       /.husky/
                       /bin/fix-rdkafka-paths
@@ -60,10 +61,14 @@ jobs:
 
             # hog-worker is the Rust program in hog/worker/ that does hog's file work. The tests run
             # hog against it, so it is built before them.
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+            - name: Read the Rust version hog-worker builds with
+              id: rust
+              run: echo "version=$(sed -n 's/^channel = "\(.*\)"$/\1/p' hog/worker/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+            - name: Install Rust
+              uses: ./.github/actions/setup-rust
               with:
-                  toolchain: 1.91.1
+                  toolchain: ${{ steps.rust.outputs.version }}
                   components: clippy, rustfmt
 
             - name: Check hog-worker formatting

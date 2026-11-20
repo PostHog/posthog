@@ -3,7 +3,8 @@
 # local run build with the same ones.
 FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS bun
 
-# The Rust version of ci-hog.yml.
+# This image brings rustup. The Rust that builds hog-worker is the one worker/rust-toolchain.toml
+# names, which rustup installs below when the image holds another.
 FROM rust:1.91.1-bookworm@sha256:c1e5f19e773b7878c3f7a805dd00a495e747acbdc76fb2337a4ebf0418896b33
 
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
@@ -15,3 +16,7 @@ RUN apt-get update \
 
 COPY worker-cross-requirements.txt /tmp/worker-cross-requirements.txt
 RUN pip3 install --break-system-packages --no-deps --require-hashes -r /tmp/worker-cross-requirements.txt
+
+# build-worker.ts runs cargo under /hog/worker, where rustup reads the same file.
+COPY --from=worker rust-toolchain.toml /tmp/toolchain/rust-toolchain.toml
+RUN cd /tmp/toolchain && rustup toolchain install

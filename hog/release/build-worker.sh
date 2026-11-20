@@ -9,7 +9,8 @@ set -eu
 hog_root=$(cd "$(dirname "$0")/.." && pwd)
 image=hog-worker-cross
 
-docker build --tag "$image" --file "$hog_root/release/worker-cross.Dockerfile" "$hog_root/release"
+docker build --tag "$image" --file "$hog_root/release/worker-cross.Dockerfile" \
+    --build-context "worker=$hog_root/worker" "$hog_root/release"
 
 # The Windows C runtime and SDK cargo-xwin downloads stay in a Docker volume, which unpacks them far
 # faster than a folder shared with macOS and keeps them for the next local run.

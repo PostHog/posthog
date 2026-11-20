@@ -1,7 +1,7 @@
 // --reuse rebuilds the npm packages and formula from a version the bucket already has, because files
 // under a version never change.
 
-import { chmod, copyFile, cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -17,13 +17,12 @@ import {
     wrapperPackageJson,
 } from './artifacts'
 import minimum from './minimum-version.json' with { type: 'json' }
-
-const HOG_ROOT = resolve(import.meta.dir, '..')
+import { HOG_ROOT, RELEASE_FOLDER, run, targetFolder } from './shared'
 
 const { values } = parseArgs({
     options: {
-        in: { type: 'string', default: join(HOG_ROOT, 'dist/release') },
-        out: { type: 'string', default: join(HOG_ROOT, 'dist/release/out') },
+        in: { type: 'string', default: RELEASE_FOLDER },
+        out: { type: 'string', default: join(RELEASE_FOLDER, 'out') },
         version: { type: 'string' },
         'build-date': { type: 'string' },
         reuse: { type: 'string' },
@@ -48,13 +47,6 @@ const input = reused ? join(out, 'unpacked') : resolve(values.in)
 const version = reused?.version ?? values.version!
 const assets = join(out, 'assets')
 
-async function run(command: string[], cwd: string): Promise<void> {
-    const child = Bun.spawn(command, { cwd, stdout: 'inherit', stderr: 'inherit' })
-    if ((await child.exited) !== 0) {
-        throw new Error(`${command.join(' ')} failed`)
-    }
-}
-
 async function sha256(path: string): Promise<string> {
     const hasher = new Bun.CryptoHasher('sha256')
     hasher.update(await readFile(path))
@@ -62,11 +54,11 @@ async function sha256(path: string): Promise<string> {
 }
 
 function binaryPath(target: Target, name: string): string {
-    return join(input, 'bin', target.id, name)
+    return join(targetFolder(input, target), name)
 }
 
 async function archive(target: Target): Promise<Artifact> {
-    const folder = join(input, 'bin', target.id)
+    const folder = targetFolder(input, target)
     const file = archiveName(target)
     const destination = join(assets, file)
     const names = shippedBinaries(target)
@@ -79,7 +71,8 @@ async function archive(target: Target): Promise<Artifact> {
     if (target.os === 'win32') {
         await run(['zip', '-j', '-X', '-q', destination, ...names.map((name) => binaryPath(target, name))], folder)
     } else {
-        await run(['tar', '-czf', destination, '-C', folder, ...names], folder)
+        // Keeps macOS tar from adding a `._` entry for each file's extended attributes.
+        await run(['tar', '-czf', destination, '-C', folder, ...names], folder, { COPYFILE_DISABLE: '1' })
     }
 
     return { file, sha256: await sha256(destination), size: (await stat(destination)).size }
@@ -118,7 +111,7 @@ async function reuse(from: string, manifest: Manifest): Promise<Record<string, A
         if (!artifact || (await sha256(join(assets, artifact.file))) !== artifact.sha256) {
             throw new Error(`${from} has no ${target.id} archive that matches its manifest.`)
         }
-        const folder = join(input, 'bin', target.id)
+        const folder = targetFolder(input, target)
         await mkdir(folder, { recursive: true })
         const archivePath = join(assets, artifact.file)
         await run(
@@ -139,12 +132,13 @@ if (reused) {
     artifacts = await reuse(resolve(values.reuse!), reused)
 } else {
     for (const target of TARGETS) {
-        for (const name of shippedBinaries(target)) {
-            if (!(await Bun.file(binaryPath(target, name)).exists())) {
-                throw new Error(
-                    `Missing ${binaryPath(target, name)}. Run release/compile.ts and release/build-worker.sh for every target first.`
-                )
-            }
+        // The folder holds what the archive ships and nothing else: the workflow signs every file in it,
+        // and the installers install every file in the archive.
+        const built = await readdir(targetFolder(input, target)).catch(() => [])
+        if (built.sort().join() !== shippedBinaries(target).sort().join()) {
+            throw new Error(
+                `${targetFolder(input, target)} holds [${built.join(', ')}], and a release ships [${shippedBinaries(target).join(', ')}]. Run release/compile.ts and release/build-worker.sh for every target first.`
+            )
         }
         artifacts[target.id] = await archive(target)
         console.info(`Packaged ${artifacts[target.id]!.file}`)

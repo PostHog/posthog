@@ -11,6 +11,8 @@ on:
         paths:
             - 'hog/worker/**'
             - 'hog/release/build-worker.*'
+            - 'hog/release/check-worker.sh'
+            - 'hog/release/shared.ts'
             - 'hog/release/worker-cross*'
             - 'hog/src/updates/targets.ts'
             - '.github/workflows/ci-hog-worker-cross.yml'
@@ -48,11 +50,10 @@ jobs:
                   --target darwin-arm64
                   --target linux-arm64
 
-            # The worker says hello in the first line it prints, and stops when its input ends.
             - name: Check the Linux builds start
               working-directory: hog
               run: |
                   set -euo pipefail
                   for target in linux-x64 linux-x64-musl; do
-                      test "$("dist/release/bin/$target/hog-worker" </dev/null | jq -r '.type')" = hello
+                      release/check-worker.sh "dist/release/bin/$target/hog-worker"
                   done

@@ -881,6 +881,7 @@ jobs:
                       /products/ai_observability/backend/prompts/parser_recipe_examples.yaml
                       /.github/actions/pnpm-install/
                       /.github/actions/setup-pnpm/
+                      /.github/actions/setup-rust/
                       /patches/
                       /.husky/
                       /bin/fix-rdkafka-paths
@@ -905,10 +906,14 @@ jobs:
 
             # The tests run hog against hog-worker, the Rust program in hog/worker/, built for this
             # runner as in ci-hog.yml. The build-worker job builds the copies that ship.
+            - name: Read the Rust version hog-worker builds with
+              id: rust
+              run: echo "version=$(sed -n 's/^channel = "\(.*\)"$/\1/p' hog/worker/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust
               with:
-                  toolchain: 1.91.1
+                  toolchain: ${{ steps.rust.outputs.version }}
 
             - name: Build hog-worker for the tests
               working-directory: hog
@@ -967,10 +972,9 @@ jobs:
               working-directory: hog
               run: release/build-worker.sh --version "$VERSION"
 
-            # The worker names its version in the first line it prints, and stops when its input ends.
             - name: Check the Linux build reports its version
               working-directory: hog
-              run: test "$(dist/release/bin/linux-x64/hog-worker </dev/null | jq -r '.version')" = "$VERSION"
+              run: release/check-worker.sh dist/release/bin/linux-x64/hog-worker "$VERSION"
 
             - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
@@ -1124,8 +1128,9 @@ jobs:
 
                   for target in darwin-arm64 darwin-x64; do
                       folder="hog/dist/release/bin/$target"
-                      for name in hog hog-worker; do
-                          binary="$folder/$name"
+                      # The folder holds the files the archive ships, which release/package.ts checks.
+                      for binary in "$folder"/*; do
+                          name=$(basename "$binary")
                           chmod +x "$binary"
                           sign=(codesign --force --timestamp --options runtime
                               --identifier "com.posthog.$name" --sign "$identity")
@@ -1144,7 +1149,7 @@ jobs:
                       done
 
                       # A bare executable can't be stapled, so Gatekeeper checks the ticket online. One
-                      # submission holds the target's folder, which is hog and hog-worker.
+                      # submission holds the target's folder, which is every file the archive ships.
                       ditto -c -k "$folder" "$RUNNER_TEMP/hog-$target.zip"
                       status=$(xcrun notarytool submit "$RUNNER_TEMP/hog-$target.zip" "${notary[@]}" \
                           --wait --timeout 20m --output-format json | jq -r '.status')
@@ -1217,10 +1222,11 @@ jobs:
                   set -euo pipefail
                   mkdir unpacked
                   tar -xzf release/assets/hog-darwin-arm64.tar.gz -C unpacked
-                  codesign --verify --strict --verbose=2 unpacked/hog
-                  codesign --verify --strict --verbose=2 unpacked/hog-worker
-                  test "$(HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 unpacked/hog --version)" = "$VERSION"
-                  test "$(unpacked/hog-worker </dev/null | jq -r '.version')" = "$VERSION"
+                  for binary in unpacked/*; do
+                      codesign --verify --strict --verbose=2 "$binary"
+                  done
+                  # HOG_CHECK_INSTALL makes hog start the hog-worker next to it and compare versions, as the installers do.
+                  test "$(HOG_CHECK_INSTALL=1 HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 unpacked/hog --version)" = "$VERSION"
 
             # symbol-set mode keeps the release out of the bundle, so the run needs no login and no network.
             - name: Check the signed build injects with its hog-worker
@@ -1416,19 +1422,17 @@ jobs:
                       echo "::error::npm install hog@$VERSION installed hog $installed."
                       exit 1
                   fi
-                  binary=node_modules/@posthog/hog-linux-x64/bin/hog
-                  if [ ! -f "$binary" ]; then
-                      echo "::error::npm install hog@$VERSION left out @posthog/hog-linux-x64, which holds the binary."
+                  installed_bin=node_modules/@posthog/hog-linux-x64/bin
+                  if [ ! -d "$installed_bin" ]; then
+                      echo "::error::npm install hog@$VERSION left out @posthog/hog-linux-x64, which holds the binaries."
                       exit 1
                   fi
-                  if ! cmp -s "$binary" "$GITHUB_WORKSPACE/hog/dist/release/out/npm/hog-linux-x64/bin/hog"; then
-                      echo "::error::npm serves a different hog binary for $VERSION than this run built."
-                      exit 1
-                  fi
-                  if ! cmp -s "$binary-worker" "$GITHUB_WORKSPACE/hog/dist/release/out/npm/hog-linux-x64/bin/hog-worker"; then
-                      echo "::error::npm serves no hog-worker next to hog for $VERSION, or a different one than this run built."
-                      exit 1
-                  fi
+                  for built in "$GITHUB_WORKSPACE"/hog/dist/release/out/npm/hog-linux-x64/bin/*; do
+                      if ! cmp -s "$installed_bin/$(basename "$built")" "$built"; then
+                          echo "::error::npm serves no $(basename "$built") for $VERSION, or a different one than this run built."
+                          exit 1
+                      fi
+                  done
                   echo "npm install hog@$VERSION installs the binaries this run built"
 
             - name: Notify Slack - npm installs the release

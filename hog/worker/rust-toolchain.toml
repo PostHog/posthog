@@ -1,0 +1,3 @@
+# The Rust that builds hog-worker. ci-hog.yml, release-hog.yml and release/worker-cross.Dockerfile read it.
+[toolchain]
+channel = "1.91.1"
