@@ -51,6 +51,13 @@ class OrganizationAdminForm(forms.ModelForm):
             )
         }
 
+    def clean(self):
+        cleaned_data = super().clean()
+        # A lock that leaves AI on would protect nothing, so locking always turns AI data processing off.
+        if cleaned_data.get("is_ai_data_processing_locked"):
+            cleaned_data["is_ai_data_processing_approved"] = False
+        return cleaned_data
+
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
