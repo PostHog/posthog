@@ -441,3 +441,27 @@ class TestSensitiveUrlRedaction(SimpleTestCase):
             client.shutdown()
 
         self.assertEqual(messages[0]["properties"]["$current_url"], "https://us.posthog.com/api/signup/:id/")
+
+    @override_settings(CLOUD_DEPLOYMENT="US", SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
+    def test_scoped_capture_is_redacted(self) -> None:
+        client = get_client("US", send=False, disabled=False, enable_local_evaluation=False)
+        assert client is not None
+        capture_filter = client.before_send
+        messages: list[dict[str, Any]] = []
+
+        def record(message: dict[str, Any]) -> dict[str, Any] | None:
+            result = capture_filter(message)
+            if result is not None:
+                messages.append(result)
+            return result
+
+        client.before_send = record
+        with patch("posthog.ph_client.get_client", return_value=client):
+            with ph_scoped_capture() as capture:
+                capture(
+                    distinct_id="synthetic",
+                    event="heatmap prewarm wasted",
+                    properties={"url": f"https://us.posthog.com/reset/{USER_UUID}/{RESET_TOKEN}"},
+                )
+
+        self.assertEqual(messages[0]["properties"]["url"], f"https://us.posthog.com/reset/{USER_UUID}/:token")

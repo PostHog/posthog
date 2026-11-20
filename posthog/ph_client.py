@@ -389,7 +389,9 @@ def get_client(region: str = "US", **kwargs: Any):
                 return None
             message = next_message
         filtered_message = filter_sql_query_capture(message)
-        return suppress_last_seen_updates(filtered_message) if filtered_message is not None else None
+        if filtered_message is None:
+            return None
+        return suppress_last_seen_updates(redact_sensitive_url_segments(filtered_message))
 
     kwargs["before_send"] = capture_filter
 
