@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Literal
 
@@ -25,6 +26,8 @@ MAX_COMPARE_FILES = 300
 GRAPHQL_PATHS_PER_QUERY = 100
 _SOURCE = "review_hog_fork_recreation"
 _CALL_ERRORS = (GitHubIntegrationError, GitHubRateLimitError, requests.RequestException)
+_MENTION_RE = re.compile(r"@(?=[A-Za-z0-9])")
+_LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
 
 
 class RecreationRefused(Exception):
@@ -38,6 +41,7 @@ class RecreationFailed(Exception):
 @frozen
 class Approval:
     login: str
+    user_id: int
     commit_sha: str
 
 
@@ -79,25 +83,33 @@ def latest_approvals(reviews: Sequence[Mapping[str, Any]]) -> list[Approval]:
         if review["state"] == "APPROVED" and isinstance(review.get("commit_id"), str)
     ]
     approved.sort(key=lambda review: str(review.get("submitted_at") or ""), reverse=True)
-    return [Approval(login=review["user"]["login"], commit_sha=review["commit_id"]) for review in approved]
+    return [
+        Approval(login=review["user"]["login"], user_id=review["user"]["id"], commit_sha=review["commit_id"])
+        for review in approved
+        if not review["user"]["login"].endswith("[bot]")
+    ]
 
 
 def co_author_trailers(contributor: Contributor, commits: Iterable[Mapping[str, Any]]) -> list[str]:
-    trailers = [f"Co-authored-by: {contributor.name} <{contributor.noreply_email}>"]
-    seen = {contributor.noreply_email.lower()}
+    authors = [contributor]
     for commit in commits:
-        if len(commit.get("parents") or []) > 1:
+        account = commit.get("author") or {}
+        if len(commit.get("parents") or []) > 1 or not isinstance(account.get("id"), int):
             continue
-        author = (commit.get("commit") or {}).get("author") or {}
-        login = (commit.get("author") or {}).get("login")
-        email = author.get("email")
-        if not isinstance(email, str) or (isinstance(login, str) and login.lower() == contributor.login.lower()):
-            continue
-        if email.lower() in seen:
-            continue
-        seen.add(email.lower())
-        trailers.append(f"Co-authored-by: {author.get('name') or email} <{email}>")
-    return trailers
+        login = account.get("login")
+        if isinstance(login, str) and _LOGIN_RE.fullmatch(login):
+            authors.append(Contributor(login=login, user_id=account["id"], name=login))
+    unique = {author.user_id: author for author in reversed(authors)}
+    ordered = [contributor, *(author for author in unique.values() if author.user_id != contributor.user_id)]
+    return [f"Co-authored-by: {_plain(author.name)} <{author.noreply_email}>" for author in ordered]
+
+
+def _plain(name: str) -> str:
+    return "".join(char for char in name if char.isprintable() and char not in "<>") or "unknown"
+
+
+def neutralise_mentions(text: str) -> str:
+    return _MENTION_RE.sub("@\u200b", text)
 
 
 def changed_files(files: Sequence[Mapping[str, Any]]) -> list[ChangedFile]:
@@ -115,8 +127,9 @@ def touched_paths(files: Sequence[ChangedFile]) -> list[str]:
 
 def ci_paths(paths: Iterable[str]) -> list[str]:
     def runs_in_ci(path: str) -> bool:
-        name = path.rpartition("/")[2]
-        return path.startswith(CI_PATH_PREFIXES) or name in CI_FILE_NAMES or name.startswith("Dockerfile")
+        lowered = path.lower()
+        name = lowered.rpartition("/")[2]
+        return lowered.startswith(CI_PATH_PREFIXES) or name in CI_FILE_NAMES or name.startswith("dockerfile")
 
     return [path for path in paths if runs_in_ci(path)]
 
@@ -224,7 +237,7 @@ class ForkRecreation:
         trailers = co_author_trailers(contributor, comparison.get("commits") or [])
         message = "\n".join(
             [
-                f"{fork_pr['title']} (#{self._pr_number})",
+                f"{neutralise_mentions(fork_pr['title'])} (#{self._pr_number})",
                 "",
                 f"Re-created from #{self._pr_number} at {approval.commit_sha}.",
                 "",
@@ -247,7 +260,7 @@ class ForkRecreation:
                 f"/repos/{self._repository}/pulls",
                 "/repos/{owner}/{repo}/pulls",
                 {
-                    "title": fork_pr["title"],
+                    "title": neutralise_mentions(fork_pr["title"]),
                     "head": branch,
                     "base": default_branch,
                     "body": self._body(fork_pr, approval, contributor, trailers),
@@ -292,11 +305,22 @@ class ForkRecreation:
     def _approval(self) -> Approval:
         try:
             reviews = self._github.get_pull_request_reviews(self._repository, self._pr_number)
-            for approval in latest_approvals(reviews):
-                if self._github.get_collaborator_permission(self._repository, approval.login) in WRITE_PERMISSIONS:
-                    return approval
         except _CALL_ERRORS as error:
-            raise RecreationFailed("GitHub did not answer the review or permission lookup") from error
+            raise RecreationFailed("GitHub did not answer the review lookup") from error
+        unverified = 0
+        for approval in latest_approvals(reviews):
+            try:
+                permission = self._github.get_collaborator_permission(
+                    self._repository, approval.login, expected_user_id=approval.user_id
+                )
+            except _CALL_ERRORS:
+                logger.warning("fork_recreation_permission_lookup_failed", repository=self._repository, exc_info=True)
+                unverified += 1
+                continue
+            if permission in WRITE_PERMISSIONS:
+                return approval
+        if unverified:
+            raise RecreationFailed("GitHub did not answer a permission lookup")
         raise RecreationRefused(
             "No one with write access has approved this pull request. Approve the commit you reviewed, then comment again."
         )
@@ -354,7 +378,7 @@ class ForkRecreation:
     def _body(
         self, fork_pr: Mapping[str, Any], approval: Approval, contributor: Contributor, trailers: Sequence[str]
     ) -> str:
-        description = fork_pr.get("body") or "_No description._"
+        description = neutralise_mentions(fork_pr.get("body") or "_No description._")
         quoted = "\n".join(f"> {line}" for line in description.splitlines())
         return "\n".join(
             [
