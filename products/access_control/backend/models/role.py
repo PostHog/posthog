@@ -5,6 +5,7 @@ from uuid import UUID
 from django.db import models, transaction
 from django.db.models import F, Q
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import UUIDTModel
 from posthog.organization_caching import invalidate_organization_membership_access_caches
@@ -76,7 +77,8 @@ class RoleQuerySet(models.QuerySet["Role"]):
             return updated
 
 
-class Role(UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- existing model; adding audit logging must preserve its primary-key default.
+class Role(ModelActivityMixin, UUIDTModel):
     objects = RoleQuerySet.as_manager()
 
     class OrganizationAccessLevel(models.IntegerChoices):
@@ -173,7 +175,8 @@ class RoleMembershipQuerySet(models.QuerySet["RoleMembership"]):
         )
 
 
-class RoleMembership(UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- existing model; adding audit logging must preserve its primary-key default.
+class RoleMembership(ModelActivityMixin, UUIDTModel):
     objects = RoleMembershipQuerySet.as_manager()
 
     class Meta:

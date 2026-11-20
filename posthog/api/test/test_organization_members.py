@@ -475,6 +475,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                     "role_at_organization": None,
                 },
                 "level": OrganizationMembership.Level.ADMIN.value,
+                "effective_level": OrganizationMembership.Level.ADMIN.value,
+                "role_grants": [],
             },
         )
         mock_sync_delay.assert_called_once_with(str(self.organization.id))

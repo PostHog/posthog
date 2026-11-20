@@ -359,6 +359,12 @@ export const rolesCreateBodyNameMax = 200
 
 export const RolesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesCreateBodyNameMax),
+    organization_access_level: zod
+        .union([zod.literal(8).describe('\* `8` - administrator'), zod.null()])
+        .optional()
+        .describe(
+            'Additional organization access granted to role members. Null grants no additional access.\n\n\* `8` - administrator'
+        ),
 })
 
 /**
@@ -369,6 +375,12 @@ export const rolesUpdateBodyNameMax = 200
 
 export const RolesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesUpdateBodyNameMax),
+    organization_access_level: zod
+        .union([zod.literal(8).describe('\* `8` - administrator'), zod.null()])
+        .optional()
+        .describe(
+            'Additional organization access granted to role members. Null grants no additional access.\n\n\* `8` - administrator'
+        ),
 })
 
 /**
@@ -379,6 +391,12 @@ export const rolesPartialUpdateBodyNameMax = 200
 
 export const RolesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(rolesPartialUpdateBodyNameMax).optional(),
+    organization_access_level: zod
+        .union([zod.literal(8).describe('\* `8` - administrator'), zod.null()])
+        .optional()
+        .describe(
+            'Additional organization access granted to role members. Null grants no additional access.\n\n\* `8` - administrator'
+        ),
 })
 
 /**

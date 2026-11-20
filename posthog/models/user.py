@@ -581,8 +581,10 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             try:
                 from products.access_control.backend.models.role import RoleMembership
 
-                role = organization.roles.get(id=organization.default_role_id)
-                RoleMembership.objects.create(role=role, user=self, organization_member=membership)
+                # Keep the selected default-role snapshot, but read its grant under the mapping-write lock.
+                with transaction.atomic():
+                    role = organization.roles.select_for_update(no_key=True).get(id=organization.default_role_id)
+                    RoleMembership.objects.create(role=role, user=self, organization_member=membership)
             except Exception as e:
                 capture_exception(
                     e,

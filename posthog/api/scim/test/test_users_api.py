@@ -5,6 +5,7 @@ from posthog.api.scim.auth import generate_scim_token
 from posthog.api.scim.views import MAX_ITEMS_PER_PAGE
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
@@ -157,6 +158,7 @@ class TestSCIMUsersAPI(APILicensedTest):
     @parameterized.expand(
         [
             ("put", "put", False),
+            ("put_admin_role", "put", False, 8),
             ("patch_add", "add", False),
             ("patch_replace", "replace", False),
             ("put_legacy_role", "put", True),
@@ -165,16 +167,16 @@ class TestSCIMUsersAPI(APILicensedTest):
         ]
     )
     def test_default_role_applies_to_provisioning_and_reactivation(
-        self, _name: str, activation: str, legacy_role: bool
+        self, _name: str, activation: str, legacy_role: bool, grant: int | None = None
     ) -> None:
         self.organization.available_product_features = (self.organization.available_product_features or []) + [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": "Role-based access"},
         ]
-        role = self.organization.roles.create(name="Default role")
+        role = self.organization.roles.create(name="Default role", organization_access_level=grant)
         self.organization.default_role = role
         self.organization.save()
-        initial_access = "admin" if legacy_role else "none"
+        initial_access = "admin" if legacy_role or grant else "none"
         AccessControl.objects.create(
             team=self.team, resource="project", resource_id=str(self.team.id), role=role, access_level=initial_access
         )
@@ -208,7 +210,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert not RoleMembership.objects.filter(user=user, role=role).exists()
 
-        role = self.organization.roles.create(name="Replacement default role")
+        role = self.organization.roles.create(name="Replacement default role", organization_access_level=grant)
         self.organization.default_role = role
         self.organization.save()
         AccessControl.objects.create(
@@ -232,12 +234,23 @@ class TestSCIMUsersAPI(APILicensedTest):
             assert response.status_code == status.HTTP_200_OK
             membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
             assert membership.level == OrganizationMembership.Level.MEMBER
+            assert membership.effective_level == (grant or OrganizationMembership.Level.MEMBER)
             assert RoleMembership.objects.get(user=user, role=role).organization_member_id == membership.id
-            assert UserAccessControl(user, self.team).get_user_access_level(self.team) == "none"
+            assert UserAccessControl(user, self.team).get_user_access_level(self.team) == ("admin" if grant else "none")
+
+        if grant:
+            log = ActivityLog.objects.filter(scope="Role", item_id=role.id, activity="updated").latest("created_at")
+            assert log.detail is not None
+            assert log.user_id is None
+            assert log.credential_type == "scim"
+            assert log.credential_id == str(self.config.id)
+            assert any(c["field"] == "members" and c["after"] == user.id for c in log.detail["changes"])
 
         self.client.credentials()
         self.client.force_login(user)
-        assert self.client.get(f"/api/projects/{self.team.id}/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"/api/projects/{self.team.id}/").status_code == (
+            status.HTTP_200_OK if grant else status.HTTP_404_NOT_FOUND
+        )
 
     @parameterized.expand(["post", "put", "patch"])
     def test_invalid_default_role_leaves_user_inactive(self, method: str) -> None:

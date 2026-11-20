@@ -1,11 +1,12 @@
 from typing import Any, cast
+from uuid import UUID
 
 from django.db.models import F, Model, Prefetch, QuerySet, TextChoices
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
@@ -36,6 +37,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.helpers.verified_domain_enforcement import verified_domain_email_q
 from posthog.models import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipQuerySet
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.organization_offboarding import OrganizationOffboarding
@@ -43,6 +45,7 @@ from posthog.permissions import TimeSensitiveActionPermission, extract_organizat
 from posthog.utils import posthoganalytics
 
 from products.access_control.backend.facade.subject_access_control import get_project_scoped_visible_membership_ids
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.access_control.backend.presentation.access_control_organization_members import (
     OrganizationMemberProjectAccessViewSetMixin,
 )
@@ -59,6 +62,14 @@ ALLOWED_ORDERINGS: dict[str, tuple[str, str]] = {
     "-joined_at": ("-joined_at", "-id"),
 }
 DEFAULT_ORDERING = "-joined_at"
+
+
+def organization_access_role_memberships_prefetch(organization_id: UUID) -> Prefetch:
+    return Prefetch(
+        "user__role_memberships",
+        queryset=RoleMembership.objects.filter(role__organization_id=organization_id).select_related("role"),
+        to_attr="organization_access_role_memberships",
+    )
 
 
 def organization_members_base_queryset() -> QuerySet:
@@ -95,7 +106,25 @@ class OrganizationMemberObjectPermissions(BasePermission):
         return True
 
 
+class OrganizationRoleGrantSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Role
+        fields = ["id", "name", "organization_access_level"]
+        read_only_fields = fields
+
+
 class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
+    effective_level = serializers.IntegerField(
+        read_only=True, help_text="Highest organization access from the individual assignment and applicable roles."
+    )
+    role_grants = serializers.SerializerMethodField(help_text="Roles granting additional organization access.")
+
+    @extend_schema_field(OrganizationRoleGrantSerializer(many=True))
+    def get_role_grants(self, instance: OrganizationMembership) -> list[dict]:
+        return cast(
+            list[dict], OrganizationRoleGrantSerializer(instance.organization_access_role_grants, many=True).data
+        )
+
     user = UserBasicSerializer(read_only=True)
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -107,6 +136,8 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
             "id",
             "user",
             "level",
+            "effective_level",
+            "role_grants",
             "joined_at",
             "updated_at",
             "is_2fa_enabled",
@@ -140,6 +171,7 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
                 )
             setattr(updated_membership, attr, value)
         updated_membership.save()
+        updated_membership.__dict__.pop("resolved_level", None)
         return updated_membership
 
 
@@ -232,7 +264,8 @@ class OrganizationMemberViewSet(
     serializer_class = OrganizationMemberSerializer
     permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
-        organization_members_base_queryset()
+        cast(OrganizationMembershipQuerySet, organization_members_base_queryset())
+        .with_effective_level()
         .prefetch_related(
             Prefetch(
                 "user__totpdevice_set",
@@ -283,6 +316,7 @@ class OrganizationMemberViewSet(
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         organization = self.organization
+        queryset = queryset.prefetch_related(organization_access_role_memberships_prefetch(organization.id))
         if not organization.members_can_see_org_members:
             requesting_membership = OrganizationMembership.objects.filter(
                 organization=organization, user_id=cast(User, self.request.user).id
