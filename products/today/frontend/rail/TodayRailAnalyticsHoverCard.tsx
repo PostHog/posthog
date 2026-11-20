@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
+import { pinnedAnalyticsFromShortcuts } from 'scenes/analytics/analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from 'scenes/analytics/AnalyticsSpaceGlyph'
 import { urls } from 'scenes/urls'
 
@@ -12,9 +12,9 @@ import { todayAnalyticsLogic } from '../analytics/todayAnalyticsLogic'
 import { TodayRailPreviewList } from './TodayRailPreviewList'
 
 export function TodayRailAnalyticsHoverCard({ onAction }: { onAction: () => void }): JSX.Element {
-    const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
     const { recentAnalytics } = useValues(todayAnalyticsLogic)
-    const { shortcutDataLoading } = useValues(sidebarPinsLogic)
+    const { shortcutData, shortcutDataLoading } = useValues(sidebarPinsLogic)
+    const pinnedAnalytics = pinnedAnalyticsFromShortcuts(shortcutData)
     const { recentsLoading } = useValues(recentItemsModel)
 
     return (

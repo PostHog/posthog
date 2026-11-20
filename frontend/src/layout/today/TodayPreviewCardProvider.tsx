@@ -2,6 +2,7 @@ import { PreviewCard } from '@base-ui/react/preview-card'
 import { ReactNode, Suspense, useCallback, useMemo, useRef, useState } from 'react'
 
 import { Card, Skeleton } from '@posthog/quill'
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -130,27 +131,32 @@ export function TodayPreviewCardProvider({
                                         size="sm"
                                         className="w-72 max-w-[calc(100vw-2rem)] gap-0 border empty:hidden border-border py-0 shadow-[var(--shadow-md)]"
                                     >
-                                        <Suspense fallback={<Skeleton className="h-24 w-full" />}>
-                                            {payload.kind === 'rail' ? (
-                                                payload.pane === 'analytics' ? (
-                                                    <TodayRailAnalyticsHoverCard onAction={close} />
-                                                ) : payload.pane === 'products' ? (
-                                                    <TodayRailProductsHoverCard onAction={close} />
-                                                ) : payload.pane === 'spaces' ? (
-                                                    <TodayRailChatsHoverCard onAction={close} />
+                                        <PostHogErrorBoundary
+                                            key={payload.kind === 'rail' ? `rail:${payload.pane}` : payload.kind}
+                                            fallback={<></>}
+                                        >
+                                            <Suspense fallback={<Skeleton className="h-24 w-full" />}>
+                                                {payload.kind === 'rail' ? (
+                                                    payload.pane === 'analytics' ? (
+                                                        <TodayRailAnalyticsHoverCard onAction={close} />
+                                                    ) : payload.pane === 'products' ? (
+                                                        <TodayRailProductsHoverCard onAction={close} />
+                                                    ) : payload.pane === 'spaces' ? (
+                                                        <TodayRailChatsHoverCard onAction={close} />
+                                                    ) : (
+                                                        <TodayRailHoverCard pane={payload.pane} onAction={close} />
+                                                    )
+                                                ) : payload.kind === 'chat' ? (
+                                                    <TodayChatHoverCard preview={payload} onAction={close} />
+                                                ) : payload.kind === 'object' ? (
+                                                    <TodayObjectHoverCard preview={payload} onAction={close} />
+                                                ) : payload.kind === 'product' || payload.kind === 'explainer' ? (
+                                                    <TodayProductHoverCard preview={payload} onAction={close} />
                                                 ) : (
-                                                    <TodayRailHoverCard pane={payload.pane} onAction={close} />
-                                                )
-                                            ) : payload.kind === 'chat' ? (
-                                                <TodayChatHoverCard preview={payload} onAction={close} />
-                                            ) : payload.kind === 'object' ? (
-                                                <TodayObjectHoverCard preview={payload} onAction={close} />
-                                            ) : payload.kind === 'product' || payload.kind === 'explainer' ? (
-                                                <TodayProductHoverCard preview={payload} onAction={close} />
-                                            ) : (
-                                                <TodaySessionHoverCard preview={payload} onAction={close} />
-                                            )}
-                                        </Suspense>
+                                                    <TodaySessionHoverCard preview={payload} onAction={close} />
+                                                )}
+                                            </Suspense>
+                                        </PostHogErrorBoundary>
                                     </Card>
                                 </PreviewCard.Popup>
                             </TodayPreviewPositioner>

@@ -30,9 +30,7 @@ const PANE_TYPES: Partial<Record<TodayRailPane, readonly string[]>> = {
 
 export function railEntryMatchesPane(entry: FileSystemEntry, pane: TodayRailPane): boolean {
     const type = fileSystemBaseType(entry.type)
-    return pane === 'products'
-        ? !['folder', 'task'].includes(type)
-        : !!entry.ref && (PANE_TYPES[pane]?.includes(type) ?? false)
+    return pane === 'products' ? !['folder', 'task'].includes(type) : (PANE_TYPES[pane]?.includes(type) ?? false)
 }
 
 export function railPreviewItem(entry: FileSystemEntry): TodayRailPreviewItem | null {

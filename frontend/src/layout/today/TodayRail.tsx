@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Suspense } from 'react'
+import { Suspense, useState } from 'react'
 
 import { PostHogErrorBoundary } from '@posthog/react'
 
@@ -16,6 +16,7 @@ import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
+import { TodaySpacesLogicMount } from './TodaySpacesLogicMount'
 import { todayTourLogic } from './todayTourLogic'
 
 // Flag-gated, so users without the flag skip the wizard chunk.
@@ -45,9 +46,10 @@ export function railPanesThatFit(panes: TodayRailPane[], height: number | undefi
 }
 
 export function TodayRail(): JSX.Element {
-    const { activePane, effectivePhaiView, featureFlags, railPanes } = useValues(todayShellLogic)
+    const { activePane, effectivePhaiView, featureFlags, railPanes, sidebarVisible } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { tourActive } = useValues(todayTourLogic)
+    const [chatsPreviewed, setChatsPreviewed] = useState(false)
     const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
     const { currentProjectId } = useValues(projectLogic)
     const { ref: paneListRef, height: paneListHeight } = useResizeObserver<HTMLDivElement>()
@@ -65,11 +67,18 @@ export function TodayRail(): JSX.Element {
                 to={railPaneHref(pane, effectivePhaiView, featureFlags)}
                 onClick={() => clickRailPane(pane)}
                 dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}
+                onPointerEnter={pane === 'spaces' ? () => setChatsPreviewed(true) : undefined}
+                onFocus={pane === 'spaces' ? () => setChatsPreviewed(true) : undefined}
             />
         )
         const preview = RAIL_PREVIEWS[pane]
         return preview ? (
-            <TodayPreviewTrigger key={pane} payload={preview} disabled={activePane === pane} className="w-full min-w-0">
+            <TodayPreviewTrigger
+                key={pane}
+                payload={preview}
+                disabled={activePane === pane && sidebarVisible}
+                className="w-full min-w-0"
+            >
                 {tile}
             </TodayPreviewTrigger>
         ) : (
@@ -106,6 +115,7 @@ export function TodayRail(): JSX.Element {
                     {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
                 </div>
                 <TodayAccountMenu />
+                {chatsPreviewed && <TodaySpacesLogicMount />}
             </nav>
         </TodayPreviewCardProvider>
     )

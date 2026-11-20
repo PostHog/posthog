@@ -21,7 +21,7 @@ export function TodayRailHoverCard({ pane, onAction }: { pane: TodayRailPane; on
         type: recent.type,
         href: recent.href,
     }))
-    const pins = railPreviewItems(shortcutData, pane)
+    const pins = railPreviewItems(pane === 'release' ? shortcutData.filter((entry) => !!entry.ref) : shortcutData, pane)
     const recentRows = railRecentItems(railPreviewItems([...recents, ...localRecents], pane), pins)
 
     return (
