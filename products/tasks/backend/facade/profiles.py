@@ -124,7 +124,6 @@ class AgentPolicy:
     ends_run: EndsRun = EndsRun.AGENT
     finish_report_required: bool = False
     report_activity_tool: bool = False
-    branch_push_without_pr: bool = False
     pr_thread_link: bool = False
     # Browser session auth records no client, so such a task counts as created in the web app.
     web_client_by_default: bool = False

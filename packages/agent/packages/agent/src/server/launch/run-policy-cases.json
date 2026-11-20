@@ -192,7 +192,6 @@
         "finish_tool": false,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -207,7 +206,6 @@
         "finish_tool": false,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -222,7 +220,6 @@
         "finish_tool": true,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
