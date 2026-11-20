@@ -36,6 +36,7 @@ import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-
 
 import { NotebookBtwLayout } from 'products/notebooks/frontend/NotebookBtwLayout'
 import { notebookBtwLogic } from 'products/notebooks/frontend/notebookBtwLogic'
+import { NotebookCohortFilter } from 'products/notebooks/frontend/NotebookCohortFilter'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { notebookWidgetCatalog, NotebookWidgetPickerKind } from '../notebookWidgetCatalog'
@@ -797,16 +798,13 @@ export function MarkdownNotebookV2({
                         allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
                         jupyterMode={jupyterMode}
                         canvasHeader={
-                            jupyterMode ? (
-                                <>
-                                    {isEditable ? (
-                                        <NotebookJupyterToolbar collapsedContainer={collapsedToolbarContainer} />
-                                    ) : null}
-                                    <NotebookVariablesBar />
-                                </>
-                            ) : (
+                            <>
+                                {jupyterMode && isEditable ? (
+                                    <NotebookJupyterToolbar collapsedContainer={collapsedToolbarContainer} />
+                                ) : null}
+                                {!isShared && mountedNotebookLogic.props.mode !== 'canvas' && <NotebookCohortFilter />}
                                 <NotebookVariablesBar />
-                            )
+                            </>
                         }
                         className="Notebook__markdown-v2"
                         data-attr="notebook-markdown-v2"

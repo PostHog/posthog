@@ -25,6 +25,9 @@ import { urls } from 'scenes/urls'
 
 import { FilterType, RecordingUniversalFilters } from '~/types'
 
+import { notebookCohortFilterLogic } from 'products/notebooks/frontend/notebookCohortFilterLogic'
+import { getNotebookCohortPlaylist } from 'products/notebooks/frontend/notebookCohortPreview'
+
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -37,7 +40,44 @@ const Component = ({
         return <SavedPlaylistDetail attributes={attributes} updateAttributes={updateAttributes} />
     }
 
-    return <PlaylistContent attributes={attributes} updateAttributes={updateAttributes} />
+    return <NotebookPlaylistView attributes={attributes} updateAttributes={updateAttributes} />
+}
+
+function NotebookPlaylistView({
+    collectionIds,
+    ...props
+}: NotebookNodeProps<NotebookNodePlaylistAttributes> & { collectionIds?: string[] }): JSX.Element {
+    const { shortId } = useValues(notebookLogic)
+    const { previewCohort } = useValues(notebookCohortFilterLogic({ shortId }))
+    if (!previewCohort) {
+        return <PlaylistContent {...props} />
+    }
+    if (collectionIds?.length === 0) {
+        return <div className="p-3 text-secondary">This collection has no recordings.</div>
+    }
+    const filters = getNotebookCohortPlaylist(props.attributes.universalFilters, previewCohort.id, collectionIds)
+    if (!filters) {
+        return (
+            <div className="p-3 text-secondary">
+                Clear the cohort filter to view a recording list that matches any filter.
+            </div>
+        )
+    }
+    const key = `notebook-cohort-${shortId}-${props.attributes.nodeId}-${previewCohort.id}`
+    return (
+        <div className="flex h-full flex-col">
+            <LemonTag className="self-start" type="highlight">
+                Cohort preview
+            </LemonTag>
+            <SessionRecordingsPlaylist
+                key={key}
+                logicKey={key}
+                filters={filters}
+                autoPlay={false}
+                updateSearchParams={false}
+            />
+        </div>
+    )
 }
 
 const PlaylistContent = ({
@@ -150,8 +190,13 @@ function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttrib
     }
 
     return (
-        <PlaylistContent
+        <NotebookPlaylistView
             {...props}
+            collectionIds={
+                playlist.type === 'collection'
+                    ? (pinnedRecordings || []).map((recording) => String(recording.id))
+                    : undefined
+            }
             attributes={{
                 ...props.attributes,
                 id: undefined,

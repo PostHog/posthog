@@ -1,10 +1,12 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import posthog from 'posthog-js'
 import { createElement } from 'react'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+
+import { notebookCohortFilterLogic } from 'products/notebooks/frontend/notebookCohortFilterLogic'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeType } from '../types'
@@ -72,6 +74,70 @@ describe('NotebookNodeQuery', () => {
             unmountNode()
             unmountNotebook()
             capture.mockRestore()
+        }
+    })
+
+    it('requeries the insight when a viewer switches cohorts without editing the notebook', async () => {
+        const requested: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:project_id/query/TrendsQuery/': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: { properties?: unknown } }
+                    requested.push(query.properties)
+                    return [200, { results: [], last_refresh: '2026-01-01T00:00:00Z' }]
+                },
+            },
+        })
+        initKeaTests()
+        const shortId = 'template-cohort-preview'
+        const notebook = notebookLogic({ shortId })
+        const preview = notebookCohortFilterLogic({ shortId })
+        const attributes = {
+            nodeId: 'signups',
+            isDefaultFilterApplied: true,
+            query: {
+                kind: NodeKind.InsightVizNode as const,
+                source: {
+                    kind: NodeKind.TrendsQuery as const,
+                    series: [{ kind: NodeKind.EventsNode as const, event: 'signup' }],
+                },
+            },
+        }
+        const updateAttributes = jest.fn()
+        const node = notebookNodeLogic({
+            notebookLogic: notebook,
+            nodeType: NotebookNodeType.Query,
+            titlePlaceholder: 'Signups',
+            attributes,
+            updateAttributes,
+        })
+        const unmountNotebook = notebook.mount()
+        const unmountNode = node.mount()
+        const unmountPreview = preview.mount()
+        try {
+            preview.actions.setPreviewCohort({ id: 17, name: 'First cohort' })
+            render(
+                createElement(
+                    NotebookNodeContext.Provider,
+                    { value: node },
+                    createElement(NotebookNodeQuery.Component, { attributes, updateAttributes })
+                )
+            )
+            await waitFor(() =>
+                expect(requested).toContainEqual([{ type: 'cohort', key: 'id', operator: 'in', value: 17 }])
+            )
+            act(() => preview.actions.setPreviewCohort({ id: 42, name: 'Second cohort' }))
+            await waitFor(() =>
+                expect(requested).toContainEqual([{ type: 'cohort', key: 'id', operator: 'in', value: 42 }])
+            )
+            expect(updateAttributes).not.toHaveBeenCalled()
+            act(() => preview.actions.setPreviewCohort(null))
+            expect(await screen.findByText('Refresh')).toBeTruthy()
+        } finally {
+            cleanup()
+            unmountPreview()
+            unmountNode()
+            unmountNotebook()
         }
     })
 

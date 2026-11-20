@@ -32,6 +32,8 @@ import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/
 import { isEventsQuery, isSavedInsightNode } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import { notebookCohortFilterLogic } from 'products/notebooks/frontend/notebookCohortFilterLogic'
+import { getNotebookCohortQuery } from 'products/notebooks/frontend/notebookCohortPreview'
 import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'
 import type { InsightDataframeAttributes } from 'products/notebooks/frontend/notebookInsightDataframeLogic'
 
@@ -93,6 +95,7 @@ const Component = ({
         getSharedCachedInlineQueryResults,
         canvasFiltersOverride,
     } = useValues(notebookLogic)
+    const { previewCohort } = useValues(notebookCohortFilterLogic({ shortId: notebookLogic.props.shortId }))
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const componentPanelState = useComponentPanelState()
     const summarizeInsight = useSummarizeInsight()
@@ -114,7 +117,7 @@ const Component = ({
             ? insightLogicProps
             : { dashboardItemId: `new-AdHoc.notebook.${notebookLogic.props.shortId}.${nodeId}`, query }
     dataframeInsightProps.retainResponseOnUnmount = !isShared
-    const { insightName } = useValues(insightLogic(insightLogicProps))
+    const { insightName, insight, insightLoading } = useValues(insightLogic(insightLogicProps))
     const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
     const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
         componentPanelState,
@@ -172,8 +175,8 @@ const Component = ({
             modifiedQuery.embedded = true
         }
 
-        if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
-            modifiedQuery.source.fixedProperties = canvasFiltersOverride
+        if (canvasFiltersOverride.length && isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
+            modifiedQuery.source = { ...modifiedQuery.source, fixedProperties: canvasFiltersOverride }
             updateAttributes({ isDefaultFilterApplied: true })
         }
 
@@ -223,6 +226,32 @@ const Component = ({
             )
         }
         return <UnsupportedNodePlaceholder />
+    }
+
+    if (previewCohort) {
+        const source = isSavedInsightNode(query) ? insight.query : query
+        if (!source && insightLoading) {
+            return <LemonSkeleton className="h-full w-full" />
+        }
+        const filtered = getNotebookCohortQuery(source, previewCohort.id)
+        if (filtered) {
+            const key = `notebook-cohort-${notebookLogic.props.shortId}-${nodeId}-${previewCohort.id}`
+            return (
+                <div className="flex h-full flex-col">
+                    <LemonTag className="self-start" type="highlight">
+                        Cohort preview
+                    </LemonTag>
+                    <Query
+                        key={key}
+                        uniqueKey={key}
+                        query={{ ...filtered, full: false, embedded: true }}
+                        embedded
+                        readOnly
+                    />
+                </div>
+            )
+        }
+        return <div className="p-3 text-secondary">Clear the cohort filter to view this query.</div>
     }
 
     if (!componentPanelState?.outputOnly && getSqlEditorSourceQuery(query)) {
@@ -392,6 +421,7 @@ export const Settings = ({
         }
 
         if (
+            canvasFiltersOverride.length &&
             isInsightVizNode(modifiedQuery) &&
             !isHogQLQuery(modifiedQuery.source) &&
             !isActorsQuery(modifiedQuery.source) &&
@@ -401,7 +431,12 @@ export const Settings = ({
             updateAttributes({ isDefaultFilterApplied: true })
         }
 
-        if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source) && !isDefaultFilterApplied) {
+        if (
+            canvasFiltersOverride.length &&
+            isDataTableNode(modifiedQuery) &&
+            isEventsQuery(modifiedQuery.source) &&
+            !isDefaultFilterApplied
+        ) {
             modifiedQuery.source.fixedProperties = canvasFiltersOverride
             updateAttributes({ isDefaultFilterApplied: true })
         }
