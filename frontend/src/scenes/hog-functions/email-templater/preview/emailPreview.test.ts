@@ -127,6 +127,10 @@ describe('renderEmailPreview', () => {
         expect(renderEmailPreviewMarked(template, person)).toBe('')
     })
 
+    it('leaves expressions that are not a variable lookup unmarked', () => {
+        expect(renderEmailPreviewMarked('{{ (1..3).missing }}', person)).toBe('')
+    })
+
     it('falls back to the template rather than throwing on a broken tag', () => {
         expect(renderEmailPreview('{% for %}', person)).toBe('{% for %}')
     })

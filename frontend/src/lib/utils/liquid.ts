@@ -178,6 +178,8 @@ class UnsubscribeUrlTag extends Tag {
 // NOTE: This should be moved to common package but currently is a copy of nodejs/src/cdp/utils/liquid.ts
 // The worker's EMAIL_BODY_TAG_LIMIT, from nodejs/src/cdp/utils/liquid.ts.
 const MARKED_OUTPUT_LIMIT = 10_000
+// Only a lookup can be a missing value, and a lookup costs a property walk rather than an expression's work.
+const VARIABLE_PATH = /^[A-Za-z_][\w-]*(?:\.[\w-]+|\[(?:'[^']*'|"[^"]*"|\d+)\])*$/
 
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
@@ -377,12 +379,7 @@ export class LiquidRenderer {
             const { begin, end, content } = node.token as unknown as { begin: number; end: number; content: string }
             const expression = content.trim()
             const root = expression.split(/[.[\s]/)[0]
-            if (
-                !expression ||
-                expression.includes('|') ||
-                locals.has(root) ||
-                this.resolvesDecoded(expression, context)
-            ) {
+            if (!VARIABLE_PATH.test(expression) || locals.has(root) || this.resolvesDecoded(expression, context)) {
                 continue
             }
             marked += `${decoded.slice(cursor, begin)}{% raw %}${markUnresolved(decoded.slice(begin, end))}{% endraw %}`
