@@ -151,6 +151,22 @@ def test_base_that_does_not_build_is_not_masked(scenario):
         scenario.check()
 
 
+def test_checkout_without_an_origin_remote_fetches_from_the_repository_url(scenario, monkeypatch):
+    scenario.build({"tests/test_x.py": FAILING}, {"tests/test_y.py": PASSING})
+    sh(scenario.root, "git", "remote", "remove", "origin")
+    monkeypatch.setenv("GITHUB_SERVER_URL", f"file://{scenario.origin.parent}")
+    monkeypatch.setenv("GITHUB_REPOSITORY", scenario.origin.name)
+    assert scenario.check() == []
+
+
+def test_checkout_without_an_origin_remote_or_repository_is_not_masked(scenario, monkeypatch):
+    scenario.build({"tests/test_x.py": FAILING}, {"tests/test_y.py": PASSING})
+    sh(scenario.root, "git", "remote", "remove", "origin")
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    with pytest.raises(qbc.CannotVerify, match="no origin remote"):
+        scenario.check()
+
+
 def test_base_that_cannot_be_fetched_is_not_masked(scenario):
     scenario.build({"tests/test_x.py": FAILING}, {"tests/test_y.py": PASSING})
     sh(scenario.root, "git", "remote", "set-url", "origin", f"file://{scenario.out}/missing.git")
@@ -170,6 +186,9 @@ def test_base_that_cannot_be_fetched_is_not_masked(scenario):
         ".python-version",
         "common/hogql_parser/HogQLParser.cpp",
         "rust/hogql/parser/src/lib.rs",
+        "posthog/models/event/sql.py",
+        "posthog/clickhouse/schema.py",
+        "ee/clickhouse/views/x.py",
     ],
 )
 def test_pr_that_changes_the_database_or_packages_is_not_masked(scenario, path):

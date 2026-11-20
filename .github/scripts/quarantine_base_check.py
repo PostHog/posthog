@@ -19,7 +19,8 @@ pre-existing, and the caller treats any other result as a failed job.
 2. The shard's settings file lists every setting the re-run needs.
 3. The shard's JUnit report names at least one failing test, and every failure resolves to a test id.
    A setup or teardown error does not count as a failure that a base run can reproduce.
-4. The PR changes no migration, lockfile, pyproject, or source that the shard compiles and installs.
+4. The PR changes no migration, lockfile, pyproject, ClickHouse table definition, or source that the shard
+   compiles and installs.
    The reused database and installed packages are then not the base's, so a base failure would prove nothing.
 5. The base commit fetches and checks out.
 6. Pytest exits 0 or 1. Exit 2, 3, 4, and 5 mean an interrupted run, an internal error, a usage error
@@ -43,6 +44,8 @@ ENV_SETTINGS = ("PERSON_ON_EVENTS_V2_ENABLED", "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_
 SETTINGS_KEYS = (*ENV_SETTINGS, "PYTEST_ARGS")
 ENVIRONMENT_FILES = ("uv.lock", "pyproject.toml", ".python-version")
 # The shard installs these from the PR's tree. Checking out the base does not reinstall them.
+# The shard's ClickHouse test tables come from these definitions and survive `--reuse-db`.
+CLICKHOUSE_SCHEMA = ("posthog/clickhouse/", "ee/clickhouse/", "posthog/user_scripts/")
 INSTALLED_FROM_TREE = ("common/hogql_parser/", "rust/hogql/parser/", "products/canvas/packages/canvas_builder/")
 RETRY_MARKER = '"posthog.runner_name"'
 RETRY_FLAGS = ("--force-reruns", "1", "--reruns-delay", "1")
@@ -167,12 +170,25 @@ def environment_changes(run: Runner, base: str) -> list[str]:
     return [
         path
         for path in paths
-        if "migrations/" in path or path.startswith(INSTALLED_FROM_TREE) or path.endswith(ENVIRONMENT_FILES)
+        if "migrations/" in path
+        or path.startswith((*INSTALLED_FROM_TREE, *CLICKHOUSE_SCHEMA))
+        or path.endswith((*ENVIRONMENT_FILES, "/sql.py"))
     ]
+
+
+def ensure_origin(run: Runner) -> None:
+    # Depot CI's fast checkout adds no origin remote.
+    if run(["git", "remote", "get-url", "origin"], None).returncode == 0:
+        return
+    server, repository = os.environ.get("GITHUB_SERVER_URL"), os.environ.get("GITHUB_REPOSITORY")
+    if not (server and repository):
+        raise CannotVerify("the checkout has no origin remote and GITHUB_SERVER_URL or GITHUB_REPOSITORY is unset")
+    git(run, "remote", "add", "origin", f"{server}/{repository}")
 
 
 def fetch_base(run: Runner, base: str) -> None:
     # The shard's checkout is shallow, so the base commit and its tree are not local yet.
+    ensure_origin(run)
     git(run, "fetch", "--no-tags", "--depth=1", "origin", base)
 
 
