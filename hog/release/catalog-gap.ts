@@ -51,7 +51,12 @@ export interface GapResult {
 export interface CompiledGraph {
     files: Set<string>
     importers: Map<string, Set<string>>
+    // For each compiled file, the specifiers its importers wrote for it, as the build resolved them. A specifier
+    // the build can't name, like a dynamic import's, is UNNAMED_IMPORT.
+    specifiers?: Map<string, Map<string, string[]>>
 }
+
+export const UNNAMED_IMPORT = ''
 
 export interface GapInput {
     changed: string[]
@@ -66,7 +71,18 @@ const JsonObject = z.record(z.string(), z.unknown())
 const Metafile = z.object({
     inputs: z.record(
         z.string(),
-        z.object({ imports: z.array(z.object({ path: z.string(), external: z.boolean().optional() })).optional() })
+        z.object({
+            imports: z
+                .array(
+                    z.object({
+                        path: z.string(),
+                        kind: z.string().optional(),
+                        original: z.string().optional(),
+                        external: z.boolean().optional(),
+                    })
+                )
+                .optional(),
+        })
     ),
 })
 const TriggerWorkflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
@@ -220,19 +236,25 @@ function schemasByTool(source: string | undefined): Map<string, Set<string>> | u
     return generatedToolNames(source).every((tool) => byTool.has(tool)) ? byTool : undefined
 }
 
-// The values a module imports from a schema file by name, read with the TypeScript parser. Undefined when the
-// module reads the file any other way, such as a namespace or default import, a re-export or `import()`, so every
-// schema counts as read.
-function namedImports(source: string | undefined, schemaFile: string): Set<string> | undefined {
-    const target = `generated/${schemaFile.slice(GENERATED_SCHEMAS_DIR.length).replace(/\.ts$/, '')}`
-    const readsTarget = (node: ts.Node): boolean =>
-        ts.isStringLiteralLike(node) && node.text.replace(/\.[cm]?[jt]s$/, '').endsWith(target)
+// The values a module imports from a schema file by name. The build resolved which of the module's specifiers
+// name the file, and the TypeScript parser reads the statements that use them. Undefined when the module reads
+// the file any other way, such as a namespace or default import, a re-export or `import()`, or through a
+// specifier no statement accounts for, so every schema counts as read.
+function namedImports(source: string | undefined, specifiers: string[] | undefined): Set<string> | undefined {
+    if (!specifiers?.length || specifiers.includes(UNNAMED_IMPORT)) {
+        return undefined
+    }
+    const wanted = new Set(specifiers)
     const file = ts.createSourceFile('importer.ts', source ?? '', ts.ScriptTarget.Latest, true)
     const names = new Set<string>()
     const parsed = new Set<ts.Node>()
 
     for (const statement of file.statements) {
-        if (!ts.isImportDeclaration(statement) || !readsTarget(statement.moduleSpecifier)) {
+        if (
+            !ts.isImportDeclaration(statement) ||
+            !ts.isStringLiteralLike(statement.moduleSpecifier) ||
+            !wanted.has(statement.moduleSpecifier.text)
+        ) {
             continue
         }
         parsed.add(statement.moduleSpecifier)
@@ -250,11 +272,10 @@ function namedImports(source: string | undefined, schemaFile: string): Set<strin
         }
     }
 
-    // Any other mention of the file, or none although the build says this module imports it, is a read this can't
-    // follow.
-    let unfollowed = parsed.size === 0
+    const accounted = new Set([...parsed].map((node) => (node as ts.StringLiteralLike).text))
+    let unfollowed = [...wanted].some((specifier) => !accounted.has(specifier))
     const visit = (node: ts.Node): void => {
-        if (readsTarget(node) && !parsed.has(node)) {
+        if (ts.isStringLiteralLike(node) && wanted.has(node.text) && !parsed.has(node)) {
             unfollowed = true
         }
         ts.forEachChild(node, visit)
@@ -292,7 +313,8 @@ function schemaChangeBlockers(input: GapInput, carried: Set<string>, file: strin
                 (affected.length > 0 && handWrittenImporters(input, importer).length > 0)
             )
         }
-        const named = altered && namedImports(input.readHead(importer), file)
+        const named =
+            altered && namedImports(input.readHead(importer), input.compiled.specifiers?.get(file)?.get(importer))
         return !named || [...named].some((name) => altered.has(name))
     })
 }
@@ -423,6 +445,7 @@ export function findCatalogGaps(input: GapInput): GapResult {
 export function compiledFiles(metafiles: { path: string; root: string }[], repoRoot: string): CompiledGraph {
     const files = new Set<string>()
     const importers = new Map<string, Set<string>>()
+    const specifiers = new Map<string, Map<string, string[]>>()
     // A module a build plugin makes up, like `cf-stub:cloudflare:workers`, is no file in the repository.
     const repoFile = (root: string, path: string): string | undefined => {
         if (path.includes(':')) {
@@ -446,11 +469,15 @@ export function compiledFiles(metafiles: { path: string; root: string }[], repoR
                 const target = imported.external ? undefined : repoFile(root, imported.path)
                 if (target) {
                     importers.set(target, (importers.get(target) ?? new Set()).add(file))
+                    const byImporter = specifiers.get(target) ?? new Map<string, string[]>()
+                    const named = imported.kind === 'import-statement' ? imported.original : undefined
+                    byImporter.set(file, [...(byImporter.get(file) ?? []), named ?? UNNAMED_IMPORT])
+                    specifiers.set(target, byImporter)
                 }
             }
         }
     }
-    return { files, importers }
+    return { files, importers, specifiers }
 }
 
 // Patterns apply in order, and a later `!pattern` excludes again, as GitHub applies them.
