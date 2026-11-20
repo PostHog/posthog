@@ -8805,8 +8805,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     write_scopes?: string[]
     /**
-     * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-     * @maxItems 1
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
      */
     report_actions?: string[]
     /**
@@ -9168,8 +9168,8 @@ export interface SignalScoutConfigApi {
      */
     readonly write_scopes: readonly string[]
     /**
-     * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-     * @maxItems 1
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
      */
     readonly report_actions: readonly string[]
     /**
@@ -9348,8 +9348,8 @@ export interface SignalScoutConfigCreateApi {
      */
     write_scopes?: string[]
     /**
-     * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-     * @maxItems 1
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
      */
     report_actions?: string[]
     /**
@@ -9525,8 +9525,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     write_scopes?: string[]
     /**
-     * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-     * @maxItems 1
+     * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+     * @maxItems 2
      */
     report_actions?: string[]
     /**
@@ -10190,6 +10190,53 @@ export interface ScoutTrialHistoryApi {
 }
 
 /**
+ * * `overwrite` - Overwrite
+ * * `forget` - Forget
+ */
+export type SignalScratchpadRevisionChangeEnumApi =
+    (typeof SignalScratchpadRevisionChangeEnumApi)[keyof typeof SignalScratchpadRevisionChangeEnumApi]
+
+export const SignalScratchpadRevisionChangeEnumApi = {
+    Overwrite: 'overwrite',
+    Forget: 'forget',
+} as const
+
+/**
+ * The state a scratchpad entry held before one write replaced or deleted it.
+ */
+export interface ScratchpadRevisionApi {
+    /** The entry's content before the change. */
+    content: string
+    /**
+     * The entry's ISO-8601 expiry before the change, or null if it was durable.
+     * @nullable
+     */
+    expires_at: string | null
+    /** `overwrite` when a `remember` replaced this state, `forget` when a delete removed it.
+     *
+     * * `overwrite` - Overwrite
+     * * `forget` - Forget */
+    change: SignalScratchpadRevisionChangeEnumApi
+    /** ISO-8601 time of the change. */
+    changed_at: string
+    /**
+     * Scout run that made the change, or null when a pipeline stage or a person did.
+     * @nullable
+     */
+    changed_by_run_id: string | null
+    /**
+     * Who made the change: the skill name of the scout run, or the report-pipeline stage (`pipeline:report-research`, `pipeline:implementation`). Null when a person deleted the entry.
+     * @nullable
+     */
+    changed_by_skill: string | null
+    /**
+     * Relative Tasks UI deep-link to the run that made the change, or null.
+     * @nullable
+     */
+    changed_by_run_url: string | null
+}
+
+/**
  * `SignalScratchpad` projection used by `search-memory` and `remember`.
  */
 export interface ScratchpadEntryApi {
@@ -10227,6 +10274,11 @@ export interface ScratchpadEntryApi {
      * @nullable
      */
     created_by_run_url?: string | null
+    /**
+     * Earlier versions of this entry, newest first, when the search set `include_revisions`; null otherwise. For a key that was deleted, the entry has blank `content` and null `created_at`, and the newest revision is the deleted state.
+     * @nullable
+     */
+    revisions?: ScratchpadRevisionApi[] | null
 }
 
 /**
@@ -14494,6 +14546,10 @@ export type SignalsScoutScratchpadSearchParams = {
      * Include entries whose `expires_at` has passed. Off by default so a time-boxed memory retires itself; turn it on to audit what the fleet remembered and when it lapsed.
      */
     include_expired?: boolean
+    /**
+     * With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content.
+     */
+    include_revisions?: boolean
     /**
      * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
      * @minLength 1

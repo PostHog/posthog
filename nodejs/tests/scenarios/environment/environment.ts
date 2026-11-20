@@ -90,7 +90,7 @@ export type Action =
           signal: AbortSignal
       }
 
-export type Actuation = FaultHold & { journal?(): FailoverJournal }
+export type Actuation = FaultHold & { journal?(): FailoverJournal; refused?(): boolean }
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
