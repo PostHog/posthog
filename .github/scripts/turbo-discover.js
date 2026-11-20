@@ -12,10 +12,10 @@
 // Lib packages are the other kind of workspace package with a backend:test task:
 // the Python distributions under packages/ (@posthog/owners-yaml and the like). They
 // never become matrix entries, because their own tests run in ci-python.yml.
-// They matter here as cascade sources. Each one is a uv distribution, so tach
+// They matter here as cascade sources. Each one is a uv distribution, so hoglint
 // resolves an import of it as third-party and records no edge to it, which means
 // nothing declares who its consumers are. A changed lib's direct consumers come
-// from scanning products/ for its import statements, and the tach map then
+// from scanning products/ for its import statements, and the hoglint map then
 // supplies the product-to-product closure over those consumers. The same scan
 // covers posthog/, ee/ and common/, where an importer has no product id to
 // select, so the only sound answer there is the full suite.
@@ -364,21 +364,20 @@ function testlessProducts(testTasks) {
     )
 }
 
-// --- Dependent cascade (tach map) ---
+// --- Dependent cascade (hoglint map) ---
 // When a product's contract changes, Turbo's graph has no edges to the
 // products that depend on it (no workspace deps, no `dependsOn`), so those
-// dependents never get retested — see #70556. `tach map` is the graph we
+// dependents never get retested — see #70556. `hoglint map` is the graph we
 // actually have: it walks the real imports of every Python file under
-// tach.toml's source roots, the same imports `tach check --dependencies`
-// enforces in CI, so it can't drift from what's importable. It reads the files
-// rather than the declared depends_on lists, so an import the declaration
-// misses (a module path in a string, a test that imports another product's
-// facade) still cascades. Reuse it to compute who transitively depends on a
-// changed product's contract.
+// hoglint.toml's source roots, the same import graph `hoglint compare` checks
+// in CI, so it can't drift from what's importable. It reads the files, so an
+// import no config names (a module path in a string, a test that imports
+// another product's facade) still cascades. Reuse it to compute who
+// transitively depends on a changed product's contract.
 //
-// tach_map.py pins tach in its PEP 723 block and runs under `uv run
+// hoglint_map.py pins hoglint in its PEP 723 block and runs under `uv run
 // --no-project`, so the callers need uv and nothing from the Python project.
-const TACH_MAP_SCRIPT = path.join(__dirname, 'tach_map.py')
+const HOGLINT_MAP_SCRIPT = path.join(__dirname, 'hoglint_map.py')
 const PRODUCTS_DIR = 'products/'
 
 // Turbo package names are dashed; product directories are underscored. Every
@@ -425,18 +424,18 @@ function listChangedFiles(base, head) {
         .filter(Boolean)
 }
 
-// Collapse tach's file map ({ file: [files that import it] }) into
+// Collapse hoglint's file map ({ file: [files that import it] }) into
 // product -> [products it imports]. Keys and values are product directory
 // names (underscores); callers normalize to/from Turbo's dashed names. Every
 // product that owns a file in the map is a key, with or without cross-product
 // imports, so a reader can tell "no importers" from "not walked".
 //
 // Files outside products/ (posthog, ee, common) are dropped on both sides
-// deliberately. See tachDependents for why routing through them would be
+// deliberately. See importDependents for why routing through them would be
 // wrong, not just inconvenient. Test files stay in: a test that imports
 // another product's facade depends on that product as much as production
 // code does.
-function productGraphFromTachMap(fileMap) {
+function productGraphFromImportMap(fileMap) {
     const graph = new Map()
     const node = (product) => {
         if (!graph.has(product)) {
@@ -487,7 +486,7 @@ function productGraphFromTachMap(fileMap) {
 // transitive; see contractCascadeIsDirect for the runs that take one hop.
 // Merge-queue lane assignment asks a narrower question and passes direct: true;
 // see trunk-impacted-targets.js for why one hop is the boundary there.
-function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
+function importDependents(changedProducts, moduleGraph, { direct = false } = {}) {
     const reverse = new Map()
     for (const [product, deps] of moduleGraph) {
         for (const dep of deps) {
@@ -510,40 +509,40 @@ function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
     return [...visited].map(moduleToProduct)
 }
 
-// Runs tach_map.py in repoRoot and returns the product graph, or null when uv
+// Runs hoglint_map.py in repoRoot and returns the product graph, or null when uv
 // is missing, the run fails, or it prints something that is not the map. Callers
 // must treat null as "unknown dependents" and widen the matrix — never as "no
 // dependents", which would silently under-test exactly the contract changes
 // this cascade guards.
 //
-// tach map exits 0 and drops a file it cannot parse, so a syntax error hides
-// that file's imports. That cannot under-test here: a file broken on master
+// hoglint map exits 0 and reads no import from a file it cannot parse, so a
+// syntax error hides that file's imports. That cannot under-test here: a file broken on master
 // fails ruff and every import of it, and a file the PR broke sits in a product
 // Turbo already selects.
 //
 // The run walks every Python file and takes seconds, so the result is kept per
 // process; a second caller gets the same graph, a failure included.
-const tachModuleGraphByRoot = new Map()
+const importGraphByRoot = new Map()
 
-function loadTachModuleGraph(repoRoot = process.cwd()) {
-    if (!tachModuleGraphByRoot.has(repoRoot)) {
-        tachModuleGraphByRoot.set(repoRoot, runTachMap(repoRoot))
+function loadImportGraph(repoRoot = process.cwd()) {
+    if (!importGraphByRoot.has(repoRoot)) {
+        importGraphByRoot.set(repoRoot, runHoglintMap(repoRoot))
     }
-    return tachModuleGraphByRoot.get(repoRoot)
+    return importGraphByRoot.get(repoRoot)
 }
 
-function runTachMap(repoRoot) {
+function runHoglintMap(repoRoot) {
     let raw
     try {
-        raw = execFileSync('uv', ['run', '--no-project', TACH_MAP_SCRIPT], { ...TURBO_EXEC_OPTS, cwd: repoRoot })
+        raw = execFileSync('uv', ['run', '--no-project', HOGLINT_MAP_SCRIPT], { ...TURBO_EXEC_OPTS, cwd: repoRoot })
     } catch (e) {
-        console.error(`::warning::tach map failed (${e.message}) — the dependent cascade widens to every product`)
+        console.error(`::warning::hoglint map failed (${e.message}) — the dependent cascade widens to every product`)
         return null
     }
     try {
-        return productGraphFromTachMap(JSON.parse(raw))
+        return productGraphFromImportMap(JSON.parse(raw))
     } catch (e) {
-        console.error(`::warning::Could not parse the tach map (${e.message}) — the dependent cascade widens to every product`)
+        console.error(`::warning::Could not parse the hoglint map (${e.message}) — the dependent cascade widens to every product`)
         return null
     }
 }
@@ -579,7 +578,7 @@ function deletedProductPythonFiles() {
 // PR run it does: a direct importer is the only product that can reference the
 // changed symbols, and a product further out sees only its importer's unchanged
 // code, the same exposure an isolated product's internal edit gives its
-// dependents, which retests none of them. The product cycle in the tach map
+// dependents, which retests none of them. The product cycle in the import map
 // makes the transitive walk reach most products from any seed inside it. The
 // merge queue and master do not select, so they keep the transitive walk and
 // catch a break mediated through an intermediate product before it lands.
@@ -587,23 +586,23 @@ function contractCascadeIsDirect({ applies, disabled }) {
     return applies && !disabled
 }
 
-// Products that depend on `products` per the tach map, transitively unless
+// Products that depend on `products` per the hoglint map, transitively unless
 // `direct`, or null when the map cannot be read. Callers treat null as
 // "unknown dependents" and widen.
-function tachDependentProducts(products, allProductSet, { direct = false } = {}) {
+function importDependentProducts(products, allProductSet, { direct = false } = {}) {
     const deleted = deletedProductPythonFiles()
     if (deleted === null) {
         return null
     }
     if (deleted.length > 0) {
-        console.error(`Deleted product files have no importer edges in the tach map: ${JSON.stringify(deleted)} — the dependent cascade widens to every product`)
+        console.error(`Deleted product files have no importer edges in the hoglint map: ${JSON.stringify(deleted)} — the dependent cascade widens to every product`)
         return null
     }
-    const tachGraph = loadTachModuleGraph()
-    if (tachGraph === null) {
+    const importGraph = loadImportGraph()
+    if (importGraph === null) {
         return null
     }
-    return tachDependents(products, tachGraph, { direct }).filter((p) => allProductSet.has(p))
+    return importDependents(products, importGraph, { direct }).filter((p) => allProductSet.has(p))
 }
 
 // Products a schema change reaches, [] for a purely additive change, or null when
@@ -628,11 +627,11 @@ function schemaAffectedProducts() {
 }
 
 // The products a legacy diff must test whatever the backend test selector reached: the
-// ones Turbo saw change, their tach dependents, and the ones a schema change reaches.
+// ones Turbo saw change, their import dependents, and the ones a schema change reaches.
 // Null when any of that is unknowable, which callers must treat as "do not narrow".
 function legacyMustRunProducts(affectedTasks, allProductSet, schemaChanged) {
     const affected = getAffectedTaskProducts(affectedTasks)
-    const dependents = tachDependentProducts(affected, allProductSet)
+    const dependents = importDependentProducts(affected, allProductSet)
     if (dependents === null) {
         return null
     }
@@ -787,8 +786,8 @@ function productPrefix(product) {
 }
 
 // --- Lib package consumers (import scan) ---
-// The tach map cannot answer who uses a lib package: the package is a uv
-// distribution, so tach resolves `import owners_yaml` as third-party and records
+// The hoglint map cannot answer who uses a lib package: the package is a uv
+// distribution, so hoglint resolves `import owners_yaml` as third-party and records
 // no edge to it. The import statements themselves are the only record, and unlike
 // a declared edge they cannot drift from what the code does.
 //
@@ -1663,9 +1662,9 @@ module.exports = {
     productEffectiveCost,
     STALENESS_COVERAGE_THRESHOLD,
     STALENESS_FALLBACK_SECONDS_PER_FILE,
-    productGraphFromTachMap,
-    loadTachModuleGraph,
-    tachDependents,
+    productGraphFromImportMap,
+    loadImportGraph,
+    importDependents,
     contractCascadeIsDirect,
     getAffectedLibPackages,
     libImportName,
@@ -1753,7 +1752,7 @@ if (legacyChanged) {
         runLegacy = true
         runLegacyReason = 'non_isolated_product'
         // Products that import the changed product's internals keep their events_json paths too.
-        const dependents = tachDependentProducts(nonIsolatedAffectedProducts, allProductSet)
+        const dependents = importDependentProducts(nonIsolatedAffectedProducts, allProductSet)
         diffProducts = dependents === null ? null : [...new Set([...affectedProducts, ...dependents])].sort()
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
@@ -1770,7 +1769,7 @@ if (legacyChanged) {
                 disabled: process.env.SELECTION_DISABLED === 'true',
             })
             dependentCascade = direct ? 'direct' : 'transitive'
-            const dependents = tachDependentProducts(affectedContracts, allProductSet, { direct })
+            const dependents = importDependentProducts(affectedContracts, allProductSet, { direct })
             if (dependents === null) {
                 // Fail toward over-testing, like the quarantine loaders above: without the
                 // graph we cannot know which products depend on the changed contract, and
@@ -1780,7 +1779,7 @@ if (legacyChanged) {
             } else {
                 if (dependents.length > 0) {
                     console.error(
-                        `Dependent products cascaded in via tach map: ${JSON.stringify(dependents)} (${direct ? 'directly' : 'transitively'} depend on ${JSON.stringify(affectedContracts)})`
+                        `Dependent products cascaded in via hoglint map: ${JSON.stringify(dependents)} (${direct ? 'directly' : 'transitively'} depend on ${JSON.stringify(affectedContracts)})`
                     )
                 }
                 products = [...new Set([...affectedProducts, ...dependents])].sort()
@@ -1820,7 +1819,7 @@ if (legacyChanged) {
         if (directConsumers.size === 0) {
             console.error('No product imports the changed lib packages — nothing cascaded in')
         } else {
-            const cascaded = tachDependentProducts([...directConsumers], allProductSet)
+            const cascaded = importDependentProducts([...directConsumers], allProductSet)
             if (cascaded === null) {
                 // Fail toward over-testing, like the contract cascade above: without the
                 // graph we cannot know which products depend on the changed package.
@@ -1831,7 +1830,7 @@ if (legacyChanged) {
                 diffProducts = null
             } else {
                 if (cascaded.length > 0) {
-                    console.error(`Products depending on those importers via the tach map: ${JSON.stringify(cascaded)}`)
+                    console.error(`Products depending on those importers via the hoglint map: ${JSON.stringify(cascaded)}`)
                 }
                 const reached = [...new Set([...directConsumers, ...cascaded])].sort()
                 products = [...new Set([...products, ...reached])].sort()

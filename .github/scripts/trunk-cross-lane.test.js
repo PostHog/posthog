@@ -18,12 +18,12 @@ const CONTEXT = {
         ],
     },
     rustAffectedCrates: ['capture'],
-    tachGraph: {
+    importGraph: {
         graph: new Map([
             ['alpha', []],
             ['beta', []],
         ]),
-        tachDependents: () => [],
+        importDependents: () => [],
     },
 }
 

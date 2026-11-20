@@ -909,8 +909,8 @@ jobs:
               run: node .github/scripts/backend-full-run-state.js >> "$GITHUB_OUTPUT"
             - name: Install turbo
               uses: ./.depot/actions/setup-turbo
-            # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
-            # --no-project` for the dependent cascade; the script pins tach, so no
+            # turbo-discover.js runs .github/scripts/hoglint_map.py under `uv run
+            # --no-project` for the dependent cascade; the script pins hoglint, so no
             # Python project sync is needed. A missing uv widens the cascade to
             # every product rather than failing the job.
             - uses: ./.depot/actions/setup-uv
