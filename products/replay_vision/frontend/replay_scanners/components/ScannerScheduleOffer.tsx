@@ -23,27 +23,41 @@ export function ScannerScheduleOffer({ scannerId }: { scannerId: string }): JSX.
 
 function VisibleScannerScheduleOffer({ scannerId }: { scannerId: string }): JSX.Element {
     const { scannerEstimate, scannerEstimateLoading } = useValues(replayScannerLogic({ id: scannerId }))
+    const { loadScannerEstimate } = useActions(replayScannerLogic({ id: scannerId }))
     const { scheduleOfferShown, acceptScheduleOffer, dismissScheduleOffer } = useActions(
         scannerRunTabLogic({ scannerId })
     )
     useOnMountEffect(scheduleOfferShown)
 
     const monthlyCredits = scannerEstimate?.estimated_credits_per_month
+    // A schedule spends credits on its own, so it is only offered once its cost is known.
+    const estimateFailed = monthlyCredits == null && !scannerEstimateLoading
     return (
         <LemonBanner
             type="info"
             dismissKey={dismissKey(scannerId)}
             onClose={dismissScheduleOffer}
-            action={{
-                children: 'Turn on schedule',
-                onClick: acceptScheduleOffer,
-                disabledReason: scannerEstimateLoading ? 'Estimating the monthly cost…' : undefined,
-                'data-attr': 'vision-scanner-schedule-offer-accept',
-            }}
+            action={
+                estimateFailed
+                    ? {
+                          children: 'Try again',
+                          onClick: loadScannerEstimate,
+                          'data-attr': 'vision-scanner-schedule-offer-retry-estimate',
+                      }
+                    : {
+                          children: 'Turn on schedule',
+                          onClick: acceptScheduleOffer,
+                          disabledReason: monthlyCredits == null ? 'Estimating the monthly cost…' : undefined,
+                          'data-attr': 'vision-scanner-schedule-offer-accept',
+                      }
+            }
         >
-            This scanner only runs when you start a scan. Turn on its schedule to scan new matching recordings
-            automatically
-            {monthlyCredits != null ? `, about ${formatCreditCount(monthlyCredits)} a month.` : '.'}
+            This scanner only runs when you start a scan.{' '}
+            {estimateFailed
+                ? "Couldn't estimate what a schedule would cost. Try again to see the cost before turning it on."
+                : `Turn on its schedule to scan new matching recordings automatically${
+                      monthlyCredits != null ? `, about ${formatCreditCount(monthlyCredits)} a month.` : '.'
+                  }`}
         </LemonBanner>
     )
 }
