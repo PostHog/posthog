@@ -66,7 +66,8 @@ describe('FlagCallsList', () => {
     })
 
     it('shows each mounted list its own calls', async () => {
-        const lists = ['acme', 'globex'].map((groupKey) => {
+        const groupKeys = ['acme', 'globex']
+        const lists = groupKeys.map((groupKey) => {
             const logic = groupLogic({ groupTypeIndex: 0, groupKey })
             logic.mount()
             const { container } = render(
@@ -84,7 +85,9 @@ describe('FlagCallsList', () => {
         for (const { groupKey, container } of lists) {
             const list = within(container)
             expect(await list.findByText(`flag-of-${groupKey}`)).toBeInTheDocument()
-            expect(list.queryByText(groupKey === 'acme' ? 'flag-of-globex' : 'flag-of-acme')).not.toBeInTheDocument()
+            for (const otherKey of groupKeys.filter((key) => key !== groupKey)) {
+                expect(list.queryByText(`flag-of-${otherKey}`)).not.toBeInTheDocument()
+            }
         }
     })
 })
