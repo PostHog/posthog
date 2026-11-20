@@ -240,6 +240,33 @@ jobs:
                     pnpm --filter @posthog/replay-headless run build:phone
                   fi
 
+            # The bundle is minified, so its diff cannot be reviewed. This lists the player source changes the
+            # refresh brings into the app, so the mobile team can review those instead of the bytes.
+            - name: Summarize the player changes this bundle brings in
+              if: github.event_name == 'pull_request' && needs.changes.outputs.replay_bundle == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  previous=$(gh api "repos/$REPO/commits?sha=$BASE_SHA&path=products/mobile/src/features/replay/web/phonePlayer.generated.replay&per_page=1" --jq '.[0].sha // empty')
+                  {
+                    echo "## Player changes in this replay bundle"
+                    if [[ -z "$previous" ]]; then
+                      echo "This is the first bundle, so there is no earlier bundle to compare against."
+                    else
+                      since=$(gh api "repos/$REPO/commits/$previous" --jq '.commit.committer.date')
+                      echo "Review these player source commits instead of the minified bundle. They landed after ${previous:0:10}, which built the previous bundle."
+                      echo
+                      # The commits API filters by path, so a long range is not cut off like a compare file list.
+                      for path in common/replay-shared common/replay-headless patches; do
+                        gh api --paginate "repos/$REPO/commits?sha=$HEAD_SHA&path=$path&since=$since" \
+                          --jq ".[] | select(.sha != \"$previous\") | \"\(.commit.committer.date)\t- [\(.sha[0:10])](https://github.com/$REPO/commit/\(.sha)) \(.commit.message | split(\"\n\")[0])\""
+                      done | sort -u | cut -f2- | grep . || echo "No player source commits."
+                    fi
+                  } >>"$GITHUB_STEP_SUMMARY"
+
             # Release runs ship the committed bundle, and Mobile CI Pass is not a required check, so a
             # bundle could reach master without its PR check passing. No later commit touched the bundle,
             # so it is identical at the commit that last changed it, and that commit's source must build it.
