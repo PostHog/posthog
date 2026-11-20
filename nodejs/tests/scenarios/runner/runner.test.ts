@@ -333,16 +333,19 @@ describe('runner', () => {
                 projectToken = 'phc_test',
                 month = {},
                 actions = [{ id: 'exit-1', type: 'exit' }],
+                ramp,
             }: {
                 metrics?: number
                 project?: number
                 projectToken?: string
                 month?: Record<string, number>
                 actions?: { id: string; type: string }[]
+                ramp?: LoadedCard
             },
             interrupt = new AbortController()
         ): Promise<{ result: RunResult; offered: number }> => {
             let offered = 0
+            const receipts: [string, number, string][] = []
             const server = http.createServer((req, res) => {
                 let text = ''
                 req.on('data', (chunk) => (text += chunk))
@@ -352,8 +355,11 @@ describe('runner', () => {
                     }
                     if (req.url === '/i/v1/analytics/events') {
                         offered++
-                        interrupt.abort()
-                        const { uuid } = parseJSON(text).batch[0]
+                        const { uuid, properties } = parseJSON(text).batch[0]
+                        receipts.push([properties.unit_id, Date.now(), uuid])
+                        if (!ramp) {
+                            interrupt.abort()
+                        }
                         return reply(200, { results: { [uuid]: { result: 'ok' } } })
                     }
                     if (req.headers.authorization !== 'Bearer phx_test') {
@@ -364,13 +370,19 @@ describe('runner', () => {
                     }
                     if (req.url!.startsWith('/api/projects/1/hog_flows/')) {
                         const daily = req.url!.includes('interval=day')
-                        const series = Object.entries(daily ? month : {}).map(([name, n]) => ({ name, values: [n] }))
+                        const exits = req.url!.includes('instance_id=exit-1')
+                        const hour = ramp
+                            ? exits
+                                ? { succeeded: offered }
+                                : { triggered: offered, quota_limited: Math.min(offered, 1) }
+                            : {}
+                        const series = Object.entries(daily ? month : hour).map(([name, n]) => ({ name, values: [n] }))
                         return reply(metrics, { labels: ['2026-11-01'], series })
                     }
                     if (req.url === '/api/projects/1/') {
                         return reply(project, { id: 1, api_token: projectToken })
                     }
-                    return reply(200, { results: [] })
+                    return reply(200, { results: receipts })
                 })
             })
             await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -389,7 +401,7 @@ describe('runner', () => {
                 }
             )
             try {
-                return { result: await onDev.run(devCard(), interrupt.signal), offered }
+                return { result: await onDev.run(ramp ?? devCard(), interrupt.signal), offered }
             } finally {
                 await onDev.down()
                 await new Promise<void>((done) => server.close(() => done()))
@@ -416,7 +428,7 @@ describe('runner', () => {
             [
                 'a workflow whose finished runs cannot be counted at one exit',
                 { actions: [{ id: 'webhook-1', type: 'function' }] },
-                'the workflow has 0 exit actions',
+                'the workflow needs one exit action and no action that aborts',
             ],
             [
                 'a month whose runs leave less than a full run of room',
@@ -429,6 +441,39 @@ describe('runner', () => {
             expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringContaining(reason) })
             expect(offered).toBe(0)
         })
+
+        it('halts a dev ramp at the step after which dev quota limited a run, and offers no unit after the halt', async () => {
+            const card = devCard()
+            const ramp: LoadedCard = {
+                ...card,
+                card: {
+                    ...card.card,
+                    drive: {
+                        ...card.card.drive,
+                        for: '31s',
+                        ramp: [
+                            { scale: 1, for: '1s' },
+                            { scale: 1, for: '30s' },
+                        ],
+                        stopOnBreak: true,
+                    },
+                    invariants: card.card.invariants.filter(({ name }) => name === 'refused_at_intake'),
+                    gates: { refused_at_intake: 0 },
+                    convergeWithin: '3s',
+                },
+            }
+
+            const { result, offered } = await runOnDev({ ramp })
+
+            expect({ offered: offered < 31, ramp: result.ramp }).toEqual({
+                offered: true,
+                ramp: expect.objectContaining({
+                    end: 'harness_limit',
+                    reason: 'dev quota limited 1 runs of the workflow at the 1x step',
+                    broke: expect.objectContaining({ by: 'target', kind: 'harness', scale: 1 }),
+                }),
+            })
+        }, 90_000)
 
         it('publishes no topology hash for a run whose target has no processes to read', async () => {
             const { result, offered } = await runOnDev({})

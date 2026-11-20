@@ -150,7 +150,7 @@ describe('dev reads', () => {
         }
     })
 
-    it('counts the workflow runs that have not reached its exit or ended another way', async () => {
+    it('counts the workflow runs that have not reached its exit or been quota limited', async () => {
         const dev = await fakeDev({
             receipts: [],
             series: { triggered: [3, 7], fetch: [5, 9], failed: [0, 1], quota_limited: [0, 1], succeeded: [9, 18] },
@@ -159,7 +159,7 @@ describe('dev reads', () => {
         try {
             const runs = await workflowRuns(dev.config, '2026-11-20T14:00:00.000Z', 'hour', 'exit-1')
 
-            expect([runs, unfinishedOf(runs)]).toEqual([{ triggered: 10, exited: 6, failed: 1, quota_limited: 1 }, 2])
+            expect([runs, unfinishedOf(runs)]).toEqual([{ triggered: 10, exited: 6, quota_limited: 1 }, 3])
         } finally {
             await dev.close()
         }

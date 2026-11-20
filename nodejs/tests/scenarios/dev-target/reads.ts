@@ -83,40 +83,36 @@ export function receiptTruth(config: DevConfig, runId: string, now = Date.now): 
     }
 }
 
-export type WorkflowRuns = Record<'triggered' | 'exited' | 'failed' | 'quota_limited', number>
+export type WorkflowRuns = Record<'triggered' | 'exited' | 'quota_limited', number>
 
-async function metricsRead(config: DevConfig, query: string): Promise<(name: string) => number> {
+async function metricsRead(config: DevConfig, query: Record<string, string>): Promise<(name: string) => number> {
     const { teamId, workflowId } = config.offers
+    const params = new URLSearchParams({ breakdown_by: 'name', ...query })
     const { series } = (await devFetch(
-        `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/metrics/?breakdown_by=name&${query}`,
+        `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/metrics/?${params}`,
         { headers: { authorization: `Bearer ${config.key}` } },
         'workflow metrics read'
     )) as { series: { name: string; values: number[] }[] }
     return (name) => series.find((entry) => entry.name === name)?.values.reduce((sum, value) => sum + value, 0) ?? 0
 }
 
-// Every action counts a run as succeeded and every fetch attempt as a fetch, so only the exit action counts it once.
+// Every action counts a run as succeeded, and a failed action without `on_error: abort` goes on to the exit, so a
+// run of a workflow without aborting actions ends only at its exit or when dev quota limited it.
 export async function workflowRuns(
     config: DevConfig,
     after: string,
     interval: 'hour' | 'day',
     exitId?: string
 ): Promise<WorkflowRuns> {
-    const window = `after=${after}&interval=${interval}`
     const [runs, exits] = await Promise.all([
-        metricsRead(config, `${window}&name=triggered,failed,quota_limited`),
-        exitId ? metricsRead(config, `${window}&name=succeeded&instance_id=${exitId}`) : undefined,
+        metricsRead(config, { after, interval, name: 'triggered,quota_limited' }),
+        exitId ? metricsRead(config, { after, interval, name: 'succeeded', instance_id: exitId }) : undefined,
     ])
-    return {
-        triggered: runs('triggered'),
-        exited: exits?.('succeeded') ?? 0,
-        failed: runs('failed'),
-        quota_limited: runs('quota_limited'),
-    }
+    return { triggered: runs('triggered'), exited: exits?.('succeeded') ?? 0, quota_limited: runs('quota_limited') }
 }
 
 export const unfinishedOf = (runs: WorkflowRuns): number =>
-    Math.max(0, runs.triggered - runs.exited - runs.failed - runs.quota_limited)
+    Math.max(0, runs.triggered - runs.exited - runs.quota_limited)
 
 export async function exitActionOf(config: DevConfig): Promise<string> {
     const { teamId, workflowId } = config.offers
@@ -124,10 +120,12 @@ export async function exitActionOf(config: DevConfig): Promise<string> {
         `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/`,
         { headers: { authorization: `Bearer ${config.key}` } },
         'workflow read'
-    )) as { actions?: { id: string; type: string }[] }
+    )) as { actions?: { id: string; type: string; on_error?: string | null }[] }
     const exits = actions.filter(({ type }) => type === 'exit')
-    if (exits.length !== 1) {
-        throw new Error(`the workflow has ${exits.length} exit actions, so the runner cannot count its finished runs`)
+    if (exits.length !== 1 || actions.some(({ on_error }) => on_error === 'abort')) {
+        throw new Error(
+            `the workflow needs one exit action and no action that aborts, so the runner can count its finished runs`
+        )
     }
     return exits[0].id
 }

@@ -77,7 +77,6 @@ const hourStart = (): string => {
 const minus = (runs: WorkflowRuns, base: WorkflowRuns): WorkflowRuns => ({
     triggered: runs.triggered - base.triggered,
     exited: runs.exited - base.exited,
-    failed: runs.failed - base.failed,
     quota_limited: runs.quota_limited - base.quota_limited,
 })
 
@@ -85,8 +84,7 @@ export function devTarget(config: DevConfig): RunTarget {
     return {
         name: 'dev',
         open(loaded, runId) {
-            // The metrics table merges an hour's rows under one of their timestamps, so a window must start on the hour,
-            // and the runs it already held before the first offer are subtracted.
+            // The metrics table merges an hour's rows under one of their timestamps, so a window must start on the hour.
             const since = hourStart()
             const { ratePerSecond } = captureWebhook.profile.parse(loaded.profile.traffic[captureWebhook.name])
             let before: Promise<{ exitId: string; base: WorkflowRuns }> | undefined
@@ -123,7 +121,12 @@ export function devTarget(config: DevConfig): RunTarget {
                             `the workflow ran ${month.triggered} times this month, so a run of up to ${DEV_CAPS.units} units could pass DEV_TARGET_MONTHLY_RUNS`
                         )
                     }
-                    await baseline()
+                    const { base } = await baseline()
+                    if (unfinishedOf(base) > 0) {
+                        throw new Error(
+                            `the workflow has ${unfinishedOf(base)} runs unfinished from before this run, which would blur its count`
+                        )
+                    }
                     await checkOffersToken(config)
                     return { teamIds: [teamId], flowIds: { [captureWebhook.name]: { [teamId]: workflowId } } }
                 },
