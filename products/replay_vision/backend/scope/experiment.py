@@ -23,6 +23,14 @@ class ExperimentScopeSettings(BaseModel, frozen=True):
     # ("all_at_creation") or from a person picking a subset ("user"). The launch receiver adds newly
     # created variants to the first and leaves the second alone.
     variants_source: str | None = None
+    # Mirrors the native type's `balance_variants`, which the scope replaces. True spends the
+    # budget about evenly across the watched variants; False samples them proportionally to
+    # rollout. The default matches `ExperimentScanner.balance_variants`, so a scope that omits it
+    # samples the way the scanner it was derived from did.
+    balance: bool = True
+    # Lifecycle intent rather than scan config: the scanner is saved disabled against a draft
+    # experiment, and the launch receiver turns it on. Mirrors the native type's `start_on_launch`.
+    start_on_launch: bool = False
 
 
 class ExperimentScope:
@@ -41,4 +49,13 @@ class ExperimentScope:
         return {"experiment_id": self.settings.experiment_id, "variants": self.settings.variants}
 
     def as_stored(self) -> dict[str, Any]:
-        return {"kind": self.kind, **self.settings.model_dump(exclude_none=True)}
+        """The blob to persist, carrying only the keys that say something.
+
+        `exclude_defaults` keeps a field whose value is its default out of the blob, so adding a
+        defaulted field does not change what an existing row stores. The mirror decides whether it
+        owns a row's scope by comparing the stored blob against a fresh derivation, so a shape that
+        moved under it would make it read every mirrored row as one set directly by hand.
+
+        `exclude_none` still applies to `variants` and `variants_source`, whose default is None.
+        """
+        return {"kind": self.kind, **self.settings.model_dump(exclude_defaults=True, exclude_none=True)}

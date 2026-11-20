@@ -693,8 +693,12 @@ class MetricQueryRunner:
         quantile: float | None = None,
         metric_type: str | None = None,
         range_function: str | None = None,
+        max_series_fingerprints: int | None = None,
     ) -> None:
         """`aggregation=None` returns one row per series and bucket, for at most `MAX_RAW_SERIES` series.
+
+        `max_series_fingerprints` caps each row's `series_fingerprints` to its smallest values, so a caller that
+        only needs a sample does not receive every series of a bucket.
 
         The legacy `rate` and `increase` aggregations mean a range function with a sum across series.
         `count_rate` and `count_increase` are the same over the `count` column of histogram and summary rows.
@@ -741,6 +745,7 @@ class MetricQueryRunner:
         self.group_by = tuple(group_by)
         self.quantile = quantile
         self.metric_type = metric_type
+        self.max_series_fingerprints = max_series_fingerprints
 
     @property
     def scan_from(self) -> dt.datetime:
@@ -790,19 +795,26 @@ class MetricQueryRunner:
 
     def _run_histogram_quantile(self) -> list[dict[str, Any]]:
         """Calculate quantiles from the distributions that ClickHouse sums."""
-        assert self.quantile is not None
-        query = self._build_histogram_query()
+        return self.quantile_rows(self.histogram_rows())
+
+    def histogram_rows(self) -> list[Any]:
+        """The summed distributions, one row per (time, *group labels, bounds, metric type):
+        `(time, *group labels, bounds, counts, series_fingerprints, metric_type)`."""
         response = execute_hogql_query(
             query_type="MetricQuery",
-            query=query,
+            query=self._bound_series_fingerprints(self._build_histogram_query()),
             team=self.team,
             workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)
+        return response.results
 
+    def quantile_rows(self, results: list[Any]) -> list[dict[str, Any]]:
+        """Bucketed quantile rows from rows shaped like `histogram_rows`."""
+        assert self.quantile is not None
         rows: list[dict[str, Any]] = []
-        for key, merged in self.merged_distributions(response.results).items():
+        for key, merged in self.merged_distributions(results).items():
             bounds, counts = merged.bounds, merged.counts
             if sum(counts) <= 0:
                 # The bucket has no computable increase. Return a gap, not zero.
@@ -970,6 +982,21 @@ class MetricQueryRunner:
         assert isinstance(query, ast.SelectQuery) and query.select_from is not None
         query.select_from.table = per_series
         self._splice_group_columns(query)
+        return self._bound_series_fingerprints(query)
+
+    def _bound_series_fingerprints(self, query: ast.SelectQuery) -> ast.SelectQuery:
+        if self.max_series_fingerprints is None:
+            return query
+        for column in query.select:
+            if isinstance(column, ast.Alias) and column.alias == "series_fingerprints":
+                column.expr = ast.Call(
+                    name="arraySlice",
+                    args=[
+                        ast.Call(name="arraySort", args=[column.expr]),
+                        ast.Constant(value=1),
+                        ast.Constant(value=self.max_series_fingerprints),
+                    ],
+                )
         return query
 
     def _build_simple_query(self) -> ast.SelectQuery:

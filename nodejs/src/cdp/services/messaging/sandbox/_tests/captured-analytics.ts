@@ -15,6 +15,10 @@ class InMemoryPostHog {
         return Promise.resolve()
     }
 
+    on(): () => void {
+        return () => {}
+    }
+
     capture(message: EventMessage): void {
         capturedAnalytics.push(message)
     }

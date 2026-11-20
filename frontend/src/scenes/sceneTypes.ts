@@ -43,6 +43,7 @@ export enum Scene {
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
+    DashboardV2 = 'DashboardV2',
     Dashboards = 'Dashboards',
     DashboardTemplateCopy = 'DashboardTemplateCopy',
     DataDeletionRequestNew = 'DataDeletionRequestNew',
@@ -403,6 +404,7 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Dashboards
     [Scene.Dashboard]: AccessControlResourceType.Dashboard,
+    [Scene.DashboardV2]: AccessControlResourceType.Dashboard,
     [Scene.Dashboards]: AccessControlResourceType.Dashboard,
     [Scene.DashboardTemplateCopy]: AccessControlResourceType.Dashboard,
 

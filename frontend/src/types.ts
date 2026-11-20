@@ -40,6 +40,7 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import type {
+    ErrorTrackingAIFeatureEnumApi,
     FlagEvaluationsModeEnumApi,
     OrganizationMemberNoticeApi,
     OrganizationTeamBasicApi,
@@ -759,7 +760,7 @@ export interface PropertyUsageType {
     volume: number
 }
 
-export interface ProjectBasicType {
+export interface ProjectBasicType extends Partial<Pick<ProjectApi, 'logo_media_id'>> {
     [key: string]: any
     id: number
     organization_id: string
@@ -783,7 +784,8 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
 }
 
-export interface ProjectType extends ProjectBasicType, Pick<ProjectApi, 'logo_media_id'> {
+export interface ProjectType extends ProjectBasicType {
+    logo_media_id: ProjectApi['logo_media_id']
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null
@@ -954,6 +956,7 @@ export interface TeamType extends TeamBasicType {
     flag_calls_only_in_flag_evaluations: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     realtime_cohorts?: TeamRealtimeCohortsApi
+    available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: TeamWorkflowsConfigApi
