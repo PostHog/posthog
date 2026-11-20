@@ -3,6 +3,7 @@ import asyncio
 import functools
 import dataclasses
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar
 
 from django.conf import settings
@@ -30,6 +31,11 @@ LOGGER = get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 _R = TypeVar("_R")
+
+MAX_CONCURRENT_DESCRIBE_AND_COUNT = 2
+_describe_and_count_executor = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_DESCRIBE_AND_COUNT, thread_name_prefix="describe-and-count"
+)
 
 
 def _in_span(name: str, call: Callable[[], _R]) -> Callable[[], _R]:
@@ -144,13 +150,15 @@ async def create_table_from_saved_query(
         published_columns = (table_created.columns, table_created.column_order)
         with tracer.start_as_current_span("create_table_from_saved_query.describe_columns"):
             columns = await database_sync_to_async_pool(
-                _in_span("create_table_from_saved_query.describe_columns.run", table_created.get_columns)
+                _in_span("create_table_from_saved_query.describe_columns.run", table_created.get_columns),
+                executor=_describe_and_count_executor,
             )()
         table_created.set_columns(columns)
         if row_count is None:
             with tracer.start_as_current_span("create_table_from_saved_query.count_rows"):
                 row_count = await database_sync_to_async_pool(
-                    _in_span("create_table_from_saved_query.count_rows.run", table_created.get_count)
+                    _in_span("create_table_from_saved_query.count_rows.run", table_created.get_count),
+                    executor=_describe_and_count_executor,
                 )()
         table_created.row_count = row_count
 
