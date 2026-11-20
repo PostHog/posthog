@@ -69,7 +69,7 @@ If the check flags a later commit, repeat both steps with the new command. Ackno
 
 If the comparison job itself fails, the bot tags the Mobile App team with a link to the failed run. Check the error and select **Re-run failed jobs** so CI can finish the comparison.
 
-The app's `product.yaml` routes mobile reviews. `CODEOWNERS` requires Mobile App review for mobile workflows, install and Expo configuration, build plugins and release tooling. DevEx reviews changes to the acknowledgement gate and its tests.
+The app's `product.yaml` and `.github/owners.yaml` route optional Mobile App reviews for app code, mobile workflows, build configuration and release tooling. DevEx approval is required for changes to the acknowledgement gate and its tests.
 
 A repository administrator must add **Mobile Rebuild / Native rebuild acknowledged** from GitHub Actions to the `master` ruleset as part of the ownership rollout. Update the branch of any open PR that lacks the check so it picks up the new workflow.
 
