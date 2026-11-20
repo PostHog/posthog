@@ -339,7 +339,6 @@ class TestFilterRecipeExecution(SimpleTestCase):
                     "assignees": json.dumps([{"id": 2, "login": "octocat", "type": "User"}]),
                     "user": json.dumps({"id": 3, "login": "reporter", "type": "User"}),
                     "author_association": "NONE",
-                    # The warehouse types a column it has only seen null in as a plain String.
                     "type": None,
                     "milestone": json.dumps({"id": 4, "title": "v2", "state": "open"}),
                 },
