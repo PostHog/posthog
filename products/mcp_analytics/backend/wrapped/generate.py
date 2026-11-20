@@ -9,6 +9,7 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.models.utils import strip_null_bytes
 
 from products.mcp_analytics.backend.models import MCPAnalyticsWrapped
 from products.mcp_analytics.backend.wrapped.cards import SCHEMA_VERSION, build_wrapped_cards, is_eligible
@@ -29,17 +30,23 @@ def compute_wrapped(team: Team, year: int) -> WrappedGeneration:
     cards = build_wrapped_cards(fetch_wrapped_aggregates(team, period), team.timezone)
     if cards is None:
         return WrappedGeneration(status=MCPAnalyticsWrapped.Status.INELIGIBLE, payload={})
-    return WrappedGeneration(status=MCPAnalyticsWrapped.Status.READY, payload=dataclasses.asdict(cards))
+    # Tool and server names come from event properties, and a NUL in one makes Postgres reject the whole payload.
+    return WrappedGeneration(
+        status=MCPAnalyticsWrapped.Status.READY, payload=strip_null_bytes(dataclasses.asdict(cards))
+    )
 
 
 def generate_wrapped_snapshot(team: Team, year: int) -> MCPAnalyticsWrapped:
     """Compute and store the snapshot. A failure is recorded and raised, and never replaces a ready snapshot."""
+    if team.parent_team_id is not None:
+        # Rows are keyed by the parent project, so a child environment's wrap would overwrite its parent's.
+        raise ValueError(f"Team {team.id} is an environment of team {team.parent_team_id}. Generate the parent's wrap.")
     try:
         generation = compute_wrapped(team, year)
+        return _save(team, year, status=generation.status, payload=generation.payload, error_message="")
     except Exception as error:
         _record_failure(team, year, error_message=str(error)[:1000])
         raise
-    return _save(team, year, status=generation.status, payload=generation.payload, error_message="")
 
 
 def _record_failure(team: Team, year: int, *, error_message: str) -> None:

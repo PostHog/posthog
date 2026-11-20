@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from django.core.management import CommandError, call_command
 
+from posthog.models.team import Team
+
 from products.mcp_analytics.backend.models import MCPAnalyticsWrapped
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 from products.mcp_analytics.backend.tests.test_wrapped_queries import CLAUDE, NOW, _WrappedEventsTestMixin
@@ -84,6 +86,14 @@ class TestWrappedSnapshot(_WrappedEventsTestMixin, _MCPAnalyticsTeamScopedTestMi
             json.dumps({"status": "ready", "payload": compute_wrapped(self.team, 2026).payload})
         )
         assert not MCPAnalyticsWrapped.objects.filter(team=self.team).exists()
+
+    def test_child_environment_is_refused_and_stores_nothing(self) -> None:
+        child = Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
+
+        with self.assertRaises(ValueError):
+            generate_wrapped_snapshot(child, 2026)
+
+        assert not MCPAnalyticsWrapped.objects.unscoped().filter(year=2026).exists()
 
     def test_command_fails_for_a_missing_team(self) -> None:
         with self.assertRaises(CommandError):
