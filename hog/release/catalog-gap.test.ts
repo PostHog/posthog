@@ -21,6 +21,7 @@ const SCHEMAS = 'services/mcp/src/generated/actions/api.ts'
 const SHARED_SCHEMAS = 'services/mcp/src/generated/workflows/api.ts'
 const HAND_WRITTEN_TOOL = 'services/mcp/src/tools/workflows/lifecycle.ts'
 const REGISTRY = 'services/mcp/src/tools/generated/index.ts'
+const ALIASES = 'services/mcp/src/tools/actions/deprecatedAliases.ts'
 
 const pascal = (tool: string): string =>
     tool.replace(/(^|-)([a-z0-9])/g, (_, __, letter: string) => letter.toUpperCase())
@@ -75,7 +76,12 @@ const MODULES = {
     [SHARED_SCHEMAS]: schemas(WORKFLOW_SCHEMAS),
 }
 
-function gaps(changed: string[], head: Record<string, string>, base: Record<string, string> = {}): GapResult {
+function gaps(
+    changed: string[],
+    head: Record<string, string>,
+    base: Record<string, string> = {},
+    importers: [string, string[]][] = []
+): GapResult {
     return findCatalogGaps({
         changed,
         compiled: {
@@ -87,6 +93,7 @@ function gaps(changed: string[], head: Record<string, string>, base: Record<stri
                 SHARED_SCHEMAS,
                 HAND_WRITTEN_TOOL,
                 REGISTRY,
+                ALIASES,
                 'services/mcp/src/tools/generated/hooks.ts',
                 'services/mcp/src/tools/featureFlags/conditionIdHooks.ts',
                 'services/mcp/schema/tool-definitions.json',
@@ -95,6 +102,7 @@ function gaps(changed: string[], head: Record<string, string>, base: Record<stri
             importers: new Map([
                 [SCHEMAS, new Set([GENERATED])],
                 [SHARED_SCHEMAS, new Set([UNCARRIED_MODULE, HAND_WRITTEN_TOOL])],
+                ...importers.map(([file, from]): [string, Set<string>] => [file, new Set(from)]),
             ]),
         },
         readBase: (path) => ({ ...MODULES, ...base })[path],
@@ -130,6 +138,21 @@ describe('catalog gaps', () => {
             [SHARED_SCHEMAS],
             { [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, HogFlowsPartialUpdateParams: 'a new flow' }) },
             {},
+        ],
+        [
+            'a generated schema file a hand-written tool imports in a form the check cannot parse',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, WorkflowsGet: 'a newer workflow' }),
+                [HAND_WRITTEN_TOOL]: lifecycleTool('HogFlowsPartialUpdateParams').replaceAll("'", '"'),
+            },
+            {},
+        ],
+        [
+            'a module dropped from the registry spread while its import stays',
+            [REGISTRY],
+            { [REGISTRY]: registry('actions', 'workflows').replace('\n    ...workflows,', '') },
+            { [REGISTRY]: registry('actions', 'workflows') },
         ],
         [
             'a generated schema file change outside its schemas',
@@ -191,6 +214,24 @@ describe('catalog gaps', () => {
         ],
     ])('needs no release for %s', (_name, changed, head: Record<string, string>, base: Record<string, string>) => {
         expect(gaps(changed, head, base)).toEqual({ needsRelease: false, bump: 'patch', reasons: [] })
+    })
+
+    test.each([
+        [
+            'a carried generated tool',
+            [GENERATED],
+            { [GENERATED]: generated('action-get', 'action-create', 'action-get') },
+        ],
+        [
+            'a generated schema a carried tool reads',
+            [SCHEMAS],
+            { [SCHEMAS]: schemas({ ActionGet: 'a newer action', ActionCreate: 'a new action' }) },
+        ],
+    ])('needs a patch release for %s that hand-written code wraps', (_name, changed, head: Record<string, string>) => {
+        const result = gaps(changed, head, {}, [[GENERATED, [REGISTRY, ALIASES]]])
+
+        expect(result).toMatchObject({ needsRelease: true, bump: 'patch' })
+        expect(result.reasons.map((reason) => reason.file)).toEqual(changed)
     })
 
     test('counts a tool removed from a generated file, which the catalog no longer carries', () => {

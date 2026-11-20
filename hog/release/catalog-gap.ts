@@ -1,6 +1,6 @@
 // Whether the commits since <base> change code compiled into hog that the downloadable tool catalog can't
 // deliver. The compiled files come from the build metafiles. Run with --base <commit>, usually the last release
-// tag; prints the result as JSON. --list-compiled prints only the compiled files, one per line.
+// tag; prints the result as JSON.
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -193,14 +193,22 @@ function schemasByTool(source: string | undefined): Map<string, Set<string>> | u
     return generatedToolNames(source).every((tool) => byTool.has(tool)) ? byTool : undefined
 }
 
-// The values a module imports from a schema file by name, or undefined when it imports the whole file.
+// The values a module imports from a schema file by name. Undefined when it reads the file any other way, or in a
+// form this can't parse, such as a namespace import, double quotes or a re-export, so every schema counts as read.
 function namedImports(source: string | undefined, schemaFile: string): Set<string> | undefined {
     const target = `generated/${schemaFile.slice(GENERATED_SCHEMAS_DIR.length).replace(/\.ts$/, '')}`
     const names = new Set<string>()
-    for (const [, typeOnly, bindings, from] of (source ?? '').matchAll(
-        /import\s+(type\s+)?([^;]*?)\s+from\s+'([^']+)'/g
+    let unparsed = source ?? ''
+    let found = false
+    for (const [statement, typeOnly, bindings, from] of (source ?? '').matchAll(
+        /import\s+(type\s+)?([^;'"]*?)\s+from\s+'([^']+)'/g
     )) {
-        if (!from!.endsWith(target) || typeOnly) {
+        if (!from!.endsWith(target)) {
+            continue
+        }
+        unparsed = unparsed.replace(statement, '')
+        found = true
+        if (typeOnly) {
             continue
         }
         const named = bindings!.match(/^\{([^}]*)\}$/)
@@ -213,7 +221,13 @@ function namedImports(source: string | undefined, schemaFile: string): Set<strin
             }
         }
     }
-    return names
+    return found && !unparsed.includes(target) ? names : undefined
+}
+
+// Code other than the registry that imports a generated module, like an alias that wraps its tools. hog runs that
+// code whatever the catalog carries.
+function handWrittenImporters(input: GapInput, module: string): string[] {
+    return [...(input.compiled.importers.get(module) ?? [])].filter((importer) => importer !== GENERATED_REGISTRY)
 }
 
 // The importers of a changed schema file that hog runs differently with a downloaded catalog. A generated
@@ -234,29 +248,42 @@ function schemaChangeBlockers(input: GapInput, carried: Set<string>, file: strin
                       .filter(([, schemas]) => [...schemas].some((schema) => altered.has(schema)))
                       .map(([tool]) => tool)
                 : generatedToolNames(input.readHead(importer))
-            return affected.some((tool) => !carried.has(tool))
+            return (
+                affected.some((tool) => !carried.has(tool)) ||
+                (affected.length > 0 && handWrittenImporters(input, importer).length > 0)
+            )
         }
         const named = altered && namedImports(input.readHead(importer), file)
         return !named || [...named].some((name) => altered.has(name))
     })
 }
 
-function registrations(source: string | undefined): { modules: Map<string, string>; rest: string } {
+interface Registrations {
+    modules: Map<string, string>
+    spread: Set<string>
+    rest: string
+}
+
+function registrations(source: string | undefined): Registrations {
     const modules = new Map<string, string>()
+    const spread = new Set<string>()
     const rest: string[] = []
     for (const line of (source ?? '').split('\n')) {
         const imported = line.match(REGISTRY_IMPORT)
+        const spreadAlias = line.match(REGISTRY_SPREAD)?.[1]
         if (imported) {
             modules.set(imported[1]!, `${GENERATED_TOOLS_DIR}${imported[2]!}.ts`)
-        } else if (!REGISTRY_SPREAD.test(line)) {
+        } else if (spreadAlias) {
+            spread.add(spreadAlias)
+        } else {
             rest.push(line)
         }
     }
-    return { modules, rest: rest.join('\n') }
+    return { modules, spread, rest: rest.join('\n') }
 }
 
-// The registry lists the generated modules hog falls back to when the catalog lacks a tool. A change that
-// only adds or drops modules whose tools the catalog carries changes nothing hog runs with a downloaded
+// The registry lists the generated modules hog falls back to when the catalog lacks a tool. A change that only
+// imports, spreads or drops modules whose tools the catalog carries changes nothing hog runs with a downloaded
 // catalog. Any other line that changes counts.
 function registryChangeDelivered(input: GapInput, carried: Set<string>): boolean {
     const base = registrations(input.readBase(GENERATED_REGISTRY))
@@ -265,16 +292,24 @@ function registryChangeDelivered(input: GapInput, carried: Set<string>): boolean
         return false
     }
 
-    const carriedAt = (read: (path: string) => string | undefined, path: string): boolean => {
-        const tools = generatedToolNames(read(path))
-        return generatedModuleName(path) !== undefined && tools.length > 0 && tools.every((tool) => carried.has(tool))
+    const carriedAt = (read: (path: string) => string | undefined, path: string | undefined): boolean => {
+        const tools = generatedToolNames(path ? read(path) : undefined)
+        return (
+            path === undefined ||
+            (generatedModuleName(path) !== undefined && tools.length > 0 && tools.every((tool) => carried.has(tool)))
+        )
     }
-    const added = [...head.modules].filter(([alias, path]) => base.modules.get(alias) !== path)
-    const dropped = [...base.modules].filter(([alias, path]) => head.modules.get(alias) !== path)
-    return (
-        added.every(([, path]) => carriedAt(input.readHead, path)) &&
-        dropped.every(([, path]) => carriedAt(input.readBase, path))
-    )
+    const entry = (side: Registrations, alias: string): string =>
+        `${side.modules.get(alias) ?? ''} ${side.spread.has(alias)}`
+    const aliases = new Set([...base.modules.keys(), ...base.spread, ...head.modules.keys(), ...head.spread])
+    return [...aliases]
+        .filter((alias) => entry(base, alias) !== entry(head, alias))
+        .every(
+            (alias) =>
+                (base.modules.has(alias) || head.modules.has(alias)) &&
+                carriedAt(input.readBase, base.modules.get(alias)) &&
+                carriedAt(input.readHead, head.modules.get(alias))
+        )
 }
 
 // Anything compiled into hog counts unless the catalog provably carries it.
@@ -289,7 +324,12 @@ export function findCatalogGaps(input: GapInput): GapResult {
 
         if (generatedModuleName(file)) {
             const missing = uncarriedTools(input, carried, file)
+            const wrappers = handWrittenImporters(input, file)
+            if (missing?.length === 0 && wrappers.length === 0) {
+                continue
+            }
             if (missing?.length === 0) {
+                reasons.push({ file, why: `generated tools that hand-written code wraps: ${wrappers.join(', ')}` })
                 continue
             }
             reasons.push({
@@ -434,7 +474,6 @@ if (import.meta.main) {
     const { values } = parseArgs({
         options: {
             base: { type: 'string' },
-            'list-compiled': { type: 'boolean', default: false },
             'hog-metafile': { type: 'string', default: resolve(repoRoot, 'hog/dist/hog.metafile.json') },
             'mcp-metafile': {
                 type: 'string',
@@ -446,7 +485,7 @@ if (import.meta.main) {
             },
         },
     })
-    if (!values.base && !values['list-compiled']) {
+    if (!values.base) {
         console.error('Pass the commit to compare with, usually the last release tag, with --base.')
         process.exit(1)
     }
@@ -463,16 +502,6 @@ if (import.meta.main) {
     }
 
     const compiled = compiledFiles(metafiles, repoRoot)
-    if (values['list-compiled'] || !values.base) {
-        process.stdout.write(
-            [...compiled.files]
-                .sort()
-                .map((file) => `${file}\n`)
-                .join('')
-        )
-        process.exit(0)
-    }
-
     const read = readAt(repoRoot)
     const result = findCatalogGaps({
         changed: git(repoRoot, 'diff', '--name-only', `${values.base}...HEAD`).split('\n').filter(Boolean),
@@ -482,6 +511,6 @@ if (import.meta.main) {
     })
     const patterns = releaseCheckoutPatterns(readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8'))
     process.stdout.write(
-        `${JSON.stringify({ ...result, compiled: [...compiled.files].sort(), outsideReleaseCheckout: outsideCheckout(compiled.files, patterns) })}\n`
+        `${JSON.stringify({ ...result, outsideReleaseCheckout: outsideCheckout(compiled.files, patterns) })}\n`
     )
 }
