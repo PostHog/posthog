@@ -295,22 +295,28 @@ def playlist_session_ids(team: Team, short_id: str, date_from: str, date_to: str
     if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
         raise SelectionError(f"{short_id} is a collection. Export its sessions with --session-ids-file instead.")
     query = convert_playlist_to_recordings_query(playlist, persist_legacy_conversion=False)
-    query.date_from = _day_start(date.fromisoformat(date_from)).isoformat()
-    query.date_to = (
-        _day_start(date.fromisoformat(date_to) + timedelta(days=1)) - timedelta(microseconds=1)
-    ).isoformat()
+    # The recordings API resolves these outside the listing query, with a viewer to check access against.
+    if any(getattr(predicate, "key", None) == "comment_text" for predicate in query.having_predicates or []):
+        raise SelectionError(f"{short_id} filters on comment text, which exports cannot apply. Remove that filter.")
+    if query.experiment_exposure is not None:
+        raise SelectionError(f"{short_id} filters on experiment exposure, which exports cannot apply. Remove it.")
     query.order = RecordingOrder.START_TIME
     query.order_direction = RecordingOrderDirection.ASC
     query.limit = PLAYLIST_PAGE_SIZE
     query.offset = None
-    query.after = None
-    session_ids: list[str] = []
-    while True:
-        # A timeout must fail the quote, not return a shorter list that the customer then pays for.
-        result = SessionRecordingListFromQuery(
-            team=team, query=query, max_execution_time=PLAYLIST_QUERY_SECONDS, throw_on_timeout=True
-        ).run()
-        session_ids.extend(row["session_id"] for row in result.results)
-        if not result.has_more_recording or not result.next_cursor:
-            return sorted(set(session_ids))
-        query.after = result.next_cursor
+    session_ids: set[str] = set()
+    # One day per listing bounds the event scan behind each page to that day.
+    for day in day_range(date_from, date_to):
+        query.date_from = _day_start(day).isoformat()
+        query.date_to = (_day_start(day + timedelta(days=1)) - timedelta(microseconds=1)).isoformat()
+        query.after = None
+        while True:
+            # A timeout must fail the quote, not return a shorter list that the customer then pays for.
+            result = SessionRecordingListFromQuery(
+                team=team, query=query, max_execution_time=PLAYLIST_QUERY_SECONDS, throw_on_timeout=True
+            ).run()
+            session_ids.update(row["session_id"] for row in result.results)
+            if not result.has_more_recording or not result.next_cursor:
+                break
+            query.after = result.next_cursor
+    return sorted(session_ids)

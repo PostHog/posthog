@@ -257,7 +257,11 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert error.value.non_retryable
 
     def test_saved_filter_selects_its_matches_in_the_quote_range(self) -> None:
-        for session_id, start in (("s5", self.day + timedelta(hours=3)), ("s6", self.day + timedelta(days=1))):
+        for session_id, start in (
+            ("s5", self.day + timedelta(hours=3)),
+            ("s7", self.day + timedelta(hours=4)),
+            ("s6", self.day + timedelta(days=1)),
+        ):
             produce_replay_summary(
                 team_id=self.team.pk,
                 session_id=session_id,
@@ -304,7 +308,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
 
         quote = self._quote(session_ids)
 
-        assert self._listed_by_day(quote) == [["s5"], ["s6"]]
+        assert self._listed_by_day(quote) == [["s5", "s7"], ["s6"]]
 
     @parameterized.expand([("complete_run", True, 0), ("run_with_skipped_shards", False, None)])
     def test_summary_keeps_our_cost_out_of_the_customer_bucket(

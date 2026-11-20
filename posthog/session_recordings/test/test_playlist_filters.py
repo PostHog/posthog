@@ -42,12 +42,13 @@ class TestConvertFiltersToRecordingsQuery(SimpleTestCase):
         assert query.experiment_exposure.experiment_id == 42
         assert query.experiment_exposure.variant == "test"
 
-    def test_session_ids_survive_conversion(self):
-        # session_ids sits outside filter_group, so dropping it silently widens saved playlist counts.
+    @parameterized.expand([("session_ids", ["0190abc", "0191def"]), ("event_match_scope", "recording")])
+    def test_fields_outside_the_filter_group_survive_conversion(self, key, value):
+        # These sit outside filter_group, so dropping one silently changes what a saved playlist matches.
         filters = _filters("AND", "AND", [])
-        filters["session_ids"] = ["0190abc", "0191def"]
+        filters[key] = value
         query = convert_filters_to_recordings_query(filters)
-        assert query.session_ids == ["0190abc", "0191def"]
+        assert getattr(query, key) == value
 
     def test_visited_page_becomes_recording_property_not_event(self):
         filters = _filters("OR", "OR", [_visited_page("/cart"), _visited_page("/orders")])

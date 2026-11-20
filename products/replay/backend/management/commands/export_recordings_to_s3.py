@@ -30,6 +30,8 @@ from django.core.management.base import BaseCommand, CommandError
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.clickhouse.client.connection import set_default_clickhouse_workload_type
+from posthog.clickhouse.workload import Workload
 from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
@@ -86,6 +88,8 @@ class Command(BaseCommand):
         parser.add_argument("--yes", action="store_true", help="Start without asking for confirmation.")
 
     def handle(self, *args: Any, **options: Any) -> None:
+        # Every query this one-off process runs is an export scan, so none should compete with interactive queries.
+        set_default_clickhouse_workload_type(Workload.OFFLINE)
         if options["status"]:
             self.stdout.write(asyncio.run(_describe(options["status"])))
         elif options["quote"]:

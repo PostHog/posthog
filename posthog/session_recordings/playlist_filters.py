@@ -249,6 +249,8 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             # Also mirrors the frontend converter: a playlist pinned to specific recordings
             # would otherwise count and render every recording that matches the rest of the filters.
             session_ids=filters.get("session_ids"),
+            # Mirrors the frontend converter: without it, a recording-scoped playlist matches events outside the recording.
+            event_match_scope=filters.get("event_match_scope"),
         )
     except ValidationError as e:
         # we were seeing errors here and it was hard to debug
