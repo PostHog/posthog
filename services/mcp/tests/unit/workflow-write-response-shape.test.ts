@@ -67,32 +67,6 @@ describe('workflow write response shape', () => {
         expectStepWithoutInputs(result.draft.actions[0])
     })
 
-    it('drops step inputs from an enable response', async () => {
-        const request = vi.fn().mockResolvedValue(workflow())
-
-        const result: any = await GENERATED_TOOLS['workflows-enable']!().handler(createMockContext(request), {
-            id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
-        } as any)
-
-        expect(result.status).toBe('active')
-        expectStepWithoutInputs(result.actions[0])
-        expectStepWithoutInputs(result.draft.actions[0])
-    })
-
-    it('drops step inputs from the workflow nested in a publish response', async () => {
-        // An unmatched omit path is dropped with no error, which would put the whole graph back on the wire.
-        const request = vi.fn().mockResolvedValue({ published: true, impact: null, workflow: workflow() })
-
-        const result: any = await GENERATED_TOOLS['workflows-publish']!().handler(createMockContext(request), {
-            id: 'wf-1',
-            confirm: true,
-        } as any)
-
-        expect(result.published).toBe(true)
-        expectStepWithoutInputs(result.workflow.actions[0])
-        expectStepWithoutInputs(result.workflow.draft.actions[0])
-    })
-
     const testSenderLive = [{ code: 'test_sender_live', message: 'Set up your sending domain.' }]
     const id = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
 
@@ -193,6 +167,8 @@ describe('workflow write response shape', () => {
             expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
             expect(result.warnings).toEqual(warnings)
             expect(result._posthogUrl).toBe(`${baseUrl}${path}`)
+            expectStepWithoutInputs(result.actions[0])
+            expectStepWithoutInputs(result.draft.actions[0])
         }
     )
 
@@ -232,11 +208,19 @@ describe('workflow write response shape', () => {
                 response
             )
 
-            expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual([
-                `POST /api/projects/42/hog_flows/${id}/publish/`,
+            expect(requests).toEqual([
+                {
+                    method: 'POST',
+                    path: `/api/projects/42/hog_flows/${id}/publish/`,
+                    body: { confirm: false, ...confirmation },
+                },
             ])
             expect(result._agentNote?.includes('test_sender_live') ?? false).toBe(relays)
             expect(result.workflow?.warnings).toEqual((response as any).workflow?.warnings)
+            if (result.workflow) {
+                expectStepWithoutInputs(result.workflow.actions[0])
+                expectStepWithoutInputs(result.workflow.draft.actions[0])
+            }
         }
     )
 })
