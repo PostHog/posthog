@@ -148,7 +148,7 @@ from products.cohorts.backend.models.util import (
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
-from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit, structural_exclusion
 from products.cohorts.backend.parity.tzdates import day_of_instant, resolve_zoneinfo
 from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
@@ -275,7 +275,7 @@ def validate_filters_and_compute_realtime_support(
     team: Team,
     current_cohort_type: str | None = None,
     cohort_count: int | None = None,
-    apply_history_limit: bool = True,
+    apply_pipeline_limits: bool = True,
 ) -> tuple[dict, str | None, list[str] | None]:
     try:
         if not filters_dict:
@@ -313,7 +313,7 @@ def validate_filters_and_compute_realtime_support(
         )
 
         if (
-            apply_history_limit
+            apply_pipeline_limits
             and cohort_type == CohortType.REALTIME
             and behavioral_history_over_limit(
                 clean_filters["properties"],
@@ -321,6 +321,10 @@ def validate_filters_and_compute_realtime_support(
                 today=day_of_instant(timezone.now(), resolve_zoneinfo(team.timezone)),
             )
         ):
+            cohort_type = None
+
+        # The realtime processor skips these cohorts whole, so as realtime they would never get members.
+        if apply_pipeline_limits and cohort_type == CohortType.REALTIME and structural_exclusion(clean_filters):
             cohort_type = None
 
         # Check if cohort exceeds the maximum person count for real-time evaluation
@@ -2289,10 +2293,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     cohort.team,
                     current_cohort_type=cohort.cohort_type,
                     cohort_count=cohort.count,
-                    # The editor sends filters on every save. An absolute start date that aged past the limit
-                    # must not take a realtime cohort off realtime on a rename, because flags that target it
-                    # would then match nobody.
-                    apply_history_limit=filters_changed or not was_realtime,
+                    # The editor sends filters on every save, so a rename must not re-judge a realtime cohort. An
+                    # absolute start date that aged past the limit would take it off realtime, and flags that
+                    # target it would then match nobody.
+                    apply_pipeline_limits=filters_changed or not was_realtime,
                 )
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_cohort_type

@@ -2,7 +2,20 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+
+_HAS_BROWSER = {"key": "$browser", "type": "person", "negation": False, "operator": "is_set"}
+_PAGEVIEW_LAST_30_DAYS_NEGATED = {
+    "key": "$pageview",
+    "type": "behavioral",
+    "value": "performed_event",
+    "negation": True,
+    "event_type": "events",
+    "explicit_datetime": "-30d",
+}
+_PAGEVIEW_EVER = {"key": "$pageview", "type": "behavioral", "value": "performed_event", "event_type": "events"}
 
 
 class TestCohortBytecodeScenarios(APIBaseTest):
@@ -464,6 +477,26 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertEqual(person_filter["type"], "person")
         self.assertIsNotNone(person_filter.get("bytecode"))
         self.assertIsNotNone(person_filter.get("conditionHash"))
+
+    @parameterized.expand(
+        [
+            ("and_root_with_every_child_negated", "AND", [_PAGEVIEW_LAST_30_DAYS_NEGATED]),
+            ("or_root_with_a_negated_child", "OR", [_HAS_BROWSER, _PAGEVIEW_LAST_30_DAYS_NEGATED]),
+            ("event_without_a_time_window", "AND", [_HAS_BROWSER, _PAGEVIEW_EVER]),
+        ]
+    )
+    def test_shapes_the_realtime_processor_skips_are_not_realtime(
+        self, _name: str, root_type: str, values: list[dict[str, Any]]
+    ):
+        realtime_filters = {"properties": {"type": "AND", "values": [_HAS_BROWSER]}}
+        skipped_filters = {"properties": {"type": root_type, "values": values}}
+
+        created = self._create_and_fetch("Skipped by the processor", skipped_filters)
+        self.assertIsNone(created.cohort_type)
+
+        edited = self._create_and_fetch("Edited into a skipped shape", realtime_filters)
+        self.assertEqual(edited.cohort_type, "realtime")
+        self.assertIsNone(self._patch_and_fetch(edited.id, skipped_filters).cohort_type)
 
     def test_cohort_exceeding_20m_person_threshold_not_realtime(self):
         # 7. Cohort with more than 20M persons should not be realtime
