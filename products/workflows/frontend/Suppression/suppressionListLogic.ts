@@ -269,7 +269,10 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                               : `${removed.length} addresses removed from the suppression list`
                     )
                     // Removing every row on the last page leaves that page empty, and the API rejects an empty page.
-                    const pageEmptied = removed.length >= (values.suppressions.results?.length ?? 0)
+                    // Check the requested rows, not `removed`: a row another session removed first is gone too.
+                    const pageEmptied = (values.suppressions.results ?? []).every((row) =>
+                        identifiers.includes(row.identifier)
+                    )
                     actions.loadSuppressions(pageEmptied ? Math.max(1, values.currentPage - 1) : values.currentPage)
                     return removed
                 } catch (e) {

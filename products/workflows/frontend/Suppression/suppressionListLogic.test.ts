@@ -69,8 +69,6 @@ describe('suppressionListLogic', () => {
     })
 
     describe('overlapping request isolation', () => {
-        // Guards the loader breakpoint: a page that the server returns after a newer search must not replace the
-        // search results or move the page number away from them.
         it('shows the search results when the next page they replaced arrives late', async () => {
             const listed = ['a@example.com', 'b@example.com', 'c@example.com']
             let releaseNextPage: () => void = () => {}
@@ -166,6 +164,56 @@ describe('suppressionListLogic', () => {
                 identifiers: ['a@example.com'],
                 confirm_complaints: confirmComplaints,
             })
+        })
+
+        it('steps back a page when another session already removed part of a selection that filled the last page', async () => {
+            let listed = ['a@example.com', 'b@example.com', 'c@example.com', 'd@example.com']
+            useMocks({
+                get: {
+                    '/api/projects/:team/messaging_suppressions/suppressions/': ({ request }) => {
+                        const page = Number(new URL(request.url).searchParams.get('page') ?? 1)
+                        const rows = listed.slice((page - 1) * 2, page * 2)
+                        if (page > 1 && rows.length === 0) {
+                            return [404, { detail: 'Invalid page.' }]
+                        }
+                        const next = page * 2 < listed.length ? `${request.url.split('?')[0]}?page=${page + 1}` : null
+                        return [
+                            200,
+                            {
+                                count: listed.length,
+                                next,
+                                previous: null,
+                                results: rows.map((id) => suppressionRow(id)),
+                            },
+                        ]
+                    },
+                },
+                post: {
+                    '/api/projects/:team/messaging_suppressions/bulk_remove_suppressions/': async ({ request }) => {
+                        const { identifiers } = (await request.json()) as { identifiers: string[] }
+                        const removed = identifiers.filter((id) => listed.includes(id))
+                        listed = listed.filter((id) => !identifiers.includes(id))
+                        return [200, { removed, not_found: identifiers.filter((id) => !removed.includes(id)) }]
+                    },
+                },
+            })
+            const logic = suppressionListLogic()
+            logic.mount()
+            await waitFor(() => expect(logic.values.suppressions.next).not.toBeNull())
+            logic.actions.loadNextPage()
+            await waitFor(() => expect(logic.values.currentPage).toBe(2))
+            listed = listed.filter((id) => id !== 'c@example.com')
+
+            logic.actions.removeSuppressions({
+                identifiers: ['c@example.com', 'd@example.com'],
+                confirmComplaints: false,
+            })
+            await expectLogic(logic).toDispatchActions(['removeSuppressionsSuccess', 'loadSuppressionsSuccess'])
+
+            expect([logic.values.currentPage, logic.values.suppressions.results.map((row) => row.identifier)]).toEqual([
+                1,
+                ['a@example.com', 'b@example.com'],
+            ])
         })
     })
 })
