@@ -23,7 +23,7 @@ class CustomerlyEndpointConfig:
 # The Customerly public API exposes no server-side timestamp filter (`since` /
 # `updated_after`) on any list endpoint, so every table is full refresh. Pagination is
 # page-number based (`page` starting at 0, `per_page`) on the users/leads/articles lists;
-# tags and knowledge base collections return the full list in one response.
+# tags, knowledge base collections and writers return the full list in one response.
 CUSTOMERLY_ENDPOINTS: dict[str, CustomerlyEndpointConfig] = {
     "users": CustomerlyEndpointConfig(
         name="users",
@@ -58,6 +58,11 @@ CUSTOMERLY_ENDPOINTS: dict[str, CustomerlyEndpointConfig] = {
         paginated=True,
         partition_key="created_at",
         fan_out_by_collection=True,
+    ),
+    "knowledge_base_writers": CustomerlyEndpointConfig(
+        name="knowledge_base_writers",
+        path="/knowledge/writers",
+        primary_key="account_id",
     ),
 }
 
