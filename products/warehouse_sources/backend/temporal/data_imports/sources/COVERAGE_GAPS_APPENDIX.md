@@ -9675,14 +9675,14 @@ Note: The reference is a static HTML tree; the full endpoint list is readable fr
 
 ## Mercado Pago (Mercado Libre) — **thin**
 
-Today (3): `payments`, `subscription_plans`, `subscriptions`
+Today (7): `authorized_payments`, `customers`, `merchant_orders`, `payment_methods`, `payments`, `subscription_plans`, `subscriptions`
 
 Diffed against: <https://github.com/mercadopago/sdk-python/tree/master/mercadopago/resources>
 
-- [ ] `Payment methods (GET /v1/payment_methods)` — resolve payment_method_id to method names and types for payment analysis (high)
-- [ ] `Customers (GET /v1/customers/search)` — resolve saved customer references and analyze repeat purchases (high)
-- [ ] `Merchant orders (GET /merchant_orders/search)` — resolve payment order references and reconcile order items with collected amounts (high)
-- [ ] `Invoices / authorized payments (GET /authorized_payments/search)` — connect subscription charges with billing periods, payment outcomes, and retries (high)
+- [x] `Payment methods (GET /v1/payment_methods)` — resolve payment_method_id to method names and types for payment analysis (high). Added as `payment_methods` (full refresh). The endpoint returns a bare array with no pagination.
+- [x] `Customers (GET /v1/customers/search)` — resolve saved customer references and analyze repeat purchases (high). Added as `customers` (full refresh). The reference documents no time filter.
+- [x] `Merchant orders (GET /merchant_orders/search)` — resolve payment order references and reconcile order items with collected amounts (high). Added as `merchant_orders` (incremental merge on `last_updated` via `last_updated_from`). Rows are under `elements` with a top-level `total`, and searches return only the last 90 days.
+- [x] `Invoices / authorized payments (GET /authorized_payments/search)` — connect subscription charges with billing periods, payment outcomes, and retries (high). Added as `authorized_payments` (full refresh). The reference documents no time filter.
 - [ ] `Chargebacks (GET /v1/chargebacks/search)` — measure disputed payments, financial losses, and chargeback outcomes (high)
 - [ ] `Orders (GET /v1/orders)` — analyze Orders API transactions and lifecycle states alongside payment totals (medium)
 
