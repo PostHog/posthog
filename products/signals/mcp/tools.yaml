@@ -1818,10 +1818,11 @@ tools:
             here, the scouts and the report pipeline's research and implementation stages, so search the identity of the
             thing you care about (an error id, a flag key, a page path, a file path, an event name) and not only your
             own key prefix. Pass `key_prefix` to read one family of keys (`followup:<skill-name>:`, `report:`), and
-            `text` to find an entity named anywhere in a key or body. Each result carries `created_by_skill`, naming the entry's original creator: a scout's skill
-            name or a pipeline stage (`pipeline:report-research`, `pipeline:implementation`). An upsert keeps the
-            creator, so the last writer can differ. Expired entries are hidden by default, and a daily janitor
-            hard-deletes them once their expiry is more than two weeks in the past.
+            `text` to find an entity named anywhere in a key or body. Each result carries `created_by_skill`, naming the
+            entry's original creator: a scout's skill name or a pipeline stage (`pipeline:report-research`,
+            `pipeline:implementation`). An upsert keeps the creator, so the last writer can differ. Expired entries are
+            hidden by default, and a daily janitor hard-deletes them once their expiry is more than two weeks in the
+            past.
     scout-trial-archive:
         operation: signals_scout_config_trial_comparison_archive
         enabled: true
