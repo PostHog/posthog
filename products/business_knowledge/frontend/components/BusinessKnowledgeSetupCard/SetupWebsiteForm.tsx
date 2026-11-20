@@ -48,10 +48,12 @@ export function SetupWebsiteForm({ mode, preview }: { mode: ProductEmptyStateMod
                 )}
             </LemonField>
             <span className="text-xs text-secondary">
-                {showsSuggestion
-                    ? 'We found this address in your recent pageviews. Change it if your docs are on another site. '
-                    : null}
-                PostHog indexes this page and the pages under it, up to {DEFAULT_MAX_PAGES} pages.{' '}
+                {showsSuggestion ? (
+                    <span>
+                        We found this address in your recent pageviews. Change it if your docs are on another site.{' '}
+                    </span>
+                ) : null}
+                <span>PostHog indexes this page and the pages under it, up to {DEFAULT_MAX_PAGES} pages. </span>
                 <Link
                     onClick={() => pickSource('url', mode, preview)}
                     // pinned: the attr the website row carried before the form replaced it.

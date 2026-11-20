@@ -52,9 +52,13 @@ describe('businessKnowledgeSetupCardLogic', () => {
         expect(businessKnowledgeLogic.values.urlSource.url).toBe(expected)
     })
 
-    it('creates a crawled source named after the site from a bare domain', async () => {
+    it.each([
+        ['a fresh form', {}],
+        ['a page cap the modal left invalid', { max_pages: 0, exclude_globs: '/private/*' }],
+    ])('creates a crawled source named after the site from a bare domain, with %s', async (_, modalValues) => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSuggestedWebsiteSuccess'])
+        businessKnowledgeLogic.actions.setUrlSourceValues(modalValues)
         businessKnowledgeLogic.actions.setUrlSourceValue('url', 'www.hedgebox.net')
         logic.actions.submitWebsite('needs-setup', false)
         await expectLogic(businessKnowledgeLogic).toDispatchActions(['submitUrlSourceSuccess'])
@@ -64,6 +68,8 @@ describe('businessKnowledgeSetupCardLogic', () => {
                 url: 'https://www.hedgebox.net',
                 name: 'hedgebox.net',
                 crawl_mode: 'same_origin',
+                max_pages: 200,
+                exclude_globs: [],
             }),
         ])
     })

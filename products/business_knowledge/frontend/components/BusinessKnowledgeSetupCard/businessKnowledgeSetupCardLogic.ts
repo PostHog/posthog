@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { type CreateTab, businessKnowledgeLogic } from '../../scenes/sources/businessKnowledgeLogic'
-import type { UrlSourceFormValues } from '../../sourceFormUtils'
+import { DEFAULT_URL_SOURCE_FORM, type UrlSourceFormValues } from '../../sourceFormUtils'
 import { normalizeWebsiteUrl, pickWebsiteFromHosts, websiteSourceName } from './setupWebsite'
 
 export type BusinessKnowledgeSetupSource = 'url' | 'file' | 'text' | 'github' | 'support'
@@ -193,9 +193,12 @@ export const businessKnowledgeSetupCardLogic = kea<businessKnowledgeSetupCardLog
                     used_suggestion: url === values.suggestedWebsite,
                 })
             }
+            // The modal shares this form. Its fields are hidden here, so a value left there could fail
+            // validation with no visible error, and the helper text promises the default page cap.
             actions.setUrlSourceValues({
+                ...DEFAULT_URL_SOURCE_FORM,
                 url,
-                name: websiteSourceName(url) ?? values.urlSource.name,
+                name: websiteSourceName(url) ?? '',
                 crawl_mode: 'same_origin',
             })
             actions.submitUrlSource()
