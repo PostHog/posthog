@@ -1,14 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconFilter } from '@posthog/icons'
 import {
-    Button,
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuItem,
     DropdownMenuSeparator,
-    DropdownMenuTrigger,
     FilterCheckboxSubMenu,
+    FilterClearItem,
+    FilterMenuTrigger,
     FilterOption,
     FilterRadioSubMenu,
 } from '@posthog/quill'
@@ -34,7 +32,6 @@ import {
     SignalReportPriority,
 } from '../../types'
 import { selectedFlatListSections } from '../../utils/flatReportList'
-import { useInboxFilterChips } from './useInboxFilterChips'
 
 const ANY_TIME = 'any'
 
@@ -60,7 +57,7 @@ function changed<Value>(before: readonly Value[], after: readonly Value[]): Valu
     return [...before.filter((value) => !after.includes(value)), ...after.filter((value) => !before.includes(value))]
 }
 
-/** Every control that shapes the report list, in one menu: the filters, then scope and sort, then Clear filters. */
+/** Every control that shapes the report list, in one menu: sort and scope, then the filters, then Clear filters. */
 export function QuillInboxFilterMenu(): JSX.Element {
     const {
         scope,
@@ -74,11 +71,11 @@ export function QuillInboxFilterMenu(): JSX.Element {
         activeCreatedWindow,
         timeWindowAvailable,
         sourceFilterAvailable,
+        hasActiveFilters,
     } = useValues(inboxFiltersLogic)
     const { setScope, setSort, toggleState, setPriorityFilter, toggleSourceProduct, setCreatedWindow, clearFilters } =
         useActions(inboxFiltersLogic)
     const { isStaff } = useValues(inboxSceneLogic)
-    const chips = useInboxFilterChips()
 
     const sortOptions = [
         ...INBOX_SORT_OPTIONS,
@@ -96,11 +93,31 @@ export function QuillInboxFilterMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline" data-attr="inbox-filter-menu" />}>
-                <IconFilter />
-                {chips.length > 0 ? `Filter · ${chips.length}` : 'Filter'}
-            </DropdownMenuTrigger>
+            <FilterMenuTrigger active={hasActiveFilters} dataAttr="inbox-filter-menu" />
             <DropdownMenuContent align="end" className="min-w-64">
+                <FilterRadioSubMenu
+                    label="Sort"
+                    options={sortOptions.map((option) => ({
+                        value: inboxSortOptionKey(option.field, option.direction),
+                        label: option.label,
+                    }))}
+                    value={inboxSortOptionKey(activeSortField, activeSortDirection)}
+                    onChange={(key) => {
+                        const option = sortOptions.find((o) => inboxSortOptionKey(o.field, o.direction) === key)
+                        if (option) {
+                            setSort(option.field, option.direction)
+                        }
+                    }}
+                    dataAttr="inbox-sort"
+                />
+                <FilterRadioSubMenu
+                    label="Scope"
+                    options={scopeOptions}
+                    value={scope}
+                    onChange={setScope}
+                    dataAttr="inbox-scope"
+                />
+                <DropdownMenuSeparator />
                 <FilterCheckboxSubMenu
                     label="Status"
                     allLabel="All statuses"
@@ -143,36 +160,11 @@ export function QuillInboxFilterMenu(): JSX.Element {
                         dataAttr="inbox-source-filter"
                     />
                 )}
-                <FilterRadioSubMenu
-                    label="Scope"
-                    options={scopeOptions}
-                    value={scope}
-                    onChange={setScope}
-                    dataAttr="inbox-scope"
+                <FilterClearItem
+                    active={hasActiveFilters}
+                    onClear={() => clearFilters()}
+                    dataAttr="inbox-filter-clear"
                 />
-                <FilterRadioSubMenu
-                    label="Sort"
-                    options={sortOptions.map((option) => ({
-                        value: inboxSortOptionKey(option.field, option.direction),
-                        label: option.label,
-                    }))}
-                    value={inboxSortOptionKey(activeSortField, activeSortDirection)}
-                    onChange={(key) => {
-                        const option = sortOptions.find((o) => inboxSortOptionKey(o.field, o.direction) === key)
-                        if (option) {
-                            setSort(option.field, option.direction)
-                        }
-                    }}
-                    dataAttr="inbox-sort"
-                />
-                {chips.length > 0 && (
-                    <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => clearFilters()} data-attr="inbox-filter-clear">
-                            {`Clear ${chips.length} ${chips.length === 1 ? 'filter' : 'filters'}`}
-                        </DropdownMenuItem>
-                    </>
-                )}
             </DropdownMenuContent>
         </DropdownMenu>
     )
