@@ -341,7 +341,7 @@ During connect, the tokens pass through the Desktop renderer process once: the h
 
 On the web, connect starts a server-side Codex device login. The dialog shows a code and a link to OpenAI. The user approves the code there; no credentials pass through the browser. A Celery worker runs the pinned Codex app-server in a private temporary home, then passes its credentials to the existing encrypted integration store. The worker stops before PostHog takes ownership of refresh. Cancel, disconnect, and a newer attempt prevent an older attempt from connecting. Each worker waits at most ten minutes. A stopped worker requires a new login attempt.
 
-The backend image includes the Codex binary for this login. Local workers need `codex` on `/usr/local/bin` or the system path. No model turn runs during login. The token upload API remains available for installed Desktop clients.
+The backend image includes the Codex binary for this login. Its version comes from the `@openai/codex` dependency in `packages/agent/packages/agent/package.json`, so the backend has no separate version pin. Backend and sandbox releases can still deploy at different times. Local workers need `codex` on `/usr/local/bin` or the system path. No model turn runs during login. The token upload API remains available for installed Desktop clients.
 
 Users log in once from Settings > Harness > ChatGPT subscription > Cloud tasks.
 Log in opens a dialog that runs `codex login --device-auth` in an embedded terminal, with `CODEX_HOME` set to `~/.codex-posthog`.
