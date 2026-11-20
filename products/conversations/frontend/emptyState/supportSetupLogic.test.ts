@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 
@@ -46,6 +47,29 @@ describe('supportSetupLogic', () => {
         const logic = mountWithTeam(enabled)
         await expectLogic(logic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.CONVERSATIONS }).values.status).toBe(expected)
+    })
+
+    it('reports the first ticket once, when it arrives while the setup screen is waiting', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        mockTicketsList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        const logic = mountWithTeam(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        mockTicketsList.mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [{ channel_source: 'email', tags: [] }],
+        } as any)
+        logic.actions.checkSetup()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.checkSetup()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const firstTicketCalls = capture.mock.calls.filter(([event]) => event === 'support setup first ticket detected')
+        expect(firstTicketCalls).toEqual([
+            ['support setup first ticket detected', { channel_source: 'email', is_test: false }],
+        ])
     })
 
     it('fails open to unknown when the count query fails before any answer', async () => {

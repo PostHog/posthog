@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
@@ -72,13 +73,15 @@ export const supportSetupLogic = kea<supportSetupLogicType>([
     actions({
         checkSetup: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         ticketCount: [
             null as number | null,
             {
                 loadTicketCount: async (_: void, breakpoint): Promise<number> => {
                     const response = await conversationsTicketsList(String(values.currentProjectId), { limit: 1 })
                     breakpoint()
+                    // Only the first-ticket event reads this, so it stays out of the store.
+                    cache.newestTicket = response.results[0] ?? null
                     return response.count
                 },
             },
@@ -97,6 +100,14 @@ export const supportSetupLogic = kea<supportSetupLogicType>([
             // Tickets outrank the toggle. Turning support off keeps the tickets, and the
             // settings copy says so, but this list is the only place to read them.
             if (values.ticketCount && values.ticketCount > 0) {
+                // The status was "no tickets" a moment ago, so this check saw the project's first ticket arrive.
+                if (values.setupStatus === 'needs-setup' || values.setupStatus === 'waiting-for-data') {
+                    // pinned: analytics event name. Renaming it breaks insights built on it.
+                    posthog.capture('support setup first ticket detected', {
+                        channel_source: cache.newestTicket?.channel_source,
+                        is_test: !!cache.newestTicket?.tags?.includes('test'),
+                    })
+                }
                 actions.setDetectedStatus('has-data')
                 cache.disposables.dispose('poll')
             } else if (!values.currentTeam?.conversations_enabled) {

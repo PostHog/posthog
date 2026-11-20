@@ -1013,6 +1013,29 @@ class TestTicketAPI(APIBaseTest):
                     self.assertIn("assignee", ticket_data)
                     self.assertIn("person", ticket_data)
 
+    def test_send_test_creates_a_tagged_ticket_with_a_customer_message(self, mock_on_commit):
+        self.team.conversations_enabled = True
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/send_test/",
+            {"message": "Does this work?"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        ticket = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{response.json()['id']}/").json()
+        assert ticket["channel_source"] == "widget"
+        assert ticket["tags"] == ["test"]
+        assert ticket["last_message_text"] == "Does this work?"
+        assert ticket["anonymous_traits"]["email"] == self.user.email
+
+    def test_send_test_is_rejected_while_support_is_off(self, mock_on_commit):
+        response = self.client.post(f"/api/projects/{self.team.id}/conversations/tickets/send_test/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Ticket.objects.filter(team=self.team).count() == 1
+
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestBulkUpdateStatus(APIBaseTest):

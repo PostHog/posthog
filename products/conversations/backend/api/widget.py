@@ -587,7 +587,15 @@ class WidgetMessageView(APIView):
             set_cached_session_has_tickets(team.id, widget_session_id)
 
             try:
-                report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
+                report_team_action(
+                    team,
+                    "support ticket created",
+                    {
+                        "channel_source": ticket.channel_source,
+                        "channel_detail": ticket.channel_detail,
+                        "ticket_number": ticket.ticket_number,
+                    },
+                )
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
 

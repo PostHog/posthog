@@ -1044,6 +1044,14 @@ export interface ComposeTicketResponseApi {
     ticket_number: number
 }
 
+export interface SetupTestTicketApi {
+    /**
+     * First customer message of the test ticket. Defaults to a short sample message.
+     * @maxLength 5000
+     */
+    message?: string
+}
+
 export interface TicketUnreadCountResponseApi {
     /**
      * Unread messages across the non-resolved tickets the caller can see.
