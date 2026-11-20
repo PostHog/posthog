@@ -208,7 +208,7 @@ function projectArray(value: unknown[], budget: number, path: string, cuts: stri
     return kept
 }
 
-/** Paging offsets count code points, as the API's Python strings do, not UTF-16 units. */
+/** Character offsets count code points, as the API's Python strings do, not UTF-16 units. */
 function codePointLength(text: string): number {
     let length = 0
     for (const _ of text) {
@@ -217,18 +217,20 @@ function codePointLength(text: string): number {
     return length
 }
 
-function commonPrefixCodePoints(a: string, b: string): number {
+/** The longest shared prefix, never ending inside a surrogate pair. */
+function commonPrefix(a: string, b: string): string {
     let length = 0
     while (length < a.length && length < b.length && a[length] === b[length]) {
         length++
     }
     const splitsPair = length > 0 && /[\uD800-\uDBFF]/.test(a[length - 1]!)
-    return codePointLength(a.slice(0, splitsPair ? length - 1 : length))
+    return a.slice(0, splitsPair ? length - 1 : length)
 }
 
 /**
- * A text field paged by `<field>_next_offset` in characters (as `skill-get` pages its body) would skip what the
- * projection cut, so point it at the first character the response no longer carries.
+ * A text field paged by `<field>_next_offset` would skip what the projection cut, so point it at the first
+ * character the response no longer carries. A pager that reports `<field>_total_length` counts characters
+ * (as `skill-get` pages its body); the comment pagers report no total and count UTF-8 bytes.
  */
 function realignPagedText(
     value: Record<string, unknown>,
@@ -243,12 +245,13 @@ function realignPagedText(
     }
     const next = value[nextKey]
     const total = value[`${key}_total_length`]
-    // Only a pager that reports `<field>_total_length` counts characters; other pagers count bytes.
-    if (typeof total !== 'number') {
-        return
+    const keptPrefix = typeof shortened === 'string' ? commonPrefix(full, shortened) : ''
+    if (typeof total === 'number') {
+        const end = typeof next === 'number' ? next : total
+        kept.set(nextKey, end - codePointLength(full) + codePointLength(keptPrefix))
+    } else if (typeof next === 'number') {
+        kept.set(nextKey, next - byteLength(full) + byteLength(keptPrefix))
     }
-    const start = (typeof next === 'number' ? next : total) - codePointLength(full)
-    kept.set(nextKey, start + (typeof shortened === 'string' ? commonPrefixCodePoints(full, shortened) : 0))
 }
 
 function projectRecord(
