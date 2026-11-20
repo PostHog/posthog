@@ -8,6 +8,7 @@ import { Breadcrumb } from '~/types'
 
 import { mcpGatewayAuditList } from '../generated/api'
 import { MCPAuditEventApi, MCPGatewayServerApi, MCPServiceAccountApi } from '../generated/api.schemas'
+import type { MCPAgentGrantScopeEnumApi, ToolPolicyEntryApi } from '../generated/api.schemas'
 import { AgentServerShare, agentServerShare, mcpGatewayLogic } from './mcpGatewayLogic'
 
 export interface GatewayAgentLogicProps {
@@ -47,13 +48,13 @@ export interface gatewayAgentLogicActions {
         accountId: string,
         serverId: string,
         enabled: boolean,
-        scope?: import('../generated/api.schemas').MCPAgentGrantScopeEnumApi | undefined,
-        policies?: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
+        scope?: MCPAgentGrantScopeEnumApi | undefined,
+        policies?: ToolPolicyEntryApi[] | undefined
     ) => {
         accountId: string
         enabled: boolean
-        policies: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
-        scope: import('../generated/api.schemas').MCPAgentGrantScopeEnumApi
+        policies: ToolPolicyEntryApi[] | undefined
+        scope: MCPAgentGrantScopeEnumApi
         serverId: string
     } // mcpGatewayLogic
     toggleAccountStatus: (

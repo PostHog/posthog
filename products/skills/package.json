@@ -21,6 +21,7 @@
         "@types/react": "*",
         "clsx": "*",
         "react": "*",
-        "typescript": "catalog:*"
+        "typescript": "catalog:compiler-api",
+        "typescript-native": "catalog:"
     }
 }
