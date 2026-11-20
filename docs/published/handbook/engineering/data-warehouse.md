@@ -94,6 +94,8 @@ On a full page, headers pin when the table fits its container and the scene is w
 
 ## SQL editor drafts
 
+SQL result tables keep text truncated and rows compact by default. To wrap a column, open its settings and turn on **Display → Wrap text**. Wrapped previews show up to six lines per cell, so long values cannot make a row grow without limit. This is a visible line limit, not a character limit; column width and line breaks affect how much text fits. Turn wrapping off to restore compact rows. To inspect just one cell, hover or focus it and select **View full value**; the scrollable viewer shows the complete string or JSON returned by the query and offers **Copy value** without expanding the table's rows. Wrapping and the preview limit do not shorten the underlying value.
+
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
 Scalar subqueries can still read data, so column inference shares the organization's foreground query concurrency limit.
 API-key requests and background jobs retain the query runner's existing exemptions from that limit.

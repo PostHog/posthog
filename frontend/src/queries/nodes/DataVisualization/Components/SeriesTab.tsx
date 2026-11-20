@@ -617,6 +617,25 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                     )}
                 </div>
             )}
+            {effectiveVisualizationType === ChartDisplayType.ActionsTable && (
+                <LemonField
+                    name="wrapText"
+                    label="Wrap text"
+                    info="Off by default to keep rows compact. Shows up to 6 lines per cell. Use View full value to read or copy the complete value."
+                >
+                    {({ value, onChange }) => (
+                        <LemonSwitch
+                            checked={value ?? false}
+                            onChange={(wrapText) => {
+                                onChange(wrapText)
+                                updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+                                    display: { wrapText },
+                                })
+                            }}
+                        />
+                    )}
+                </LemonField>
+            )}
             {showTableSettings && (
                 <LemonField name="description" label="Description">
                     {({ value, onChange }) => (
