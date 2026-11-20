@@ -67,10 +67,12 @@ export function failedTestIds(xml) {
 
 /**
  * Reads every JUnit file under `dir`, whose first path segment is the artifact name, and
- * returns one `{ shard, test }` row per failed test.
+ * returns one `{ shard, test }` row per failed test. Returns null when no JUnit file exists, so a
+ * missing download is not read as a run without failures.
  */
 export function collectFailures(dir) {
     const rows = []
+    let reports = 0
     const artifacts = fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : []
     for (const artifact of artifacts.filter((entry) => entry.isDirectory())) {
         const files = fs
@@ -79,11 +81,15 @@ export function collectFailures(dir) {
         for (const file of files) {
             const product = /^junit-product-(.+)\.xml$/.exec(path.basename(file))?.[1]
             const shard = product ? `products/${product}` : artifact.name.replace(/^junit-results-backend-/, '')
+            reports += 1
             const xml = fs.readFileSync(path.join(dir, artifact.name, file), 'utf8')
             for (const test of failedTestIds(xml)) {
                 rows.push({ shard, test })
             }
         }
+    }
+    if (reports === 0) {
+        return null
     }
     return rows.sort((a, b) => a.shard.localeCompare(b.shard) || a.test.localeCompare(b.test))
 }
@@ -125,7 +131,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         console.info('A test job did not pass, so a failure may be a real one. Leaving the section untouched.')
     } else {
         const failures = collectFailures(dir)
-        if (failures.length > 0) {
+        if (failures === null) {
+            console.info('No JUnit results were available. Leaving the section untouched.')
+        } else if (failures.length > 0) {
             await postSection({ id: SECTION_ID, ...buildQuarantinedFailuresSection(failures) })
         } else {
             await clearSectionIfPresent({

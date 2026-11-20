@@ -311,7 +311,8 @@ describe('quarantined failures section', () => {
                 'products/surveys products/surveys/backend/test/test_a.py::test_shared',
             ]
         )
-        assert.deepEqual(collectFailures(path.join(dir, 'missing')), [])
+        assert.equal(collectFailures(path.join(dir, 'missing')), null)
+        assert.equal(collectFailures(fs.mkdtempSync(path.join(os.tmpdir(), 'junit-empty-'))), null)
     })
 
     it('warns with the count of failures and shards', () => {
