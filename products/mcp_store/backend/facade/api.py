@@ -84,8 +84,8 @@ from products.mcp_store.backend.tools import (
     resync_installation_tools,
 )
 
-# Re-exported for the presentation layer ("presentation must use facade"
-# import-linter contract): the single MCP URL policy entry point — shared SSRF
+# Re-exported for the presentation layer (hoglint's `presentation-uses-facade`
+# rule): the single MCP URL policy entry point — shared SSRF
 # validation, overridden only by the exact team-scoped internal allowlist.
 from products.mcp_store.backend.url_policy import check_mcp_url_policy as check_mcp_url_policy
 

@@ -15,7 +15,16 @@
                 "backend/hogql_queries/trends/**",
                 "!backend/hogql_queries/trends/test/**",
                 "backend/scopes.py",
-                "backend/apps.py"
+                "backend/apps.py",
+                "backend/admin.py",
+                "backend/hogql_queries/__init__.py",
+                "backend/hogql_queries/funnels/funnels_query_runner.py",
+                "backend/hogql_queries/lifecycle/lifecycle_query_runner.py",
+                "backend/hogql_queries/paths/paths_query_runner.py",
+                "backend/hogql_queries/paths_v2/paths_v2_query_runner.py",
+                "backend/hogql_queries/retention/retention_query_runner.py",
+                "backend/hogql_queries/stickiness/stickiness_query_runner.py",
+                "backend/logic.py"
             ],
             "outputs": [],
             "cache": true

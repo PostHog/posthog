@@ -12,7 +12,9 @@
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/scopes.py",
-                "backend/apps.py"
+                "backend/apps.py",
+                "backend/admin.py",
+                "backend/services/transactional_email.py"
             ],
             "outputs": [],
             "cache": true

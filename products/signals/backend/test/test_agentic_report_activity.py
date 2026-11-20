@@ -109,7 +109,7 @@ from products.tasks.backend.facade.agents import (
 )
 from products.tasks.backend.facade.contracts import AgentStartupFailure
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Task
 
 
 @pytest_asyncio.fixture

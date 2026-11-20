@@ -1,21 +1,20 @@
-# Products that are not isolated — the full Django backend suite still runs on
-# every change they make.
+# Products that do not claim hoglint's Isolated level: the full Django backend
+# suite still runs on every change they make.
 #
 # DO NOT EDIT BY HAND. This file is the mechanical output of
 # `hogli product:lint --regenerate-baseline`. Hand-editing turns a ratchet back
 # into a curated allowlist, which is the thing it exists to prevent.
 #
 # Adding a line needs DevEx review (see .github/CODEOWNERS). New products should
-# not need one: `hogli product:bootstrap <name>` scaffolds a product that is
-# Isolated from its first commit.
+# not need one: `hogli product:bootstrap <name>` scaffolds a product that claims
+# the Isolated level from its first commit.
 #
-# Getting off this list: build the facade (contracts.py + real api.py), add the
-# tach [[interfaces]] block, then wire `backend:contract-check` and narrow
-# turbo.json inputs. `hogli product:maturity <name>` names the remaining blocker
-# at every step, and /isolating-product-facade-contracts walks the migration.
+# Getting off this list: build the facade (contracts.py + real api.py), wire
+# `backend:contract-check`, and narrow the task's inputs in the product's own
+# turbo.json. That claims the level; `hoglint check` then names every file the
+# inputs must watch. /isolating-product-facade-contracts walks the migration.
 #
-# Once a product reaches the Isolated rung, regenerate this file and its line drops out.
-# A product in SKIP_WITHHELD (hogli_commands/product/isolation.py) stays here by DevEx decision.
+# Once a product claims the level, regenerate this file and its line drops out.
 
 access_control
 ai_observability

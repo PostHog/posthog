@@ -8,10 +8,8 @@ from pathlib import Path
 import click
 
 from .baseline import check_baseline
-from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, has_contracts_module, validate_tach_toml
-from .crossings import BASELINE_PATH
-from .ledger_growth import LEDGER_BASE_ENV, LEDGER_GROWTH_INSTRUCTION, ledger_growth_issues
-from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, REPO_ROOT, TACH_TOML, backend_product_dirs, load_structure
+from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, has_contracts_module
+from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, REPO_ROOT, backend_product_dirs, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -22,17 +20,16 @@ def _gh_annotation(level: str, product: str, check_label: str, message: str, fil
         click.echo(f"::{level}{file_part} title=product:lint ({product} / {check_label})::{message}")
 
 
-def lint_product(name: str, verbose: bool = True, detailed: bool = False, structure: dict | None = None) -> list[str]:
+def lint_product(name: str, verbose: bool = True, structure: dict | None = None) -> list[str]:
     """
     Lint a product's structure. Returns list of issues found.
 
     Runs in two modes based on whether the product has backend/facade/contracts.py:
-      strict  — the Strict rung or above, all structure rules enforced
-      lenient — the Lenient rung, subset of rules enforced (see product_structure.yaml)
+      strict  — all structure rules enforced
+      lenient — subset of rules enforced (see product_structure.yaml)
 
-    The detailed output also prints the product's isolation rung (Lenient, Strict, Sealed, Isolated).
+    The boundaries between products are hoglint's (`hoglint check`), not this lint's.
 
-    Set detailed=True (single-product run) for richer isolation progress output.
     Pass structure= to avoid re-parsing product_structure.yaml on every call (useful in --all mode).
     """
     product_dir = PRODUCTS_DIR / name
@@ -56,11 +53,7 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False, struct
         backend_dir=backend_dir,
         has_facade_contracts=strict,
         structure=structure or load_structure(),
-        detailed=detailed,
     )
-    # The checks below read the same memoized status, so printing the rung costs no extra scan.
-    if verbose and backend_dir.is_dir():
-        click.echo(f"  rung: {ctx.isolation_status().rung}")
 
     issues: list[str] = []
     for check in CHECKS:
@@ -83,16 +76,6 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False, struct
     return issues
 
 
-def _lint_tach_toml() -> list[str]:
-    """Validate tach.toml structure and referential integrity."""
-    if not TACH_TOML.exists():
-        return []
-    issues = validate_tach_toml(TACH_TOML.read_text(), PRODUCTS_DIR)
-    for issue in issues:
-        _gh_annotation("error", "tach", "tach.toml", issue, file="tach.toml")
-    return issues
-
-
 def lint_all_products() -> None:
     product_dirs = backend_product_dirs()
 
@@ -101,9 +84,8 @@ def lint_all_products() -> None:
 
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
-        "Checks: required root files, package.json scripts (presence + content), misplaced files (strict), "
-        "file/folder conflicts, tach boundaries (+ interfaces for strict), isolation progress (lenient), "
-        "facade shape, isolation baseline, crossings ledger growth\n"
+        "Checks: product.yaml, required root files, backend package marker, package.json scripts, "
+        "misplaced files (strict), file/folder conflicts, test file coverage, system checks, isolation baseline\n"
     )
 
     structure = load_structure()
@@ -111,20 +93,10 @@ def lint_all_products() -> None:
     failed: list[str] = []
     for product_dir in product_dirs:
         click.echo(f"─ {product_dir.name}")
-        issues = lint_product(product_dir.name, verbose=True, detailed=False, structure=structure)
+        issues = lint_product(product_dir.name, verbose=True, structure=structure)
         if issues:
             failed.append(product_dir.name)
         click.echo("")
-
-    click.echo("─ tach.toml")
-    tach_issues = _lint_tach_toml()
-    if tach_issues:
-        click.echo(f"  ✗ {len(tach_issues)} issue(s)")
-        for issue in tach_issues:
-            click.echo(f"    → {issue}")
-    else:
-        click.echo("  ✓ ok")
-    click.echo("")
 
     click.echo("─ isolation baseline")
     baseline_issues = check_baseline()
@@ -139,31 +111,11 @@ def lint_all_products() -> None:
         click.echo("  ✓ ok")
     click.echo("")
 
-    click.echo("─ crossings ledger growth")
-    growth_issues = ledger_growth_issues()
-    if growth_issues is None:
-        click.echo(f"  – skipped: {LEDGER_BASE_ENV} is not set (CI sets it on pull requests)")
-    elif growth_issues:
-        click.echo(f"  ✗ {len(growth_issues)} issue(s)")
-        click.echo(f"    {LEDGER_GROWTH_INSTRUCTION}")
-        for issue in growth_issues:
-            click.echo(f"    → {issue}")
-            _gh_annotation(
-                "error", "products", "crossings ledger growth", issue, file=str(BASELINE_PATH.relative_to(REPO_ROOT))
-            )
-    else:
-        click.echo("  ✓ ok")
-    click.echo("")
-
-    if failed or tach_issues or baseline_issues or growth_issues:
+    if failed or baseline_issues:
         if failed:
             click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
-        if tach_issues:
-            click.echo(f"✗ {len(tach_issues)} tach.toml issue(s)")
         if baseline_issues:
             click.echo(f"✗ {len(baseline_issues)} isolation baseline issue(s)")
-        if growth_issues:
-            click.echo(f"✗ {len(growth_issues)} crossings ledger growth issue(s)")
         raise SystemExit(1)
 
     click.echo(f"✓ All {len(product_dirs)} products passed")
@@ -215,7 +167,6 @@ def lint_owners(names: list[str] | None = None) -> None:
             backend_dir=product_dir / "backend",
             has_facade_contracts=has_contracts_module(product_dir / "backend"),
             structure=structure,
-            detailed=False,
         )
         result = check.run(ctx)
         if result.skip:

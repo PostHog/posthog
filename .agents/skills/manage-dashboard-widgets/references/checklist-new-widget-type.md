@@ -96,7 +96,7 @@ Use when introducing a new **`groupId`**, not just another variant in an existin
 | Product module          | Import query runner from `products/<product>/backend/…`   | Import list/UI from `products/<product>/frontend/…`     | `error_tracking_list` |
 | Scenes / posthog helper | Import shared helper (e.g. `posthog.session_recordings…`) | Import from `scenes/<area>/…` when UI still lives there | `session_replay_list` |
 
-- [ ] If importing **`products/<product>/frontend/…`**: add **`products.<product>`** to `tach.toml` → `products.dashboards` `depends_on`
+- [ ] Backend: import another product's code only through its facade (`products/<product>/backend/facade/…`). hoglint's `public-surface` rule reports a new import past it
 - [ ] RBAC: extend `DashboardWidgetProductAccess`, `WIDGET_PRODUCT_ACCESS_CHECKS`, BE `WidgetSpec.required_product_access` (+ optional `product_access_denied_message`)
 - [ ] Availability: new `WidgetAvailabilityRequirementId` in `widgetAvailability.ts` + BE `WidgetSpec.availability_requirements` when catalog uses `availability`; optional branch in `WidgetAvailabilitySetupPrompt`
 - [ ] Optional **`titleHref`** on catalog — product scene route for header "View" link (`urls.*` or scene path)

@@ -21,7 +21,17 @@
                 "backend/migrations/**",
                 "backend/signals.py",
                 "backend/apps.py",
-                "backend/console.py"
+                "backend/console.py",
+                "backend/admin/**",
+                "backend/common.py",
+                "backend/duckgres_availability.py",
+                "backend/logic/ducklake_copy.py",
+                "backend/logic/sql_editor.py",
+                "backend/logic/sql_editor_credentials.py",
+                "backend/metrics.py",
+                "backend/service_credentials.py",
+                "dags/groups_backfill.py",
+                "dags/trino_conversion.py"
             ],
             "outputs": [],
             "cache": true

@@ -83,7 +83,7 @@ def cmd_lint(name: str | None, lint_all: bool, regenerate_baseline: bool) -> Non
         raise click.UsageError("Provide a product name or use --all")
 
     click.echo(f"Linting product '{name}'...\n")
-    issues = lint_product(name, verbose=True, detailed=True)
+    issues = lint_product(name, verbose=True)
     click.echo("")
 
     if not issues:
@@ -107,7 +107,7 @@ def cmd_lint_owners(names: tuple[str, ...]) -> None:
     lint_owners(list(names))
 
 
-@click.command(name="product:maturity", help="Score product maturity across isolation dimensions")
+@click.command(name="product:maturity", help="Score product maturity: models moved in, generated API client use")
 @click.argument("name", required=False)
 @click.option("--all", "score_all", is_flag=True, help="Score all products and generate ranked report")
 @click.option("--codegen", "codegen_detail", is_flag=True, help="Show detailed codegen call-site analysis")
@@ -179,50 +179,4 @@ def cmd_isolate_move(name: str, views: tuple[str, ...], dry_run: bool) -> None:
     if dry_run:
         click.echo("\n(dry run — nothing changed)")
     else:
-        click.echo("\nNext: review `git status`, then run hogli lint:tach + lint-imports + hogli product:lint")
-
-
-@click.command(
-    name="product:crossings",
-    help="Report how consumer code uses watched-models crossing classes, disallowed shapes first",
-)
-@click.argument("name", required=False)
-@click.option("--all", "scan_all", is_flag=True, help="Scan every product that holds crossing entries")
-@click.option("--json", "as_json", is_flag=True, help="Emit one JSON object per use instead of the report")
-@click.option(
-    "--write-baseline",
-    is_flag=True,
-    help="Record removals in products/model_crossing_uses_baseline.txt; refuses to add a line",
-)
-def cmd_crossings(name: str | None, scan_all: bool, as_json: bool, write_baseline: bool) -> None:
-    import json as json_module
-    from dataclasses import asdict
-
-    from .crossings import (
-        BASELINE_PATH,
-        BaselineWouldGrow,
-        all_crossing_uses,
-        crossing_classes,
-        render_report,
-        write_baseline as write_baseline_file,
-    )
-
-    if not name and not scan_all:
-        raise click.UsageError("Provide a product name or use --all")
-    if write_baseline and not scan_all:
-        raise click.UsageError("--write-baseline regenerates the whole file, so it needs --all")
-
-    products = None if scan_all else [name] if name else None
-    uses = all_crossing_uses(products)
-    if write_baseline:
-        try:
-            write_baseline_file(uses)
-        except BaselineWouldGrow as refusal:
-            raise click.ClickException(str(refusal)) from refusal
-        click.echo(f"Baseline written: {BASELINE_PATH}")
-        return
-    if as_json:
-        for use in uses:
-            click.echo(json_module.dumps(asdict(use) | {"allowed": use.is_allowed}))
-        return
-    click.echo(render_report(uses, [c.label for c in crossing_classes(products)]))
+        click.echo("\nNext: review `git status`, then run hoglint check + hogli product:lint")

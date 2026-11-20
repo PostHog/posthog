@@ -1,68 +1,134 @@
-"""Isolation baseline ratchet — the entry gate for new products.
+"""Isolation baseline ratchet: the entry gate for new products.
 
-`product:bootstrap` emits a product that is already on the Isolated rung: real facade,
-contracts, tach `[[interfaces]]`, narrowed `turbo.json`, `backend:contract-check`. So "new
-products are isolated" costs a team nothing beyond using the scaffold, and every product below
-Isolated is either pre-scaffold debt or a deliberate exemption.
+`hogli product:bootstrap` emits a product that claims hoglint's Isolated level from its first
+commit: its own turbo.json narrows the `backend:contract-check` inputs, and `hoglint check` fails
+when a product that claims the level does not meet it. hoglint judges only the products that claim
+the level, so a product built by hand that never narrows its inputs passes hoglint. This ratchet
+closes that gap.
 
-`products/isolation_baseline.txt` records exactly that set. The check is strict equality:
+`products/isolation_baseline.txt` lists every backend product that does not claim the level. The
+check is strict equality:
 
-  - product below Isolated missing from the baseline  -> fail (a new product skipped the
-    scaffold, or an isolated one regressed)
-  - baseline entry that is now Isolated              -> fail (regenerate to shrink)
+  - an unclaimed product missing from the baseline -> fail (a new product skipped the scaffold, or
+    a product dropped its narrowed inputs)
+  - a baseline entry that now claims the level     -> fail (regenerate to shrink)
 
 Equality is what makes the file safe to trust. A baseline that may be stale is a standing
-permission slip: a product could reach Isolated, keep its line, then lose its facade again and still
-pass. Requiring both directions to match means a line exists only while it is earned.
+permission slip: a product could claim the level, keep its line, then drop the claim again and
+still pass. Requiring both directions to match means a line exists only while it is earned.
 
-The file is CODEOWNERS-owned by DevEx, so adding an exemption is a conversation. Removals
-are a rubber stamp on a win.
+The file is CODEOWNERS-owned by DevEx, so adding an exemption is a conversation. Removals are a
+rubber stamp on a win.
 """
 
 from __future__ import annotations
 
+import re
+import json
+from pathlib import Path
+from typing import Any
+
 import click
 
-from .isolation import compute_isolation_status
-from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, TACH_TOML, backend_product_dirs
+from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, backend_product_dirs
+
+# hoglint's `[levels.isolated] claimed_by = { adapter = "turbo", task = "backend:contract-check" }`.
+CLAIM_TASK = "backend:contract-check"
+DEFAULT_MARKER = "$TURBO_DEFAULT$"
+EXTENDS_MARKER = "$TURBO_EXTENDS$"
+ROOT_TURBO_JSON = PRODUCTS_DIR.parent / "turbo.json"
 
 HEADER = """\
-# Products that are not isolated — the full Django backend suite still runs on
-# every change they make.
+# Products that do not claim hoglint's Isolated level: the full Django backend
+# suite still runs on every change they make.
 #
 # DO NOT EDIT BY HAND. This file is the mechanical output of
 # `hogli product:lint --regenerate-baseline`. Hand-editing turns a ratchet back
 # into a curated allowlist, which is the thing it exists to prevent.
 #
 # Adding a line needs DevEx review (see .github/CODEOWNERS). New products should
-# not need one: `hogli product:bootstrap <name>` scaffolds a product that is
-# Isolated from its first commit.
+# not need one: `hogli product:bootstrap <name>` scaffolds a product that claims
+# the Isolated level from its first commit.
 #
-# Getting off this list: build the facade (contracts.py + real api.py), add the
-# tach [[interfaces]] block, then wire `backend:contract-check` and narrow
-# turbo.json inputs. `hogli product:maturity <name>` names the remaining blocker
-# at every step, and /isolating-product-facade-contracts walks the migration.
+# Getting off this list: build the facade (contracts.py + real api.py), wire
+# `backend:contract-check`, and narrow the task's inputs in the product's own
+# turbo.json. That claims the level; `hoglint check` then names every file the
+# inputs must watch. /isolating-product-facade-contracts walks the migration.
 #
-# Once a product reaches the Isolated rung, regenerate this file and its line drops out.
-# A product in SKIP_WITHHELD (hogli_commands/product/isolation.py) stays here by DevEx decision.
+# Once a product claims the level, regenerate this file and its line drops out.
 """
 
 
-def not_isolated_products() -> list[str]:
-    """Every backend product below the Isolated rung.
+def _strip_jsonc(text: str) -> str:
+    """turbo.json is JSON with comments and trailing commas; drop both outside strings."""
+    out: list[str] = []
+    index = 0
+    in_string = False
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            out.append(char)
+            if char == "\\":
+                out.append(text[index + 1 : index + 2])
+                index += 2
+                continue
+            in_string = char != '"'
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+        elif text.startswith("//", index):
+            end = text.find("\n", index)
+            index = len(text) if end == -1 else end
+            continue
+        elif text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            index = len(text) if end == -1 else end + 2
+            continue
+        out.append(char)
+        index += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
 
-    Keyed on the full rung, not on the facade merely existing: a re-export shim with an
-    empty contracts.py would otherwise buy its way off the list without sealing anything.
-    """
-    tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
-    not_isolated = []
-    for product_dir in backend_product_dirs():
-        status = compute_isolation_status(
-            product_dir.name, product_dir, product_dir / "backend", tach_content=tach_content
-        )
-        if not status.isolation_enabled:
-            not_isolated.append(product_dir.name)
-    return not_isolated
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    data = json.loads(_strip_jsonc(path.read_text()))
+    return data if isinstance(data, dict) else {}
+
+
+def _task(config: dict[str, Any]) -> dict[str, Any] | None:
+    task = config.get("tasks", {}).get(CLAIM_TASK)
+    return task if isinstance(task, dict) else None
+
+
+def claims_isolated_level(product_dir: Path, root_turbo_json: Path = ROOT_TURBO_JSON) -> bool:
+    """Whether the product claims hoglint's Isolated level, read as hoglint's turbo adapter reads a
+    claim (`TurboInputs.narrowed` in hoglint/adapters/turbo.py): the product's package.json has a
+    `backend:contract-check` script, its own turbo.json decides the task's inputs, and those inputs
+    leave out `$TURBO_DEFAULT$`."""
+    manifest = _read_json(product_dir / "package.json")
+    scripts = manifest.get("scripts", {})
+    if not isinstance(scripts, dict) or CLAIM_TASK not in scripts:
+        return False
+    package = _read_json(product_dir / "turbo.json")
+    own = _task(package)
+    if own is None:
+        return False
+    root_tasks = _read_json(root_turbo_json).get("tasks", {})
+    root = root_tasks.get(f"{manifest.get('name')}#{CLAIM_TASK}") or root_tasks.get(CLAIM_TASK)
+    extends_root = "//" in package.get("extends", []) and isinstance(root, dict)
+    if extends_root and "inputs" not in own:
+        return False
+    inputs = own.get("inputs", [DEFAULT_MARKER])
+    if extends_root and isinstance(inputs, list) and EXTENDS_MARKER in inputs:
+        inputs = [*root.get("inputs", [DEFAULT_MARKER]), *(item for item in inputs if item != EXTENDS_MARKER)]
+    return isinstance(inputs, list) and DEFAULT_MARKER not in inputs
+
+
+def unclaimed_products() -> list[str]:
+    """Every backend product that does not claim hoglint's Isolated level."""
+    return [product_dir.name for product_dir in backend_product_dirs() if not claims_isolated_level(product_dir)]
 
 
 def read_baseline() -> set[str]:
@@ -77,28 +143,28 @@ def write_baseline(names: list[str]) -> None:
 
 
 def regenerate_baseline() -> None:
-    names = not_isolated_products()
+    names = unclaimed_products()
     write_baseline(names)
     click.echo(f"  Regenerated {ISOLATION_BASELINE.relative_to(PRODUCTS_DIR.parent)}")
-    click.echo(f"  {len(names)} product(s) not isolated.")
+    click.echo(f"  {len(names)} product(s) do not claim the Isolated level.")
 
 
-def baseline_issues(not_isolated: set[str], baseline: set[str]) -> list[str]:
+def baseline_issues(unclaimed: set[str], baseline: set[str]) -> list[str]:
     """Strict equality in both directions. Returns issues; empty means in sync."""
     issues = []
-    for name in sorted(not_isolated - baseline):
+    for name in sorted(unclaimed - baseline):
         issues.append(
-            f"{name} is not isolated and is not in the baseline — scaffold it with "
-            f"`hogli product:bootstrap` (products are Isolated from their first commit), or ask "
-            f"DevEx to sign off on an exemption. `hogli product:maturity {name}` names the blocker"
+            f"{name} does not claim hoglint's Isolated level and is not in the baseline. Scaffold it with "
+            f"`hogli product:bootstrap` (products claim the level from their first commit), or ask DevEx "
+            f"to sign off on an exemption"
         )
-    for name in sorted(baseline - not_isolated):
+    for name in sorted(baseline - unclaimed):
         issues.append(
-            f"{name} is in the baseline but is now isolated — run "
+            f"{name} is in the baseline but now claims the Isolated level. Run "
             f"`hogli product:lint --regenerate-baseline` to drop its line"
         )
     return issues
 
 
 def check_baseline() -> list[str]:
-    return baseline_issues(set(not_isolated_products()), read_baseline())
+    return baseline_issues(set(unclaimed_products()), read_baseline())

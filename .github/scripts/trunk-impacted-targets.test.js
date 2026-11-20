@@ -49,7 +49,7 @@ const {
     RUST,
     UNIVERSAL,
 } = require('./trunk-impacted-targets')
-const { tachDependents } = require('./turbo-discover')
+const { importDependents } = require('./turbo-discover')
 
 const CONTEXT = {
     products: ['alpha', 'beta', 'gamma'],
@@ -68,29 +68,29 @@ const CONTEXT = {
             { dir: 'shared', name: 'shared' },
         ],
     },
-    tachGraph: {
+    importGraph: {
         graph: new Map(),
         // Mirrors turbo-discover's dashed-name contract at the boundary.
-        tachDependents: (changed) => (changed.includes('alpha') ? ['beta', 'gamma'] : []),
+        importDependents: (changed) => (changed.includes('alpha') ? ['beta', 'gamma'] : []),
     },
 }
 
 // What a widening decision now uploads in place of the "ALL" sentinel.
 const EVERYTHING = allKnownTargets(CONTEXT)
 
-// A graph the tach map walked all three products into, so their importer sets
+// A graph the hoglint map walked all three products into, so their importer sets
 // are known. The base CONTEXT deliberately holds none, which covers the case
 // where a product sits outside the map and has to keep widening. Keys and
-// values are product directory names, the shape productGraphFromTachMap emits.
-const TACH_DECLARED_CONTEXT = {
+// values are product directory names, the shape productGraphFromImportMap emits.
+const MAPPED_CONTEXT = {
     ...CONTEXT,
-    tachGraph: {
+    importGraph: {
         graph: new Map([
             ['alpha', []],
             ['beta', ['gamma']],
             ['gamma', []],
         ]),
-        tachDependents,
+        importDependents,
     },
 }
 
@@ -166,11 +166,21 @@ test('a change to the lane rules themselves stays universal', () => {
     }
 })
 
-// tach.toml is read by the lane rules too, so it carries the same hazard, but
-// the only lanes its graph can move are python ones. Claiming them all still
-// overlaps any PR whose lanes were computed against the previous graph.
-test('the tach graph claims the python lanes rather than every lane', () => {
-    assert.deepEqual(computeTargets(['tach.toml'], CONTEXT), computeTargets(['mypy.ini'], CONTEXT))
+// hoglint.toml and the preset are read by the lane rules too, so they carry the
+// same hazard, but the only lanes their graph can move are python ones. Claiming
+// them all still overlaps any PR whose lanes were computed against the previous graph.
+test('the hoglint config claims the python lanes rather than every lane', () => {
+    for (const file of ['hoglint.toml', 'tools/hoglint/presets/posthog.toml']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
+    }
+})
+
+// Two ledger edits that merge in parallel can leave master's ledger unequal to
+// its scan, so they serialize on one lane, and only on that one.
+test('the hoglint ledger and exceptions share one lane instead of every python lane', () => {
+    for (const file of ['hoglint.ledger', 'hoglint.exceptions.toml']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['hoglint-ledger'], file)
+    }
 })
 
 // A pnpm resolution change can red the python suites, which run through
@@ -1799,7 +1809,7 @@ test('rust migration sets claim the suites that read their schema', () => {
     ])
 })
 
-test('an isolated product change stays narrow and names its tach dependents', () => {
+test('an isolated product change stays narrow and names its import dependents', () => {
     assert.deepEqual(computeTargets(['products/alpha/backend/api.py'], CONTEXT), [
         'py:product:alpha',
         'py:product:beta',
@@ -1909,7 +1919,7 @@ test('the cascade names direct importers and stops before the next hop', () => {
         ['beta', ['alpha']],
         ['gamma', ['beta']],
     ])
-    const context = { ...CONTEXT, tachGraph: { graph, tachDependents } }
+    const context = { ...CONTEXT, importGraph: { graph, importDependents } }
     assert.deepEqual(computeTargets(['products/alpha/backend/api.py'], context), [
         'py:product:alpha',
         'py:product:beta',
@@ -2055,8 +2065,6 @@ test('files no vendor check reads keep their own lanes but not the vendor lane',
         ['docker-compose.base.yml', 'fe:core'],
         ['docker/clickhouse/config.d/default.xml', 'node:ingestion'],
         ['otel-collector-config.dev.yaml', 'py:core'],
-        // A ledger of imports between products, which a vendor cannot make.
-        ['products/model_crossing_uses_baseline.txt', 'py:product:warehouse_sources'],
         // Release, bot, and local-only files.
         ['.github/workflows/release-toolbar-extension.yml', 'deploy'],
         ['.github/workflows/renovate-dashboard-digest.yml', 'repo-automation'],
@@ -2079,19 +2087,19 @@ test('files no vendor check reads keep their own lanes but not the vendor lane',
     }
 })
 
-// The base CONTEXT keeps an empty tach graph, so no product is declared in it.
-// A product `tach check` does not constrain has no bounded importer set: any
+// The base CONTEXT keeps an empty import graph, so no product is mapped in it.
+// A product the hoglint map did not walk has no bounded importer set: any
 // module may import it, so its change still has to reach every backend lane.
-// The tach map is read from the head tree, so a file the PR deleted has no
+// The hoglint map is read from the head tree, so a file the PR deleted has no
 // importer edge left; alpha's known importers are not enough to bound its lane.
 test('a deleted product python file widens to every backend target', () => {
     const file = 'products/alpha/backend/facade/api.py'
-    const context = { ...TACH_DECLARED_CONTEXT, deletedFiles: new Set([file]) }
+    const context = { ...MAPPED_CONTEXT, deletedFiles: new Set([file]) }
     assert.equal(computeTargets([file], context).includes('py:core'), true)
-    assert.equal(computeTargets([file], TACH_DECLARED_CONTEXT).includes('py:core'), false)
+    assert.equal(computeTargets([file], MAPPED_CONTEXT).includes('py:core'), false)
 })
 
-test('a product absent from the tach graph widens to every backend target', () => {
+test('a product absent from the import graph widens to every backend target', () => {
     const targets = computeTargets(['products/gamma/backend/api.py'], CONTEXT)
     assert.equal(targets.includes('py:core'), true)
     for (const product of CONTEXT.products) {
@@ -2100,21 +2108,21 @@ test('a product absent from the tach graph widens to every backend target', () =
 })
 
 // The lane only has to answer whether another PR can reference the symbols this
-// one changed, and the tach map answers exactly that. Isolation is the stronger,
+// one changed, and the hoglint map answers exactly that. Isolation is the stronger,
 // separate claim that the product's own suite is sufficient, which lets CI
-// skip the full Django suite, and which products/architecture.md says tach
-// cannot prove. A product can be too unsealed for that and still be bounded
+// skip the full Django suite, and which products/architecture.md says an import
+// graph cannot prove. A product can be too unsealed for that and still be bounded
 // here, which is why gamma (non-isolated) narrows the same way alpha does.
-test('a non-isolated product tach declares claims its own lane and its importers', () => {
-    assert.deepEqual(computeTargets(['products/gamma/backend/api.py'], TACH_DECLARED_CONTEXT), [
+test('a non-isolated product the map walked claims its own lane and its importers', () => {
+    assert.deepEqual(computeTargets(['products/gamma/backend/api.py'], MAPPED_CONTEXT), [
         'py:product:beta',
         'py:product:gamma',
     ])
     // Every backend file seeds, because a product with no declared contract
     // surface has no way to say a file is internal.
     assert.deepEqual(
-        computeTargets(['products/gamma/backend/internal/helper.py'], TACH_DECLARED_CONTEXT),
-        computeTargets(['products/gamma/backend/api.py'], TACH_DECLARED_CONTEXT)
+        computeTargets(['products/gamma/backend/internal/helper.py'], MAPPED_CONTEXT),
+        computeTargets(['products/gamma/backend/api.py'], MAPPED_CONTEXT)
     )
 })
 
@@ -2122,7 +2130,7 @@ test('a non-isolated product tach declares claims its own lane and its importers
 // files seed the cascade at all, which is what a contract surface declares.
 test('isolation still buys a narrowed contract surface on top of the lane', () => {
     const context = {
-        ...TACH_DECLARED_CONTEXT,
+        ...MAPPED_CONTEXT,
         isolatedProducts: new Set([...CONTEXT.isolatedProducts, 'gamma']),
         contractSurfaces: new Map([['gamma', compileContractMatcher(['backend/facade/**'])]]),
     }
@@ -2147,7 +2155,7 @@ test("a non-isolated product's declarations claim its own lane, not every backen
 test("a non-isolated product's declarations still seed the dependent cascade", () => {
     const context = {
         ...CONTEXT,
-        tachGraph: { graph: new Map(), tachDependents: (changed) => (changed.includes('gamma') ? ['alpha'] : []) },
+        importGraph: { graph: new Map(), importDependents: (changed) => (changed.includes('gamma') ? ['alpha'] : []) },
     }
     assert.deepEqual(computeTargets(['products/gamma/package.json'], context), [
         'fe:product:gamma',
@@ -2156,7 +2164,7 @@ test("a non-isolated product's declarations still seed the dependent cascade", (
     ])
 })
 
-// Declarations narrow even for a product tach does not declare, because they
+// Declarations narrow even for a product the map did not walk, because they
 // configure only this product's own tasks. Its other files have neither a
 // declared boundary nor a bounded importer set, so they still widen.
 test('an undeclared product keeps widening on everything that is not a declaration', () => {
@@ -2165,14 +2173,14 @@ test('an undeclared product keeps widening on everything that is not a declarati
     }
 })
 
-test('an unavailable tach graph widens a declaration change too', () => {
-    const noTach = { ...CONTEXT, tachGraph: null }
-    assert.equal(computeTargets(['products/gamma/package.json'], noTach).includes('py:core'), true)
+test('an unavailable import graph widens a declaration change too', () => {
+    const noMap = { ...CONTEXT, importGraph: null }
+    assert.equal(computeTargets(['products/gamma/package.json'], noMap).includes('py:core'), true)
 })
 
-test('an unavailable tach graph widens backend changes instead of narrowing', () => {
-    const noTach = { ...CONTEXT, tachGraph: null }
-    const targets = computeTargets(['products/alpha/backend/api.py'], noTach)
+test('an unavailable import graph widens backend changes instead of narrowing', () => {
+    const noMap = { ...CONTEXT, importGraph: null }
+    const targets = computeTargets(['products/alpha/backend/api.py'], noMap)
     assert.equal(targets.includes('py:core'), true)
     assert.equal(targets.includes('py:product:gamma'), true)
 })
@@ -2300,7 +2308,7 @@ test('the vendored workspace files claim only the product lane', () => {
 })
 
 // delta stands in for products/desktop: an app imported from another
-// repository that pytest.ini ignores and the tach map never walks. Its
+// repository that pytest.ini ignores and the hoglint map never walks. Its
 // vendored .py files read as backend to the layout rules, so without the
 // detachment check they claim every backend lane for suites that never run on
 // them.

@@ -115,7 +115,7 @@ class SourceConfigGenerator:
 
     @staticmethod
     def _config_import(source_type: SourceKey) -> str:
-        # A vendor in the `products.warehouse_sources.sources` package imports shared code only from `products.warehouse_sources.sources.sdk` (tach).
+        # A vendor in the `products.warehouse_sources.sources` package imports shared code only from `products.warehouse_sources.sources.sdk` (hoglint's `sources-vendors-use-sdk`).
         source_module = source_module_path(source_type)
         if source_module is not None and source_module.startswith(f"{PLUGIN_SOURCES_PACKAGE}."):
             return f"from {PLUGIN_SOURCES_PACKAGE}.sdk import config"

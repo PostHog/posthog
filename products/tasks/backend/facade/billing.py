@@ -1,7 +1,7 @@
 """Billing-facing exports for the tasks product.
 
 The usage reporter (posthog/tasks/usage_report.py) lives in the ``posthog`` module,
-which may only import ``products.tasks`` through the facade (see tach.toml).
+which may only import ``products.tasks`` through the facade (hoglint's ``public-surface``).
 """
 
 from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunTokenUsage

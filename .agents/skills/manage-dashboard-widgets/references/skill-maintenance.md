@@ -59,7 +59,6 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | `products/dashboards/mcp/tools.yaml`                                        | Widget MCP tools                                                                               |
 | `products/dashboards/frontend/tileLayouts.ts`                               | Layout algorithm (only if behavior/docs change)                                                |
 | `posthog/api/test/test_sharing.py`                                          | Shared dashboard widget payload expectations                                                   |
-| `tach.toml` (`products.dashboards` `depends_on`)                            | New product import boundary                                                                    |
 
 Platform-only refactors with **no** behavior or agent-facing surface change may skip narrative updates — still run Verify tests.
 
@@ -79,7 +78,7 @@ Platform-only refactors with **no** behavior or agent-facing surface change may 
 | Debounced tile refresh after filter PATCH  | `constants.ts` `WIDGET_TILE_REFRESH_DEBOUNCE_MS`; `dashboardLogic.tsx`                                                                                                                                           |
 | Header title link / drag `cancel` selector | [list-widget-patterns.md](list-widget-patterns.md); [layout-and-ux.md](layout-and-ux.md) § ⋯ menu parity                                                                                                         |
 | MCP tools or agent flows                   | [mcp.md](mcp.md)                                                                                                                                                                                                 |
-| New product area / tach / UI reuse pattern | [checklist-new-widget-type.md](checklist-new-widget-type.md) §4c                                                                                                                                                 |
+| New product area / UI reuse pattern        | [checklist-new-widget-type.md](checklist-new-widget-type.md) §4c                                                                                                                                                 |
 | Human contributor entry point              | [`products/dashboards/CONTRIBUTING.md`](../../../products/dashboards/CONTRIBUTING.md) registry table / Verify block                                                                                              |
 
 Prefer **editing an existing reference** over adding a new file. Keep `SKILL.md` as the index — move detail into `references/`.

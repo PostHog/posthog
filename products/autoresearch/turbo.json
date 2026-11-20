@@ -12,7 +12,8 @@
                 "backend/models.py",
                 "backend/migrations/**",
                 "backend/scopes.py",
-                "backend/task_profiles.py"
+                "backend/task_profiles.py",
+                "backend/admin.py"
             ],
             "outputs": [],
             "cache": true

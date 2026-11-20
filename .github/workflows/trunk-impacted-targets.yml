@@ -67,9 +67,9 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
 
-            # The target script runs .github/scripts/tach_map.py under `uv run
+            # The target script runs .github/scripts/hoglint_map.py under `uv run
             # --no-project` to find a changed product's importers; the script pins
-            # tach, so no Python project sync is needed. A missing uv widens those
+            # hoglint, so no Python project sync is needed. A missing uv widens those
             # products to every backend lane rather than failing the job.
             - uses: ./.github/actions/setup-uv
               with:
