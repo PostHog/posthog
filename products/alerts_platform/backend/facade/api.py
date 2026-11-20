@@ -973,6 +973,32 @@ def restore_source_destination(
     )
 
 
+def refresh_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool,
+    keeps_legacy_webhook_body: bool,
+) -> StoredAlertDestination | None:
+    """Rewrites the one row that copies `hog_function_ids` from their live settings, keeping its id, in the
+    caller's transaction. None when no row or more than one row copies them. Raises
+    `AlertDestinationValidationError` when the alert already sends there through another destination."""
+    return alert_destinations.refresh_source_destination(
+        team_id=team_id,
+        public_id=public_id,
+        data=data,
+        event_kinds=event_kinds,
+        hog_function_ids=hog_function_ids,
+        hog_function_groups=hog_function_groups,
+        enabled=enabled,
+        keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+    )
+
+
 def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
     """Deletes the `AlertDestination` rows that copy any of these HogFunctions, and returns how many."""
     return alert_destinations.delete_rows_copying(team_id=team_id, hog_function_ids=hog_function_ids)

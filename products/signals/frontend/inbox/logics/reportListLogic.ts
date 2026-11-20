@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, shouldReportApiFailure } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -30,7 +30,12 @@ import type {
 
 import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { createdAfterForWindow, isMergeKeySortField } from '../filterOptions'
-import { captureInboxReportAction, type InboxReportActionSurface, setInboxServedRanker } from '../inboxAnalytics'
+import {
+    captureInboxReportAction,
+    captureInboxReportListRetryRecovered,
+    type InboxReportActionSurface,
+    setInboxServedRanker,
+} from '../inboxAnalytics'
 import {
     INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_REPORT_SECTION_KEYS,
@@ -55,12 +60,18 @@ import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSor
 import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
-const REPORT_LIST_RETRY_DELAY_MS = 300
+// Connection drops come in bursts of several seconds, so a retry soon after the failure fails too.
+const REPORT_LIST_RETRY_DELAYS_MS = [1000, 3000]
 // The refresh endpoint's own id cap per call.
 const METRIC_REFRESH_PAGE_SIZE = 20
 
+// A status-less `ApiError` is a dropped connection or a truncated or malformed 2xx body. A 504 is
+// not retried because the gateway already waited its full timeout, and a 500 is an application bug.
 function isRetryableReportListError(error: unknown): boolean {
-    return error instanceof ApiError && (error.status === undefined || error.status === 408 || error.status >= 500)
+    return (
+        error instanceof ApiError &&
+        (error.status === undefined || error.status === 408 || error.status === 502 || error.status === 503)
+    )
 }
 
 /** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */
@@ -734,18 +745,31 @@ export const reportListLogic = kea<reportListLogicType>([
                                 ? loadedPersonalRankingId()
                                 : undefined,
                         })
-                    let response: CountedPaginatedResponse<SignalReport>
-                    try {
-                        response = await request()
-                    } catch (error) {
-                        if (!isRetryableReportListError(error)) {
-                            throw error
+                    let response: CountedPaginatedResponse<SignalReport> | undefined
+                    let firstError: unknown
+                    let retryCount = 0
+                    while (response === undefined) {
+                        try {
+                            response = await request()
+                        } catch (error) {
+                            const delay = REPORT_LIST_RETRY_DELAYS_MS[retryCount]
+                            if (delay === undefined || !isRetryableReportListError(error)) {
+                                throw error
+                            }
+                            firstError ??= error
+                            retryCount++
+                            await breakpoint(delay)
                         }
-                        await breakpoint(REPORT_LIST_RETRY_DELAY_MS)
-                        response = await request()
                     }
                     // A newer first-page request for a changed query supersedes this one.
                     breakpoint()
+                    if (retryCount > 0) {
+                        captureInboxReportListRetryRecovered({
+                            sectionKey: props.sectionKey,
+                            retryCount,
+                            error: firstError,
+                        })
+                    }
                     return {
                         ...response,
                         results: keepRowFieldsWrittenDuringFetch(
@@ -1108,7 +1132,9 @@ export const reportListLogic = kea<reportListLogicType>([
                     )
                 )
             } catch (error) {
-                posthog.captureException(error)
+                if (shouldReportApiFailure(error)) {
+                    posthog.captureException(error)
+                }
             } finally {
                 requested.forEach((id) => inFlight.delete(id))
             }
