@@ -405,6 +405,13 @@ gateway_credential_hypercache = HyperCache(
 _MAX_PROJECTION_PASSES = 3
 
 
+def _clear_unverified_gateway_credential(cache_hash: str) -> None:
+    try:
+        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+    except Exception as e:
+        logger.warning("gateway_credential: unverified blob could not be cleared", error=str(e))
+
+
 def _write_or_clear_gateway_credential(
     credential: Credential, cache_hash: str, memo: "_RefreshMemo | None", organization_deactivated: bool
 ) -> bool:
@@ -420,7 +427,11 @@ def _write_or_clear_gateway_credential(
 
     # Floor at 1s so a sub-second-but-valid token isn't written with timeout=0,
     # which Django treats as evict-immediately.
-    gateway_credential_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
+    try:
+        gateway_credential_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
+    except Exception:
+        _clear_unverified_gateway_credential(cache_hash)
+        raise
     return True
 
 
@@ -445,10 +456,7 @@ def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | Non
         raise RuntimeError("Organization state did not settle during gateway credential projection")
     except Exception:
         if unverified_write:
-            try:
-                gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
-            except Exception as e:
-                logger.warning("gateway_credential: unverified blob could not be cleared", error=str(e))
+            _clear_unverified_gateway_credential(cache_hash)
         raise
 
 

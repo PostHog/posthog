@@ -396,6 +396,22 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
 
         self.assertIsNone(self._read_blob(credential_hash(credential)))
 
+    def test_a_write_that_errors_after_landing_is_cleared(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        real_write = hypercache.set_cache_value_redis_only
+
+        def write_then_fail(*args, **kwargs):
+            real_write(*args, **kwargs)
+            raise ConnectionError("redis timeout")
+
+        with (
+            patch.object(hypercache, "set_cache_value_redis_only", side_effect=write_then_fail),
+            self.assertRaises(ConnectionError),
+        ):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
     def test_a_transient_reactivation_does_not_publish_a_blob(self):
         credential, _ = self._make_secret_key([GATEWAY_SCOPE])
 
