@@ -35,7 +35,7 @@ from posthog.hogql.flag_called_warnings import (
     flag_called_missing_field_warning,
 )
 from posthog.hogql.metadata import get_hogql_metadata
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
 from posthog.api.services.query import process_query_model
@@ -407,7 +407,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     @override_settings(DEBUG=False)
     def test_metadata_keeps_ambiguous_field_error_when_suggestion_parser_fails(self):
         query = "SELECT label FROM (SELECT 1 AS label) AS a CROSS JOIN (SELECT 2 AS label) AS b"
-        with patch("posthog.hogql.parser.parse_expr", side_effect=RuntimeError("Parser unavailable")):
+
+        def fail_on_suggestion(expr, *args, **kwargs):
+            if expr in ("a.label", "b.label"):
+                raise RuntimeError("Parser unavailable")
+            return parse_expr(expr, *args, **kwargs)
+
+        with patch("posthog.hogql.parser.parse_expr", side_effect=fail_on_suggestion):
             metadata = self._select(query)
 
         self.assertFalse(metadata.internalError)
