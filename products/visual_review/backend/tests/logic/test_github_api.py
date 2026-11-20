@@ -187,8 +187,15 @@ def test_branch_heads_read_every_page_and_only_merge_queue_branches() -> None:
         if path.endswith("/pulls"):
             first = (params["page"] - 1) * params["per_page"]
             count = max(0, min(params["per_page"], 101 - first))
+            in_repo = {"full_name": "org/repo"}
+            head_repos = {98: {"full_name": "someone/repo"}, 99: None}
             response.json.return_value = [
-                {"number": first + i, "head": {"sha": f"pr-head-{first + i}"}} for i in range(count)
+                {
+                    "number": first + i,
+                    "head": {"sha": f"pr-head-{first + i}", "repo": head_repos.get(first + i, in_repo)},
+                    "base": {"repo": in_repo},
+                }
+                for i in range(count)
             ]
         else:
             # The refs endpoint ignores paging and answers with every matching ref.
@@ -210,6 +217,7 @@ def test_branch_heads_read_every_page_and_only_merge_queue_branches() -> None:
 
     assert pull_requests is not None and len(pull_requests) == 101
     assert pull_requests[-1] == github_api.BranchHead(commit_sha="pr-head-100", pr_number=100)
+    assert [head.pr_number for head in pull_requests if head.from_fork] == [98, 99]
     assert merge_queue == [
         github_api.BranchHead(commit_sha="queue-head-0", pr_number=0),
         github_api.BranchHead(commit_sha="queue-head-100", pr_number=100),

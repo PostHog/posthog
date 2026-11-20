@@ -324,8 +324,15 @@ class Command(BaseCommand):
             raise CommandError(
                 "GitHub did not list the open pull requests or the merge-queue branches. Nothing was posted."
             )
-        self.stdout.write(f"{len(pull_requests)} open pull requests, {len(merge_queue)} merge-queue branches.")
-        return pull_requests + merge_queue
+        # CI skips the setup job on a fork, whose workflow gets no secrets, so a skipped job proves nothing
+        # there. A fork pull request is recreated in the repository before it merges, so it gets no status.
+        in_repo = [head for head in pull_requests if not head.from_fork]
+        forks = len(pull_requests) - len(in_repo)
+        self.stdout.write(
+            f"{len(in_repo)} open pull requests, {len(merge_queue)} merge-queue branches, "
+            f"{forks} fork pull requests skipped."
+        )
+        return in_repo + merge_queue
 
     def _show_verdicts(
         self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str], setup_check: str

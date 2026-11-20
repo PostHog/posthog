@@ -450,6 +450,8 @@ class BranchHead:
 
     commit_sha: str
     pr_number: int
+    # The head is in another repository, or that repository was deleted.
+    from_fork: bool = False
 
 
 _LIST_PAGE_SIZE = 100
@@ -484,6 +486,12 @@ def _read_all_pages(log_event: str, repo: Repo, path: str, params: dict[str, str
     return None
 
 
+def _is_from_fork(pull_request: dict) -> bool:
+    head_repo = (pull_request.get("head") or {}).get("repo") or {}
+    base_repo = (pull_request.get("base") or {}).get("repo") or {}
+    return not head_repo.get("full_name") or head_repo.get("full_name") != base_repo.get("full_name")
+
+
 def open_pull_request_heads(repo: Repo, base_branch: str) -> list[BranchHead] | None:
     """The head commit of every open pull request that targets `base_branch`, or None when GitHub cannot say."""
     items = _read_all_pages(
@@ -491,7 +499,10 @@ def open_pull_request_heads(repo: Repo, base_branch: str) -> list[BranchHead] | 
     )
     if items is None:
         return None
-    return [BranchHead(commit_sha=item["head"]["sha"], pr_number=item["number"]) for item in items]
+    return [
+        BranchHead(commit_sha=item["head"]["sha"], pr_number=item["number"], from_fork=_is_from_fork(item))
+        for item in items
+    ]
 
 
 def merge_queue_branch_heads(repo: Repo) -> list[BranchHead] | None:
