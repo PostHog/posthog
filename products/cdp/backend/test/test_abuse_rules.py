@@ -38,6 +38,21 @@ def liquid(template: str) -> HogFunctionContent:
     return content(inputs={"body": {"value": template, "templating": "liquid"}})
 
 
+CHAT_TEMPLATE_HOG = (
+    "let body := {'channel': inputs.channel}\n"
+    "if (not empty(inputs.blocks)) {\n  body['blocks'] := inputs.blocks\n}\n"
+    "fetch('https://chat.example.com/api/post', {'method': 'POST', 'body': body})"
+)
+CHAT_INPUTS = {
+    "channel": {"value": "C0001"},
+    "blocks": {"value": [{"type": "button", "url": "{true ? 'https://app.example.com' : 'http://localhost:3000'}"}]},
+}
+
+
+def unedited_template(hog: str, inputs: dict[str, Any]) -> HogFunctionContent:
+    return content(hog=hog, inputs=inputs, template_id="template-example", code_modified_from_template=False)
+
+
 class TestAbuseRules(SimpleTestCase):
     @parameterized.expand(
         [
@@ -125,6 +140,67 @@ class TestAbuseRules(SimpleTestCase):
             (
                 "internal_mapping_input_of_a_destination",
                 content(mappings=[{"name": "Orders", "inputs": {"url": {"value": "http://10.0.0.8/orders"}}}]),
+                (Rule.INTERNAL_HOST,),
+            ),
+            ("local_link_in_the_message_of_a_stock_template", unedited_template(CHAT_TEMPLATE_HOG, CHAT_INPUTS), ()),
+            (
+                "edited_template_code_that_sends_a_request_to_a_message_link",
+                content(
+                    hog="let request := {'url': 'https://chat.example.com/api/post'}\n"
+                    "let alias := request\n"
+                    "alias['url'] := inputs.blocks[1].url\n"
+                    "fetch(request.url, {'method': 'POST', 'body': {'blocks': inputs.blocks}})",
+                    inputs=CHAT_INPUTS,
+                    template_id="template-example",
+                    code_modified_from_template=True,
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "internal_url_input_of_a_stock_template",
+                unedited_template("fetch(inputs.url, {'body': inputs.body})", {"url": {"value": "http://10.0.0.9/"}}),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "internal_input_in_a_url_variable_of_a_stock_template",
+                unedited_template(
+                    "let target := f'{inputs.base_url}/v1/events'\nfetch(target, {'body': inputs.body})",
+                    {"base_url": {"value": "http://10.0.0.9"}},
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "stock_template_url_input_that_renders_another_input",
+                unedited_template(
+                    "fetch(inputs.url, {'body': inputs.body})",
+                    {
+                        "body": {"value": "http://169.254.169.254/latest/"},
+                        "url": {
+                            "value": "{% assign k = 'in' | append: 'puts' %}{{ [k].body }}",
+                            "templating": "liquid",
+                        },
+                    },
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "stock_native_destination_whose_code_never_sends_the_request",
+                content(
+                    hog="return event;",
+                    inputs={"url": {"value": "http://127.0.0.1/"}},
+                    template_id="native-webhook",
+                    code_modified_from_template=False,
+                ),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "stock_template_that_fetches_inside_a_function",
+                unedited_template(
+                    "let url := 'https://api.example.com/v1'\n"
+                    "fun send(url) {\n  return fetch(url, {})\n}\n"
+                    "send(inputs.endpoint)",
+                    {"endpoint": {"value": "http://localhost:8000/"}},
+                ),
                 (Rule.INTERNAL_HOST,),
             ),
             ("ipv4_shorthand", content(inputs={"url": {"value": "http://127.1/"}}), (Rule.INTERNAL_HOST,)),

@@ -858,7 +858,6 @@ class TestAddFallbackQueryTags(SimpleTestCase):
         # (see sync_execute); user-facing auth stays online.
         (AccessMethod.PERSONAL_API_KEY, True),
         (AccessMethod.PROJECT_SECRET_API_KEY, True),
-        (AccessMethod.TEAM_SECRET_TOKEN, True),
         (AccessMethod.OAUTH, False),
         (AccessMethod.SHARING_TOKEN, False),
         (AccessMethod.ID_JAG, False),

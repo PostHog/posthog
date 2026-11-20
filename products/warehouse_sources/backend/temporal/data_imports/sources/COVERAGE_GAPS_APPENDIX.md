@@ -124,10 +124,10 @@ Note: Parsed the official index and embedded OpenAPI operations on reference pag
 
 Re-audited 2026-11-19 against: <https://apidocs.acculynx.com/llms.txt>
 
-- [ ] `Workflow milestones (GET /api/v2/company-settings/job-file-settings/workflow-milestones; GET /api/v2/company-settings/job-file-settings/workflow-milestones/{milestone}/statuses)` — lookup of milestones and their statuses, to decode the milestone IDs in job_milestone_history and jobs (high)
-- [ ] `Insurance companies (GET /api/v2/company-settings/job-file-settings/insurance-companies)` — lookup of insurance carriers for claim and insurance analysis (medium)
-- [ ] `Job insurance (GET /api/v2/jobs/{jobId}/insurance)` — per-job insurance claim details, a fan-out over jobs (medium)
-- [ ] `Supplement notations (GET /api/v2/supplements/{supplementId}/notations)` — notes explaining each supplement, a fan-out under the synced supplements (medium)
+- [x] `Workflow milestones (GET /api/v2/company-settings/job-file-settings/workflow-milestones; GET /api/v2/company-settings/job-file-settings/workflow-milestones/{milestone}/statuses)` — lookup of milestones and their statuses, to decode the milestone IDs in job_milestone_history and jobs (high). Statuses not built: the endpoint takes one milestone name per request, documents a single object as its response, and has data only on accounts with custom workflows.
+- [x] `Insurance companies (GET /api/v2/company-settings/job-file-settings/insurance-companies)` — lookup of insurance carriers for claim and insurance analysis (medium)
+- [x] `Job insurance (GET /api/v2/jobs/{jobId}/insurance)` — per-job insurance claim details, a fan-out over jobs (medium)
+- [x] `Supplement notations (GET /api/v2/supplements/{supplementId}/notations)` — notes explaining each supplement, a fan-out under the synced supplements (medium)
 - [ ] `Contact types (GET /api/v2/contacts/contact-types)` — lookup that decodes the type of each synced contact (medium)
 - [ ] `Lead history (GET /api/v2/leads/{leadId}/history)` — status and change history of each lead (medium)
 - [ ] `Account types (GET /api/v2/company-settings/location-settings/account-types)` — lookup of active company account types (low)
@@ -1781,7 +1781,7 @@ Note (2026-11-19): Parsed the v2 OpenAPI spec from the docs repo and diffed ever
 
 ## AzureDevOps — **thin**
 
-Today (23): `build_definitions`, `build_timeline_records`, `builds`, `commits`, `pipeline_runs`, `pipelines`, `projects`, `pull_request_reviewers`, `pull_request_thread_comments`, `pull_request_threads`, `pull_request_work_items`, `pull_requests`, `release_deployments`, `releases`, `repositories`, `team_members`, `teams`, `test_runs`, `work_item_classification_nodes`, `work_item_revisions`, `work_item_type_states`, `work_item_types`, `work_iterations`
+Today (24): `build_definitions`, `build_timeline_records`, `builds`, `commits`, `pipeline_runs`, `pipelines`, `projects`, `pull_request_iteration_statuses`, `pull_request_reviewers`, `pull_request_thread_comments`, `pull_request_threads`, `pull_request_work_items`, `pull_requests`, `release_deployments`, `releases`, `repositories`, `team_members`, `teams`, `test_runs`, `work_item_classification_nodes`, `work_item_revisions`, `work_item_type_states`, `work_item_types`, `work_iterations`
 
 Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/master/specification>
 
@@ -1789,7 +1789,7 @@ Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/maste
 - [x] `git Pull Request Threads + Thread Comments` — review discussion and timestamps - required for review latency and cycle time on the PRs we already sync (high)
 - [x] `git Pull Request Reviewers (and Pull Request Iteration Statuses)` — approval votes per reviewer; the membership table that turns pull_requests into review analytics (high)
 - [x] `core Teams (GET /_apis/teams, /projects/{projectId}/teams) and Team Members` — lookup resolving team ownership for projects, work items and boards (high)
-- [ ] `git Pull Request Iteration Statuses (GET .../pullRequests/{pullRequestId}/iterations/{iterationId}/statuses)` — per-iteration policy and status checks; needs a fan-out one level deeper than the reviewers table above (medium)
+- [x] `git Pull Request Iteration Statuses (GET .../pullRequests/{pullRequestId}/iterations/{iterationId}/statuses)` — per-iteration policy and status checks; needs a fan-out one level deeper than the reviewers table above (medium); landed as `pull_request_iteration_statuses`, full refresh, because the status listing takes no time filter
 - [x] `build Definitions (GET /{project}/_apis/build/definitions)` — lookup resolving definition.id carried on every build row we already sync (high)
 - [x] `build Timeline (GET /{project}/_apis/build/builds/{buildId}/timeline/{timelineId})` — per-job/step records and durations - where build time actually goes (high)
 - [x] `release Releases + release Deployments` — deployment frequency and environment promotion history; entirely absent today (high)
@@ -10263,9 +10263,9 @@ Today (7): `adgroup_stats`, `adgroups`, `ads`, `campaign_stats`, `campaigns`, `k
 
 Diffed against: <https://github.com/naver/searchad-apidoc/tree/master/java-sample/src/main/java/com/naver/searchad/api/rest>
 
-- [ ] `Business channels (GET /ncc/channels)` — List the sites and channels that ads point to, so campaigns and ads can be reported by landing property (medium)
-- [ ] `Ad extensions (GET /ncc/ad-extensions?ownerId={id})` — Read extension assets such as extra links and phone numbers attached to campaigns and ad groups we sync (medium)
-- [ ] `Customer links (GET /customer-links)` — Resolve which advertiser accounts a manager account can access, for agency setups (low)
+- [x] `Business channels (GET /ncc/channels)` — List the sites and channels that ads point to, so campaigns and ads can be reported by landing property (medium)
+- [x] `Ad extensions (GET /ncc/ad-extensions?ownerId={id})` — Read extension assets such as extra links and phone numbers attached to campaigns and ad groups we sync (medium)
+- [ ] `Customer links (GET /customer-links)` — Resolve which advertiser accounts a manager account can access, for agency setups (low) Skipped: Naver ended support for /customer-links in 2025 when it merged ad accounts.
 
 Note: The official doc site is a JavaScript app with no machine-readable spec, so I diffed against the vendor's public SDK samples on GitHub (Java rest classes, with route comments). Routes confirmed there are campaigns, adgroups, ads, keywords, channels, ad-extensions, customer-links, stats, stat-reports and master-reports. Ad extensions need an ownerId, so fan out under campaigns or ad groups. Excluded estimate endpoints, write routes, and the async master-reports jobs, which only repeat the same objects in bulk. The SDK is a sample, so other routes may exist that I could not verify.
 
@@ -10462,7 +10462,7 @@ Note: Enumerated every /reference/get_v2-\* route from the ReadMe-hosted referen
 
 ## Notion — gaps
 
-Today (6): `blocks`, `comments`, `databases`, `pages`, `permission_groups`, `users`
+Today (9): `agent_credit_usage`, `blocks`, `comments`, `databases`, `pages`, `permission_group_members`, `permission_groups`, `user_credit_usage`, `users`
 
 Diffed against: <https://developers.notion.com/openapi-adminApi.json>
 
@@ -10470,10 +10470,10 @@ Diffed against: <https://developers.notion.com/openapi-adminApi.json>
 
 Re-audited 2026-11-19 against: <https://developers.notion.com/llms.txt>
 
-- [ ] `Permission group members (GET /v1/spaces/{space_id}/groups/{group_id}/members)` — Join table of users in each permission group we already sync, with owner or member role (medium)
-- [ ] `Credit usage per user (GET /v1/spaces/{space_id}/users/credit_usage)` — Notion credit usage and limits per member in the current billing period, joins to users (medium)
-- [ ] `Query meeting notes (POST /v1/blocks/meeting_notes/query)` — Meeting note blocks with status, calendar and recording metadata (medium)
-- [ ] `Credit usage per agent (GET /v1/spaces/{space_id}/agents/credit_usage)` — Credit spend by agent, split by credit type (low)
+- [x] `Permission group members (GET /v1/spaces/{space_id}/groups/{group_id}/members)` — Join table of users in each permission group we already sync, with owner or member role (medium). Added as `permission_group_members`.
+- [x] `Credit usage per user (GET /v1/spaces/{space_id}/users/credit_usage)` — Notion credit usage and limits per member in the current billing period, joins to users (medium). Added as `user_credit_usage`.
+- [ ] `Query meeting notes (POST /v1/blocks/meeting_notes/query)` — Meeting note blocks with status, calendar and recording metadata (medium). Skipped: no pagination (at most 50 notes per call), only meetings the integration's user attended, and the `blocks` table already holds `meeting_notes` blocks.
+- [x] `Credit usage per agent (GET /v1/spaces/{space_id}/agents/credit_usage)` — Credit spend by agent, split by credit type (low). Added as `agent_credit_usage`.
 - [ ] `List views (GET /v1/views)` — View definitions per database we already sync (low)
 - [ ] `Credit access policies (GET /v1/spaces/{space_id}/policies/credit_access; GET .../{policy_id}/assignments)` — Credit limit policies and who they cover (low)
 
