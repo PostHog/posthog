@@ -743,10 +743,13 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 content_type="application/json",
             )
             if path == "web_save":
-                with self.captureOnCommitCallbacks(execute=True):
+                with self.captureOnCommitCallbacks() as after_commit:
                     response = self.client.post(
                         f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
                     )
+                assert not self._sandbox_sender_is_set_up()
+                for callback in after_commit:
+                    callback()
             else:
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_flows/new/invocations",
