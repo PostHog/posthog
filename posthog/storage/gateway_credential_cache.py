@@ -401,11 +401,13 @@ gateway_credential_hypercache = HyperCache(
 _MAX_PROJECTION_PASSES = 3
 
 
-def _clear_unverified_gateway_credential(cache_hash: str) -> None:
+def _clear_unverified_gateway_credential(cache_hash: str) -> bool:
     try:
         gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
     except Exception as e:
         logger.warning("gateway_credential: unverified blob could not be cleared", error=str(e))
+        return False
+    return True
 
 
 def _write_or_clear_gateway_credential(
@@ -530,20 +532,19 @@ def reproject_organization_gateway_credentials(organization_id: str) -> None:
         .iterator(),
     )
     first_error: Exception | None = None
-    infra_failures_in_a_row = 0
+    uncleared_in_a_row = 0
     for credential in credentials:
         try:
             project_gateway_credential(credential)
         except Exception as e:
-            if cache_hash := credential_hash(credential):
-                _clear_unverified_gateway_credential(cache_hash)
             first_error = first_error or e
-            if isinstance(e, _REFRESH_INFRA_ERRORS):
-                infra_failures_in_a_row += 1
-                if infra_failures_in_a_row >= REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES:
+            cache_hash = credential_hash(credential)
+            if cache_hash and not _clear_unverified_gateway_credential(cache_hash):
+                uncleared_in_a_row += 1
+                if uncleared_in_a_row >= REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES:
                     raise
-            continue
-        infra_failures_in_a_row = 0
+                continue
+        uncleared_in_a_row = 0
     if first_error is not None:
         raise first_error
 
