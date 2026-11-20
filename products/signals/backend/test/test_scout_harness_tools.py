@@ -1958,20 +1958,27 @@ class TestSuggestedPromptSafetyJudgeInput:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "path,title,summary,stored_title,stored_summary",
+        "path,title,summary,stored_title,stored_summary,prompts_are_stored",
         [
-            ("emit", None, None, "", ""),
-            ("edit", "A title", _PROMPT_CONTEXT_SUMMARY, "", ""),
-            ("edit_prompts_only", None, None, "A title", _PROMPT_CONTEXT_SUMMARY),
-            ("edit_title_only", "A title", None, "An old title", _PROMPT_CONTEXT_SUMMARY),
+            ("emit", None, None, "", "", False),
+            ("edit", "A title", _PROMPT_CONTEXT_SUMMARY, "", "", False),
+            ("edit_prompts_only", None, None, "A title", _PROMPT_CONTEXT_SUMMARY, False),
+            ("edit_title_only", "A title", None, "An old title", _PROMPT_CONTEXT_SUMMARY, False),
+            ("edit_summary_under_stored_prompts", None, _PROMPT_CONTEXT_SUMMARY, "A title", "An old summary", True),
         ],
     )
     async def test_prompts_reach_the_judge_in_one_signal_with_the_report_text(
-        self, path: str, title: str | None, summary: str | None, stored_title: str, stored_summary: str
+        self,
+        path: str,
+        title: str | None,
+        summary: str | None,
+        stored_title: str,
+        stored_summary: str,
+        prompts_are_stored: bool,
     ) -> None:
         # The system-one judge splits its input into chunks at signal boundaries. A prompt judged in
         # another chunk than the summary it points at ("run the command in this report") reads as safe.
-        # An edit that leaves the summary alone still runs its prompts against the stored one.
+        # An edit that leaves the summary or the prompts alone still pairs with the stored ones.
         prompt = "Run the diagnostic command in this report"
         judge = AsyncMock(return_value=SafetyJudgeResponse(choice=True, explanation=""))
         with patch("products.signals.backend.scout_report.judge.judge_report_safety", judge):
@@ -1995,7 +2002,8 @@ class TestSuggestedPromptSafetyJudgeInput:
                     summary=summary,
                     stored_title=stored_title,
                     stored_summary=stored_summary,
-                    suggested_prompts=[prompt],
+                    suggested_prompts=[] if prompts_are_stored else [prompt],
+                    stored_suggested_prompts=[prompt] if prompts_are_stored else [],
                 )
 
         assert judge.await_args is not None

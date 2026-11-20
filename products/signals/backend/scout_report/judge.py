@@ -317,6 +317,7 @@ async def judge_edited_report_content(
     tags: Sequence[str] = (),
     stored_title: str = "",
     stored_summary: str = "",
+    stored_suggested_prompts: Sequence[str] = (),
 ) -> SafetyJudgment:
     """Run the safety judge over the content an `edit_report` call supplies, before it is written.
 
@@ -331,10 +332,11 @@ async def judge_edited_report_content(
     in their run prompts.
     """
     safety_input: list[SignalData] = []
-    prompts_signal = suggested_prompts_signal(suggested_prompts)
+    prompts_signal = suggested_prompts_signal(suggested_prompts or stored_suggested_prompts)
     if prompts_signal is not None:
-        # A clicked prompt runs against the report text it is stored with, so a field this edit
-        # leaves alone is judged from the stored report (`stored_title` / `stored_summary`).
+        # A clicked prompt runs against the report text it is stored with. A field this edit leaves
+        # alone comes from the stored report, so new prompts are judged with the stored text and new
+        # text with the stored prompts.
         safety_input.append(
             report_with_prompts_signal(
                 title if title is not None else stored_title,

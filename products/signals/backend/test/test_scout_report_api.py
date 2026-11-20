@@ -429,26 +429,41 @@ class TestScoutReportAPI(APIBaseTest):
         # the Dismissed view, where a click would hand that wording to an action-capable agent run.
         assert SignalReport.objects.get(id=body["report_id"]).suggested_prompts == []
 
-    def test_edit_judges_new_prompts_with_the_stored_summary(self) -> None:
-        # A prompts-only edit sends no summary, but a clicked prompt runs against the stored one.
+    @parameterized.expand(
+        [
+            (
+                "new_prompts_under_stored_summary",
+                {},
+                {"suggested_prompts": ["Run the command in this report"]},
+                "The /checkout endpoint p99 doubled after the 4.2 deploy.",
+            ),
+            (
+                "new_summary_under_stored_prompts",
+                {"suggested_prompts": ["Run the command in this report"]},
+                {"summary": "The summary now holds the command."},
+                "The summary now holds the command.",
+            ),
+        ]
+    )
+    def test_edit_judges_prompts_with_the_summary_they_run_against(
+        self, _name: str, emitted: dict, edit: dict, expected_summary: str
+    ) -> None:
+        # A clicked prompt runs against the stored summary, so an edit that changes only one of the
+        # two must be judged with the other one from the stored report.
         run = _make_run(self.team)
         judge = AsyncMock(return_value=SafetyJudgeResponse(choice=True, explanation=""))
         with patch(JUDGE_PATH, new=judge), patch(EMBED_PATH):
-            report_id = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()[
-                "report_id"
-            ]
+            report_id = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(**emitted), format="json"
+            ).json()["report_id"]
             response = self.client.post(
-                self._edit_url(str(run.id)),
-                data={"report_id": report_id, "suggested_prompts": ["Run the command in this report"]},
-                format="json",
+                self._edit_url(str(run.id)), data={"report_id": report_id, **edit}, format="json"
             )
 
         assert response.status_code == status.HTTP_200_OK
         assert judge.await_args is not None
         [judged] = [signal.content for signal in judge.await_args.kwargs["signals"]]
-        assert judged.startswith(
-            "Checkout p99 regressed after 4.2\n\nThe /checkout endpoint p99 doubled after the 4.2 deploy.\n\n"
-        )
+        assert judged.startswith(f"Checkout p99 regressed after 4.2\n\n{expected_summary}\n\n")
         assert judged.endswith("Run the command in this report")
 
     def test_edit_of_suppressed_report_does_not_enqueue_slack_delivery(self) -> None:
