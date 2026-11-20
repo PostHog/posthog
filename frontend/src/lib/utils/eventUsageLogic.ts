@@ -1257,8 +1257,8 @@ export interface eventUsageLogicActions {
     }
     reportPersonsModalSearched: (params: { actorType?: string; teamId?: number | null }) => {
         params: {
-            actorType?: string | undefined
-            teamId?: number | null | undefined
+            actorType?: string
+            teamId?: number | null
         }
     }
     reportPersonsModalViewed: (params: any) => {
@@ -1396,7 +1396,7 @@ export interface eventUsageLogicActions {
     }) => {
         props: {
             filter_type: string
-            property_filter_category?: PropertyFilterType | undefined
+            property_filter_category?: PropertyFilterType
             total_filter_count: number
         }
     }
@@ -1407,7 +1407,7 @@ export interface eventUsageLogicActions {
     }) => {
         props: {
             filter_type: string
-            property_filter_category?: PropertyFilterType | undefined
+            property_filter_category?: PropertyFilterType
             total_filter_count: number
         }
     }

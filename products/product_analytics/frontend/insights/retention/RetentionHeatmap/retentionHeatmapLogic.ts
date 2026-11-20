@@ -36,9 +36,9 @@ export interface retentionHeatmapLogicValues {
     hoveredColumn: number | null
     retentionVizOptions:
         | {
-              hideLineGraph?: boolean | undefined
-              hideSizeColumn?: boolean | undefined
-              useSmallLayout?: boolean | undefined
+              hideLineGraph?: boolean
+              hideSizeColumn?: boolean
+              useSmallLayout?: boolean
           }
         | undefined
     tableHeaders: string[]
@@ -68,17 +68,17 @@ export interface retentionHeatmapLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         retentionVizOptions: (vizSpecificOptions: VizSpecificOptions | null | undefined) =>
             | {
-                  hideLineGraph?: boolean | undefined
-                  hideSizeColumn?: boolean | undefined
-                  useSmallLayout?: boolean | undefined
+                  hideLineGraph?: boolean
+                  hideSizeColumn?: boolean
+                  useSmallLayout?: boolean
               }
             | undefined
         hideSizeColumn: (
             retentionVizOptions:
                 | {
-                      hideLineGraph?: boolean | undefined
-                      hideSizeColumn?: boolean | undefined
-                      useSmallLayout?: boolean | undefined
+                      hideLineGraph?: boolean
+                      hideSizeColumn?: boolean
+                      useSmallLayout?: boolean
                   }
                 | undefined
         ) => boolean | undefined
