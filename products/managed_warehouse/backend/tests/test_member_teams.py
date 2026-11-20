@@ -373,7 +373,9 @@ class TestReceivers(_MemberTeamsTest):
         access_testing.add_role_member(role_id=role_id, user_id=self.member.id)
         assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
         with self.captureOnCommitCallbacks(execute=True):
-            access_testing.set_role_organization_access_level(role_id=role_id, level=None)
+            access_testing.set_role_organization_access_level(
+                organization_id=self.organization.id, role_id=role_id, level=None
+            )
         self.member_push.assert_any_call(str(self.organization.id), str(self.member.uuid))
         assert member_teams.member_teams(self.organization, self.member) == {}
 

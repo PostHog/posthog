@@ -18,8 +18,8 @@ def create_role(*, organization_id: UUID, name: str, organization_access_level: 
     ).id
 
 
-def set_role_organization_access_level(*, role_id: UUID, level: int | None) -> None:
-    Role.objects.filter(pk=role_id).update(organization_access_level=level)
+def set_role_organization_access_level(*, organization_id: UUID, role_id: UUID, level: int | None) -> None:
+    Role.objects.filter(organization_id=organization_id, pk=role_id).update(organization_access_level=level)
 
 
 def add_role_member(*, role_id: UUID, user_id: int) -> UUID:
