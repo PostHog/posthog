@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { Dialog, DialogContent } from '@posthog/quill'
 
+import { closesIntoLemonPopover } from 'lib/components/QuillSurface/closesIntoLemonPopover'
 import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
@@ -28,7 +29,14 @@ export function QuillLogsAlertCreateModal({ isOpen, onClose }: QuillLogsAlertCre
     return (
         <Dialog
             open={isOpen}
-            onOpenChange={(open: boolean) => {
+            // The service and filter pickers open Lemon popovers that portal outside the dialog. A modal dialog would
+            // make them inert and pull focus back, so the dialog stays non-modal and ignores clicks that land in them.
+            modal={false}
+            onOpenChange={(open, details) => {
+                if (closesIntoLemonPopover(open, details)) {
+                    details.cancel()
+                    return
+                }
                 if (!open) {
                     onClose()
                 }
