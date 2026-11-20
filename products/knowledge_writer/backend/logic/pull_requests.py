@@ -199,10 +199,12 @@ def source_repository_github(team_id: int) -> GitHubIntegration | None:
     return docs_github(team_id, SOURCE_REPOSITORY.split("/", 1)[0], priority=Priority.NORMAL)
 
 
-def source_github(team_id: int, source: SourceChange) -> GitHubIntegration | None:
+def source_github(team_id: int, source: SourceChange, docs_repository: str) -> GitHubIntegration | None:
     if source.repository is None:
         return None
-    return docs_github(team_id, source.repository.split("/", 1)[0], priority=Priority.NORMAL)
+    return docs_github(team_id, source.repository.split("/", 1)[0], priority=Priority.NORMAL) or docs_github(
+        team_id, docs_repository.split("/", 1)[0], priority=Priority.NORMAL
+    )
 
 
 def github_app_login() -> str | None:
@@ -439,7 +441,9 @@ def publish_change(
         refuse_draft(draft, publication.refusal)
         return None
     flags = DraftFlags(
-        grounding=ground_draft(source_github(team_id, source_change), source_change, changed_files),
+        grounding=ground_draft(
+            source_github(team_id, source_change, writer.docs_repository), source_change, changed_files
+        ),
         extra_pages=extra_pages(changed_files, docs_folders, routed_page_keys(task_id, team_id)),
         companion_flags=publication.flags,
         rules_flags=publication.rules_flags,

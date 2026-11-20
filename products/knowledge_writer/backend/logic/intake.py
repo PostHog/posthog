@@ -131,7 +131,7 @@ def launch_request(
             team=team,
             writer=writer,
             base_sha=base_sha,
-            source_diff=read_source_diff(source_github(team_id, source_change), source_change),
+            source_diff=read_source_diff(source_github(team_id, source_change, writer.docs_repository), source_change),
             rules_text_by_path=rules_text_by_path,
             before_task_create=lambda: admit_launch(writer, listed_open_count, request, replacing_task_id),
         )

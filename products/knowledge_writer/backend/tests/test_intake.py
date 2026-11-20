@@ -34,7 +34,7 @@ from products.knowledge_writer.backend.logic.docs_pages import (
     SOURCE_DIFF_ATTACHMENT_NAME,
     WRITER_QUOTES_PATH,
 )
-from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport
+from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport, ground_draft
 from products.knowledge_writer.backend.logic.launch import (
     CHECK_SCRIPT_ATTACHMENT_NAME,
     WRITER_IDLE_TIMEOUT_SECONDS,
@@ -46,6 +46,7 @@ from products.knowledge_writer.backend.logic.pull_requests import (
     OPEN_PULL_REQUESTS_OFF,
     open_pull_request_for_run,
     settle_publication,
+    source_github,
 )
 from products.knowledge_writer.backend.logic.records import (
     BASE_SHA_STATE_KEY,
@@ -54,6 +55,7 @@ from products.knowledge_writer.backend.logic.records import (
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
+    SourceChange,
 )
 from products.knowledge_writer.backend.logic.writer_change import MAX_WRITER_CHANGE_BYTES, WRITER_CHANGE_ARTIFACT_NAME
 from products.knowledge_writer.backend.task_profiles import WRITER
@@ -985,6 +987,21 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         draft_properties["review_request_skipped"],
         draft_properties["review_request_status_code"],
     ) == expected_review
+
+
+@pytest.mark.django_db
+def test_a_source_owner_without_a_github_integration_is_grounded_through_the_docs_repository_integration(
+    team, monkeypatch
+) -> None:
+    Integration.objects.create(
+        team=team, kind="github", integration_id="31338", config={"account": {"name": "posthog-docs"}}
+    )
+    monkeypatch.setattr(GROUNDING_GATEWAY, _grounding_gateway(SUPPORTED_QUOTES))
+    source = SourceChange(repository="PostHog/posthog", commit_sha="a" * 40)
+    added_page = {"filename": NEW_PAGE_PATH, "patch": f"+{NEW_PAGE_HEADING}\n+{NEW_PAGE_LINE}"}
+    with patch(GITHUB_REQUEST, side_effect=DocsGitHub()):
+        grounding = ground_draft(source_github(team.id, source, "posthog-docs/posthog.com"), source, [added_page])
+    assert (grounding.ran, grounding.unsupported_lines) == (True, ())
 
 
 @pytest.mark.django_db
