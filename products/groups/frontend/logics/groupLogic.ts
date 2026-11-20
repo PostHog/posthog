@@ -226,8 +226,11 @@ export interface groupLogicMeta {
             groupTypeIndex: number,
             groupKey: string
         ) => boolean
-        showFlagCallsTab: (currentTeam: any) => boolean
-        groupFlagCallsReachPastRetention: (currentTeam: any, groupFlagCallsQuery: any) => boolean
+        showFlagCallsTab: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        groupFlagCallsReachPastRetention: (
+            currentTeam: TeamPublicType | TeamType | null,
+            groupFlagCallsQuery: DataTableNode | null
+        ) => boolean
         groupTypeName: (
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             groupTypeIndex: number
