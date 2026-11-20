@@ -194,7 +194,7 @@ export type TransactionalSendsDeps = {
     emailValidation: EmailValidationService
     quotaLimiting: QuotaLimiting
     attachmentUploads: AttachmentUploads
-    refuseSandboxSend: (teamId: number, recipient: string) => Promise<SandboxCodeSendRefusal | null>
+    refuseSandboxSends: (teamId: number, recipients: string[]) => Promise<(SandboxCodeSendRefusal | null)[]>
 }
 
 export type SendFiles = {
@@ -528,7 +528,7 @@ export class TransactionalSends {
             return 'not_sendable'
         }
         if (senderKind === 'email_sandbox') {
-            const sandboxRefusal = await this.deps.refuseSandboxSend(teamId, recipients[0])
+            const [sandboxRefusal] = await this.deps.refuseSandboxSends(teamId, [recipients[0]])
             if (sandboxRefusal) {
                 return sandboxRefusal
             }

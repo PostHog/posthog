@@ -1870,6 +1870,7 @@ describe('Cyclotron V2', () => {
                 )
 
                 expect(await manager.findIdempotencyKey(id)).toEqual(found)
+                expect(await manager.findIdempotencyKeys([uuidv7(), id.toUpperCase()])).toEqual([null, found])
                 expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(expected)
                 expect(await totalJobCount()).toBe(1)
             })

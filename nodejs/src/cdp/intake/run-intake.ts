@@ -46,7 +46,10 @@ const recallFailSoftCounter = new Counter({
 })
 
 export type RunIntakeDeps = {
-    hogflowQueue: Pick<IdempotentJobQueue, 'queueInvocations' | 'queueInvocationsIdempotently' | 'findIdempotencyKey'>
+    hogflowQueue: Pick<
+        IdempotentJobQueue,
+        'queueInvocations' | 'queueInvocationsIdempotently' | 'findIdempotencyKey' | 'findIdempotencyKeys'
+    >
     invocationResultsRowsService: HogInvocationResultsService
     // Absent, or `off` for a team, means the run never touches the intake topics.
     // `sealsSecrets` means the producer encrypts transactional sends, so a sensitive one may use the intake topics too.
@@ -60,20 +63,24 @@ const KEYED_RUN_ID_NAMESPACE = 'c2b7f0a4-4c3e-4b8e-9d4f-6a1f3e5d2b90'
 export const keyedRunId = (teamId: number, scope: string, key: string): string =>
     uuidv5(JSON.stringify([teamId, scope, key]), KEYED_RUN_ID_NAMESPACE)
 
+const recalledOf = (
+    { runId, fingerprint }: Claim,
+    claimed: { fingerprint: string; reply: Record<string, unknown> | null } | null
+): Recalled =>
+    claimed === null
+        ? { status: 'absent' }
+        : {
+              status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch',
+              runId,
+              claimedFingerprint: claimed.fingerprint,
+              reply: claimed.reply,
+          }
+
 export class RunIntake {
     constructor(private deps: RunIntakeDeps) {}
 
-    async recall({ runId, fingerprint }: Claim): Promise<Recalled> {
-        const claimed = await this.deps.hogflowQueue.findIdempotencyKey(runId)
-        if (claimed === null) {
-            return { status: 'absent' }
-        }
-        return {
-            status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch',
-            runId,
-            claimedFingerprint: claimed.fingerprint,
-            reply: claimed.reply,
-        }
+    async recall(claim: Claim): Promise<Recalled> {
+        return recalledOf(claim, await this.deps.hogflowQueue.findIdempotencyKey(claim.runId))
     }
 
     modeOf(teamId: number): IntakeMode {
@@ -82,24 +89,38 @@ export class RunIntake {
 
     // Async mode: the claim is left to the consumer. Never throws; a lookup that fails or runs late reads as absent.
     async recallWithin(claim: Claim, kind: RunKind, budgetMs: number = ASYNC_RECALL_BUDGET_MS): Promise<Recalled> {
+        return (await this.recallAllWithin([claim], kind, budgetMs))[0]
+    }
+
+    async recallAllWithin(
+        claims: Claim[],
+        kind: RunKind,
+        budgetMs: number = ASYNC_RECALL_BUDGET_MS
+    ): Promise<Recalled[]> {
+        if (claims.length === 0) {
+            return []
+        }
         let timer: NodeJS.Timeout | undefined
         const late = new Promise<'late'>((resolve) => (timer = setTimeout(() => resolve('late'), budgetMs)))
         try {
-            const recalled = await Promise.race([this.recall(claim), late])
-            if (recalled !== 'late') {
-                return recalled
+            const found = await Promise.race([
+                this.deps.hogflowQueue.findIdempotencyKeys(claims.map((claim) => claim.runId)),
+                late,
+            ])
+            if (found !== 'late') {
+                return claims.map((claim, i) => recalledOf(claim, found[i]))
             }
         } catch (error) {
-            logger.warn('[CdpIntake] Claim lookup failed, producing the run without it', {
+            logger.warn('[CdpIntake] Claim lookup failed, producing the runs without it', {
                 kind,
-                run_id: claim.runId,
+                runs: claims.length,
                 error: error instanceof Error ? error.message : String(error),
             })
         } finally {
             clearTimeout(timer)
         }
-        recallFailSoftCounter.labels({ kind }).inc()
-        return { status: 'absent' }
+        recallFailSoftCounter.labels({ kind }).inc(claims.length)
+        return claims.map(() => ({ status: 'absent' }))
     }
 
     async produce(run: Run, settlement?: PublishSettlement): Promise<Produced> {

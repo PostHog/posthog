@@ -88,6 +88,45 @@ describe('RunIntake', () => {
         }
     )
 
+    describe('recallAllWithin', () => {
+        const claims = [
+            { runId: keyedRunId(1, 'transactional-email', 'a'), fingerprint: 'request-a' },
+            { runId: keyedRunId(1, 'transactional-email', 'b'), fingerprint: 'request-b' },
+            { runId: keyedRunId(1, 'transactional-email', 'c'), fingerprint: 'request-c' },
+        ]
+        const intakeOver = (findIdempotencyKeys: (runIds: string[]) => Promise<any>): RunIntake =>
+            new RunIntake({
+                hogflowQueue: { ...createMockJobQueue(), findIdempotencyKeys: jest.fn(findIdempotencyKeys) },
+                invocationResultsRowsService: {} as HogInvocationResultsService,
+            })
+
+        it('answers each claim from its own row of one read', async () => {
+            const rowsByRunId: Record<string, { fingerprint: string; reply: null }> = {
+                [claims[1].runId]: { fingerprint: 'request-b', reply: null },
+                [claims[2].runId]: { fingerprint: 'other', reply: null },
+            }
+            const intake = intakeOver((runIds) => Promise.resolve(runIds.map((runId) => rowsByRunId[runId] ?? null)))
+
+            expect((await intake.recallAllWithin(claims, 'transactional-email')).map(({ status }) => status)).toEqual([
+                'absent',
+                'replayed',
+                'mismatch',
+            ])
+        })
+
+        it.each([
+            ['hangs past its budget', () => new Promise(() => {})],
+            ['fails', () => Promise.reject(new Error('connection refused'))],
+        ])('reads every claim as absent when the read %s', async (_name, findIdempotencyKeys) => {
+            jest.useFakeTimers()
+            const recalled = intakeOver(findIdempotencyKeys).recallAllWithin(claims, 'transactional-email', 250)
+
+            await jest.advanceTimersByTimeAsync(250)
+
+            expect(await recalled).toEqual(claims.map(() => ({ status: 'absent' })))
+        })
+    })
+
     it('keeps the running row of a created run when a repeat of its key replays on the same pod', async () => {
         const kafka = createRecordingIngestionOutputs<HogInvocationResultsServiceOutput>([
             HOG_INVOCATION_RESULTS_OUTPUT,

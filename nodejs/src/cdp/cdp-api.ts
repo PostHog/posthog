@@ -108,7 +108,7 @@ import { UTM_VALUE_LIMIT_CHARS, utmValueOverLimit } from './services/messaging/h
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     SANDBOX_CODE_SEND_REFUSAL_STATUS,
-    refuseSandboxCodeSend,
+    refuseSandboxCodeSends,
     senderOfCodeSend,
 } from './services/messaging/sandbox/sandbox-code-send'
 import { SandboxFeedbackService } from './services/messaging/sandbox/sandbox-feedback.service'
@@ -308,6 +308,47 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     recipient_unreachable: 422,
     invalid_scheduled_at: 400,
     ...SANDBOX_CODE_SEND_REFUSAL_STATUS,
+}
+
+type SendReply = { outcome: TransactionalEmailOutcome; status: number; body: Record<string, unknown> }
+
+const sendReplyOf = (result: TransactionalSendResult): SendReply => {
+    if ('invocationId' in result) {
+        return {
+            outcome: result.outcome,
+            status: 202,
+            body: {
+                status: result.scheduledAt ? 'scheduled' : 'queued',
+                invocation_id: result.invocationId,
+                scheduled_at: result.scheduledAt,
+                replayed: result.outcome === 'replayed',
+                ...result.replyFields,
+                ...(result.senderKind ? { sender_kind: result.senderKind } : {}),
+            },
+        }
+    }
+    if ('refused' in result) {
+        return { outcome: result.refused.body.error, status: result.refused.status, body: result.refused.body }
+    }
+    return {
+        outcome: result.outcome,
+        status: TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome],
+        body: { error: result.outcome, ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }) },
+    }
+}
+
+// Signup accepts some addresses this check refuses, and no retry can fix an address.
+const invalidSendReplyOf = (error: z.ZodError, context: Record<string, unknown>): SendReply => {
+    const issues = error.issues
+    if (issues.every(isRecipientFormatIssue)) {
+        return { outcome: 'recipient_unreachable', status: 422, body: { error: 'recipient_unreachable' } }
+    }
+    // Paths and codes only: the values include the recipient's address.
+    logger.warn('⚠️', 'Transactional email request failed validation', {
+        ...context,
+        issues: issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
+    })
+    return { outcome: 'invalid_request', status: 400, body: { error: error.message } }
 }
 
 const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
@@ -1460,6 +1501,7 @@ export class CdpApi {
                 transactionalEmailRequestsTotal.inc({ outcome })
                 return res.status(status).json(body)
             }
+            const replyWith = ({ outcome, status, body }: SendReply) => reply(outcome, status, body)
             try {
                 stages.start('auth')
                 if (!this.transactionalEmailJwt.enabled) {
@@ -1482,18 +1524,9 @@ export class CdpApi {
                 stages.start('validate')
                 const parsed = schema.safeParse(req.body)
                 if (!parsed.success) {
-                    const issues = parsed.error.issues
-                    // Signup accepts some addresses this check refuses, and no retry can fix an address.
-                    if (issues.every(isRecipientFormatIssue)) {
-                        return reply('recipient_unreachable', 422, { error: 'recipient_unreachable' })
-                    }
-                    // Paths and codes only: the values include the recipient's address.
-                    logger.warn('⚠️', 'Transactional email request failed validation', {
-                        team_id: req.params.team_id,
-                        hog_flow_id: req.params.id,
-                        issues: issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
-                    })
-                    return reply('invalid_request', 400, { error: parsed.error.message })
+                    return replyWith(
+                        invalidSendReplyOf(parsed.error, { team_id: req.params.team_id, hog_flow_id: req.params.id })
+                    )
                 }
                 const { send } = parsed.data
                 const senderLookup = send?.from
@@ -1501,25 +1534,7 @@ export class CdpApi {
                     : Promise.resolve(null)
                 // Several answers return before the sender lookup is awaited, so its failure must not go unhandled.
                 senderLookup.catch(() => undefined)
-                const answer = (result: TransactionalSendResult) => {
-                    if ('invocationId' in result) {
-                        return reply(result.outcome, 202, {
-                            status: result.scheduledAt ? 'scheduled' : 'queued',
-                            invocation_id: result.invocationId,
-                            scheduled_at: result.scheduledAt,
-                            replayed: result.outcome === 'replayed',
-                            ...result.replyFields,
-                            ...(result.senderKind ? { sender_kind: result.senderKind } : {}),
-                        })
-                    }
-                    if ('refused' in result) {
-                        return reply(result.refused.body.error, result.refused.status, result.refused.body)
-                    }
-                    return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
-                        error: result.outcome,
-                        ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
-                    })
-                }
+                const answer = (result: TransactionalSendResult) => replyWith(sendReplyOf(result))
                 const sends = this.transactionalSendsForRequest()
                 const recalled = await sends.recall(
                     parseInt(req.params.team_id),
@@ -1734,11 +1749,11 @@ export class CdpApi {
             emailValidation: this.emailValidationService,
             quotaLimiting: this.deps.quotaLimiting,
             attachmentUploads: this.attachmentUploads,
-            refuseSandboxSend: (teamId, recipient) =>
-                refuseSandboxCodeSend(this.deps.postgres, {
+            refuseSandboxSends: (teamId, recipients) =>
+                refuseSandboxCodeSends(this.deps.postgres, {
                     enabled: this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
                     teamId,
-                    recipient,
+                    recipients,
                     tenantName: this.config.SES_SANDBOX_TENANT_NAME,
                 }),
         })

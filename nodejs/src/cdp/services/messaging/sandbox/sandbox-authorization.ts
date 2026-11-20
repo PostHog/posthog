@@ -66,36 +66,48 @@ SELECT
           AND organization.is_active IS NOT FALSE
           AND users.is_active = true
           AND users.is_email_verified = true
-          AND lower(trim(users.email)) = lower(trim($2))
+          AND lower(trim(users.email)) = lower(trim(recipient.address))
     ) AS member_emails,
     tenant.sending_status,
     tenant.synced_at
-FROM posthog_team AS team
+FROM unnest($2::text[]) WITH ORDINALITY AS recipient(address, position)
+JOIN posthog_team AS team ON team.id = $1
 JOIN posthog_organization AS organization ON organization.id = team.organization_id
 LEFT JOIN workflows_sandboxsendertenantstate AS tenant ON tenant.tenant_name = $3
-WHERE team.id = $1`
+ORDER BY recipient.position`
 
 export async function readSandboxAuthorization(
     db: PostgresRouter,
+    { recipient, ...request }: { teamId: number; recipient: string; tenantName: string; timeoutMs?: number }
+): Promise<SandboxAuthorization> {
+    return (await readSandboxAuthorizations(db, { ...request, recipients: [recipient] }))[0]
+}
+
+export async function readSandboxAuthorizations(
+    db: PostgresRouter,
     {
         teamId,
-        recipient,
+        recipients,
         tenantName,
         timeoutMs = AUTHORIZATION_TIMEOUT_MS,
-    }: { teamId: number; recipient: string; tenantName: string; timeoutMs?: number }
-): Promise<SandboxAuthorization> {
-    let row: AuthorizationRow | undefined
+    }: { teamId: number; recipients: string[]; tenantName: string; timeoutMs?: number }
+): Promise<SandboxAuthorization[]> {
+    let rows: AuthorizationRow[]
     try {
-        ;[row] = await queryPrimaryBeforeDeadline<AuthorizationRow>(
+        rows = await queryPrimaryBeforeDeadline<AuthorizationRow>(
             db,
             AUTHORIZATION_QUERY,
-            [teamId, recipient, tenantName],
+            [teamId, recipients, tenantName],
             timeoutMs
         )
     } catch (error) {
         logger.warn('Could not read sandbox email authorization', { teamId, error: String(error) })
-        return { ok: false, reason: 'authorization_unavailable' }
+        return recipients.map(() => ({ ok: false, reason: 'authorization_unavailable' }))
     }
+    return recipients.map((recipient, i) => authorizationOf(rows[i], recipient))
+}
+
+function authorizationOf(row: AuthorizationRow | undefined, recipient: string): SandboxAuthorization {
     if (!row) {
         return { ok: false, reason: 'team_not_found' }
     }
