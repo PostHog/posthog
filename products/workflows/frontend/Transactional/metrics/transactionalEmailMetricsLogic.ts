@@ -53,8 +53,8 @@ export interface transactionalEmailMetricsLogicValues {
     domainStatsLoading: boolean
     hours: number
     results: TransactionalEmailResultsApi | null
-    resultsFailed: boolean
     resultsEmailOptions: ResultsEmailOption[]
+    resultsFailed: boolean
     resultsLoading: boolean
     resultsQuery: ResultsQuery
     statsFailed: boolean
