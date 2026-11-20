@@ -47,7 +47,12 @@ export function QuillAIContextAccountPropertiesPicker({
                         items={options.map((option) => option.key)}
                         itemToStringLabel={(key: string) => labelsByKey[key] ?? key}
                         value={value}
-                        onValueChange={(next: string[]) => {
+                        onValueChange={(next: string[], eventDetails) => {
+                            // Escape with the list closed would otherwise clear every selection.
+                            if (eventDetails.reason === 'escape-key') {
+                                eventDetails.allowPropagation()
+                                return
+                            }
                             if ((next ?? []).length <= limit) {
                                 onChange(next ?? [])
                             }
