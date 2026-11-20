@@ -1,5 +1,4 @@
 import uuid
-import dataclasses
 
 from posthog.test.base import BaseTest
 from unittest import TestCase, mock
@@ -125,11 +124,12 @@ class DeliveryTestCase(BaseTest):
         batch_index: int = 0,
         is_final: bool = False,
         schema_id: str | None = None,
+        job_id: str | None = None,
         primary_keys: list[str] | None = None,
     ) -> ExportSignalMessage:
         return ExportSignalMessage(
             team_id=self.team.pk,
-            job_id=str(uuid.uuid4()),
+            job_id=job_id or str(uuid.uuid4()),
             schema_id=schema_id or str(uuid.uuid4()),
             source_id=str(uuid.uuid4()),
             resource_name="charges",
@@ -331,9 +331,7 @@ class TestExternalOnlyRunCompletion(DeliveryTestCase):
             team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
         )
         a = self._destination("customer redshift")
-        signal = dataclasses.replace(
-            self._signal([str(a.id)], is_final=True, schema_id=str(schema.id)), job_id=str(job.id)
-        )
+        signal = self._signal([str(a.id)], is_final=True, schema_id=str(schema.id), job_id=str(job.id))
 
         # The pooled helpers run on another thread, which cannot see this test's uncommitted rows, and
         # closing old connections would close the test's own connection.
