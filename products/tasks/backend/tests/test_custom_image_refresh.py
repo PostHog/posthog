@@ -7,11 +7,20 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.logic.services.custom_image_refresh import refresh_stale_sandbox_custom_images
 from products.tasks.backend.models import SandboxCustomImage
-from products.tasks.backend.temporal.build_image.activities import MarkImageBuildFailedInput, mark_image_build_failed
+from products.tasks.backend.temporal.build_image.activities import (
+    ImageBuildActivityInput,
+    MarkImageBuildFailedInput,
+    build_and_publish_image,
+    mark_image_build_failed,
+    scan_image_spec,
+)
 
 
 class TestCustomImageRefresh(APIBaseTest):
@@ -58,6 +67,35 @@ class TestCustomImageRefresh(APIBaseTest):
         assert refresh_stale_sandbox_custom_images() == 1
         already_attempted.refresh_from_db()
         assert already_attempted.status == SandboxCustomImage.Status.READY
+
+    @parameterized.expand([("deactivated", False, 0), ("unset", None, 1)])
+    @patch("products.tasks.backend.logic.services.custom_image_refresh.execute_build_sandbox_image_workflow")
+    @patch(
+        "products.tasks.backend.logic.services.custom_image_refresh.resolve_template_base_image_reference",
+        return_value="ghcr.io/posthog/posthog-sandbox-vm@sha256:current",
+    )
+    def test_refresh_skips_only_deactivated_organizations(
+        self, _name, is_active, expected_dispatches, _mock_reference, mock_execute
+    ) -> None:
+        self._create_image(base_image_reference="ghcr.io/posthog/posthog-sandbox-vm@sha256:old")
+        self.organization.is_active = is_active
+        self.organization.save()
+
+        assert refresh_stale_sandbox_custom_images() == expected_dispatches
+        assert mock_execute.call_count == expected_dispatches
+
+    @parameterized.expand([("scan", scan_image_spec), ("build", build_and_publish_image)])
+    def test_build_activities_refuse_a_deactivated_organization(self, _name, build_activity) -> None:
+        image = self._create_image(base_image_reference=None)
+        self.organization.is_active = False
+        self.organization.save()
+        activity_body = cast(Callable[[ImageBuildActivityInput], object], vars(build_activity)["__wrapped__"])
+
+        with self.assertRaises(ComputeBillingLimitError):
+            activity_body(ImageBuildActivityInput(image_id=str(image.id), team_id=self.team.id))
+
+        image.refresh_from_db()
+        assert image.status == SandboxCustomImage.Status.READY
 
     @patch(
         "products.tasks.backend.logic.services.custom_image_refresh.execute_build_sandbox_image_workflow",
