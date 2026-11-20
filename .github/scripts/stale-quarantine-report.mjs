@@ -1,11 +1,9 @@
-// Reports Trunk quarantines that outlived their flake: tests quarantined for the whole window
-// that ran enough times in it without a single failure. Trunk lifts an auto-quarantine when the
-// test's status returns to healthy, so a test listed here is held by an Always Quarantine override
-// or by a flaky monitor that never resolves. The report only lists. It never changes a quarantine,
-// because the fix is a decision for the owning team.
+// Reports Trunk quarantines that outlived their flake: tests quarantined for the whole window that
+// ran enough times in it without a failure. Such a test is held by an Always Quarantine override or
+// by a flaky status that has not resolved. The report only lists them, because lifting a quarantine
+// is the owning team's decision.
 //
-// The weekly flaky report cannot find these: it lists quarantined tests that failed this week, and
-// a stale quarantine is one that did not.
+// The weekly flaky report cannot find these. It lists quarantined tests that failed this week.
 
 import { pathToFileURL } from 'node:url'
 
@@ -18,6 +16,7 @@ import {
     linkedCell,
     postToSlack,
     repoPathResolver,
+    requestPosthog,
     resolveOwners,
     SLACK_BOT_TOKEN,
     SLACK_CHANNEL,
@@ -44,42 +43,27 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 // A test that never ran in the window cannot be shown to pass. It may be deleted, skipped or renamed,
 // so it is reported apart from the tests that ran clean.
-export function classifyQuarantines(tests, now = new Date(), { windowDays = WINDOW_DAYS, minRuns = MIN_RUNS } = {}) {
-    const passing = []
-    const notRunning = []
+export function classifyQuarantines(tests, now = new Date()) {
+    const flagged = []
     for (const test of tests) {
-        const since = Date.parse(test.quarantinedSince)
-        if (Number.isNaN(since) || now.getTime() - since < windowDays * DAY_MS) {
+        const ageMs = now.getTime() - Date.parse(test.quarantinedSince)
+        if (Number.isNaN(ageMs) || ageMs < WINDOW_DAYS * DAY_MS) {
             continue
         }
-        const quarantinedDays = Math.floor((now.getTime() - since) / DAY_MS)
-        const runs = test.metrics?.runCount ?? 0
+        const quarantinedDays = Math.floor(ageMs / DAY_MS)
+        const { runCount: runs = 0, failureCount } = test.metrics ?? {}
         if (runs === 0) {
-            notRunning.push({ test, quarantinedDays, runs })
-        } else if (test.metrics.failureCount === 0 && runs >= minRuns) {
-            passing.push({ test, quarantinedDays, runs })
+            flagged.push({ test, quarantinedDays, runs, kind: 'notRunning' })
+        } else if (failureCount === 0 && runs >= MIN_RUNS) {
+            flagged.push({ test, quarantinedDays, runs, kind: 'passing' })
         }
     }
-    const oldestFirst = (a, b) => b.quarantinedDays - a.quarantinedDays
-    return { passing: passing.sort(oldestFirst), notRunning: notRunning.sort(oldestFirst) }
+    return flagged.sort((a, b) => b.quarantinedDays - a.quarantinedDays)
 }
 
-async function trunkGet(url, attempts = 3) {
-    for (let attempt = 1; ; attempt++) {
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${TRUNK_API_TOKEN}` } })
-        if (res.ok) {
-            return res.json()
-        }
-        // A rejected token must fail the run: a quiet skip would look the same as nothing being stale.
-        const retryable = res.status === 429 || res.status >= 500
-        if (!retryable || attempt >= attempts) {
-            throw new Error(
-                `Trunk ${new URL(url).pathname} answered ${res.status}: ${(await res.text()).slice(0, 200)}`
-            )
-        }
-        await new Promise((resolve) => setTimeout(resolve, 2000 * attempt))
-    }
-}
+// A rejected token must fail the run: a quiet skip would look the same as nothing being stale.
+const trunkGet = (url) =>
+    requestPosthog(url, { headers: { Authorization: `Bearer ${TRUNK_API_TOKEN}` } }, 'trunk quarantine list')
 
 export async function fetchQuarantined(collectionId, get = trunkGet) {
     const tests = []
@@ -129,15 +113,16 @@ function tableBlocks(heading, rows) {
     ]
 }
 
-function sections({ passing, notRunning }) {
+function sections(items) {
+    const rowsOf = (kind) => items.filter((item) => item.kind === kind).map(rowFor)
     return [
         ...tableBlocks(
             `*Quarantined, ran ${MIN_RUNS}+ times in ${WINDOW_DAYS} days with no failure.* Remove the override, or check why the flaky status has not resolved.`,
-            passing
+            rowsOf('passing')
         ),
         ...tableBlocks(
             `*Quarantined, did not run in ${WINDOW_DAYS} days.* The test may be deleted, skipped or renamed.`,
-            notRunning
+            rowsOf('notRunning')
         ),
     ]
 }
@@ -147,12 +132,13 @@ const footer = (extra = []) => ({
     elements: [{ type: 'mrkdwn', text: ['Source: Trunk Flaky Tests API', ...extra].join(' · ') }],
 })
 
-function digestBlocks(groups) {
+function digestBlocks(items) {
+    const editBlock = editWorkflowBlock()
     return [
         { type: 'header', text: { type: 'plain_text', text: 'Stale test quarantines' } },
-        ...sections(groups),
+        ...sections(items),
         footer(),
-        ...(editWorkflowBlock() ? [editWorkflowBlock()] : []),
+        ...(editBlock ? [editBlock] : []),
     ]
 }
 
@@ -162,16 +148,9 @@ function teamBlocks({ owner, rows }, digestUrl) {
             type: 'section',
             text: { type: 'mrkdwn', text: `*Stale test quarantines owned by ${teamLabel(owner)}*` },
         },
-        ...sections(groupsFromRows(rows)),
+        ...sections(rows),
         footer(digestUrl ? [`<${digestUrl}|Report for all teams>`] : []),
     ]
-}
-
-function groupsFromRows(rows) {
-    return {
-        passing: rows.filter((row) => row.kind === 'passing'),
-        notRunning: rows.filter((row) => row.kind === 'notRunning'),
-    }
 }
 
 const teamReport = {
@@ -197,25 +176,18 @@ async function main() {
         return
     }
     const tests = (await Promise.all(COLLECTION_IDS.map((id) => fetchQuarantined(id)))).flat()
-    const { passing, notRunning } = classifyQuarantines(tests)
-    const flagged = [
-        ...passing.map((item) => ({ ...item, kind: 'passing' })),
-        ...notRunning.map((item) => ({ ...item, kind: 'notRunning' })),
-    ]
-    console.info(`${tests.length} quarantined, ${passing.length} passing clean, ${notRunning.length} not running.`)
+    const flagged = classifyQuarantines(tests)
+    const countOf = (kind) => flagged.filter((item) => item.kind === kind).length
+    console.info(
+        `${tests.length} quarantined, ${countOf('passing')} passing clean, ${countOf('notRunning')} not running.`
+    )
     if (flagged.length === 0) {
         return
     }
-    const ownerFor = resolveOwners(
-        flagged.map(({ test }) => ({ selector: `${test.file || ''}::${test.name}` })),
-        repoPathResolver(),
-        OWNERS_PRODUCER
-    )
-    const entries = flagged.map((item) => ({
-        ...ownerFor({ selector: `${item.test.file || ''}::${item.test.name}` }),
-        row: Object.assign(rowFor(item), { kind: item.kind }),
-    }))
-    const blocks = digestBlocks(groupsFromRows(entries.map(({ row }) => row)))
+    const selectorOf = ({ test }) => ({ selector: `${test.file || ''}::${test.name}` })
+    const ownerFor = resolveOwners(flagged.map(selectorOf), repoPathResolver(), OWNERS_PRODUCER)
+    const entries = flagged.map((item) => ({ ...ownerFor(selectorOf(item)), row: item }))
+    const blocks = digestBlocks(flagged)
     const teamDigests = buildTeamDigests(entries)
     const withheld = TEAM_CHANNEL_POSTS ? null : 'shadow: would post to'
     if (DRY_RUN) {

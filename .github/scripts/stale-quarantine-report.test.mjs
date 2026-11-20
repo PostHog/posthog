@@ -9,7 +9,7 @@ const test = (name, quarantinedDays, metrics) => ({ name, quarantinedSince: days
 
 describe('stale quarantine report', () => {
     it('sorts quarantined tests by what the window proves', () => {
-        const { passing, notRunning } = classifyQuarantines(
+        const flagged = classifyQuarantines(
             [
                 test('ran clean', 30, { runCount: MIN_RUNS, failureCount: 0 }),
                 test('still failing', 30, { runCount: 100, failureCount: 1 }),
@@ -21,22 +21,14 @@ describe('stale quarantine report', () => {
             ],
             now
         )
-        assert.deepEqual(
-            passing.map(({ test }) => test.name),
-            ['ran clean']
-        )
-        assert.deepEqual(
-            notRunning.map(({ test }) => test.name),
-            ['no runs', 'zero runs']
-        )
+        const named = (kind) => flagged.filter((item) => item.kind === kind).map(({ test }) => test.name)
+        assert.deepEqual(named('passing'), ['ran clean'])
+        assert.deepEqual(named('notRunning'), ['no runs', 'zero runs'])
     })
 
     it('counts a quarantine that began exactly one window ago', () => {
-        const { passing } = classifyQuarantines(
-            [test('edge', WINDOW_DAYS, { runCount: MIN_RUNS, failureCount: 0 })],
-            now
-        )
-        assert.equal(passing.length, 1)
+        const flagged = classifyQuarantines([test('edge', WINDOW_DAYS, { runCount: MIN_RUNS, failureCount: 0 })], now)
+        assert.equal(flagged.length, 1)
     })
 
     it('follows the cursor and refuses a list it could not finish', async () => {
