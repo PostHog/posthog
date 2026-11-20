@@ -390,6 +390,15 @@ CONSTANCE_CONFIG = {
         "time out or overload ClickHouse. Takes up to two minutes to apply.",
         bool,
     ),
+    "FLAG_EVALUATIONS_READS_JSON": (
+        False,
+        "When on, a project that reads the native JSON events table also reads its flag calls from flag_evaluations_json, "
+        "the flag_evaluations table in the native JSON schema, in HogQL queries, the flag Usage tab counts, and cohort "
+        "backfills. A project on the legacy events table keeps reading flag_evaluations. Turn it on only after "
+        "flag_evaluations_json holds 90 days of flag calls and matches flag_evaluations. Takes up to two minutes to "
+        "apply. Turning it off restores flag_evaluations, which keeps receiving every flag call.",
+        bool,
+    ),
     "REDIRECT_APP_TO_US": (
         get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
@@ -549,6 +558,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "FLAGS_LOG_BODIES_TEAMS",
     "FLAG_EVALUATIONS_READS_FORCE_EVENTS",
     "FLAG_EVALUATIONS_UNION_DISABLED",
+    "FLAG_EVALUATIONS_READS_JSON",
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
