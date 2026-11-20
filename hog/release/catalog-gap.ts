@@ -28,8 +28,6 @@ const GENERATED_CODE = new Set(['index.ts', 'hooks.ts', 'query-wrappers.ts'])
 // The zod schemas orval generates from the API. A downloaded catalog entry carries its tool's input schema,
 // so a generated tool module only reads them when hog falls back to the tools it was built with.
 const GENERATED_SCHEMAS_DIR = 'services/mcp/src/generated/'
-const REGISTRY_IMPORT = /^import \{ GENERATED_TOOLS as (\w+) \} from '\.\/([\w-]+)'$/
-const REGISTRY_SPREAD = /^\s+\.\.\.(\w+),$/
 const ZOD_MODULES = new Set(['zod', 'zod/v4'])
 // zod's schema builders, which run none of the callbacks they take. Anything else, like `parse`, can run code.
 const ZOD_BUILDERS = new Set([
@@ -84,7 +82,6 @@ const ZOD_BUILDERS = new Set([
     'url',
     'uuid',
 ])
-const TOOL_NAME = /^\s+name: '([a-z0-9-]+)',$/m
 const DEFINITION_FILES = new Set([
     'services/mcp/schema/tool-definitions.json',
     'services/mcp/schema/generated-tool-definitions.json',
@@ -155,9 +152,60 @@ function jsonObject(text: string | undefined): Record<string, unknown> {
     return (text && parseJsonOrUndefined(text, JsonObject)) || {}
 }
 
-function generatedToolNames(source: string | undefined): string[] {
-    const map = source?.split('export const GENERATED_TOOLS')[1] ?? ''
-    return [...map.matchAll(/^\s+'([a-z0-9-]+)':/gm)].map((match) => match[1]!)
+function parseModule(source: string | undefined): ts.SourceFile {
+    return ts.createSourceFile('module.ts', source ?? '', ts.ScriptTarget.Latest, true)
+}
+
+function unwrap(node: ts.Expression): ts.Expression {
+    return ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
+        ? unwrap(node.expression)
+        : node
+}
+
+// The initializer of a top-level const, by name.
+function topLevelConst(file: ts.SourceFile, name: string): ts.Expression | undefined {
+    for (const statement of file.statements) {
+        const declaration = ts.isVariableStatement(statement) ? statement.declarationList.declarations : []
+        for (const { name: binding, initializer } of declaration) {
+            if (ts.isIdentifier(binding) && binding.text === name) {
+                return initializer
+            }
+        }
+    }
+    return undefined
+}
+
+// The tools `GENERATED_TOOLS` registers, each with the const it names, or undefined when its value is anything
+// else. Undefined when the map is missing or has an entry that isn't a plain key and value.
+function generatedTools(file: ts.SourceFile): Map<string, string | undefined> | undefined {
+    const map = topLevelConst(file, 'GENERATED_TOOLS')
+    if (!map || !ts.isObjectLiteralExpression(unwrap(map))) {
+        return undefined
+    }
+    const tools = new Map<string, string | undefined>()
+    for (const property of (unwrap(map) as ts.ObjectLiteralExpression).properties) {
+        if (ts.isShorthandPropertyAssignment(property)) {
+            tools.set(property.name.text, property.name.text)
+        } else if (
+            ts.isPropertyAssignment(property) &&
+            (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
+        ) {
+            const value = unwrap(property.initializer)
+            tools.set(property.name.text, ts.isIdentifier(value) ? value.text : undefined)
+        } else {
+            return undefined
+        }
+    }
+    return tools
+}
+
+// No tools for a module that doesn't exist. Undefined when the module exists but its tools can't be read.
+function generatedToolNames(source: string | undefined): string[] | undefined {
+    if (source === undefined) {
+        return []
+    }
+    const tools = generatedTools(parseModule(source))
+    return tools && [...tools.keys()]
 }
 
 function catalogTools(input: GapInput): Set<string> {
@@ -194,8 +242,13 @@ function changedKeys(base: string | undefined, head: string | undefined): string
     )
 }
 
+// A file whose version isn't a number literal stands for itself, so any change to it counts.
 function schemaVersion(source: string | undefined): string | undefined {
-    return source?.match(/export const CATALOG_SCHEMA_VERSION = (\d+)/)?.[1]
+    if (source === undefined) {
+        return undefined
+    }
+    const version = topLevelConst(parseModule(source), 'CATALOG_SCHEMA_VERSION')
+    return version && ts.isNumericLiteral(version) ? version.text : `unparsed ${source}`
 }
 
 function generatedModuleName(file: string): string | undefined {
@@ -205,17 +258,32 @@ function generatedModuleName(file: string): string | undefined {
 
 // Undefined when the module defines no tools, which proves nothing.
 function uncarriedTools(input: GapInput, carried: Set<string>, file: string): string[] | undefined {
-    const tools = new Set([...generatedToolNames(input.readBase(file)), ...generatedToolNames(input.readHead(file))])
-    return tools.size > 0 ? [...tools].filter((tool) => !carried.has(tool)) : undefined
+    const base = generatedToolNames(input.readBase(file))
+    const head = generatedToolNames(input.readHead(file))
+    const tools = new Set([...(base ?? []), ...(head ?? [])])
+    return base && head && tools.size > 0 ? [...tools].filter((tool) => !carried.has(tool)) : undefined
 }
 
 const printer = ts.createPrinter({ removeComments: true })
 
 interface Block {
-    // As written, for reading tool names and schema references.
-    text: string
+    initializer: ts.Expression
     // As compiled, without comments, for comparing.
     code: string
+    // Every identifier in the statement, which over-counts what it reads.
+    identifiers: Set<string>
+}
+
+function identifiers(node: ts.Node): Set<string> {
+    const found = new Set<string>()
+    const visit = (child: ts.Node): void => {
+        if (ts.isIdentifier(child)) {
+            found.add(child.text)
+        }
+        ts.forEachChild(child, visit)
+    }
+    visit(node)
+    return found
 }
 
 interface GeneratedModule {
@@ -317,8 +385,9 @@ function generatedModule(source: string | undefined, path: string): GeneratedMod
         }
         consts.set(declaration.name.text, declaration.initializer)
         blocks.set(declaration.name.text, {
-            text: statement.getText(file),
+            initializer: declaration.initializer,
             code: printer.printNode(ts.EmitHint.Unspecified, statement, file),
+            identifiers: identifiers(statement),
         })
     }
 
@@ -409,10 +478,6 @@ function qualifies(path: string, read: (path: string) => string | undefined, see
     )
 }
 
-function referencesAny(text: string, names: Iterable<string>): boolean {
-    return [...names].some((name) => new RegExp(`\\b${name}\\b`).test(text))
-}
-
 // Undefined when the file isn't declarative on either side, which leaves every importer suspect. A change to
 // its imports alters every schema.
 function alteredSchemas(input: GapInput, file: string): Set<string> | undefined {
@@ -430,8 +495,8 @@ function alteredSchemas(input: GapInput, file: string): Set<string> | undefined 
     let grew = true
     while (grew) {
         grew = false
-        for (const [name, { code }] of head.blocks) {
-            if (!altered.has(name) && referencesAny(code, altered)) {
+        for (const [name, block] of head.blocks) {
+            if (!altered.has(name) && [...altered].some((other) => block.identifiers.has(other))) {
                 altered.add(name)
                 grew = true
             }
@@ -457,37 +522,56 @@ function schemasByTool(
         return undefined
     }
     const { declarative, otherSchemaImports, schemaNamespaces, blocks } = generatedModule(source, path)
-    const namespaces = schemaNamespaces.filter((namespace) => namespace.file === schemaFile).map(({ name }) => name)
     const parsed = new Set(
         schemaNamespaces.filter((namespace) => namespace.file === schemaFile).map(({ specifier }) => specifier)
     )
     const recorded = new Set(specifiers)
-    const untraceable = [...blocks.values()].some(({ text }) =>
-        schemaNamespaces.some(
-            ({ name }) =>
-                !/^\w+$/.test(name) ||
-                text.match(new RegExp(`\\b${name}\\b`, 'g'))?.length !==
-                    text.match(new RegExp(`\\b${name}\\.\\w+`, 'g'))?.length
-        )
-    )
     if (
         !declarative ||
         otherSchemaImports ||
-        untraceable ||
         parsed.size !== recorded.size ||
         [...recorded].some((specifier) => !parsed.has(specifier))
     ) {
         return undefined
     }
+
+    // What each const reads from the schema file. A namespace used other than as `<namespace>.<Schema>` can't
+    // be traced.
+    const namespaces = new Set(schemaNamespaces.map(({ name }) => name))
+    const ofFile = new Set(
+        schemaNamespaces.filter((namespace) => namespace.file === schemaFile).map(({ name }) => name)
+    )
+    const reads = new Map<string, Set<string>>()
+    let untraceable = false
+    for (const [name, block] of blocks) {
+        const schemas = new Set<string>()
+        const visit = (node: ts.Node): void => {
+            if (ts.isIdentifier(node) && namespaces.has(node.text)) {
+                const parent = node.parent
+                if (
+                    ts.isPropertyAccessExpression(parent) &&
+                    parent.expression === node &&
+                    ts.isIdentifier(parent.name)
+                ) {
+                    if (ofFile.has(node.text)) {
+                        schemas.add(parent.name.text)
+                    }
+                } else {
+                    untraceable = true
+                }
+            }
+            ts.forEachChild(node, visit)
+        }
+        visit(block.initializer)
+        reads.set(name, schemas)
+    }
+    if (untraceable) {
+        return undefined
+    }
     const schemasOf = (name: string, seen: Set<string>): Set<string> => {
-        const text = blocks.get(name)?.text ?? ''
-        const schemas = new Set(
-            namespaces.flatMap((namespace) =>
-                [...text.matchAll(new RegExp(`\\b${namespace}\\.(\\w+)`, 'g'))].map((match) => match[1]!)
-            )
-        )
+        const schemas = new Set(reads.get(name))
         for (const other of blocks.keys()) {
-            if (other !== name && !seen.has(other) && referencesAny(text, [other])) {
+            if (other !== name && !seen.has(other) && blocks.get(name)?.identifiers.has(other)) {
                 seen.add(other)
                 schemasOf(other, seen).forEach((schema) => schemas.add(schema))
             }
@@ -495,14 +579,36 @@ function schemasByTool(
         return schemas
     }
 
-    const byTool = new Map<string, Set<string>>()
-    for (const [name, { text }] of blocks) {
-        const tool = text.match(TOOL_NAME)?.[1]
-        if (tool) {
-            byTool.set(tool, schemasOf(name, new Set([name, 'GENERATED_TOOLS'])))
-        }
+    // Each tool GENERATED_TOOLS registers has to name a const whose object names the same tool.
+    const tools = generatedTools(parseModule(source))
+    if (!tools || tools.size === 0) {
+        return undefined
     }
-    return generatedToolNames(source).every((tool) => byTool.has(tool)) ? byTool : undefined
+    const byTool = new Map<string, Set<string>>()
+    for (const [tool, name] of tools) {
+        const block = name === undefined ? undefined : blocks.get(name)
+        if (!name || !block || !namesTool(block.initializer, tool)) {
+            return undefined
+        }
+        byTool.set(tool, schemasOf(name, new Set([name, 'GENERATED_TOOLS'])))
+    }
+    return byTool
+}
+
+// Whether a tool const's object has `name: '<tool>'`, in any quote style.
+function namesTool(initializer: ts.Expression, tool: string): boolean {
+    let found = false
+    const visit = (node: ts.Node): void => {
+        found ||=
+            ts.isPropertyAssignment(node) &&
+            (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
+            node.name.text === 'name' &&
+            ts.isStringLiteralLike(node.initializer) &&
+            node.initializer.text === tool
+        ts.forEachChild(node, visit)
+    }
+    visit(initializer)
+    return found
 }
 
 // The values a module imports from a schema file by name, as the TypeScript parser reads them, so escapes and
@@ -586,6 +692,9 @@ function schemaChangeBlockers(input: GapInput, carried: Set<string>, file: strin
                       .filter(([, schemas]) => [...schemas].some((schema) => altered.has(schema)))
                       .map(([tool]) => tool)
                 : generatedToolNames(input.readHead(importer))
+            if (!affected || (!byTool && affected.length === 0)) {
+                return true
+            }
             return (
                 affected.some((tool) => !carried.has(tool)) ||
                 (affected.length > 0 && handWrittenImporters(input, importer).length > 0)
@@ -602,20 +711,53 @@ interface Registrations {
     rest: string
 }
 
+// The registry's `import { GENERATED_TOOLS as <alias> } from './<module>'` statements, the aliases it spreads,
+// and everything else as compiled, without those spreads.
 function registrations(source: string | undefined): Registrations {
+    const file = parseModule(source)
     const modules = new Map<string, string>()
     const spread = new Set<string>()
     const rest: string[] = []
-    for (const line of (source ?? '').split('\n')) {
-        const imported = line.match(REGISTRY_IMPORT)
-        const spreadAlias = line.match(REGISTRY_SPREAD)?.[1]
-        if (imported) {
-            modules.set(imported[1]!, `${GENERATED_TOOLS_DIR}${imported[2]!}.ts`)
-        } else if (spreadAlias) {
-            spread.add(spreadAlias)
-        } else {
-            rest.push(line)
+    const dropSpreads =
+        (context: ts.TransformationContext) =>
+        (root: ts.Node): ts.Node => {
+            const visit = (node: ts.Node): ts.Node | undefined => {
+                if (ts.isSpreadAssignment(node) && ts.isIdentifier(node.expression)) {
+                    spread.add(node.expression.text)
+                    return undefined
+                }
+                return ts.visitEachChild(node, visit, context)
+            }
+            return ts.visitNode(root, visit)!
         }
+
+    for (const statement of file.statements) {
+        const clause = ts.isImportDeclaration(statement) ? statement.importClause : undefined
+        const bindings = clause?.namedBindings
+        const specifier =
+            ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)
+                ? statement.moduleSpecifier.text
+                : ''
+        const module = specifier.startsWith('./') ? specifier.slice(2) : ''
+        const element =
+            bindings && ts.isNamedImports(bindings) && bindings.elements.length === 1 ? bindings.elements[0] : undefined
+        if (
+            clause &&
+            !clause.isTypeOnly &&
+            !clause.name &&
+            element &&
+            !element.isTypeOnly &&
+            element.propertyName?.text === 'GENERATED_TOOLS' &&
+            module !== '' &&
+            !module.includes('/') &&
+            !module.includes('.')
+        ) {
+            modules.set(element.name.text, `${GENERATED_TOOLS_DIR}${module}.ts`)
+            continue
+        }
+        const transformed = ts.transform(statement, [dropSpreads])
+        rest.push(printer.printNode(ts.EmitHint.Unspecified, transformed.transformed[0]!, file))
+        transformed.dispose()
     }
     return { modules, spread, rest: rest.join('\n') }
 }
@@ -636,7 +778,7 @@ function registryChangeDelivered(input: GapInput, carried: Set<string>): boolean
             path === undefined ||
             (generatedModuleName(path) !== undefined &&
                 qualifies(path, read) &&
-                tools.length > 0 &&
+                !!tools?.length &&
                 tools.every((tool) => carried.has(tool)))
         )
     }
