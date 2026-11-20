@@ -211,6 +211,16 @@ describe('ramp', () => {
             },
         ],
         [
+            'goes on past a step whose bar has no source on this stack',
+            {
+                writerCpu: () =>
+                    Promise.resolve({ unsourced: 'the local stack has no Aurora writer to read CPU from' }),
+            },
+            0,
+            UNITS_PER_STEP[0],
+            { advance: true, stop: undefined },
+        ],
+        [
             'ends at a step whose bar the run host could not read',
             { writerCpu: () => Promise.resolve({ unread: 'CloudWatch returned no datapoints' }) },
             0,
@@ -400,16 +410,17 @@ describe('ramp', () => {
         })
     })
 
-    it('keeps the break a pending read finds at a lower step after a refusal in a later step halted the drive', async () => {
+    it('waits for a pending read and keeps the break it finds at a lower step after a refusal in a later step halted the drive', async () => {
         jest.setSystemTime(windowOf(0).endedAt)
         let read: ((points: CpuPoint[]) => void) | undefined
         const watch = watchRamp(live({ writerCpu: () => new Promise((resolve) => (read = resolve)) }), NEVER)
 
-        const verdict = watch.gate(windowOf(0), () => UNITS_PER_STEP[0])
+        void watch.gate(windowOf(0), () => UNITS_PER_STEP[0])
         await jest.advanceTimersByTimeAsync(SCRAPE_GAP_MS)
         watch.record(unit(1, 3, false))
+        const pending = watch.pending()
         read!(cpuByMinute([90, 90]))
-        await verdict
+        await pending
 
         expect(watch.stopped()).toMatchObject({
             index: 0,
@@ -705,6 +716,23 @@ describe('ramp', () => {
             },
         ],
         [
+            'every step held up to the last, but a job stayed unfinished past the convergence deadline',
+            { converged: false },
+            {
+                end: 'broke',
+                sustainedScale: null,
+                broke: {
+                    scale: null,
+                    offeredPerSecond: null,
+                    by: 'convergence',
+                    kind: 'invariant',
+                    at: null,
+                    part: null,
+                },
+                reason: 'the run did not converge, and no step can be blamed for it',
+            },
+        ],
+        [
             'a step offered exactly its minOffered share, which is no shortfall',
             { minOffered: 0.14, steps: [driven(0), driven(1), { ...driven(2, 14), dueUnits: 100 }] },
             { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
@@ -713,6 +741,15 @@ describe('ramp', () => {
             'every step held up to the last',
             {},
             { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+        ],
+        [
+            'every step held up to the last, with a bar the stack has no source for',
+            { bars: [{ ...held(), passed: false, unjudged: 'the local stack has no Aurora writer to read CPU from' }] },
+            {
+                end: 'ceiling',
+                sustainedScale: 5,
+                reason: 'every judged bar held up to the 5x ceiling; writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+            },
         ],
     ])('reads %s', (_story, evidence, expected) => {
         expect(
@@ -726,6 +763,7 @@ describe('ramp', () => {
                 gates: {},
                 journal: JOURNAL,
                 admissions: [],
+                converged: true,
                 ...evidence,
             })
         ).toEqual(expected)
@@ -763,6 +801,7 @@ describe('ramp', () => {
             gates: {},
             journal: JOURNAL,
             admissions: [],
+            converged: true,
         })
 
         expect({ bar: bars[0].breakingPoint?.offeredPerSecond, ramp: ramp.broke?.offeredPerSecond }).toEqual({

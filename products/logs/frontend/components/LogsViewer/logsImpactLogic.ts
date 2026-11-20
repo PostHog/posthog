@@ -26,7 +26,7 @@ export interface LogsImpactLogicProps {
 export interface logsImpactLogicValues {
     personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
-    searchTerm: LogsQuery[] // logsViewerFiltersLogic
+    searchTerm: LogsQuery['searchTerm'] // logsViewerFiltersLogic
     sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined

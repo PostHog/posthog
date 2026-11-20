@@ -13788,8 +13788,8 @@ Today (5): `events`, `funnels`, `sessions`, `visitor_events`, `visitors`
 
 Diffed against: <https://integrations.smartlook.com/llms.txt>
 
-- [ ] `Funnel visitors drop-off (GET /api/v1/funnels/{funnelId}/visitors/drop-off)` — visitors who dropped off at each step of a funnel we already sync (medium)
-- [ ] `Event visitors (GET /api/v1/events/{eventId}/visitors)` — which visitors fired each event definition we already sync (low)
+- [x] `Funnel visitors drop-off (GET /api/v1/funnels/{funnelId}/visitors/drop-off)` — visitors who dropped off at each step of a funnel we already sync (medium)
+- [x] `Event visitors (GET /api/v1/events/{eventId}/visitors)` — which visitors fired each event definition we already sync (low)
 
 Note: Parsed the OpenAPI embedded in the .md reference pages listed in llms.txt. Sessions, visitors, events, funnels and visitor events are covered. Both gaps are fan-outs over a parent we sync, so volume can be large. Excluded webhooks, delete calls, mapping file upload, API stats and project info.
 

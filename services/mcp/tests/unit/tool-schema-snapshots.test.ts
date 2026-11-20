@@ -109,7 +109,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'workflows-bulk-suppressions-mcp': true,
         'signals-reviewer-exclusions-mcp': true,
         'ai-observability-composite-validation': true,
-        'workflows-supabase-auth-emails': true,
         'warehouse-suggestions': true,
         'workflows-destination-suggestion': true,
         'scouts-tool-access': true,

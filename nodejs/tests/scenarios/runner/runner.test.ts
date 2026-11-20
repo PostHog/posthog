@@ -904,6 +904,7 @@ describe('runner through seed, drive and judge', () => {
             load: loadTargets,
             backlog,
             ramp,
+            stopOnBreak,
             bars = [],
             driveFor = '2s',
         }: {
@@ -914,6 +915,7 @@ describe('runner through seed, drive and judge', () => {
             load?: Profile['load']
             backlog?: Backlog
             ramp?: LoadedCard['card']['drive']['ramp']
+            stopOnBreak?: true
             bars?: Named[]
             driveFor?: string
         } = {}
@@ -924,7 +926,14 @@ describe('runner through seed, drive and judge', () => {
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: driveFor, minOffered: 0.5, traffic: [{ name: traffic }], ramp },
+                drive: {
+                    ...SMOKE.card.drive,
+                    for: driveFor,
+                    minOffered: 0.5,
+                    traffic: [{ name: traffic }],
+                    ramp,
+                    stopOnBreak,
+                },
                 invariants,
                 measure: measures,
                 bars,
@@ -1613,24 +1622,181 @@ describe('runner through seed, drive and judge', () => {
         60_000
     )
 
-    it('calls the scale card invalid at its writer CPU bar on a host without a run manifest', async () => {
-        const { bars } = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card
+    it.each<[string, true | undefined]>([
+        ['the scale card', undefined],
+        ['a ramp that stops on a break', true],
+    ])(
+        'names the writer CPU bar as not judged for %s on a host without a run manifest',
+        async (_story, stopOnBreak) => {
+            const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
+                ({ name }) => name === 'writer_cpu_under'
+            )
+            const ramp = [
+                { scale: 1, for: '1s' },
+                { scale: 2, for: '1s' },
+            ]
+
+            const result = await run('all', [], undefined, { ramp, stopOnBreak, bars: writerCpu, driveFor: '2s' })
+
+            expect({
+                status: result.status,
+                statusReason: result.statusReason,
+                bars: result.bars,
+                steps: result.units?.steps.map(({ scale }) => scale),
+            }).toEqual({
+                status: 'invalid',
+                statusReason: 'writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+                bars: [
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        limit: 70,
+                        passed: false,
+                        unjudged: 'the local stack has no Aurora writer to read CPU from',
+                    },
+                ],
+                steps: [1, 2],
+            })
+        },
+        30_000
+    )
+
+    it('reports the verdict of a live writer CPU read still pending when a ramp that did not converge ends', async () => {
+        const runId = randomUUID()
+        const manifestFile = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifestFile,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            })
+        )
+        let readStarted = (): void => undefined
+        const started = new Promise<void>((resolve) => (readStarted = resolve))
+        let release = (): void => undefined
+        const onHost: Environment = {
+            ...environmentOf('all, leaving one job running'),
+            writerCpu: (_manifest, { startedAt, endedAt }) => {
+                if (endedAt - startedAt > 1500) {
+                    return Promise.resolve([])
+                }
+                readStarted()
+                return new Promise(
+                    (_resolve, reject) => (release = () => reject(new Error('CloudWatch throttled the read')))
+                )
+            },
+        }
+        const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
+            ({ name }) => name === 'writer_cpu_under'
+        )
+
+        const running = createRunner(
+            onHost,
+            { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
+            { topologyWithinMs: 1000, topologyEveryMs: 10 }
+        ).run(
+            shortSmoke([], undefined, {
+                ramp: [
+                    { scale: 1, for: '1s' },
+                    { scale: 2, for: '1s' },
+                ],
+                stopOnBreak: true,
+                bars: writerCpu,
+                driveFor: '2s',
+            }),
+            NEVER_ABORTED
+        )
+        await Promise.race([started, running])
+        release()
+        const result = await running
+        results.push(result)
+
+        expect({ convergence: result.convergence?.converged, ramp: result.ramp }).toEqual({
+            convergence: false,
+            ramp: expect.objectContaining({
+                end: 'harness_limit',
+                reason: expect.stringContaining('CloudWatch throttled the read'),
+            }),
+        })
+    }, 60_000)
+
+    it('ends a ramp that held every step but left a job unfinished with no sustained scale', async () => {
         const ramp = [
             { scale: 1, for: '1s' },
             { scale: 2, for: '1s' },
         ]
 
-        const result = await run('all', [], undefined, { ramp, bars })
-
-        expect(result.status).toBe('invalid')
-        expect(result.bars[0]).toEqual({
-            name: 'writer_cpu_under',
-            unit: '%',
-            limit: 70,
-            passed: false,
-            unjudged: 'no writer CPU reading off a run host in the 1x step',
-            harnessLimit: expect.objectContaining({ by: 'run_host', scale: 1 }),
+        const result = await run('all, leaving one job running', [], undefined, {
+            ramp,
+            stopOnBreak: true,
+            driveFor: '2s',
         })
+
+        expect({ status: result.status, statusReason: result.statusReason, ramp: result.ramp }).toEqual({
+            status: 'failed',
+            statusReason: 'not converged: 1 unfinished jobs, 0 units without a delivery record',
+            ramp: {
+                end: 'broke',
+                sustainedScale: null,
+                broke: {
+                    scale: null,
+                    offeredPerSecond: null,
+                    by: 'convergence',
+                    kind: 'invariant',
+                    at: null,
+                    part: null,
+                },
+                reason: 'the run did not converge, and no step can be blamed for it',
+            },
+        })
+    }, 30_000)
+
+    it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
+        const refusingIntake = http.createServer((_request, response) => {
+            response.writeHead(503).end()
+        })
+        await new Promise<void>((resolve) => refusingIntake.listen(0, '127.0.0.1', resolve))
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(refusingIntake.address() as AddressInfo).port}`),
+                env
+            ).run(
+                shortSmoke([], 'transactional_email', {
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '10s' },
+                    ],
+                    driveFor: '20s',
+                    stopOnBreak: true,
+                    load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            const [first, ...later] = result.units?.steps ?? []
+            const ranMs = first.endedAt - first.startedAt
+
+            expect({ ranUnderPlan: ranMs < 10_000, later, result }).toMatchObject({
+                ranUnderPlan: true,
+                later: [],
+                result: {
+                    status: 'invalid',
+                    ramp: {
+                        end: 'harness_limit',
+                        sustainedScale: null,
+                        broke: { scale: 1, kind: 'harness' },
+                        reason: `the load admission failed at the 1x step: the baseline was too short to measure: ${Number((ranMs / 1000).toFixed(1))}s, under the 30s minimum`,
+                    },
+                },
+            })
+        } finally {
+            refusingIntake.closeAllConnections()
+            await new Promise((resolve) => refusingIntake.close(resolve))
+        }
     }, 30_000)
 
     it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {

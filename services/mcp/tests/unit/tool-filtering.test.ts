@@ -1134,7 +1134,6 @@ describe('Tool Filtering - Feature Flags', () => {
         const branchFlags = [
             'notebook-app-builder',
             'workflows-email-activity',
-            'workflows-supabase-auth-emails',
             'scout-trials',
             'scout-scratchpad-discard-mcp',
             'signals-report-monitoring',

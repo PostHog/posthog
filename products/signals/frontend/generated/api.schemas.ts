@@ -529,11 +529,6 @@ export interface AnomalyInsightSeriesApi {
      * @nullable
      */
     anomaly_rate: number | null
-    /**
-     * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-     * @nullable
-     */
-    baseline_rate: number | null
     /** Completed buckets in the range, scored or not. */
     expected_buckets: number
     /**
@@ -775,11 +770,6 @@ export interface AnomalySeriesApi {
      */
     scored_through: string | null
     /**
-     * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-     * @nullable
-     */
-    baseline_rate: number | null
-    /**
      * The oldest flagged bucket in the range, in the project timezone.
      * @nullable
      */
@@ -819,11 +809,6 @@ export interface AnomalyTopSeriesApi {
      * @nullable
      */
     anomaly_rate: number | null
-    /**
-     * The anomaly rate over the 30 days before the range.
-     * @nullable
-     */
-    baseline_rate: number | null
 }
 
 export interface AnomalyInsightRowApi {
@@ -10214,7 +10199,7 @@ export interface ScratchpadRevisionApi {
      * @nullable
      */
     expires_at: string | null
-    /** `overwrite` when a `remember` replaced this state, `forget` when a delete removed it.
+    /** `overwrite` when a `remember` or the daily report-pointer sweep replaced this state, `forget` when a delete removed it.
      *
      * * `overwrite` - Overwrite
      * * `forget` - Forget */
@@ -10227,7 +10212,7 @@ export interface ScratchpadRevisionApi {
      */
     changed_by_run_id: string | null
     /**
-     * Who made the change: the skill name of the scout run, or the report-pipeline stage (`pipeline:report-research`, `pipeline:implementation`). Null when a person deleted the entry.
+     * Who made the change: the skill name of the scout run, the report-pipeline stage (`pipeline:report-research`, `pipeline:implementation`), or `system:report-pointer-sweep` when the daily sweep expired a `report:` pointer to a deleted report. Null when a person deleted the entry.
      * @nullable
      */
     changed_by_skill: string | null
@@ -10236,6 +10221,24 @@ export interface ScratchpadRevisionApi {
      * @nullable
      */
     changed_by_run_url: string | null
+}
+
+/**
+ * The expiry a `remember` overruled when it wrote onto an expired entry.
+ */
+export interface ScratchpadRevivedExpiryApi {
+    /** ISO-8601 expiry the entry had before this write replaced it. */
+    expires_at: string
+    /**
+     * Who set that expiry: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. Null when the entry was created with the expiry or no saved version shows who set it.
+     * @nullable
+     */
+    set_by_skill: string | null
+    /**
+     * ISO-8601 time the expiry was set, or null.
+     * @nullable
+     */
+    set_at: string | null
 }
 
 /**
@@ -10281,6 +10284,20 @@ export interface ScratchpadEntryApi {
      * @nullable
      */
     revisions?: ScratchpadRevisionApi[] | null
+    /** True when an exact `key` search found the entry but its `expires_at` has passed. `content` is blank. Another writer or a time limit retired the entry on purpose, so read it with `include_expired=true` and weigh why before you rebuild it. The body stays readable until the janitor deletes the entry. */
+    expired?: boolean
+    /**
+     * Exact `key` searches only. Who last changed the entry after its creator wrote it: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. When `expired` is true, it names who set the expiry. Null when no saved version shows a writer, and on every other search.
+     * @nullable
+     */
+    last_changed_by_skill?: string | null
+    /**
+     * Exact `key` searches only. ISO-8601 time of the change `last_changed_by_skill` describes, or null when no saved version records one.
+     * @nullable
+     */
+    last_changed_at?: string | null
+    /** Set on a `remember` response when the write landed on an entry whose `expires_at` had passed. The write succeeded and replaced that expiry. Null otherwise. */
+    revived_expiry?: ScratchpadRevivedExpiryApi | null
 }
 
 /**
@@ -13743,7 +13760,7 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     only_flagged?: boolean
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
@@ -14553,7 +14570,7 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     include_revisions?: boolean
     /**
-     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
+     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` and a blank `content`, and every entry it returns carries `last_changed_by_skill` / `last_changed_at`.
      * @minLength 1
      */
     key?: string
