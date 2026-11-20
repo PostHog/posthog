@@ -375,12 +375,14 @@ describe('runner', () => {
                     if (req.url!.startsWith('/api/projects/1/hog_flows/')) {
                         const daily = req.url!.includes('interval=day')
                         const exits = req.url!.includes('instance_id=exit-1')
-                        const hour = ramp
+                        const hour: Record<string, number> = ramp
                             ? exits
                                 ? { succeeded: offered }
                                 : { triggered: offered, quota_limited: Math.min(offered, 1) }
                             : {}
-                        const series = Object.entries(daily ? month : hour).map(([name, n]) => ({ name, values: [n] }))
+                        const counts = daily ? month : hour
+                        const names = new URL(req.url!, 'http://dev').searchParams.get('name')!.split(',')
+                        const series = names.map((name) => ({ name, values: [counts[name] ?? 0] }))
                         return reply(metrics, { labels: ['2026-11-01'], series })
                     }
                     if (req.url === '/api/projects/1/') {
@@ -479,8 +481,10 @@ describe('runner', () => {
 
             const { result, offered } = await runOnDev({ ramp })
 
-            expect({ offered: offered < 31, ramp: result.ramp }).toEqual({
-                offered: true,
+            const [, second] = result.units?.steps ?? []
+            expect({ offered, cutShort: second.endedAt - second.startedAt < 30_000, ramp: result.ramp }).toEqual({
+                offered: expect.any(Number),
+                cutShort: true,
                 ramp: expect.objectContaining({
                     end: 'harness_limit',
                     reason: 'dev quota limited 1 runs of the workflow at the 1x step',

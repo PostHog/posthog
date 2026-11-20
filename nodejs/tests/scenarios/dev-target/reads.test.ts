@@ -150,6 +150,17 @@ describe('dev reads', () => {
         }
     })
 
+    it('fails a workflow metrics read that answers a count it cannot add up, rather than reading it as zero', async () => {
+        const dev = await fakeDev({ receipts: [], series: { triggered: ['unknown' as unknown as number, 3] } })
+        try {
+            await expect(workflowRuns(dev.config, '2026-11-20T14:00:00.000Z', 'hour')).rejects.toThrow(
+                'dev answered the workflow metrics read without a count of triggered'
+            )
+        } finally {
+            await dev.close()
+        }
+    })
+
     it('counts the triggered workflow runs that have not reached its exit, apart from the runs quota limited before any trigger', async () => {
         const dev = await fakeDev({
             receipts: [],

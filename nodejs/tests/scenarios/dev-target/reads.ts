@@ -92,8 +92,14 @@ async function metricsRead(config: DevConfig, query: Record<string, string>): Pr
         `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/metrics/?${params}`,
         { headers: { authorization: `Bearer ${config.key}` } },
         'workflow metrics read'
-    )) as { series: { name: string; values: number[] }[] }
-    return (name) => series.find((entry) => entry.name === name)?.values.reduce((sum, value) => sum + value, 0) ?? 0
+    )) as { series?: { name: string; values: unknown[] }[] }
+    return (name) => {
+        const values = series?.find((entry) => entry.name === name)?.values
+        if (!values?.every((value) => Number.isFinite(value))) {
+            throw new Error(`dev answered the workflow metrics read without a count of ${name}`)
+        }
+        return (values as number[]).reduce((sum, value) => sum + value, 0)
+    }
 }
 
 // Every action counts a run as succeeded, and a quota limited run never counts as triggered, so a run of a workflow
