@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 
-import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
@@ -10,9 +9,8 @@ import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { todayLogic, type TodayReportOpenSource } from './todayLogic'
 import { priorityTone } from './todayPriority'
 import { TodayReportRowDetail } from './TodayReportRowDetail'
-import { reportStateLabel } from './todayReportState'
 import { TodayRow } from './TodayRow'
-import { pullRequestFact, rowFacts } from './todayRowFacts'
+import { reportRowFacts } from './todayRowFacts'
 import { reportIcon } from './todayRowIcons'
 import { reportTitle } from './todaySignalReports'
 import { TodayVerdictButtons } from './TodayVerdictButtons'
@@ -32,6 +30,7 @@ export function TodayReportRow({
     const { reportOpened, toggleReportRow } = useActions(todayLogic)
     const state = reportStateOverrides[report.id]
     const preview = reportPreviews[report.id]
+    const { facts, reason } = reportRowFacts(report, state)
     const to = urls.todayReport(report.id)
     const target: TodayReportVerdictTarget = {
         reportId: report.id,
@@ -44,18 +43,8 @@ export function TodayReportRow({
             icon={reportIcon(report)}
             title={target.title}
             label={report.priority ?? undefined}
-            facts={rowFacts(
-                state
-                    ? [reportStateLabel(state)]
-                    : [
-                          pullRequestFact(
-                              report.implementation_pr_merged
-                                  ? 'merged'
-                                  : (report.implementation_pr_state ?? (report.implementation_pr_url ? 'open' : null))
-                          ),
-                          `Updated ${dayjs(report.updated_at).fromNow()}`,
-                      ]
-            )}
+            facts={facts}
+            reason={reason}
             to={to}
             onOpen={() => reportOpened(report, source)}
             expansion={
@@ -66,6 +55,7 @@ export function TodayReportRow({
                           detail: (
                               <TodayReportRowDetail
                                   preview={preview}
+                                  reason={report.personal_reason}
                                   to={to}
                                   onOpen={() => reportOpened(report, source)}
                                   actions={done ? null : <TodayVerdictButtons target={target} labelled />}
