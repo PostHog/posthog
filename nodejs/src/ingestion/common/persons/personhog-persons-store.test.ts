@@ -819,6 +819,21 @@ describe('PersonhogPersonsStore', () => {
                 [{ distinctId: 'extra' }]
             )
 
+        const holdNextLeaderRead = (): { started: Promise<void>; answer: (document: InternalPerson) => void } => {
+            let markStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => {
+                markStarted = resolve
+            })
+            let resolveRead: (document: InternalPerson) => void = () => {}
+            repository.fetchPersonById.mockImplementationOnce((() => {
+                markStarted()
+                return new Promise<InternalPerson>((resolve) => {
+                    resolveRead = resolve
+                })
+            }) as never)
+            return { started, answer: (document) => resolveRead(document) }
+        }
+
         beforeEach(() => {
             personhogStoreSamePersonMergeCounter.reset()
             store = new PersonhogPersonsStore(repository, { settleSamePersonMergesTeamAllowlist: '1' })
@@ -1057,57 +1072,51 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.fetchPersonById).not.toHaveBeenCalled()
         })
 
-        it('corrects the cached edge of a named id and keeps the cache of the others', async () => {
-            identityResolves({ d1: '7', 'anon-1': '9' })
-            const bound = store.forBatch(0)
-            await bound.fetchForUpdate(1, 'd1')
-            await bound.fetchForUpdate(1, 'anon-1')
-            identityResolves({ d1: '7', 'anon-1': '7' })
-
-            await bound.mergePersons(request())
-
-            repository.resolvePersonsByDistinctIds.mockClear()
-            expect((await bound.fetchForUpdate(1, 'anon-1'))?.id).toBe('7')
-            expect((await bound.fetchForUpdate(1, 'd1'))?.id).toBe('7')
-            expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
-        })
-
-        it('a read that began before an edge repair does not record the person the id left', async () => {
-            identityResolves({ d1: '7', 'anon-1': '9' })
+        it.each([
+            ['names another person for a source', { d1: '7', 'anon-1': '9' }],
+            ['holds an absence for a source', { d1: '7' }],
+        ])('sends the merge to identity when the cache %s', async (_state, owners) => {
+            identityResolves(owners)
             const bound = store.forBatch(0)
             await bound.fetchForChecking(1, 'anon-1')
-            let readStarted: () => void = () => {}
-            const reading = new Promise<void>((resolve) => {
-                readStarted = resolve
-            })
-            let releaseRead: (document: InternalPerson) => void = () => {}
-            repository.fetchPersonById.mockImplementationOnce((() => {
-                readStarted()
-                return new Promise<InternalPerson>((resolve) => {
-                    releaseRead = resolve
-                })
-            }) as never)
-            const staleRead = bound.fetchForUpdate(1, 'anon-1')
-            await reading
-            identityResolves({ d1: '7', 'anon-1': '7' })
-            await bound.mergePersons(request())
-            releaseRead(leaderDocument('9'))
-            await staleRead
-
-            expect((await bound.fetchForUpdate(1, 'anon-1'))?.id).toBe('7')
-        })
-
-        it('sends the merge to identity when the cache named another person whose lane holds ops', async () => {
-            identityResolves({ d1: '5' })
-            const bound = store.forBatch(0)
-            const stale = await bound.fetchForUpdate(1, 'd1')
-            await bound.applyEventOps(stale!, ops({ $set: { plan: 'free' } }), 'd1')
             identityResolves({ d1: '7', 'anon-1': '7' })
 
             await bound.mergePersons(request())
 
             expect(repository.mergePersons).toHaveBeenCalledTimes(1)
-            expect(await actions()).toEqual({ sent_unwritten_lane: 1 })
+            expect(await actions()).toEqual({ sent_stale_edge: 1 })
+        })
+
+        it('sends the merge to identity when a read records another person for a source during its leader read', async () => {
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            const leaderRead = holdNextLeaderRead()
+            const bound = store.forBatch(0)
+            const merging = bound.mergePersons(request())
+            await leaderRead.started
+            identityResolves({ 'anon-1': '9' })
+            await bound.fetchForChecking(1, 'anon-1')
+            leaderRead.answer(leaderDocument())
+
+            await merging
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
+            expect(await actions()).toEqual({ sent_stale_edge: 1 })
+        })
+
+        it('sends the merge to identity when the edge to another person is released during its leader read', async () => {
+            identityResolves({ d1: '5' })
+            await store.forBatch(0).fetchForChecking(1, 'd1')
+            identityResolves({ d1: '7', 'anon-1': '7' })
+            const leaderRead = holdNextLeaderRead()
+            const merging = store.forBatch(1).mergePersons(request())
+            await leaderRead.started
+            store.releaseBatch(0)
+            leaderRead.answer(leaderDocument())
+
+            await merging
+
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
+            expect(await actions()).toEqual({ sent_stale_edge: 1 })
         })
 
         it('sends the merge to identity when the survivor lane holds ops that no projection carries', async () => {
@@ -1132,22 +1141,12 @@ describe('PersonhogPersonsStore', () => {
 
         it('sends the merge to identity when a purge ran while its leader read was in flight', async () => {
             identityResolves({ d1: '7', 'anon-1': '7' })
-            let readStarted: () => void = () => {}
-            const reading = new Promise<void>((resolve) => {
-                readStarted = resolve
-            })
-            let releaseRead: (document: InternalPerson) => void = () => {}
-            repository.fetchPersonById.mockImplementation((() => {
-                readStarted()
-                return new Promise<InternalPerson>((resolve) => {
-                    releaseRead = resolve
-                })
-            }) as never)
+            const leaderRead = holdNextLeaderRead()
             const bound = store.forBatch(0)
             const merging = bound.mergePersons(request())
-            await reading
+            await leaderRead.started
             await purgeTeam(bound)
-            releaseRead(leaderDocument())
+            leaderRead.answer(leaderDocument())
 
             await merging
 
@@ -1188,23 +1187,13 @@ describe('PersonhogPersonsStore', () => {
 
         it('keeps the projection an event installed while the leader read was in flight', async () => {
             identityResolves({ d1: '7', 'anon-1': '7' })
-            let readStarted: () => void = () => {}
-            const reading = new Promise<void>((resolve) => {
-                readStarted = resolve
-            })
-            let releaseRead: (document: InternalPerson) => void = () => {}
-            repository.fetchPersonById.mockImplementationOnce((() => {
-                readStarted()
-                return new Promise<InternalPerson>((resolve) => {
-                    releaseRead = resolve
-                })
-            }) as never)
+            const leaderRead = holdNextLeaderRead()
             const bound = store.forBatch(0)
             const merging = bound.mergePersons(request())
-            await reading
+            await leaderRead.started
             const cached = await bound.fetchForUpdate(1, 'd1')
             await bound.applyEventOps(cached!, ops({ $set: { folded: 'yes' } }), 'd1')
-            releaseRead({ ...leaderDocument(), version: 6 })
+            leaderRead.answer({ ...leaderDocument(), version: 6 })
 
             const result = await merging
 

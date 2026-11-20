@@ -1052,35 +1052,22 @@ export class PersonhogPersonsStore implements PersonsStore {
             personhogStoreSamePersonMergeCounter.inc({ action: 'sent_stale_generation' })
             return null
         }
-        // The full request writes these lanes before identity runs. If the cache named another person for one of
-        // the ids and that person's lane still holds ops, a later op for the same id folds onto the survivor
-        // and can reach the leader first. A leader document also lacks the ops the survivor's own lane holds.
-        if (
-            believed.some((believedKey) => believedKey !== personKey && this.laneHoldsOps(believedKey)) ||
-            (!this.projections.has(personKey) && this.laneHoldsOps(personKey))
-        ) {
+        const edges = [...participants.keys()].map((distinctId) => this.resolutions.get(`${teamId}:${distinctId}`))
+        // An edge that names another person, or a cached absence, is stale. Only the full request clears it:
+        // the drain writes the lane the edge points at before identity runs, and the purge drops the entry
+        // together with the reads in flight for it.
+        if ([...believed, ...edges].some((edge) => edge !== undefined && edge !== personKey)) {
+            personhogStoreSamePersonMergeCounter.inc({ action: 'sent_stale_edge' })
+            return null
+        }
+        // A leader document lacks the ops the survivor's own lane holds.
+        if (!this.projections.has(personKey) && this.laneHoldsOps(personKey)) {
             personhogStoreSamePersonMergeCounter.inc({ action: 'sent_unwritten_lane' })
             return null
         }
-        // Only the edges a batch already tracks are corrected. A merge tracks no cache entry for a batch, so
-        // nothing would evict a new edge. The caller's follow-up applyEventOps records the target's edge.
-        let named = false
-        let repaired = false
-        for (const distinctId of participants.keys()) {
-            const distinctKey = `${teamId}:${distinctId}`
-            if (this.resolutions.has(distinctKey)) {
-                repaired ||= this.resolutions.get(distinctKey) !== personKey
-                this.setDistinctIdToPersonId(distinctKey, personKey)
-                named = true
-            }
-        }
-        // A read that began before the repair can still answer with the person the id left, and would record
-        // that edge again.
-        if (repaired) {
-            this.bumpGeneration(teamId)
-        }
-        // Read again: an event can install a projection that carries its ops while the leader read waits.
-        if (!this.projections.has(personKey) && named) {
+        // Read again: an event can install a projection that carries its ops while the leader read waits. A
+        // document that no edge names is not cached, because nothing would evict it.
+        if (!this.projections.has(personKey) && edges.includes(personKey)) {
             this.setCachedPersonForUpdate(personKey, document)
         }
         personhogStoreSamePersonMergeCounter.inc({ action: 'settled' })
