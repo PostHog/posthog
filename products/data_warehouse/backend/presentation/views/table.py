@@ -706,10 +706,13 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
-            if instance.credential is None:
+            if instance.credential_id is None:
                 raise serializers.ValidationError(
                     {"credential": "This table reads from PostHog's own storage, so it has no credential to change."}
                 )
+            credential = instance.team_credential
+            if credential is None:
+                raise serializers.ValidationError({"credential": "This table's credential can't be changed."})
             access_key = credential_data.get("access_key")
             access_secret = credential_data.get("access_secret")
 
@@ -718,7 +721,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             if access_secret is not None and len(access_secret.strip()) == 0:
                 raise serializers.ValidationError("Access secret can't be blank")
 
-            credential = instance.credential
             if access_key is not None:
                 credential.access_key = access_key
             if access_secret is not None:
