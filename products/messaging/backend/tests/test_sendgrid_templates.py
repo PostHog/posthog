@@ -59,11 +59,12 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("unsubscribe_tag_in_a_string", '{{ insert name "default=<%body%>" }}'),
             ("event_handler_hidden_by_an_angle_bracket", '<a title="a>b" onclick="{{first_name}}">x</a>'),
             ("event_handler_hidden_by_a_tag_like_value", '<a title="<%%>" onclick="{{first_name}}">x</a>'),
-            ("brace_before_a_body_tag", "x{<%body%>y"),
-            ("body_tag_in_an_event_handler", '<a onclick="<%body%>">x</a>'),
-            ("body_tag_in_a_quoted_attribute", '<a title="<%body%>">x</a>'),
-            ("body_tag_in_an_unquoted_attribute", "<a href=<%body%>>x</a>"),
-            ("body_tag_in_a_comment", "<!-- <%body%> --><p>x</p>"),
+            ("a_body_tag", "<p><%body%></p>"),
+            ("brace_before_a_unsubscribe_link", "x{<%asm_group_unsubscribe_url%>y"),
+            ("unsubscribe_link_in_an_event_handler", '<a onclick="<%asm_group_unsubscribe_url%>">x</a>'),
+            ("unsubscribe_link_in_a_quoted_attribute", '<a title="<%asm_group_unsubscribe_url%>">x</a>'),
+            ("unsubscribe_link_in_an_unquoted_attribute", "<a href=<%asm_group_unsubscribe_url%>>x</a>"),
+            ("unsubscribe_link_in_a_comment", "<!-- <%asm_group_unsubscribe_url%> --><p>x</p>"),
             ("escaped_body_tag_in_a_style_block", "<style>&lt;%body%&gt;</style><p>x</p>"),
             (
                 "unsubscribe_tag_beside_a_block_in_an_attribute",
@@ -80,7 +81,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         for part in (converted.html, converted.text):
             assert "variables." not in part
             assert "{% if" not in part
-            assert "unsubscribe_url" not in part
+            assert "{{ unsubscribe_url }}" not in part
             assert "\x00" not in part
 
     @parameterized.expand(
@@ -124,54 +125,24 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("Dear -name-", 'Dear {{ variables.name | default: "-name-" | raw }}'),
-            ("well-known-word and x-y-z", "well-known-word and x-y-z"),
-            ("<style>a{margin:-a-}</style>", "<style>a{margin:-a-}</style>"),
-            ("{{not}} handlebars", "{% raw %}{{not}}{% endraw %} handlebars"),
-            ("<%body%>", "{{ variables.body | raw }}"),
-            ("<%asm_preferences_raw_url%>", "{{ unsubscribe_url }}"),
-            (
-                "<title>{{ person.properties.secret }}</title><!-- {% x %} -->",
-                "<title>{% raw %}{{ person.properties.secret }}{% endraw %}</title><!-- {% raw %}{% x %}{% endraw %} -->",
-            ),
-            (
-                "&lt;%asm_group_unsubscribe_url%&gt;",
-                '<a href="{{ unsubscribe_url }}">Unsubscribe From This List</a>',
-            ),
+            ("a_value", "Dear -name-"),
+            ("a_body_tag", "<%body%>"),
+            ("an_unsubscribe_url", '<a href="<%asm_preferences_raw_url%>">Leave</a>'),
+            ("an_escaped_unsubscribe_link", "&lt;%asm_group_unsubscribe_url%&gt;"),
+            ("a_value_in_an_event_handler", '<a onclick="-x-">t</a>'),
+            ("a_body_tag_in_an_unclosed_title", "<title><%body%>"),
+            ("liquid", "<title>{{ person.properties.secret }}</title><!-- {% x %} -->"),
         ]
     )
-    def test_legacy_templates(self, source: str, html: str) -> None:
+    def test_a_legacy_template_stays_as_text(self, _name: str, html: str) -> None:
         converted = convert_version(
-            {"html_content": source, "generate_plain_content": False, "plain_content": ""}, generation="legacy"
+            {"subject": "<%subject%>", "html_content": html, "generate_plain_content": False}, generation="legacy"
         )
-        assert converted.html.strip() == html
 
-    @parameterized.expand(
-        [
-            ("before_a_body_tag", "x{<%body%>y"),
-            ("before_an_escaped_body_tag", "x{&lt;%body%&gt;y"),
-            ("before_a_tag", "x{-name-y"),
-            ("value_in_an_event_handler", '<a onclick="-x-">t</a>'),
-            ("value_in_a_quoted_attribute", '<a title="-x-">t</a>'),
-            ("body_tag_in_a_style_block", "<style><%body%></style>"),
-            ("body_tag_in_an_attribute", '<a title="<%body%>">t</a>'),
-        ]
-    )
-    def test_a_legacy_template_with_a_tag_it_cant_convert_safely_stays_as_text(self, _name: str, html: str) -> None:
-        converted = convert_version({"html_content": html, "generate_plain_content": False}, generation="legacy")
-
-        assert "{{{" not in converted.html
-        assert "variables." not in converted.html
-        assert "this template's tags" in " ".join(converted.notes)
-
-    def test_only_a_template_with_other_tag_marks_gets_the_note_about_them(self) -> None:
-        version = {"subject": "<%subject%>", "generate_plain_content": False}
-        assert "%name%" not in " ".join(
-            convert_version({**version, "html_content": "<%body%> 100% #fff"}, generation="legacy").notes
-        )
-        assert "%name%" in " ".join(
-            convert_version({**version, "html_content": "Hi %name%"}, generation="legacy").notes
-        )
+        assert "variables." not in converted.html + converted.subject
+        assert "{{ unsubscribe_url }}" not in converted.html
+        assert "{{ " not in converted.html.replace("{% raw %}{{ ", "")
+        assert "legacy template" in " ".join(converted.notes)
 
     def test_plain_text_is_built_from_the_html_when_sendgrid_would_build_it(self) -> None:
         html = (

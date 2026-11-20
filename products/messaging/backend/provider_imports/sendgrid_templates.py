@@ -1,8 +1,7 @@
 """Turns a SendGrid template into PostHog's Liquid, and says what did not carry over.
 
 Dynamic templates use Handlebars with SendGrid's own helpers:
-https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars. Legacy templates use `-name-` tags:
-https://www.twilio.com/docs/sendgrid/for-developers/sending-email/substitution-tags.
+https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars. Legacy templates stay as text.
 
 Only plain values convert, in body text and in quoted attribute values. Any other Handlebars, conditions and loops
 included, keeps the whole template as text with a note, because each other form needs rules of its own to print what
@@ -11,8 +10,7 @@ SendGrid prints.
 
 import re
 import html as html_lib
-from collections.abc import Callable, Iterator
-from functools import partial
+from collections.abc import Iterator
 
 from posthog.dataclasses import frozen
 
@@ -92,7 +90,6 @@ class _Converter:
         self.sender_variables: set[str] = set()
         self.contact_variables: set[str] = set()
         self.web_link = False
-        self.uses_legacy_slots = False
 
     def nodes(self, nodes: tuple[object, ...]) -> str:
         return "".join(self.node(node) for node in nodes)
@@ -143,17 +140,8 @@ def _convert_asm_tags(text: str, is_html: bool, converter: _Converter) -> str:
         if name in _ASM_URLS:
             converter.uses_unsubscribe = True
             return "{{ unsubscribe_url }}"
-        if name in _ASM_LINKS:
-            converter.uses_unsubscribe = True
-            return f'<a href="{{{{ unsubscribe_url }}}}">{_ASM_LINKS[name]}</a>' if is_html else "{{ unsubscribe_url }}"
-        if name == "body":
-            converter.uses_legacy_slots = True
-            return "{{ variables.body | raw }}" if is_html else "{{ variables.body }}"
-        if name == "subject":
-            converter.uses_legacy_slots = True
-            return "{{ variables.subject }}"
-        converter.unsupported.append(match.group(0))
-        return match.group(0)
+        converter.uses_unsubscribe = True
+        return f'<a href="{{{{ unsubscribe_url }}}}">{_ASM_LINKS[name]}</a>' if is_html else "{{ unsubscribe_url }}"
 
     return _ASM_TAG.sub(convert, text)
 
@@ -167,18 +155,19 @@ _ALLOWED_TAG = re.compile(rf"\{{\{{\{{ *{_NAME} *\}}\}}\}}|\{{\{{ *{_NAME} *\}}\
 _PLAIN_ATTRIBUTE = re.compile(r"""\s(?!on|style\b)[\w:-]+\s*=\s*(?:"[^"<>]*"|'[^'<>]*')""", re.IGNORECASE)
 _HELD = re.compile("[\x02\x03]")
 _BRACE_BEFORE_ASM = re.compile(r"\{(?:<|&lt;)%")
-_BRACE_BEFORE_SUBSTITUTION = re.compile(r"\{-[A-Za-z_]\w*-")
 _ANGLE_IN_QUOTED_VALUE = re.compile(r"""=\s*(?:"[^"<>]*[<>][^"]*"|'[^'<>]*[<>][^']*')""")
 
 
 def _unsupported_reason(source: str, is_html: bool) -> str | None:
     """Why the template can't convert, or None when every tag is a supported form in a supported place."""
     if _BRACE_BEFORE_ASM.search(source):
-        return "put a brace right before an unsubscribe or body tag"
+        return "put a brace right before an unsubscribe tag"
     held: list[str] = []
     position = 0
-    # `<%...%>` tags hold `<` and `>`, which would read as HTML below. An unsubscribe URL counts as a value, and any
-    # other `<%...%>` tag, such as the unescaped body, may only sit in body text.
+    if any(match.group(1) not in _ASM_URLS and match.group(1) not in _ASM_LINKS for match in _ASM_TAG.finditer(source)):
+        return "use <%...%> tags other than unsubscribe links"
+    # `<%...%>` tags hold `<` and `>`, which would read as HTML below. An unsubscribe URL counts as a value, and an
+    # unsubscribe link may only sit in body text.
     text = _ASM_TAG.sub(lambda match: "\x02" if match.group(1) in _ASM_URLS else "\x03", source)
     while (start := text.find("{{", position)) != -1:
         match = _ALLOWED_TAG.match(text, start)
@@ -220,6 +209,9 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
     return converted, converter
 
 
+_LEGACY_REASON = "come from a legacy template"
+
+
 def _kept_as_text(source: str, is_html: bool, contact_fields: bool, reason: str) -> tuple[str, _Converter]:
     """The whole template as text. Its `<%...%>` tags stay text too, so a guarded body can't print unguarded."""
     converter = _Converter(is_html, contact_fields)
@@ -244,8 +236,6 @@ def _restore_asm(text: str, is_html: bool, converter: _Converter) -> str:
 _ANY_LIQUID_OPENING = re.compile(r"\{\{(?:(?!\{\{).){0,2000}?\}\}|\{%(?:(?!\{%).){0,2000}?%\}|\{\{|\{%", re.DOTALL)
 
 
-_SUBSTITUTION_TAG = re.compile(r"(?<![\w-])-([A-Za-z_]\w*)-(?![\w-])")
-_OTHER_SUBSTITUTION_MARKS = re.compile(r"(?<![\w%#<;])([%#])[A-Za-z_]\w*\1(?![\w%#>&])")
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 _NOT_CONTENT_OPENING = re.compile(r"<(style|script|head|title)\b|<!--", re.IGNORECASE)
 
@@ -277,72 +267,6 @@ def _not_content_spans(html: str) -> Iterator[_Span]:
             continue
         yield _Span(start=match.start(), end=end)
         position = end
-
-
-def _map_content(html: str, convert: Callable[[str], str], keep: Callable[[str], str]) -> str:
-    parts = []
-    position = 0
-    for span in _not_content_spans(html):
-        parts += [convert(html[position : span.start]), keep(html[span.start : span.end])]
-        position = span.end
-    parts.append(convert(html[position:]))
-    return "".join(parts)
-
-
-def _legacy_unsupported_reason(source: str) -> str | None:
-    # Legacy values print unescaped, so they may only sit in body text. Tags in comments, styles and the head stay
-    # as written, except `<%...%>` tags, which convert everywhere.
-    text = _ASM_TAG.sub(lambda match: "\x02" if match.group(1) in _ASM_URLS else "\x03", source)
-    if _ANGLE_IN_QUOTED_VALUE.search(text):
-        return "have a < or > inside a quoted attribute value"
-    if any(_HELD.search(text[span.start : span.end]) for span in _not_content_spans(text)):
-        return "sit inside a comment, style, script or head block"
-    for tag in _HTML_TAG.finditer(text):
-        held = _SUBSTITUTION_TAG.sub("\x03", tag.group(0))
-        if "\x03" in held or "\x02" in _PLAIN_ATTRIBUTE.sub("", held):
-            return "sit inside an HTML tag other than a plain attribute value"
-    return None
-
-
-def _convert_legacy(source: str | None, is_html: bool, tags: list[str]) -> tuple[str, _Converter]:
-    converter = _Converter(is_html, False)
-    if not source:
-        return "", converter
-    if _BRACE_BEFORE_ASM.search(source) or _BRACE_BEFORE_SUBSTITUTION.search(source):
-        # The `{` would join the converted tag into `{{{`, so nothing converts.
-        return _kept_as_text(source, is_html, False, "put a brace right before a tag")
-    reason = _legacy_unsupported_reason(source) if is_html else None
-    if reason:
-        return _kept_as_text(source, is_html, False, reason)
-
-    def convert(match: re.Match[str]) -> str:
-        tags.append(match.group(0))
-        # SendGrid leaves a tag as it stands when the send has no value for it. A word that only looks like a tag
-        # stays readable for the same reason.
-        raw = " | raw" if is_html else ""
-        return f'{{{{ variables.{match.group(1)} | default: "{match.group(0)}"{raw} }}}}'
-
-    def convert_content(content: str, substitute: bool = True) -> str:
-        pieces = []
-        position = 0
-        # A legacy template isn't Handlebars, so braces in it are plain text.
-        for match in _ANY_LIQUID_OPENING.finditer(content):
-            between = content[position : match.start()]
-            pieces += [
-                _SUBSTITUTION_TAG.sub(convert, between) if substitute else between,
-                liquid_literal(match.group(0)),
-            ]
-            position = match.end()
-        rest = content[position:]
-        pieces.append(_SUBSTITUTION_TAG.sub(convert, rest) if substitute else rest)
-        return "".join(pieces)
-
-    converted = (
-        _map_content(source, convert_content, partial(convert_content, substitute=False))
-        if is_html
-        else convert_content(source)
-    )
-    return _convert_asm_tags(converted, is_html, converter), converter
 
 
 _HTML_LINK = re.compile(
@@ -442,11 +366,10 @@ def convert_version(
     subject_source = _as_text(version.get("subject"))
     generates_text = version.get("generate_plain_content", True) is not False or not text_source
 
-    legacy_tags: list[str] = []
     if generation == "legacy":
-        subject, subject_state = _convert_legacy(subject_source, False, legacy_tags)
-        html, html_state = _convert_legacy(html_source, True, legacy_tags)
-        text, text_state = _convert_legacy(text_source, False, legacy_tags)
+        subject, subject_state = _kept_as_text(subject_source, False, False, _LEGACY_REASON)
+        html, html_state = _kept_as_text(html_source, True, False, _LEGACY_REASON)
+        text, text_state = _kept_as_text(text_source, False, False, _LEGACY_REASON)
     else:
         subject, subject_state = _convert_handlebars(subject_source, False, contact_fields)
         html, html_state = _convert_handlebars(html_source, True, contact_fields)
@@ -468,18 +391,6 @@ def convert_version(
         notes.append(
             "Unsubscribe links now open PostHog's preferences page, where people choose what to leave, rather than "
             "leaving a SendGrid group in one click."
-        )
-    if any(state.uses_legacy_slots for state in states):
-        send_notes.append("SendGrid fills <%subject%> and <%body%> from the send. Pass subject and body as variables.")
-    if legacy_tags:
-        shown = ", ".join(list(dict.fromkeys(legacy_tags))[:_MAX_NOTED_TAGS])
-        send_notes.append(f"Pass {shown} as variables when you send, without the hyphens.")
-    if generation == "legacy" and any(
-        _OTHER_SUBSTITUTION_MARKS.search(source) for source in (html_source, text_source, subject_source)
-    ):
-        notes.append(
-            "This template may use tags like %name% or #name#. PostHog only converted -name- tags, so rewrite any "
-            "others in Liquid."
         )
     if version.get("editor") == "design":
         notes.append(
