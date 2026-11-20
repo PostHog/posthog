@@ -6,6 +6,7 @@ from posthog.hogql.errors import (
 )
 from posthog.hogql.property import property_to_expr
 
+from posthog.dataclasses import frozen
 from posthog.models.property.parse import parse_property_group_data
 from posthog.models.team.team import Team
 
@@ -14,7 +15,13 @@ def _wants_test_account_filters(filters: object) -> bool:
     return isinstance(filters, dict) and filters.get("filter_test_accounts") in (True, "true")
 
 
-def _split_test_account_filters(team: Team) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+@frozen
+class _SplitTestAccountFilters:
+    applicable: list[dict[str, Any]]
+    skipped: list[dict[str, Any]]
+
+
+def _split_test_account_filters(team: Team) -> _SplitTestAccountFilters:
     """The project's test account filters a person audience can apply, and the ones it can't, such as event properties."""
     applicable: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -25,7 +32,7 @@ def _split_test_account_filters(team: Team) -> tuple[list[dict[str, Any]], list[
             skipped.append(test_filter)
         else:
             applicable.append(test_filter)
-    return applicable, skipped
+    return _SplitTestAccountFilters(applicable=applicable, skipped=skipped)
 
 
 def with_person_test_account_filters(team: Team, filters: dict) -> dict:
@@ -35,7 +42,7 @@ def with_person_test_account_filters(team: Team, filters: dict) -> dict:
     """
     if not _wants_test_account_filters(filters):
         return filters
-    applicable, _ = _split_test_account_filters(team)
+    applicable = _split_test_account_filters(team).applicable
     folded = {**filters, "filter_test_accounts": False}
     if not applicable:
         return folded
@@ -49,5 +56,4 @@ def skipped_test_account_filter_keys(team: Team, filters: object) -> list[str]:
     """The keys of the test account filters a batch audience leaves out, so the editor and the run log can name them."""
     if not _wants_test_account_filters(filters):
         return []
-    _, skipped = _split_test_account_filters(team)
-    return [str(test_filter.get("key")) for test_filter in skipped]
+    return [str(test_filter.get("key")) for test_filter in _split_test_account_filters(team).skipped]
