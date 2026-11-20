@@ -182,6 +182,8 @@ turbo-discover then skips the full Django test suite for a change in that produc
 
 `hogli product:bootstrap` scaffolds a product that is already isolated: real facade, contracts, `backend:contract-check` and narrowed `turbo.json` inputs.
 The scaffold passes hoglint's Isolated level from its first commit.
+The narrowed inputs claim that level, and `hoglint.ledger` records each product that passes it, so bootstrap ends with `hoglint check --write-ledger`, which adds the product's `level:isolated` line.
+Commit `hoglint.ledger` in a commit of its own, after the product, so that a reviewer sees the ledger change apart from the code. `hoglint compare` fails a pull request that lacks the line.
 When `hoglint check` names a file that the narrowed inputs do not watch, add the file to the inputs.
 Dropping the narrowing needs a person: the product is then not isolated, and the full Django backend suite runs on every change it makes.
 
