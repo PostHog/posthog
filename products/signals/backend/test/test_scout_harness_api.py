@@ -2568,6 +2568,39 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
         assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
 
+    def test_remember_with_a_stale_if_updated_at_keeps_the_other_writers_update(self) -> None:
+        self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
+        read_by_both = self.client.get(self._list_url(), {"key": "k1"}).json()[0]["updated_at"]
+
+        first = self.client.post(
+            self._list_url(), data={"key": "k1", "content": "v2", "if_updated_at": read_by_both}, format="json"
+        )
+        second = self.client.post(
+            self._list_url(), data={"key": "k1", "content": "v3", "if_updated_at": read_by_both}, format="json"
+        )
+
+        assert first.status_code == status.HTTP_200_OK
+        assert first.json()["updated_at"] != read_by_both
+        assert second.status_code == status.HTTP_409_CONFLICT
+        assert second.json()["updated_at"] == first.json()["updated_at"]
+        assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
+
+    @parameterized.expand(
+        [
+            ("missing_key", "2026-01-01T00:00:00+00:00", status.HTTP_409_CONFLICT),
+            ("unparseable", "yesterday", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_remember_with_if_updated_at_writes_nothing_when_it_cannot_match(
+        self, _name: str, if_updated_at: str, expected_status: int
+    ) -> None:
+        response = self.client.post(
+            self._list_url(), data={"key": "k1", "content": "v1", "if_updated_at": if_updated_at}, format="json"
+        )
+
+        assert response.status_code == expected_status
+        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+
     def test_search_filters_by_creating_skill(self) -> None:
         errors_run = _make_run(self.team, skill_name="signals-scout-errors")
         flags_run = _make_run(self.team, skill_name="signals-scout-flags")

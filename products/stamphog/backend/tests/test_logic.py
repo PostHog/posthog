@@ -23,6 +23,7 @@ from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import decision_fingerprint
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
+from products.stamphog.backend.logic.engine_pregate import EnginePregateError, run_engine_attestation_proof
 from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
@@ -1457,3 +1458,20 @@ class TestDecisionFingerprint(SimpleTestCase):
         before = fingerprint(context)
         change(context)
         assert (before == fingerprint(context)) is expect_same
+
+
+class EngineAttestationProofParsingTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_app_id", {"check": "Dependency proof"}),
+            ("null_app_id", {"check": "Dependency proof", "app_id": None}),
+            ("text_app_id", {"check": "Dependency proof", "app_id": "not-a-number"}),
+            ("missing_check", {"app_id": 4242}),
+            ("not_an_object", "Dependency proof"),
+        ]
+    )
+    def test_a_malformed_check_is_an_engine_failure(self, _name: str, entry: object) -> None:
+        stdout = json.dumps({"checks": [entry], "proven": True})
+        with patch("products.stamphog.backend.logic.engine_pregate._run_engine_gates_only", return_value=stdout):
+            with self.assertRaises(EnginePregateError):
+                run_engine_attestation_proof({}, {})
