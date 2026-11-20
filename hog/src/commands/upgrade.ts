@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { posix, win32 } from 'node:path'
 import { z } from 'zod'
 
 import { defineCommand } from '@/core/command'
@@ -6,7 +7,7 @@ import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
-import { extractFile } from '@/updates/archive'
+import { extractFile, findFile } from '@/updates/archive'
 import { rememberRelease } from '@/updates/check'
 import {
     detectInstallMethod,
@@ -17,7 +18,7 @@ import {
 } from '@/updates/install-method'
 import { type Artifact, fetchManifest, type Manifest } from '@/updates/manifest'
 import { GITHUB_REPOSITORY, releasesUrl } from '@/updates/release-urls'
-import { binaryName, targetFor } from '@/updates/targets'
+import { binaryName, targetFor, workerName } from '@/updates/targets'
 import { isNewer, parseVersion } from '@/updates/version'
 
 const VersionOption = z
@@ -26,7 +27,7 @@ const VersionOption = z
     .transform((text) => text.replace(/^v/, ''))
     .refine((text) => parseVersion(text) !== undefined, { error: 'Pass a version like 0.1.2.' })
 
-type Action = 'upgraded' | 'ran' | 'declined' | 'run_command' | 'explain' | 'up_to_date' | 'available'
+type Action = 'upgraded' | 'repaired' | 'ran' | 'declined' | 'run_command' | 'explain' | 'up_to_date' | 'available'
 
 interface UpgradeResult {
     action: Action
@@ -104,7 +105,19 @@ function sha256(bytes: Uint8Array): string {
     return createHash('sha256').update(bytes).digest('hex')
 }
 
-async function replaceSelf(runtime: Runtime, method: InstallMethod, manifest: Manifest): Promise<void> {
+// hog-worker sits in hog's folder. The path follows the platform hog runs on, not the one of this code.
+function workerPathFor(runtime: Runtime, hogPath: string): string {
+    const path = runtime.platform === 'win32' ? win32 : posix
+    return path.join(path.dirname(hogPath), workerName(runtime.platform))
+}
+
+// With `onlyWithWorker`, an archive without hog-worker changes nothing and the answer is false.
+async function replaceSelf(
+    runtime: Runtime,
+    method: InstallMethod,
+    manifest: Manifest,
+    options: { onlyWithWorker?: boolean } = {}
+): Promise<boolean> {
     const target = targetFor(runtime.platform, runtime.arch, await runtime.isMusl())
     const artifact: Artifact | undefined = target && manifest.artifacts[target.id]
     if (!target || !artifact) {
@@ -133,8 +146,16 @@ async function replaceSelf(runtime: Runtime, method: InstallMethod, manifest: Ma
     }
 
     const binary = extractFile(archive, artifact.file, binaryName(target))
+    // A release from before hog-worker has no worker, and that hog runs without one.
+    const worker = findFile(archive, artifact.file, workerName(target.os))
+    if (!worker && options.onlyWithWorker) {
+        return false
+    }
     try {
-        await runtime.replaceExecutable(method.path, binary)
+        await runtime.replaceExecutables([
+            ...(worker ? [{ path: workerPathFor(runtime, method.path), contents: worker }] : []),
+            { path: method.path, contents: binary },
+        ])
     } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
         if (code === 'EACCES' || code === 'EPERM') {
@@ -146,6 +167,7 @@ async function replaceSelf(runtime: Runtime, method: InstallMethod, manifest: Ma
         }
         throw error
     }
+    return true
 }
 
 export default defineCommand({
@@ -161,7 +183,7 @@ export default defineCommand({
     },
     writes: true,
     notes: [
-        'hog never updates itself on its own. It replaces its own binary only when the install script put it there or you downloaded it yourself.',
+        'hog never updates itself on its own. It replaces its own binary and hog-worker, the program next to it, only when the install script put them there or you downloaded them yourself.',
         'A copy that Homebrew, npm, pnpm or bun installed updates through that package manager: at a terminal hog asks, then runs its command. Agents get the command to run.',
     ].join('\n'),
     examples: ['hog upgrade', 'hog upgrade --check', 'hog upgrade --version 0.1.2'],
@@ -204,6 +226,15 @@ export default defineCommand({
         })
 
         if (!updateAvailable) {
+            // A hog that an older hog installed, which knew of no worker, has none next to it.
+            const lacksWorker =
+                !options.check &&
+                selfUpdates(method) &&
+                manifest.version === current &&
+                !(await runtime.exists(workerPathFor(runtime, method.path)))
+            if (lacksWorker && (await replaceSelf(runtime, method, manifest, { onlyWithWorker: true }))) {
+                return result('repaired', null)
+            }
             return result('up_to_date', null)
         }
         if (options.check) {
@@ -248,6 +279,12 @@ export default defineCommand({
             case 'upgraded':
                 out.report({
                     result: `Updated hog from ${result.current} to ${result.latest}`,
+                    effects: [`Replaced ${path}`],
+                })
+                return
+            case 'repaired':
+                out.report({
+                    result: `Installed hog-worker ${result.current}, which was missing`,
                     effects: [`Replaced ${path}`],
                 })
                 return

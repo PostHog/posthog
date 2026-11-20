@@ -21,7 +21,7 @@ function text(bytes: Uint8Array): string {
     return new TextDecoder().decode(end === -1 ? bytes : bytes.subarray(0, end))
 }
 
-function fromTarGz(archive: Uint8Array, name: string, maxBytes: number): Uint8Array {
+function fromTarGz(archive: Uint8Array, name: string, maxBytes: number): Uint8Array | undefined {
     const tar = gunzipSync(archive, { maxOutputLength: maxBytes })
     let offset = 0
     while (offset + 512 <= tar.length) {
@@ -38,10 +38,10 @@ function fromTarGz(archive: Uint8Array, name: string, maxBytes: number): Uint8Ar
         }
         offset = start + Math.ceil(size / 512) * 512
     }
-    throw brokenArchive(`it has no ${name}`)
+    return undefined
 }
 
-function fromZip(archive: Uint8Array, name: string, maxBytes: number): Uint8Array {
+function fromZip(archive: Uint8Array, name: string, maxBytes: number): Uint8Array | undefined {
     const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
     let end = archive.length - 22
     while (end >= 0 && view.getUint32(end, true) !== 0x06054b50) {
@@ -79,15 +79,16 @@ function fromZip(archive: Uint8Array, name: string, maxBytes: number): Uint8Arra
         }
         entry += 46 + nameLength + extraLength + commentLength
     }
-    throw brokenArchive(`it has no ${name}`)
+    return undefined
 }
 
-export function extractFile(
+// Undefined when the archive has no file of that name.
+export function findFile(
     archive: Uint8Array,
     archiveName: string,
     name: string,
     maxBytes: number = MAX_EXTRACTED_BYTES
-): Uint8Array {
+): Uint8Array | undefined {
     try {
         return archiveName.endsWith('.zip') ? fromZip(archive, name, maxBytes) : fromTarGz(archive, name, maxBytes)
     } catch (error) {
@@ -96,4 +97,17 @@ export function extractFile(
         }
         throw error instanceof HogError ? error : brokenArchive(error instanceof Error ? error.message : String(error))
     }
+}
+
+export function extractFile(
+    archive: Uint8Array,
+    archiveName: string,
+    name: string,
+    maxBytes: number = MAX_EXTRACTED_BYTES
+): Uint8Array {
+    const file = findFile(archive, archiveName, name, maxBytes)
+    if (!file) {
+        throw brokenArchive(`it has no ${name}`)
+    }
+    return file
 }

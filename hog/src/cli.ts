@@ -551,10 +551,15 @@ function tlsOff(tokens: Token[], runtime: Runtime): boolean {
     )
 }
 
-// Windows can't replace a running hog.exe, so `hog upgrade` renamed it. It isn't running any more.
+const REPLACED_BINARIES = ['hog.old.exe', 'hog-worker.old.exe']
+
+// Windows can't replace a running exe, so `hog upgrade` renamed hog.exe and hog-worker.exe. They
+// aren't running any more.
 async function removeReplacedBinary(runtime: Runtime): Promise<void> {
     if (runtime.platform === 'win32' && !runtime.isDevelopment) {
-        await runtime.removeFile(win32.join(win32.dirname(runtime.execPath), 'hog.old.exe')).catch(() => {})
+        for (const name of REPLACED_BINARIES) {
+            await runtime.removeFile(win32.join(win32.dirname(runtime.execPath), name)).catch(() => {})
+        }
     }
 }
 

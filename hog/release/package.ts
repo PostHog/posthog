@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import type { Artifact, Manifest } from '../src/updates/manifest'
-import { archiveName, binaryName, npmPackageName, TARGETS, type Target } from '../src/updates/targets'
+import { archiveName, npmPackageName, shippedBinaries, TARGETS, type Target } from '../src/updates/targets'
 import { parseVersion } from '../src/updates/version'
 import {
     buildManifest,
@@ -61,21 +61,25 @@ async function sha256(path: string): Promise<string> {
     return hasher.digest('hex')
 }
 
-function binaryPath(target: Target): string {
-    return join(input, 'bin', target.id, binaryName(target))
+function binaryPath(target: Target, name: string): string {
+    return join(input, 'bin', target.id, name)
 }
 
 async function archive(target: Target): Promise<Artifact> {
     const folder = join(input, 'bin', target.id)
     const file = archiveName(target)
     const destination = join(assets, file)
-    await chmod(binaryPath(target), 0o755)
+    const names = shippedBinaries(target)
+    for (const name of names) {
+        await chmod(binaryPath(target, name), 0o755)
+    }
 
-    // One file at the root of the archive, so install.sh, install.ps1 and Homebrew all find `hog` there.
+    // Both files at the root of the archive, so install.sh, install.ps1, Homebrew and `hog upgrade`
+    // all find `hog` and `hog-worker` there and place them in one folder.
     if (target.os === 'win32') {
-        await run(['zip', '-j', '-X', '-q', destination, binaryPath(target)], folder)
+        await run(['zip', '-j', '-X', '-q', destination, ...names.map((name) => binaryPath(target, name))], folder)
     } else {
-        await run(['tar', '-czf', destination, '-C', folder, binaryName(target)], folder)
+        await run(['tar', '-czf', destination, '-C', folder, ...names], folder)
     }
 
     return { file, sha256: await sha256(destination), size: (await stat(destination)).size }
@@ -135,8 +139,12 @@ if (reused) {
     artifacts = await reuse(resolve(values.reuse!), reused)
 } else {
     for (const target of TARGETS) {
-        if (!(await Bun.file(binaryPath(target)).exists())) {
-            throw new Error(`Missing ${binaryPath(target)}. Run release/compile.ts for every target first.`)
+        for (const name of shippedBinaries(target)) {
+            if (!(await Bun.file(binaryPath(target, name)).exists())) {
+                throw new Error(
+                    `Missing ${binaryPath(target, name)}. Run release/compile.ts and release/build-worker.sh for every target first.`
+                )
+            }
         }
         artifacts[target.id] = await archive(target)
         console.info(`Packaged ${artifacts[target.id]!.file}`)
@@ -153,7 +161,7 @@ for (const target of TARGETS) {
     await npmPackage(
         join(out, 'npm', npmPackageName(target).replace('@posthog/', '')),
         platformPackageJson(target, version),
-        [[binaryPath(target), join('bin', binaryName(target))]],
+        shippedBinaries(target).map((name) => [binaryPath(target, name), join('bin', name)]),
         PLATFORM_README(npmPackageName(target))
     )
 }

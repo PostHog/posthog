@@ -481,10 +481,10 @@ When a release starts, the workflow:
 Merging the release pull request runs the workflow again, which:
 
 4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on the changesets that merged while the release pull request waited, since their code ships in the build. When an approver owns one of them, nothing publishes: revert the release pull request, which restores its changesets and starts a new release.
-5. Compiles every target, with the version and the release commit's date as the build date.
-6. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
-7. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
-8. Publishes the npm packages, platform packages first, and waits until npm serves each one. npm takes minutes to serve a new version, and an install in that window gets `hog` without its binary. Then it checks that a clean `npm install hog@<version>` installs that version and the Linux x64 binary this run built, comparing the bytes without running them. Only after that does it create the GitHub release and the `hog/v<version>` tag, and point `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it. One release at a time does this step.
+5. Compiles hog for every target, with the version and the release commit's date as the build date. A second job cross-compiles `hog-worker`, the Rust program in `worker/` that ships next to hog, for the same targets with the same version. It runs `release/build-worker.sh`, which builds in the Docker image `release/worker-cross.Dockerfile` pins.
+6. Signs and notarizes the macOS builds of hog and `hog-worker` in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it packs both binaries into each archive and npm platform package, and uploads the archives to `releases.posthog.com/hog/v<version>/`.
+7. Runs the signed Apple silicon build in a job without secrets, to check that hog starts and that it runs `error-tracking inject` with its `hog-worker`.
+8. Publishes the npm packages, platform packages first, and waits until npm serves each one. npm takes minutes to serve a new version, and an install in that window gets `hog` without its binary. Then it checks that a clean `npm install hog@<version>` installs that version and the Linux x64 binaries this run built, comparing the bytes without running them. Only after that does it create the GitHub release and the `hog/v<version>` tag, and point `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it. One release at a time does this step.
 
 A release takes two merges, the changeset and then the release pull request, and one approval.
 
@@ -496,5 +496,6 @@ A release takes two merges, the changeset and then the release pull request, and
 
 ```bash
 bun release/compile.ts --version 0.1.0 --target darwin-arm64   # a release build for this machine
+release/build-worker.sh --version 0.1.0 --target darwin-arm64  # its hog-worker, built in Docker
 bun test release/                                              # the install script and launcher tests
 ```

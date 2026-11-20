@@ -1,0 +1,11 @@
+# The cross-compilers of release/worker-cross.Dockerfile, as the wheels PyPI serves for Linux on
+# x64 and arm64. pip refuses a wheel whose hash is not listed, so a version bump updates both hashes.
+ziglang==0.13.0 \
+    --hash=sha256:3ce0c9f16547e5d61b32e0d226926e9a2552ef4b91fccf7ab5ea1a623a77824b \
+    --hash=sha256:5714a4d46f9246ba6180a0930e23df2bc8bc26e62b5fe0dc798b4afca1903308
+cargo-zigbuild==0.24.1 \
+    --hash=sha256:238a1ab54a95053a4eadc34775c81f795a8ad75f80bfed63f3f445f518102375 \
+    --hash=sha256:07c5e3dcddf208500462ec927c556bb306cca2b533b0abe29446bffb63767b85
+cargo-xwin==0.23.1 \
+    --hash=sha256:76ae35181f7df60c76b3d37926a4a06d668267259f543a7e20db4b47c8b177e1 \
+    --hash=sha256:cd310c04fdb0b1ccc290cd8a9b9320ea2a71092cac56987e85280f37d7a7b3fd

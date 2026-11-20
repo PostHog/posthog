@@ -190,8 +190,10 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             commands.push(argv)
             return options.commandExitCode ?? 0
         },
-        replaceExecutable: async (path, contents) => {
-            executables[path] = contents
+        replaceExecutables: async (replaced) => {
+            for (const { path, contents } of replaced) {
+                executables[path] = contents
+            }
         },
         stdinIsTTY: options.stdinIsTTY ?? options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,

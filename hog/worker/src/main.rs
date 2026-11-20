@@ -106,6 +106,13 @@ use trace::Trace;
 
 const PROTOCOL: u32 = 1;
 
+// A release build carries hog's version, which release/build-worker.ts passes in this variable,
+// so the two binaries of a release name the same version. Any other build is a dev build.
+const VERSION: &str = match option_env!("HOG_RELEASE_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 // The request could not be read, or names a pair the worker does not hold. A bug in hog.
 const BAD_REQUEST: &str = "bad_request";
 // The injection itself failed, for example on a sourcemap the decoder rejects.
@@ -1115,7 +1122,7 @@ fn main() -> io::Result<()> {
     send(&Hello {
         r#type: "hello",
         protocol: PROTOCOL,
-        version: env!("CARGO_PKG_VERSION"),
+        version: VERSION,
     })?;
 
     let mut worker = Worker {

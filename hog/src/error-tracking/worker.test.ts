@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { Worker, WORKER_PROTOCOL } from './worker'
+import { reinstallHint, Worker, WORKER_PROTOCOL } from './worker'
 
 const EXECUTABLE = 0o755
 
@@ -40,5 +40,14 @@ describe('starting hog-worker', () => {
         const failure = await detect(path).catch((error: unknown) => error)
 
         expect(failure).toMatchObject({ code: 'worker_missing', message: expect.stringContaining(path) })
+    })
+
+    test.each([
+        ['/opt/homebrew/Cellar/hog/1.2.3/bin/hog-worker', 'missing', 'brew reinstall hog'],
+        ['/usr/lib/node_modules/@posthog/hog-linux-x64/bin/hog-worker', 'missing', 'hog package'],
+        ['/home/test/.local/bin/hog-worker', 'missing', 'hog upgrade'],
+        ['/home/test/.local/bin/hog-worker', 'mismatch', 'Install hog again'],
+    ] as const)('a worker at %s that is %s gets a hint for that install', (path, problem, hint) => {
+        expect(reinstallHint(path, problem)).toContain(hint)
     })
 })

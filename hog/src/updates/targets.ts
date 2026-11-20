@@ -31,6 +31,32 @@ export function binaryName(target: Target): string {
     return target.os === 'win32' ? 'hog.exe' : 'hog'
 }
 
+const RUST_ARCH = { x64: 'x86_64', arm64: 'aarch64' } as const
+
+// The Rust triple release/build-worker.ts builds hog-worker for. Computed from the target, so every
+// hog build has a worker build.
+export function rustTarget(target: Target): string {
+    const arch = RUST_ARCH[target.cpu]
+    switch (target.os) {
+        case 'darwin':
+            return `${arch}-apple-darwin`
+        case 'win32':
+            return `${arch}-pc-windows-msvc`
+        case 'linux':
+            return `${arch}-unknown-linux-${target.libc === 'musl' ? 'musl' : 'gnu'}`
+    }
+}
+
+// hog-worker does the file work of `hog error-tracking`, and hog starts it only from its own folder.
+// So it ships next to hog in every archive and package, and every installer places the two together.
+export function workerName(os: string): string {
+    return os === 'win32' ? 'hog-worker.exe' : 'hog-worker'
+}
+
+export function shippedBinaries(target: Target): string[] {
+    return [binaryName(target), workerName(target.os)]
+}
+
 export function archiveName(target: Target): string {
     return target.os === 'win32' ? `hog-${target.id}.zip` : `hog-${target.id}.tar.gz`
 }

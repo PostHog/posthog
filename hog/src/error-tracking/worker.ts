@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { HogError } from '@/core/errors'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import { parseOrThrow, type Schema } from '@/core/schema'
+import { classifyPath } from '@/updates/install-method'
+import { workerName } from '@/updates/targets'
 
 // hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output. It
 // runs the code posthog-cli runs, so the bytes match, and it holds a large build in a fraction of
@@ -15,8 +17,6 @@ import { parseOrThrow, type Schema } from '@/core/schema'
 // that replaced only one of them is caught here instead of in a request the other can't read.
 export const WORKER_PROTOCOL = 1
 
-const WORKER_NAME = 'hog-worker'
-const WINDOWS_SUFFIX = '.exe'
 // Where `pnpm --filter hog build:worker` puts the worker, for a hog that runs from source.
 const SOURCE_BUILD = join(import.meta.dir, '..', '..', 'worker', 'target', 'release')
 
@@ -25,7 +25,7 @@ const isBun = (execPath: string): boolean => basename(execPath).replace(/\.exe$/
 // The worker sits next to the hog binary, and hog never looks anywhere else: a `hog-worker` found
 // through PATH could be any program. A symlinked hog, as Homebrew installs it, resolves first.
 export function workerPath(execPath: string = process.execPath, platform: NodeJS.Platform = process.platform): string {
-    const name = platform === 'win32' ? `${WORKER_NAME}${WINDOWS_SUFFIX}` : WORKER_NAME
+    const name = workerName(platform)
     if (isBun(execPath)) {
         return join(SOURCE_BUILD, name)
     }
@@ -35,6 +35,19 @@ export function workerPath(execPath: string = process.execPath, platform: NodeJS
         resolved = realpathSync(execPath)
     } catch {}
     return join(dirname(resolved), name)
+}
+
+// How to get hog and hog-worker from one release again, for the way this hog was installed.
+// `hog upgrade` fetches a missing worker, but it can't tell a worker from another release.
+export function reinstallHint(path: string, problem: 'missing' | 'mismatch'): string {
+    const install = classifyPath(path)
+    if (install?.kind === 'homebrew') {
+        return 'Run `brew reinstall hog` to get both.'
+    }
+    if (install) {
+        return 'Install the hog package again with your package manager to get both.'
+    }
+    return problem === 'missing' ? 'Run `hog upgrade` to get it.' : 'Install hog again to replace both.'
 }
 
 const Hello = z.object({ type: z.literal('hello'), protocol: z.number(), version: z.string() })
@@ -242,7 +255,7 @@ export class Worker {
                     `hog couldn't start hog-worker at ${this.path}: ${(error as Error).message}`,
                     isBun(process.execPath)
                         ? 'Run `pnpm --filter hog build:worker` to build it.'
-                        : 'hog-worker ships next to hog. Install hog again to get both.'
+                        : `hog-worker ships next to hog. ${reinstallHint(this.path, 'missing')}`
                 )
             }
             const lines = readLines(child.stdout)
@@ -256,7 +269,7 @@ export class Worker {
                     hello
                         ? `hog-worker ${hello.version} at ${this.path} speaks protocol ${hello.protocol}, and this hog needs protocol ${WORKER_PROTOCOL}.`
                         : `The program at ${this.path} didn't answer like hog-worker.`,
-                    'hog and hog-worker must come from the same release. Install hog again to replace both.'
+                    `hog and hog-worker must come from the same release. ${reinstallHint(this.path, 'mismatch')}`
                 )
             }
             return { child, lines }

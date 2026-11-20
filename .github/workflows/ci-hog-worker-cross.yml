@@ -1,0 +1,57 @@
+name: hog-worker cross-build
+
+# hog-worker ships for every hog target, and only the Release hog workflow builds it for a target
+# other than the runner's. This builds one target for each C library and linker a release uses, so a
+# dependency that can't cross-compile fails the pull request that adds it and not the next release.
+# It is not a required check, so a trigger `paths:` filter is safe.
+on:
+    pull_request:
+        paths:
+            - 'hog/worker/**'
+            - 'hog/release/build-worker.*'
+            - 'hog/release/worker-cross*'
+            - 'hog/src/updates/targets.ts'
+            - '.github/workflows/ci-hog-worker-cross.yml'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    cross-build:
+        name: Cross-compile hog-worker
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      /hog/release/
+                      /hog/src/updates/
+                      /hog/worker/
+                  sparse-checkout-cone-mode: false
+
+            # glibc, static musl, macOS and Windows. The arm64 builds use the same tools, and the
+            # release builds all eight.
+            - name: Cross-compile one target for each platform
+              working-directory: hog
+              run: >-
+                  release/build-worker.sh
+                  --target linux-x64
+                  --target linux-x64-musl
+                  --target darwin-arm64
+                  --target windows-x64
+
+            # The worker says hello in the first line it prints, and stops when its input ends.
+            - name: Check the Linux builds start
+              working-directory: hog
+              run: |
+                  set -euo pipefail
+                  for target in linux-x64 linux-x64-musl; do
+                      test "$("dist/release/bin/$target/hog-worker" </dev/null | jq -r '.type')" = hello
+                  done

@@ -903,6 +903,17 @@ jobs:
               working-directory: hog
               run: pnpm run build:mcp
 
+            # The tests run hog against hog-worker, the Rust program in hog/worker/, built for this
+            # runner as in ci-hog.yml. The build-worker job builds the copies that ship.
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Build hog-worker for the tests
+              working-directory: hog
+              run: pnpm run build:worker
+
             - name: Typecheck
               working-directory: hog
               run: pnpm run typecheck
@@ -930,13 +941,50 @@ jobs:
                   path: hog/dist/release/bin/
                   if-no-files-found: error
 
+    # hog-worker for every target, which ships next to hog. release/build-worker.sh cross-compiles them
+    # in the image hog/release/worker-cross.Dockerfile pins, so a local run builds with the same tools.
+    # Like the build job it holds no secrets, and it reads no cache, because its output is signed.
+    build-worker:
+        name: Compile hog-worker
+        needs: release
+        if: needs.release.outputs.is-release == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        env:
+            VERSION: ${{ needs.release.outputs.version }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      /hog/release/
+                      /hog/src/updates/
+                      /hog/worker/
+                  sparse-checkout-cone-mode: false
+
+            - name: Compile every target
+              working-directory: hog
+              run: release/build-worker.sh --version "$VERSION"
+
+            # The worker names its version in the first line it prints, and stops when its input ends.
+            - name: Check the Linux build reports its version
+              working-directory: hog
+              run: test "$(dist/release/bin/linux-x64/hog-worker </dev/null | jq -r '.version')" = "$VERSION"
+
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: hog-worker-binaries
+                  path: hog/dist/release/bin/
+                  if-no-files-found: error
+
     # Signing, packaging and the upload under hog/v<version>/ run here. hog-publish holds the Apple
     # secrets and the App key, and the release bucket's role trusts only this environment. It has no
     # reviewers: the approval happened in hog-release, before the version bump. Nothing here runs the
     # build, because a run executes every bundled dependency next to these secrets.
     publish:
         name: Sign, package and upload
-        needs: [release, build]
+        needs: [release, build, build-worker]
         runs-on: macos-15
         timeout-minutes: 60
         environment: hog-publish
@@ -1031,6 +1079,13 @@ jobs:
                   name: hog-binaries
                   path: hog/dist/release/bin
 
+            # Into the same folders, so each target's folder holds hog and its hog-worker.
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              if: steps.existing.outputs.uploaded == 'false'
+              with:
+                  name: hog-worker-binaries
+                  path: hog/dist/release/bin
+
             - name: Sign and notarize the macOS builds
               if: steps.existing.outputs.uploaded == 'false'
               env:
@@ -1068,20 +1123,29 @@ jobs:
                   fi
 
                   for target in darwin-arm64 darwin-x64; do
-                      binary="hog/dist/release/bin/$target/hog"
-                      chmod +x "$binary"
-                      codesign --force --timestamp --options runtime \
-                          --entitlements hog/release/entitlements.plist \
-                          --identifier com.posthog.hog --sign "$identity" "$binary"
-                      codesign --verify --strict --verbose=2 "$binary"
-                      # The Authority lines need --verbose=2, and the output goes through a variable because
-                      # grep -q closing a pipe early fails the pipeline under pipefail.
-                      signature=$(codesign -d --verbose=2 "$binary" 2>&1)
-                      grep -q 'Authority=Developer ID Application' <<<"$signature" \
-                          || { echo "::error::$target is not signed with a Developer ID"; exit 1; }
+                      folder="hog/dist/release/bin/$target"
+                      for name in hog hog-worker; do
+                          binary="$folder/$name"
+                          chmod +x "$binary"
+                          sign=(codesign --force --timestamp --options runtime
+                              --identifier "com.posthog.$name" --sign "$identity")
+                          # The entitlements let Bun's JIT write and run machine code. hog-worker is
+                          # compiled Rust, so it gets the hardened runtime with none of them.
+                          if [ "$name" = hog ]; then
+                              sign+=(--entitlements hog/release/entitlements.plist)
+                          fi
+                          "${sign[@]}" "$binary"
+                          codesign --verify --strict --verbose=2 "$binary"
+                          # The Authority lines need --verbose=2, and the output goes through a variable because
+                          # grep -q closing a pipe early fails the pipeline under pipefail.
+                          signature=$(codesign -d --verbose=2 "$binary" 2>&1)
+                          grep -q 'Authority=Developer ID Application' <<<"$signature" \
+                              || { echo "::error::$name for $target is not signed with a Developer ID"; exit 1; }
+                      done
 
-                      # A bare executable can't be stapled, so Gatekeeper checks the ticket online.
-                      ditto -c -k "$binary" "$RUNNER_TEMP/hog-$target.zip"
+                      # A bare executable can't be stapled, so Gatekeeper checks the ticket online. One
+                      # submission holds the target's folder, which is hog and hog-worker.
+                      ditto -c -k "$folder" "$RUNNER_TEMP/hog-$target.zip"
                       status=$(xcrun notarytool submit "$RUNNER_TEMP/hog-$target.zip" "${notary[@]}" \
                           --wait --timeout 20m --output-format json | jq -r '.status')
                       if [ "$status" != Accepted ]; then
@@ -1133,6 +1197,7 @@ jobs:
 
     # Runs the signed Apple silicon build, in a job with no secrets, no environment and no OIDC token,
     # so the dependencies it bundles never run next to the signing identity or the release session.
+    # The inject run starts the signed hog-worker from the signed hog, as an install does.
     check-macos-build:
         name: Check the signed macOS build runs
         needs: [release, publish]
@@ -1153,7 +1218,19 @@ jobs:
                   mkdir unpacked
                   tar -xzf release/assets/hog-darwin-arm64.tar.gz -C unpacked
                   codesign --verify --strict --verbose=2 unpacked/hog
+                  codesign --verify --strict --verbose=2 unpacked/hog-worker
                   test "$(HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 unpacked/hog --version)" = "$VERSION"
+                  test "$(unpacked/hog-worker </dev/null | jq -r '.version')" = "$VERSION"
+
+            # symbol-set mode keeps the release out of the bundle, so the run needs no login and no network.
+            - name: Check the signed build injects with its hog-worker
+              run: |
+                  set -euo pipefail
+                  mkdir site
+                  printf 'console.log(1)\n//# sourceMappingURL=app.js.map\n' > site/app.js
+                  printf '{"version":3,"file":"app.js","sources":["app.ts"],"names":[],"mappings":"AAAA"}\n' > site/app.js.map
+                  HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 unpacked/hog error-tracking inject site --release-mode symbol-set
+                  grep -q '^//# chunkId=' site/app.js
 
     # Creates the GitHub release, then moves latest, the install scripts, the formula and npm's latest tag
     # when this version is the newest. One promotion runs at a time across versions, and each reads the
@@ -1348,7 +1425,11 @@ jobs:
                       echo "::error::npm serves a different hog binary for $VERSION than this run built."
                       exit 1
                   fi
-                  echo "npm install hog@$VERSION installs the binary this run built"
+                  if ! cmp -s "$binary-worker" "$GITHUB_WORKSPACE/hog/dist/release/out/npm/hog-linux-x64/bin/hog-worker"; then
+                      echo "::error::npm serves no hog-worker next to hog for $VERSION, or a different one than this run built."
+                      exit 1
+                  fi
+                  echo "npm install hog@$VERSION installs the binaries this run built"
 
             - name: Notify Slack - npm installs the release
               if: needs.release.outputs.slack-ts != ''
@@ -1470,12 +1551,13 @@ jobs:
     # cancelled.
     notify-publish-failed:
         name: Notify - Publish failed
-        needs: [release, build, publish, check-macos-build, promote]
+        needs: [release, build, build-worker, publish, check-macos-build, promote]
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
             always() && (contains(fromJSON('["failure", "cancelled"]'), needs.release.result)
             || contains(fromJSON('["failure", "cancelled"]'), needs.build.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.build-worker.result)
             || contains(fromJSON('["failure", "cancelled"]'), needs.publish.result)
             || contains(fromJSON('["failure", "cancelled"]'), needs.check-macos-build.result)
             || contains(fromJSON('["failure", "cancelled"]'), needs.promote.result))
