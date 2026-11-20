@@ -138,7 +138,7 @@ function scoutChatRefusalFromError(error: unknown, teamId: number): ScoutChatRef
             {
                 code: error.code ?? null,
                 error: error.data?.error || error.detail || null,
-                reset_at: error.data?.reset_at,
+                reset_at: error.data?.reset_at ?? null,
             },
             teamId
         )
@@ -148,7 +148,7 @@ function scoutChatRefusalFromError(error: unknown, teamId: number): ScoutChatRef
 
 /** The usage limit as the server reports it, either on a refused start or from the usage limit read. */
 function usageLimitRefusal(
-    limit: Pick<ScoutChatUsageLimitApi, 'code' | 'error'> & { reset_at?: string | null },
+    limit: Pick<ScoutChatUsageLimitApi, 'code' | 'error' | 'reset_at'>,
     teamId: number
 ): ScoutChatRefusal {
     // The server message names PostHog Desktop, which reads oddly in the web app. A deactivated organization
