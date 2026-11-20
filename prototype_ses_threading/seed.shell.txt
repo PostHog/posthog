@@ -1,0 +1,44 @@
+# PROTOTYPE (ses-threading), never merged. Seeds a dev stack for a threaded code send to maildev.
+# Run with: set -a; . ./.env.local; set +a; python manage.py shell < prototype_ses_threading/seed.shell.txt
+from posthog.models import Organization, Team, User
+from posthog.models.integration.email import EmailIntegration
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+team = Team.objects.order_by("id").first()
+if team is None:
+    org, team, user = Organization.objects.bootstrap(None, name="Prototype org")
+    user = User.objects.create_and_join(org, "proto@posthog.com", "proto-password-123", first_name="Proto")
+else:
+    user = User.objects.filter(current_team=team).first() or User.objects.first()
+
+for key in ("workflows-transactional-email-api", "workflows-email-from-code"):
+    FeatureFlag.objects.get_or_create(
+        team_id=team.id, key=key, defaults={"created_by": user, "filters": {"groups": [{"rollout_percentage": 100}]}}
+    )
+
+if not team.integration_set.filter(kind="email").exists():
+    record = EmailIntegration.create_native_integration(
+        {"email": "support@proto-support.dev", "name": "Proto Support", "provider": "maildev"},
+        team_id=team.id,
+        organization_id=str(team.organization_id),
+        created_by=user,
+    )
+integration = team.integration_set.get(kind="email")
+integration.config = {**integration.config, "verified": True}
+integration.save()
+
+value = generate_random_token_secret()
+ProjectSecretAPIKey.objects.create(
+    team=team,
+    label="proto threading",
+    secure_value=hash_key_value(value),
+    mask_value=mask_key_value(value),
+    scopes=["transactional_email:write"],
+    created_by=user,
+)
+with open("/tmp/proto_key", "w") as f:
+    f.write(value)
+print("team", team.id, "integration", integration.id, integration.config.get("provider"))
