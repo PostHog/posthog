@@ -1291,17 +1291,17 @@ async fn create_wide_persons_via_identity(
 }
 
 /// How long after an acked write a followed read must show it, or `None` for a run that
-/// can hold no bound. A follower or Postgres answers a followed read, so a bound holds
-/// only while one of the two is undisturbed: a follower that is rebuilding leaves the read
-/// to Postgres, which is as far behind as the writer is held up. A migration does both.
-/// The bound is above the staleness threshold the stack gives a follower and above the
-/// writer's flush interval.
+/// holds no bound. Only a run whose sole chaos is a writer pause holds one: Postgres then
+/// lacks the write, so only a fresh follower can show it in time. Any other disruption can
+/// leave a follower rebuilding while Postgres is behind, and the end-of-run check covers
+/// those runs. The bound is above the staleness threshold the stack gives a follower.
 fn followed_read_bound(args: &GateArgs) -> Option<Duration> {
-    let followers_rebuild = args.follower_crash_after.is_some() || args.migrate_after.is_some();
-    let writer_held_up = args.writer_pause_after.is_some()
-        || args.writer_crash_after.is_some()
-        || args.migrate_after.is_some();
-    (args.followers > 0 && !(followers_rebuild && writer_held_up)).then_some(Duration::from_secs(2))
+    let timeline = chaos_timeline(args);
+    let only_a_writer_pause = !timeline.is_empty()
+        && timeline
+            .iter()
+            .all(|(_, event)| matches!(event, ChaosEvent::WriterPause | ChaosEvent::WriterResume));
+    (args.followers > 0 && only_a_writer_pause).then_some(Duration::from_secs(2))
 }
 
 #[cfg(test)]
@@ -1324,23 +1324,32 @@ mod tests {
     }
 
     #[test]
-    fn a_followed_read_is_held_to_a_bound_only_while_a_follower_or_postgres_keeps_up() {
-        let migration = ["--migrate-after", "8s", "--migrate-to-partitions", "8"];
-        let cases: [(&[&str], bool); 8] = [
-            (&[], true),
-            (&["--follower-crash-after", "6s"], true),
+    fn a_followed_read_is_held_to_a_bound_only_when_the_sole_chaos_is_a_writer_pause() {
+        let cases: [(&[&str], bool); 6] = [
             (&["--writer-pause-after", "1s"], true),
-            (&["--writer-crash-after", "3s"], true),
-            (&migration, false),
             (
-                &["--follower-crash-after", "6s", "--writer-pause-after", "1s"],
+                &[
+                    "--writer-pause-after",
+                    "1s",
+                    "--verify-followers-before-writer-resume",
+                ],
+                true,
+            ),
+            (&[], false),
+            (&["--kill-after", "5s"], false),
+            (
+                &["--writer-pause-after", "1s", "--follower-crash-after", "6s"],
                 false,
             ),
             (
-                &["--follower-crash-after", "6s", "--writer-crash-after", "3s"],
+                &[
+                    "--migrate-again-after",
+                    "8s",
+                    "--migrate-again-to-partitions",
+                    "8",
+                ],
                 false,
             ),
-            (&["--kill-after", "5s"], true),
         ];
         for (flags, bounded) in cases {
             let mut with_followers = vec!["--followers", "2"];
