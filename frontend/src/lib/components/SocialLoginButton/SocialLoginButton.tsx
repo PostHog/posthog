@@ -11,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { replayBlockClassFor } from 'lib/utils/sensitiveUrlRedaction'
 
 import { LoginMethod, SSOProvider } from '~/types'
 
@@ -40,7 +41,7 @@ function SocialLoginLink({ provider, extraQueryParams, onProviderClick, children
     return (
         // eslint-disable-next-line react/forbid-elements
         <a
-            className="block"
+            className={clsx('block', replayBlockClassFor(loginUrl))}
             href={loginUrl}
             onClick={
                 onProviderClick

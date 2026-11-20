@@ -36,6 +36,12 @@ export function redactSensitiveUrl(text: string): string {
     return SENSITIVE_SEGMENTS.reduce((redacted, [pattern, replacement]) => redacted.replace(pattern, replacement), text)
 }
 
+/** Replay compresses the page's DOM before `before_send` runs, so a link whose URL holds a secret is blocked
+ * from replay instead. The class keeps click autocapture, and `redactSensitiveUrls` redacts its copy of the URL. */
+export function replayBlockClassFor(url: string): string | undefined {
+    return redactSensitiveUrl(url) === url ? undefined : 'ph-replay-block'
+}
+
 function redactArray(value: unknown[], seen: WeakMap<object, unknown>): unknown[] {
     let copy: unknown[] | null = null
     value.forEach((item, index) => {

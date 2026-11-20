@@ -1,6 +1,6 @@
 import type { CaptureResult } from 'posthog-js'
 
-import { redactSensitiveUrl, redactSensitiveUrls } from './sensitiveUrlRedaction'
+import { redactSensitiveUrl, redactSensitiveUrls, replayBlockClassFor } from './sensitiveUrlRedaction'
 
 const USER = '0190f1a2-3b4c-7d5e-8f60-718293a4b5c6'
 const INVITE = '0190f1a2-9c8b-7a69-8584-736251403f2e'
@@ -32,6 +32,11 @@ describe('redactSensitiveUrl', () => {
             'an encoded redirect to a reset',
             `/login?next=%2Freset%2F${USER}%2F${TOKEN}`,
             `/login?next=%2Freset%2F${USER}%2F:token`,
+        ],
+        [
+            'a social login link that returns to a two-factor reset',
+            `/login/google-oauth2/?next=%2Freset_2fa%2F${USER}%2F${TOKEN}`,
+            `/login/google-oauth2/?next=%2Freset_2fa%2F${USER}%2F:token`,
         ],
         [
             'an element chain',
@@ -66,6 +71,18 @@ describe('redactSensitiveUrl', () => {
         const start = performance.now()
         expect(redactSensitiveUrl(text)).toBe(text)
         expect(performance.now() - start).toBeLessThan(1000)
+    })
+})
+
+describe('replayBlockClassFor', () => {
+    it('blocks a link whose URL holds a secret', () => {
+        expect(replayBlockClassFor(`/login/google-oauth2/?next=%2Freset_2fa%2F${USER}%2F${TOKEN}`)).toBe(
+            'ph-replay-block'
+        )
+    })
+
+    it('leaves other links in replay', () => {
+        expect(replayBlockClassFor('/login/google-oauth2/?next=%2Fproject%2F1')).toBeUndefined()
     })
 })
 
