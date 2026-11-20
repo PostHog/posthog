@@ -176,6 +176,44 @@ describe('reportGithubAccessLogic', () => {
         expect(logic.values.disabledReason).toBeNull()
     })
 
+    it.each([
+        ['a connected GitLab project', false, true, 'acme/platform/web', false],
+        ['no repository yet', false, true, null, false],
+        ['a GitHub repository', false, true, 'example/app', true],
+        ['the GitLab flag off', false, false, 'acme/platform/web', true],
+        ['a connected GitLab project in the pilot', true, true, 'acme/platform/web', false],
+        ['a GitHub repository in the pilot', true, true, 'example/app', true],
+    ] as const)(
+        'checks code access with only GitLab connected and %s',
+        async (_, pilot, gitlabEnabled, repository, expectedRepair) => {
+            githubOptional = pilot
+            useMocks({
+                get: {
+                    '/api/projects/:project/integrations/': {
+                        results: [
+                            {
+                                id: 5,
+                                kind: 'gitlab',
+                                config: { hostname: 'https://gitlab.com', path_with_namespace: 'Acme/Platform/web' },
+                            },
+                        ],
+                        next: null,
+                    },
+                },
+            })
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SELF_DRIVING_GITLAB], {
+                [FEATURE_FLAGS.SELF_DRIVING_GITLAB]: gitlabEnabled,
+            })
+            logic = reportGithubAccessLogic({ report: makeReport({ id: 'gitlab-access', repo_slug: repository }) })
+            logic.mount()
+            await waitFor(() => expect(logic.values.loading).toBe(false))
+            await waitFor(() => expect(logic.values.repairNeeded).toBe(expectedRepair))
+            expect(logic.values.disabledReason).toBe(
+                expectedRepair ? 'Connect or repair GitHub access to create a pull request' : null
+            )
+        }
+    )
+
     it('enables implementation before an unrelated installation finishes checking', async () => {
         let finishSlowCheck!: () => void
         const slowCheck = new Promise<void>((resolve) => (finishSlowCheck = resolve))

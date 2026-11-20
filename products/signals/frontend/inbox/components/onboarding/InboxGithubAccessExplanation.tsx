@@ -11,7 +11,7 @@ import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 
 export function InboxGithubAccessExplanation({ children }: { children?: ReactNode }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasGithubIntegration, isGithubOptionalSetup } = useValues(inboxSetupLogic)
+    const { hasCodeConnection, isGithubOptionalSetup } = useValues(inboxSetupLogic)
     const [visible, setVisible] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
     const contentId = useId()
@@ -20,7 +20,7 @@ export function InboxGithubAccessExplanation({ children }: { children?: ReactNod
     }, [])
 
     if (
-        hasGithubIntegration ||
+        hasCodeConnection ||
         isGithubOptionalSetup ||
         featureFlags[FEATURE_FLAGS.SELF_DRIVING_GITHUB_ACCESS_EXPLANATION] !== 'test'
     ) {

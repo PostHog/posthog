@@ -67,6 +67,7 @@ import {
     SignalReportTaskRelationship,
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
+import { parseMergeRequestUrl } from './utils/reportPresentation'
 import {
     hasActiveReportPullRequest,
     hasApprovedOpenReportPullRequest,
@@ -215,6 +216,7 @@ export const RESOLVE_CONFLICTS_REQUEST = `Resolve the merge conflicts on this PR
 /**
  * The selected PR's URL, rebuilt from its owner, repository, and number, when the fresh report still
  * lists it as open. Rebuilding keeps any extra path text in a stored URL out of trusted instructions.
+ * A gitlab.com merge request is rebuilt the same way from its project path and number.
  */
 export function selectedOpenPullRequestUrl(
     report: SignalReport | null,
@@ -226,7 +228,10 @@ export function selectedOpenPullRequestUrl(
     const match = selected?.url.match(
         /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/(\d+)(?:[/?#]|$)/
     )
-    return match ? `https://github.com/${match[1]}/${match[2]}/pull/${match[3]}` : null
+    if (match) {
+        return `https://github.com/${match[1]}/${match[2]}/pull/${match[3]}`
+    }
+    return selected ? (parseMergeRequestUrl(selected.url)?.url ?? null) : null
 }
 
 /** Pins a Make it green run from the inbox to the pull request the person had selected. */

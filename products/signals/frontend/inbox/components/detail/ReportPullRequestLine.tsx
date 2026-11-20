@@ -4,7 +4,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 
-import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
+import { pullRequestReference } from '~/layout/today/taskPullRequests'
+
+import { parseMergeRequestUrl, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { ReportPullRequest } from '../../utils/reportPullRequests'
 
 const PULL_REQUEST_STATES: Record<ReportPullRequest['state'], string> = {
@@ -39,8 +41,8 @@ function PullRequestState({ pullRequest }: { pullRequest: ReportPullRequest }): 
 }
 
 /**
- * One pull request of the report as a single line: the number links to GitHub, the rest of the line
- * selects the pull request for Files changed, CI checks and Comments when `onSelect` is set.
+ * One pull request of the report as a single line: the number links to GitHub or GitLab, the rest of the
+ * line selects the pull request for Files changed, CI checks and Comments when `onSelect` is set.
  */
 export function ReportPullRequestLine({
     pullRequest,
@@ -56,10 +58,16 @@ export function ReportPullRequestLine({
 }): JSX.Element {
     const prUrl = safeHttpUrl(pullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
-    const label = prRef
-        ? prRef.repoSlug.toLowerCase() === reportRepository?.toLowerCase()
-            ? `#${prRef.number}`
-            : `${prRef.repoSlug}#${prRef.number}`
+    const mergeRequest = prUrl && !prRef ? parseMergeRequestUrl(prUrl) : null
+    const ref = prRef
+        ? { repository: prRef.repoSlug, reference: `#${prRef.number}` }
+        : mergeRequest
+          ? { repository: mergeRequest.repository, reference: pullRequestReference(mergeRequest) }
+          : null
+    const label = ref
+        ? ref.repository.toLowerCase() === reportRepository?.toLowerCase()
+            ? ref.reference
+            : `${ref.repository}${ref.reference}`
         : null
 
     return (

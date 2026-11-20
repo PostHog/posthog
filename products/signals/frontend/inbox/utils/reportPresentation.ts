@@ -2,6 +2,8 @@
 // Shared across the Inbox cards/detail so the conventional-commit + headline parsing
 // lives in exactly one place.
 
+import { type TaskPullRequest, parsePullRequestUrl } from '~/layout/today/taskPullRequests'
+
 const MAX_HEADLINE_LENGTH = 140
 const MAX_MARKDOWN_INPUT_LENGTH = 1_000
 const SENTENCE_END = /([.!?])[*_`]*(?=\s|$)/
@@ -117,6 +119,12 @@ export function parsePrUrlParts(prUrl: string): ParsedPrUrlParts | null {
     } catch {
         return null
     }
+}
+
+/** Parse a gitlab.com merge request URL. Any other URL, a GitHub one included, returns null. */
+export function parseMergeRequestUrl(url: string): TaskPullRequest | null {
+    const parsed = parsePullRequestUrl(url)
+    return parsed?.provider === 'gitlab' ? parsed : null
 }
 
 /** Parse a GitHub PR URL into its repo slug, e.g. `posthog/posthog`. */

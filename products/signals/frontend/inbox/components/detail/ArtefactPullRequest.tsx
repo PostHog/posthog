@@ -1,9 +1,9 @@
-import { IconPullRequest } from '@posthog/icons'
+import { IconGitLab, IconPullRequest } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import type { SignalReportPullRequestApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { parsePrUrlParts } from '../../utils/reportPresentation'
+import { parseMergeRequestUrl, parsePrUrlParts } from '../../utils/reportPresentation'
 
 interface ArtefactPullRequestProps {
     url: string
@@ -19,6 +19,7 @@ export function ArtefactPullRequest({
     outcome,
 }: ArtefactPullRequestProps): JSX.Element {
     const pr = parsePrUrlParts(url)
+    const mergeRequest = pr ? null : parseMergeRequestUrl(url)
     const title = implementationTitle?.replace(/^Implementation:\s*/i, '').trim()
     const status = state ?? 'unknown'
     const label = { unknown: 'Status unavailable', draft: 'Draft', open: 'Open', closed: 'Closed', merged: 'Merged' }[
@@ -28,8 +29,14 @@ export function ArtefactPullRequest({
     return (
         <div className="min-w-0 space-y-1.5" data-attr="inbox-activity-pull-request">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-secondary">
-                <IconPullRequest className="shrink-0" />
-                <span className="break-all">{pr ? `${pr.repoSlug} · #${pr.number}` : 'Pull request'}</span>
+                {mergeRequest ? <IconGitLab className="shrink-0" /> : <IconPullRequest className="shrink-0" />}
+                <span className="break-all">
+                    {pr
+                        ? `${pr.repoSlug} · #${pr.number}`
+                        : mergeRequest
+                          ? `${mergeRequest.repository} · !${mergeRequest.number}`
+                          : 'Pull request'}
+                </span>
                 <LemonTag size="small" type={status === 'open' ? 'success' : status === 'merged' ? 'primary' : 'muted'}>
                     {label}
                 </LemonTag>
@@ -41,7 +48,8 @@ export function ArtefactPullRequest({
                 data-attr="inbox-activity-pull-request-link"
                 title={implementationTitle ? 'Implementation task title' : undefined}
             >
-                {title || (pr ? `Pull request #${pr.number}` : url)}
+                {title ||
+                    (pr ? `Pull request #${pr.number}` : mergeRequest ? `Merge request !${mergeRequest.number}` : url)}
             </Link>
             {outcome ? (
                 <span className="block text-xs text-secondary">

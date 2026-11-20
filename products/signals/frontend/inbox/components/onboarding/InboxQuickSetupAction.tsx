@@ -15,7 +15,7 @@ import { useScoutCreateDisabledReason } from '../config/scouts/ScoutCreateModalH
 export function InboxQuickSetupAction(): JSX.Element {
     const { connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
     const {
-        hasGithubIntegration,
+        hasCodeConnection,
         isGithubOptionalSetup,
         quickActivationPending,
         saving,
@@ -40,7 +40,7 @@ export function InboxQuickSetupAction(): JSX.Element {
 
     return (
         <div className="flex w-full flex-col items-start gap-3">
-            {hasGithubIntegration || isGithubOptionalSetup ? (
+            {hasCodeConnection || isGithubOptionalSetup ? (
                 <LemonButton
                     type="primary"
                     status="alt"
