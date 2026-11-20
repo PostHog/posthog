@@ -25,6 +25,10 @@ rules:
       owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
       owners: team-devex
+    - match: ['/scripts/mobile-rebuild.mjs', '/scripts/mobile-rebuild.test.mjs']
+      owners: [team-devex, team-mobile-app]
+    - match: ['/workflows/pr-native-rebuild.yml', '/workflows/pr-rebuild-notify.yml']
+      owners: [team-devex, team-mobile-app]
     - match: '/workflows/*mobile*.yml'
       owners: [team-mobile-app, team-devex]
     # The dependency proof decides which bot updates stamphog may approve on its own. The prover

@@ -56,12 +56,15 @@ Details:
 
 The simulator demo flows do not run in CI. Run them locally before you merge a change to a screen. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
 
-### Review ownership
+### Mobile rebuild acknowledgement
 
-`CODEOWNERS` requires Mobile App team approval to merge changes to native build inputs and release tooling, including the Mobile Build, Mobile CI, and Mobile Release workflows.
-The app's `product.yaml` assigns optional Mobile App ownership to OTA app code, docs, test-only files, and release requests.
-`.github/owners.yaml` lists Mobile App and DevEx as optional reviewers for mobile workflows.
-Each production deployment requires [approval after merge](#mobile-release).
+The **Mobile Rebuild / Native rebuild acknowledged** check compares the production iOS and Android fingerprints with the PR base when native build inputs change. It also checks production EAS settings, packaging files, and tracked native projects. Preview-only EAS profile changes do not affect the production profile.
+
+When the check finds a possible rebuild or cannot verify native inputs, it blocks the PR and tags the mobile release owner (`@cvolzer3`). Copy the `/ack-mobile-rebuild <head-sha>` command from the check summary into a PR comment, then choose **Re-run failed jobs**. Anyone with repository write access can acknowledge, including the PR author. A new commit needs a new acknowledgement. Normal PR approval and production deployment approval are separate.
+
+The app's `product.yaml` routes mobile reviews. `CODEOWNERS` requires review for changes to the acknowledgement gate and the tooling that builds, validates, signs, and publishes releases.
+
+A repository administrator must add **Mobile Rebuild / Native rebuild acknowledged** from GitHub Actions to the `master` ruleset as part of the ownership rollout. Update the branch of any open PR that lacks the check so it picks up the new workflow.
 
 ## Mobile Build
 

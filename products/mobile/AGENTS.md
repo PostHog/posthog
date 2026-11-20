@@ -5,7 +5,7 @@ The app is its own pnpm workspace. Run every command from `products/mobile`.
 
 ## Skills
 
-- Invoke `/requesting-mobile-releases` before you create or edit a file under `releases/requests/`, and when a change touches `package.json`, `pnpm-lock.yaml`, `app.config.ts`, `eas.json`, `plugins/`, `targets/`, `modules/` or any `expo-*` or `react-native-*` dependency. It decides whether the change can ship over the air or needs a native release. Production publishing requires deployment approval after merge. See [Mobile Release](docs/CI.md#mobile-release).
+- Invoke `/requesting-mobile-releases` before you create or edit a file under `releases/requests/`, and when a change touches `package.json`, `pnpm-lock.yaml`, `app.config.ts`, `eas.json`, `plugins/`, `targets/`, `modules/` or any `expo-*` or `react-native-*` dependency. It decides whether the change can ship over the air or needs a native release. See [Mobile rebuild acknowledgement](docs/CI.md#mobile-rebuild-acknowledgement) if CI flags the PR. Production publishing requires deployment approval after merge. See [Mobile Release](docs/CI.md#mobile-release).
 - Invoke `/running-mobile-demo-flows` before you report a change to a screen, navigation, the demo fixtures or a flow as done. CI does not run the simulator flows, so the local run is the only UI check.
 
 ## Pull request screenshots

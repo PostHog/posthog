@@ -8,11 +8,11 @@ Development and preview builds use [Mobile Build](../../products/mobile/docs/CI.
 
 ## Review ownership
 
-The Mobile App team must approve changes to native build inputs and to the tooling that builds, validates, signs, and publishes mobile releases.
-This includes native code, widgets, build configuration, dependency manifests, the lockfile and patches, and the OTA signing certificate.
-App routes, screens, JavaScript bridges, OTA assets, docs, test-only files, and release requests use optional ownership.
-An authorized `mobile-production` reviewer must approve each production deployment after merge.
-See [Mobile CI and release ownership](../../products/mobile/docs/CI.md#review-ownership) for details.
+The Mobile Rebuild check flags changes that may need a native build and notifies the mobile release owner.
+A maintainer with repository write access can acknowledge the PR's current commit, including a commit on their own PR.
+Changes to the release safeguards still need code-owner review.
+An authorized `mobile-production` reviewer approves each production deployment after merge.
+See [Mobile rebuild acknowledgement](../../products/mobile/docs/CI.md#mobile-rebuild-acknowledgement) for the PR steps.
 
 ## Build and update checks
 
