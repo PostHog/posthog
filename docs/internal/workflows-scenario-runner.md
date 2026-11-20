@@ -19,6 +19,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/main.ts run smoke
 - A card is an id, resolved to `nodejs/tests/scenarios/cards/<id>.yaml`, or a path to a YAML file.
 - Several cards run one after the other on one stack: `main.ts run <card> <card>...`. Every card must load before any runs.
 - `--profile <file>` runs the cards with a profile from outside the repository instead of the shipped `synthetic` profile. It keeps its own `name`, which the scorecard records as `profile_name`; the profile hash tells it from the shipped one.
+- `--target dev` runs a card from `cards/dev/` against the dev deployment. Offers go to capture, and the runner reads the receipts back through the query API. It needs `DEV_TARGET_HOST`, `DEV_TARGET_CAPTURE`, `DEV_TARGET_OFFERS_TEAM_ID`, `DEV_TARGET_OFFERS_TOKEN`, `DEV_TARGET_WORKFLOW_ID`, `DEV_TARGET_RECEIPTS_TEAM_ID`, and `DEV_TARGET_KEY_FILE`, a file only its owner can read that holds a personal API key. A dev card runs only `capture_webhook` traffic, at most 10 units a second, 2,000 units, and a 10-minute drive. The loader refuses anything else before the first send.
 
 For each card the runner prints its status and reason, its evidence directory, and whether the scorecard was recorded.
 
@@ -163,7 +164,7 @@ Each valve, traffic kind, invariant and measurement is one definition that holds
 
 ```text
 nodejs/tests/scenarios/
-  main.ts          the CLI: run <card>... [--profile <file>]
+  main.ts          the CLI: run <card>... [--profile <file>] [--target local|dev]
   runner/          Runner, status rules and exit codes
   cards/           *.yaml cards, schema.ts, load.ts, definitions.ts
   profiles/        synthetic.yaml, invented numbers only

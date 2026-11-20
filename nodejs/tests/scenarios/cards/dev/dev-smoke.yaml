@@ -1,0 +1,19 @@
+id: dev-smoke
+version: 1
+clock: real
+profile: dev
+seed: 1
+setup:
+    teams: 1
+drive:
+    for: 11s
+    traffic:
+        - name: capture_webhook
+convergeWithin: 10m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+gates:
+    duplicate_sends: 0
+measure:
+    - name: delivery_latency_ms
