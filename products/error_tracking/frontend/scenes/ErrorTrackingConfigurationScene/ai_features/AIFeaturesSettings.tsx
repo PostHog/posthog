@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -43,7 +43,12 @@ export function AIFeaturesSettings(): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
-                <h3 className="font-semibold text-base mb-1">Issue summaries</h3>
+                <h3 className="font-semibold text-base mb-1">
+                    Issue summaries
+                    <LemonTag type="highlight" size="small" className="ml-1">
+                        Beta
+                    </LemonTag>
+                </h3>
                 <p className="text-muted-foreground">
                     When this is on, PostHog uses AI to summarize each new issue: what happened, the likely cause, who
                     is affected, and a next step. Each summary uses your organization's AI credits. Summaries also need

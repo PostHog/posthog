@@ -172,8 +172,8 @@ export interface endpointLogicActions {
         name: string
         options:
             | {
-                  showViewButton?: boolean | undefined
-                  version?: number | undefined
+                  showViewButton?: boolean
+                  version?: number
               }
             | undefined
         request: Partial<EndpointRequest>
@@ -192,8 +192,8 @@ export interface endpointLogicActions {
         endpointName: string
         options:
             | {
-                  showViewButton?: boolean | undefined
-                  version?: number | undefined
+                  showViewButton?: boolean
+                  version?: number
               }
             | undefined
         response: any

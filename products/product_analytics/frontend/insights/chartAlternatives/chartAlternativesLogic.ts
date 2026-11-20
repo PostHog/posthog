@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
 import { isTrendsQuery } from '~/queries/schema/node-guards'
@@ -96,8 +97,8 @@ export interface chartAlternativesLogicActions {
         fromUrl: boolean
         query: Node<Record<string, any>> | null
     } // insightDataLogic
-    updateQuerySource: (querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate) => {
-        querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate
+    updateQuerySource: (querySource: QuerySourceUpdate) => {
+        querySource: QuerySourceUpdate
     } // insightVizDataLogic
     closeGallery: () => {
         value: true
