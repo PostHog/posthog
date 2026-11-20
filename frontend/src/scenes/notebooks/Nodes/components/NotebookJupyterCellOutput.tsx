@@ -68,7 +68,7 @@ export function NotebookJupyterCellOutput({
     const hasValueRow = !!resultText || (!!dataframeResult && !runError)
     const leadingPrompt = interactivePrompt && !hasValueRow ? { prompt: outPrompt } : {}
 
-    if (!status && !result?.stdout && !result?.stderr && !runError && !hasValue) {
+    if (!status && !result?.stdout && !result?.stderr && !runError && !hasValue && !(isEditable && footerExtra)) {
         return interactivePrompt ? <OutputRow prompt={outPrompt}>{null}</OutputRow> : null
     }
 
@@ -126,20 +126,22 @@ export function NotebookJupyterCellOutput({
                     )}
                 </OutputRow>
             ) : null}
-            {dataframeResult && isEditable ? (
+            {isEditable && (dataframeResult || footerExtra) ? (
                 <OutputRow className="MarkdownNotebook__jupyter-output-area--muted flex flex-wrap items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-xxs">
-                        <span>Saved as</span>
-                        <input
-                            type="text"
-                            className="w-44 px-1 text-xxs font-mono bg-transparent rounded border border-transparent hover:border-primary focus:border-primary focus:outline-none text-secondary"
-                            value={returnVariable}
-                            onChange={(event) => onReturnVariableChange(event.target.value)}
-                            placeholder="Output dataframe name"
-                            aria-label="Output dataframe name"
-                            spellCheck={false}
-                        />
-                    </label>
+                    {dataframeResult && (
+                        <label className="flex items-center gap-1.5 text-xxs">
+                            <span>Saved as</span>
+                            <input
+                                type="text"
+                                className="w-44 px-1 text-xxs font-mono bg-transparent rounded border border-transparent hover:border-primary focus:border-primary focus:outline-none text-secondary"
+                                value={returnVariable}
+                                onChange={(event) => onReturnVariableChange(event.target.value)}
+                                placeholder="Output dataframe name"
+                                aria-label="Output dataframe name"
+                                spellCheck={false}
+                            />
+                        </label>
+                    )}
                     {footerExtra}
                 </OutputRow>
             ) : null}

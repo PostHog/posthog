@@ -44,6 +44,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.data_modeling.backend.facade.api import delete_notebook_table_node
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.data_warehouse.backend.presentation.table_activity import log_table_activity, snapshot_table
 from products.warehouse_sources.backend.facade.api import (
@@ -696,6 +697,11 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         instance.soft_delete()
         log_table_activity(instance, "deleted")
         _delete_hosted_upload_file(instance)
+        try:
+            delete_notebook_table_node(instance.team_id, str(instance.id))
+        except Exception as e:
+            # The table is already deleted, so a failed lineage cleanup must not fail the request.
+            capture_exception(e)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

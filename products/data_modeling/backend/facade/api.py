@@ -18,6 +18,8 @@ _LAZY = {
     "node_lineage_counts": "graph",
     "node_lineage": "graph",
     "delete_metric_node": "logic.metric_dag_sync",
+    "delete_notebook_table_node": "logic.notebook_table_dag_sync",
+    "sync_notebook_table_to_dag": "logic.notebook_table_dag_sync",
     "mark_metric_node_degraded": "logic.metric_dag_sync",
     "sync_metric_to_dag": "logic.metric_dag_sync",
     "HasDependentsError": "facade.contracts",

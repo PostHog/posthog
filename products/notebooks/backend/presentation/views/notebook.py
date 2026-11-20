@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Any, Literal, cast
 from uuid import UUID
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
@@ -51,6 +52,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT
+from posthog.permissions import get_authenticator_scopes
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -172,6 +174,7 @@ from products.notebooks.backend.sql_v2 import (
     fetch_sql_v2_page,
     interrupt_sql_v2_run,
     introspect_in_kernel,
+    is_notebook_warehouse_table_save_enabled,
     sql_v2_page_lock_key,
 )
 from products.notebooks.backend.sql_v2_direct import cancel_direct_run, sync_direct_run
@@ -798,6 +801,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # (which carry no scopes) and enforces real RBAC for tokens too.
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
+
+    def _require_warehouse_write_scope(self) -> None:
+        # Saving a run's dataframe writes a warehouse table, which the table API gates behind
+        # warehouse_table:write. A token must carry it too. Sessions carry no scopes, and the
+        # dispatch checks their warehouse access control instead.
+        scopes = get_authenticator_scopes(self.request.successful_authenticator)
+        if scopes is not None and "*" not in scopes and "warehouse_table:write" not in scopes:
+            raise PermissionDenied("Saving a warehouse table needs a token with the warehouse_table:write scope.")
 
     def _require_run_connection_access(self, run: NotebookNodeRun, user: User | None) -> None:
         # Dispatch resolved the source for the user who ran the cell, but the run row outlives
@@ -2039,6 +2050,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
+        if serializer.validated_data["warehouse_table_name"]:
+            if not (settings.DEBUG or is_notebook_warehouse_table_save_enabled(user)):
+                raise Http404()
+            self._require_warehouse_write_scope()
 
         node_type = serializer.validated_data["node_type"]
         # Only SQL nodes carry a connection; python always runs in the kernel against PostHog.
@@ -2055,6 +2070,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             connection_id=connection_id,
             send_raw_query=bool(serializer.validated_data["send_raw_query"]) and connection_id is not None,
             reuse_results=serializer.validated_data["reuse_results"],
+            warehouse_table_name=(serializer.validated_data["warehouse_table_name"] or "").strip() or None,
         )
         try:
             dispatch = dispatch_cell_run(
@@ -2128,6 +2144,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     trigger=classify_request_source(request)[0],
                     include_prepared_insights=include_prepared_insights,
                 )
+                # Checked on the plan the run froze, not on a separate read of the notebook, so
+                # an edit that lands between the two can't add a save the token may not make.
+                if start.saves_warehouse_tables:
+                    if not (settings.DEBUG or is_notebook_warehouse_table_save_enabled(user)):
+                        raise Http404()
+                    self._require_warehouse_write_scope()
         except (NotebookRunNothingToRun, NotebookCellLimitExceeded, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:

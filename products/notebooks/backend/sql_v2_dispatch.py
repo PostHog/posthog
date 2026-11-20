@@ -22,6 +22,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
 
+from products.data_warehouse.backend.facade.api import NotebookTableError, validate_notebook_table_name
 from products.notebooks.backend.compute_pricing import get_compute_rates
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
@@ -98,6 +99,8 @@ class NodeRunRequest:
     reuse_results: bool = False
     # Set when a whole-notebook run started this cell, so the status endpoint can find it.
     notebook_run_id: UUID | None = None
+    # Python cells only: the data warehouse table the result dataframe is also saved to.
+    warehouse_table_name: str | None = None
 
 
 @frozen
@@ -167,6 +170,28 @@ def _latest_runs_for(team_id: int, notebook: Notebook, node_ids: set[str]) -> Qu
         .distinct("node_id")
         .values_list("node_id", "id", "code", "node_type", "connection_id", "send_raw_query")
     )
+
+
+def _input_run_ids(notebook: Notebook, user: User | None, request: NodeRunRequest, plan: SQLV2RunPlan) -> list[str]:
+    run_ids = {item["run_id"] for item in plan.inputs if item["kind"] == "hogql"}
+    local_nodes = {request.refs[item["name"]].node_id for item in plan.inputs if item["kind"] == "local"}
+    if local_nodes:
+        # A local input reads the frame bound in this user's kernel, even if another user has since run the cell.
+        runs = (
+            NotebookNodeRun.objects.for_team(notebook.team_id)
+            .filter(
+                notebook=notebook,
+                user=user,
+                node_id__in=local_nodes,
+                node_type__in=[NotebookNodeRun.NodeType.PYTHON, NotebookNodeRun.NodeType.DUCKDB],
+                status=NotebookNodeRun.Status.DONE,
+            )
+            .order_by("node_id", "-created_at")
+            .distinct("node_id")
+            .values_list("id", flat=True)
+        )
+        run_ids.update(map(str, runs))
+    return sorted(run_ids)
 
 
 def resolve_refs(
@@ -427,6 +452,14 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
     ):
         raise NodeRunInvalid(INVALID_CONNECTION_ID_ERROR)
 
+    if request.warehouse_table_name:
+        if request.node_type != "python":
+            raise NodeRunInvalid("Only Python cells can save their dataframe as a warehouse table.")
+        try:
+            validate_notebook_table_name(team.id, request.warehouse_table_name, user.id if user is not None else None)
+        except NotebookTableError as e:
+            raise NodeRunInvalid(str(e)) from e
+
     plan = _build_plan(request, resolve_refs(team.id, notebook, request))
 
     reusable = _reusable_runs(notebook, user, team.id, request, plan)
@@ -467,6 +500,8 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
             node_type=plan.node_type,
             connection_id=request.connection_id,
             send_raw_query=request.send_raw_query,
+            warehouse_table_name=request.warehouse_table_name or None,
+            input_run_ids=_input_run_ids(notebook, user, request, plan) or None,
             status=NotebookNodeRun.Status.RUNNING,
         )
     except Exception:

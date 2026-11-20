@@ -1,10 +1,16 @@
+import io
 import os
 import json
 import tempfile
+from email import policy
+from email.parser import BytesParser
+
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from products.notebooks.backend.sandbox.kernel.bootstrap import _MEDIA_MAX_FIGURES, KernelSession
@@ -34,6 +40,65 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["columns"], ["a", "b"])
         self.assertEqual(envelope["first_page"], [[1, 3], [2, 4]])
         self.assertEqual(envelope["row_count"], 2)
+
+    @parameterized.expand(
+        [
+            ("frame", "import pandas as pd\npd.DataFrame({'a': [1, 2]})", {"ok": True}),
+            ("no_frame", "x = 1", {"ok": False, "error": "This run didn't produce a dataframe to save."}),
+        ]
+    )
+    def test_uploads_the_frame_as_parquet_to_the_warehouse_url(self, _name, code, expected):
+        uploaded: dict[str, bytes] = {}
+
+        def read_body(request, timeout):
+            uploaded["body"] = b"".join(request.data)
+            return MagicMock()
+
+        with patch(
+            "products.notebooks.backend.sandbox.kernel.bootstrap.urllib.request.urlopen", side_effect=read_body
+        ) as urlopen:
+            envelope = self.session.run_node(
+                {
+                    "node": {
+                        "type": "python",
+                        "code": code,
+                        "warehouse_upload": {
+                            "url": "https://bucket.example.com/",
+                            "fields": {"key": "staging/run.parquet"},
+                        },
+                    }
+                }
+            )
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["warehouse_upload"], expected)
+        if expected["ok"]:
+            request = urlopen.call_args.args[0]
+            self.assertEqual((request.method, request.full_url), ("POST", "https://bucket.example.com/"))
+            multipart = BytesParser(policy=policy.default).parsebytes(
+                f"Content-Type: {request.get_header('Content-type')}\r\n\r\n".encode() + uploaded["body"]
+            )
+            key, file = multipart.iter_parts()
+            self.assertEqual(key.get_content(), "staging/run.parquet")
+            payload = file.get_payload(decode=True)
+            assert isinstance(payload, bytes)
+            self.assertEqual(pq.read_table(io.BytesIO(payload)).to_pydict(), {"a": [1, 2]})
+            self.assertEqual(request.get_header("Content-length"), str(len(uploaded["body"])))
+        else:
+            urlopen.assert_not_called()
+
+    def test_interrupted_upload_preserves_the_completed_output(self):
+        with patch.object(self.session, "_upload_warehouse_table", side_effect=KeyboardInterrupt):
+            result = self.session.run_node(
+                {
+                    "node": {
+                        "type": "python",
+                        "code": "print('computed')",
+                        "warehouse_upload": {"url": "https://bucket.example.com/"},
+                    }
+                }
+            )
+        self.assertEqual(result["status"], "interrupted")
+        self.assertEqual(result["stdout"].strip(), "computed")
 
     def test_output_name_frame_is_previewed_over_last_expression(self):
         envelope = self._run("import pandas as pd\nresult = pd.DataFrame({'x': [9]})\n1 + 1", output_name="result")

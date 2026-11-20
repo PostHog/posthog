@@ -93,6 +93,12 @@ class TestRunPlanCellShapes(APIBaseTest):
 class TestNotebookRunEndpoints(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.save_table_flag = patch(
+            "products.notebooks.backend.presentation.views.notebook.is_notebook_warehouse_table_save_enabled",
+            return_value=True,
+        )
+        self.save_table_flag.start()
+        self.addCleanup(self.save_table_flag.stop)
         self.notebook = Notebook.objects.create(
             team=self.team, short_id="nbrunapi", content=markdown_content(_RUN_CELLS)
         )
@@ -122,6 +128,50 @@ class TestNotebookRunEndpoints(APIBaseTest):
             assert mock_start.call_args.args[0].node_ids == ["insight"]
         else:
             mock_start.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("saves_a_table", 'saveToWarehouse={true} warehouseTableName="scores"', 403),
+            ("saves_nothing", "", 200),
+        ]
+    )
+    def test_token_without_warehouse_scope_cannot_run_a_notebook_that_saves_tables(
+        self, mock_start: MagicMock, _name: str, props: str, expected_status: int
+    ) -> None:
+        self.notebook.content = markdown_content(f'<PythonV2 nodeId="p1" code="df = 1" returnVariable="df" {props} />')
+        self.notebook.save(update_fields=["content"])
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="notebook-key",
+            secure_value=hash_key_value(key_value),
+            scopes=["notebook:write", "query:read"],
+        )
+        self.client.logout()
+
+        response = self.client.post(self.runs_url, data={}, format="json", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        assert response.status_code == expected_status
+        assert mock_start.called == (expected_status == 200)
+        runs = NotebookRun.objects.for_team(self.team.id).filter(notebook=self.notebook)
+        assert runs.exists() == (expected_status == 200)
+
+    def test_flag_disabled_refuses_a_notebook_run_that_saves_a_table(self, mock_start) -> None:
+        self.notebook.content = markdown_content(
+            '<PythonV2 nodeId="p1" code="df = 1" returnVariable="df" '
+            'saveToWarehouse={true} warehouseTableName="scores" />'
+        )
+        self.notebook.save(update_fields=["content"])
+
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.is_notebook_warehouse_table_save_enabled",
+            return_value=False,
+        ):
+            response = self.client.post(self.runs_url, data={}, format="json")
+
+        assert response.status_code == 404
+        mock_start.assert_not_called()
+        assert not NotebookRun.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
 
     def test_a_notebook_with_nothing_to_run_is_refused(self, mock_start) -> None:
         notebook = Notebook.objects.create(

@@ -244,24 +244,24 @@ describe('insight dataframes', () => {
 
     it('prepares an insight on first reference before dispatching the consuming SQL cell', async () => {
         jest.spyOn(queries, 'performQuery').mockResolvedValue(response)
+        jest.mocked(api.notebooks.sqlV2Run).mockRestore()
+        const dispatch = jest.spyOn(api, 'create').mockResolvedValue({ run_id: 'insight-run', starts_sandbox: false })
         const consumer = notebookCodeCellLogic('consumer', notebook, {}, jest.fn())
         const unmount = consumer.mount()
         try {
             await consumer.asyncActions.runQuery('SELECT * FROM insight_df', {})
             await expectLogic(consumer).toFinishAllListeners()
-            expect(api.notebooks.sqlV2Run).toHaveBeenNthCalledWith(
-                1,
-                'insight-dataframes',
-                expect.objectContaining({ node_id: 'source', reuse_results: true })
-            )
-            expect(api.notebooks.sqlV2Run).toHaveBeenNthCalledWith(
-                2,
-                'insight-dataframes',
-                expect.objectContaining({
-                    node_id: 'consumer',
-                    refs: { insight_df: { node_id: 'source', kind: 'hogql' } },
-                })
-            )
+            const runUrl = expect.stringMatching(/api\/projects\/\d+\/notebooks\/insight-dataframes\/sql_v2\/run\/?$/)
+            expect(dispatch.mock.calls.map(([url, body]) => [url, body])).toEqual([
+                [runUrl, expect.objectContaining({ node_id: 'source', reuse_results: true })],
+                [
+                    runUrl,
+                    expect.objectContaining({
+                        node_id: 'consumer',
+                        refs: { insight_df: { node_id: 'source', kind: 'hogql' } },
+                    }),
+                ],
+            ])
             expect(collectNotebookFrameNodes(notebook.values.content)).toEqual([
                 expect.objectContaining({ name: 'insight_df', hasRun: true }),
             ])

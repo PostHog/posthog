@@ -4788,6 +4788,7 @@ const api = {
                 output_name?: string
                 connection_id?: string | null
                 send_raw_query?: boolean
+                warehouse_table_name?: string
             }
         ): Promise<{ run_id: string; starts_sandbox?: boolean; sandbox_hourly_price?: number | null }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
@@ -4813,6 +4814,7 @@ const api = {
                 stderr?: string
                 media?: { mime_type: string; data: string }[]
                 result_text?: string
+                warehouse_table?: { name: string; error?: string | null; pending?: boolean }
             } | null
             error: string | null
             // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
