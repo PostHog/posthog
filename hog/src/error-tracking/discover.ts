@@ -1,12 +1,27 @@
 import { readdirSync, realpathSync, statSync } from 'node:fs'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
 import { HogError } from '@/core/errors'
 
-import { HERMES_BUNDLE_EXTENSIONS } from './kinds/hermes'
-import { hasBundleName, JS_EXTENSIONS } from './kinds/js'
 import type { Detected, Worker } from './worker'
+
+const JS_EXTENSIONS = ['.js', '.mjs', '.cjs'] as const
+
+// React Native with Hermes: Metro writes `.bundle` or `.jsbundle` files that get chunk IDs like
+// JavaScript bundles. The Hermes compiler then composes a second map for the bytecode, and that
+// composed map is what PostHog symbolicates with.
+const HERMES_BUNDLE_EXTENSIONS = ['.bundle', '.jsbundle'] as const
+
+export function isHermesBundlePath(path: string): boolean {
+    return HERMES_BUNDLE_EXTENSIONS.some((extension) => path.endsWith(extension))
+}
+
+// Rust's `Path::extension` gives no extension for a file named `.js`.
+function hasBundleName(path: string, extensions: readonly string[]): boolean {
+    const name = basename(path)
+    return name.lastIndexOf('.') !== 0 && extensions.some((extension) => name.endsWith(extension))
+}
 
 export interface Root {
     path: string

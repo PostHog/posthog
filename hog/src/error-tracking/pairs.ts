@@ -4,21 +4,23 @@ import { relative, resolve } from 'node:path'
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 
-import { isIgnored, type Artifact } from './discover'
-import { randomChunkId, releaseRequested, resolveJsRelease } from './js-flow'
-import { isHermesBundlePath } from './kinds/hermes'
-import type { ReleaseMode, Skip } from './kinds/js'
+import { isHermesBundlePath, isIgnored, type Artifact } from './discover'
 import type { Release } from './release'
 import {
     DRY_RUN_RELEASE_WARNING,
     MISSING_RELEASE_WARNING,
+    randomChunkId,
     releaseFields,
+    releaseRequested,
+    resolveJsRelease,
     Session,
     type ErrorTrackingOptions,
     type InjectedReport,
+    type ReleaseMode,
     type ReleaseReport,
     type Selection,
-} from './run'
+    type Skip,
+} from './session'
 import type { SymbolSetFile } from './upload'
 import type { InjectOutcome, PairState, Worker } from './worker'
 

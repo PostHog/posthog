@@ -20,6 +20,8 @@ PostHog has two command lines in this repo:
 | `posthog-cli` | `cli/` | Rust            | Published. Customers and the SDK build integrations run it today |
 | `hog`         | `hog/` | TypeScript, Bun | Version 1, the successor. Not published yet; see `hog/README.md` |
 
+hog hands the file work of `hog error-tracking` to hog-worker, a Rust program in `hog/worker/` that ships next to the `hog` binary.
+
 Both stay in use until every caller moves to hog, so both must behave the same.
 
 ## Change both CLIs
@@ -33,31 +35,38 @@ The only exceptions are commands that exist on one side:
 - hog-only commands, such as `hog setup`, `hog api`, `hog ci` and `hog auth migrate`, have no Rust counterpart.
 - `hog/MIGRATING.md` lists the posthog-cli commands that don't come to hog. A change to those touches only `cli/`.
 
+Symbol code is copied, not shared.
+`hog/worker/src/` holds copies of posthog-cli's `cli/src/sourcemaps/`, `debug_symbols/`, `dsym/` and `proguard/`, and the first comment of a copied file names its source.
+A change to one of those folders must be copied into `hog/worker/src/` in the same PR, and a change to the copied code in the worker must go back to `cli/`.
+A crate that decides a written byte, such as `sourcemap`, `symbolic`, `zip` or `posthog-symbol-data`, has the same version in `cli/Cargo.lock` and `hog/worker/Cargo.toml`. Raise both together.
+
 When a change does not apply to the other CLI, say why in the PR description, for example "hog prints only the error message, which never contains the URL".
 Reviewers: a PR that touches `cli/src/` or `hog/src/` without the other side, and without that sentence, is incomplete.
 
 ## Find the matching code
 
-Port the behavior, not the code. The two CLIs are laid out differently.
+Port the behavior, not the code. The two CLIs are laid out differently. The one exception is the symbol code in `hog/worker/`, which is copied.
 
 1. Map the command with the table in `hog/MIGRATING.md` (`sourcemap upload` becomes `error-tracking upload`, and so on).
 2. Find the hog side with the layout table in `hog/AGENTS.md`. Common pairs:
 
-   | posthog-cli                                     | hog                                                |
-   | ----------------------------------------------- | -------------------------------------------------- |
-   | `cli/src/api/symbol_sets.rs` (upload protocol)  | `hog/src/error-tracking/upload.ts`                 |
-   | `cli/src/sourcemaps/`, `cli/src/debug_symbols/` | `hog/src/error-tracking/kinds/`, `.../native/`     |
-   | `cli/src/release/`                              | `hog/src/error-tracking/release.ts`, `git.ts`      |
-   | `cli/src/login.rs`                              | `hog/src/commands/auth/`, `hog/src/posthog/`       |
-   | `cli/src/experimental/`                         | `hog/src/commands/query/`, `endpoints/`, `schema/` |
+   | posthog-cli                                                                                          | hog                                                      |
+   | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+   | `cli/src/api/symbol_sets.rs` (upload protocol)                                                       | `hog/src/error-tracking/upload.ts`                       |
+   | `cli/src/sourcemaps/`, `debug_symbols/`, `dsym/`, `proguard/` (reading, rewriting and packing files) | `hog/worker/src/`, copied                                |
+   | The flags, skips, warnings and output of those commands                                              | `hog/src/error-tracking/run.ts`, `pairs.ts`, `native.ts` |
+   | `cli/src/release/`, `cli/src/utils/git.rs`                                                           | `hog/src/error-tracking/release.ts`, `git.ts`            |
+   | `cli/src/login.rs`                                                                                   | `hog/src/commands/auth/`, `hog/src/posthog/`             |
+   | `cli/src/experimental/`                                                                              | `hog/src/commands/query/`, `endpoints/`, `schema/`       |
 
 3. Check how the runtimes differ before copying a fix. For example, reqwest puts the request URL in its error text, while Bun's `fetch` keeps it off `error.message`, so a redaction needed in Rust may not be needed in hog. Verify such a difference, then name it in the PR.
 
 ## Follow each side's rules
 
-- hog: read `hog/AGENTS.md` before the first edit. It holds the command, output, error and typed-boundary rules.
+- hog: read `hog/AGENTS.md` before the first edit. It holds the command, output, error and typed-boundary rules, and the rules for hog-worker and its protocol.
 - Uploads: hog must send the same bytes, content hashes and requests as posthog-cli, or re-uploads fail with `content_hash_mismatch`. Read `hog/test/parity/README.md` before changing anything that reaches an upload. When a Rust change alters what posthog-cli uploads, regenerate the goldens from the new binary as that README describes, and review the diff.
 - Releases: every user-visible change needs a sampo changeset on each side it touches, in `cli/.sampo/changesets/` (`--package cargo/posthog-cli`) and in `hog/.sampo/changesets/` (`--package npm/hog`). Write it in the pull request, with a sentence that tells users what changed, and rename the file sampo writes after the change. `cli/.sampo/README.md` and the Releases section of `hog/README.md` have the commands.
+- hog-worker has no release of its own. The `Release hog` workflow builds it with hog's version and ships both binaries in every archive and package, so a worker change takes a changeset in `hog/.sampo/changesets/`.
 - hog release timing: the changeset's file name decides it, because sampo accepts nothing but packages and bumps in the front matter. `weekly-<name>.md` waits for the weekly run on Tuesdays, so use it when the change can wait. Any other name starts a release, which a person approves, when the pull request merges. The `hog changeset` workflow adds `weekly-pr-<number>.md` to a pull request with MCP or catalog changes and no changeset, so those wait for the weekly run too.
 
 ## Test both sides
@@ -68,10 +77,16 @@ cargo test --locked --manifest-path cli/Cargo.toml
 cargo clippy --locked --manifest-path cli/Cargo.toml --all-targets -- -D warnings
 cargo fmt --manifest-path cli/Cargo.toml -- --check
 
-# hog
+# hog. `unit` builds hog-worker first, so it needs a Rust toolchain
 pnpm --filter hog unit
 pnpm --filter hog typecheck
+
+# hog-worker, from hog/worker/
+cargo fmt -- --check
+cargo clippy --locked --all-targets -- -D warnings
 ```
+
+hog-worker has no Rust tests. hog's tests and `hog/test/parity/` run it through the real CLI, so a worker change is tested there.
 
 Add the regression test on both sides too. hog tests drive the real CLI with `runHog` from `hog/src/testing.ts`, and its `respond` option fakes PostHog and object storage, so a hog test can cover the same failure as the Rust one without a server.
 Use `/writing-tests` for both.
@@ -91,6 +106,7 @@ When agent output (`-o json`) changed, show that too.
 
 - The PR description shows the terminal for each changed case.
 - Both CLIs carry the change, or the PR says why one does not need it.
-- Both test suites pass, and `hog/test/parity/` is green.
+- Both test suites pass, `hog/test/parity/` is green, and the worker's `cargo fmt` and `cargo clippy` checks pass when `hog/worker/` changed.
+- A change to posthog-cli's symbol code is copied into `hog/worker/src/`, with the dependency versions equal on both sides.
 - `cli/` and `hog/` each have a changeset when their behavior changed.
 - Use the `cli` scope in the PR title, as in `fix(cli): ...`, for a change to either CLI.

@@ -16,6 +16,9 @@ The goldens are checked in, so the tests need nothing from `cli/`. They do need 
 | `containers.test.ts` | The content hash of a symbol set container, for 47 inputs         | `cli/examples/hog_parity_oracle.rs`, which calls posthog-cli's own code |
 | `e2e.test.ts`        | Every request the CLI sends, the uploaded bytes and the exit code | The `posthog-cli` binary against `fake-server.ts`                       |
 
+Every scenario runs the real CLI, so the files it writes and the bytes it uploads come from hog-worker.
+`containers.test.ts` sends each input to the worker's `wrap` request, which puts a payload into a container as it is. That holds the zstd the worker is built with to posthog-cli's.
+
 The container inputs sit on every boundary where libzstd's streaming output can differ from one-shot compression: exact multiples of the 128 KiB block, the 2 MiB window, and inputs up to 32 MiB.
 `inputs.ts` generates them from a seed, so large inputs are never checked in.
 
@@ -71,3 +74,4 @@ bun test/parity/record-e2e.ts "$TARGET/release/posthog-cli"
 Record the JavaScript scenarios with a binary from the same `cli/` version, and keep one bundle per folder in new fixtures: posthog-cli's walk order decides which bundle wins a shared map or a duplicate chunk ID.
 
 Regenerate them when posthog-cli changes what it uploads, and review the diff: a changed golden means hog and posthog-cli no longer agree until hog changes too.
+For a change to posthog-cli's symbol code, that means copying it into `hog/worker/src/` and raising the same dependency versions in `hog/worker/Cargo.toml`.

@@ -8,12 +8,20 @@
 //   worker -> {"type":"hello","protocol":1,"version":"0.1.0"}
 //   hog    -> {"op":"detect","files":[{"path":"dist/a.js","bundle":true,"map":false,"mapping":false,"native":true}],"publicPathPrefix":null}
 //   worker -> {"ok":true,"result":{"sourcemap":[0],"composed":[],"mapping":[],"elf":[],"macho":[]}}
-//   hog    -> {"op":"read_pairs","paths":["/abs/dist/a.js"],"publicPathPrefix":null}
-//   worker -> {"ok":true,"result":{"pairs":[{"id":0,"sourcePath":"/abs/dist/a.js", ...}]}}
+//   hog    -> {"op":"read_pairs","paths":["/abs/dist/a.js","/abs/dist/b.js","/abs/dist/c.js","/abs/dist/d.js"],"publicPathPrefix":null}
+//   worker -> {"ok":true,"result":{"pairs":[{"id":0,"sourcePath":"/abs/dist/a.js", ...},{"id":1, ...},{"skipped":"..."},null]}}
+//   hog    -> {"op":"drop","ids":[1]}
+//   worker -> {"ok":true,"result":{}}
 //   hog    -> {"op":"inject","ids":[0],"mode":"event","releaseId":null,"newChunkIds":[]}
 //   worker -> {"ok":true,"result":{"outcomes":[{"action":"injected","chunkId":"...","warnings":[],"pair":{...}}]}}
 //   hog    -> {"op":"save","ids":[0]}
 //   worker -> {"ok":true,"result":{}}
+//
+// `detect` answers places in its `files`. `read_pairs` answers one entry for each path: a pair,
+// the reason a bundle can't be used, or null for a bundle without a sourcemap. `drop` lets go of
+// the pairs hog won't use, such as one an ignore pattern matches. In symbol-set mode `inject` takes
+// in `newChunkIds` one id for each pair that needs a new one, in order, and `save` writes the
+// bundles and maps of the pairs back.
 //
 // An upload goes on with the same pairs:
 //
@@ -69,15 +77,20 @@
 //
 // `fingerprint` records what a pair's files hold, so `clean_up` can tell later that nothing
 // touched them. `prepare` writes each pair's symbol set to a file for hog to send, and lets the
-// pairs go: nothing reads them after it. `prepare_maps` does the same for Hermes maps, which have
-// ids of their own. hog sends back to `clean_up` the stylesheets whose map no ignore pattern
-// matches.
+// pairs go: nothing reads them after it. It answers {"skipped":"..."} in place of a symbol set for
+// a pair it can't upload. `prepare_maps` does the same for Hermes maps, which have ids of their
+// own. `proguard` answers {"invalid":"not_utf8"} or {"invalid":"not_a_mapping"} for a file that is
+// no mapping. hog sends back to `clean_up` the stylesheets whose map no ignore pattern matches.
+//
+// A dry run sends null for `folder` and `out`, and the worker then writes no file and answers a
+// null `path`.
 //
 // A request that fails answers {"ok":false,"error":{"code":"...","message":"..."}} and the worker
-// keeps running. The pairs a `read_pairs` returns stay in memory under their ids until hog closes
-// stdin, which ends the worker. hog owns every decision: which files to look at, which pairs an
-// ignore pattern drops, and the release. PROTOCOL changes whenever a request or an answer does,
-// because hog and the worker ship as two files and must refuse to work with a stranger.
+// keeps running. A pair, a map or a binary stays in memory under its id until a request lets it go
+// or hog closes stdin, which ends the worker. hog owns every decision: which files to look at,
+// which pairs an ignore pattern drops, and the release. PROTOCOL changes whenever a request or an
+// answer does, because hog and the worker ship as two files and must refuse to work with a
+// stranger. WORKER_PROTOCOL in hog/src/error-tracking/worker.ts must equal it.
 
 mod cleanup;
 mod constant;
@@ -117,7 +130,7 @@ const VERSION: &str = match option_env!("HOG_RELEASE_VERSION") {
 const BAD_REQUEST: &str = "bad_request";
 // The injection itself failed, for example on a sourcemap the decoder rejects.
 const INJECT_FAILED: &str = "inject_failed";
-// A file could not be written. hog reports the message as it reported its own write failures.
+// A file could not be written. hog shows the message as it is.
 const WRITE_FAILED: &str = "write_failed";
 // A file hog asked about could not be read.
 const READ_FAILED: &str = "read_failed";

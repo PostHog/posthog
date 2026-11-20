@@ -6,40 +6,26 @@ import type { ArtifactKind } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 
-import { discover, isIgnored, listFiles, type Artifact, type Root } from './discover'
+import { discover, isHermesBundlePath, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
-import { releaseRequested, resolveJsRelease, type InjectAction } from './js-flow'
-import { isHermesBundlePath } from './kinds/hermes'
-import type { ReleaseMode, Skip } from './kinds/js'
 import { packageNative } from './native'
 import { injectPairs, isBundle, preparePairs, readPairs, type InjectedPairs, type OwnedPair } from './pairs'
-import { plistRelease } from './plist'
-import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
-import { SymbolSetClient, type SymbolSetFile, type UploadStatus } from './upload'
+import { resolveRelease, type Release } from './release'
+import {
+    DRY_RUN_RELEASE_WARNING,
+    MISSING_RELEASE_WARNING,
+    releaseFields,
+    releaseRequested,
+    resolveJsRelease,
+    Session,
+    type ErrorTrackingOptions,
+    type InjectedReport,
+    type ReleaseReport,
+    type Selection,
+    type Skip,
+} from './session'
+import type { SymbolSetFile, UploadStatus } from './upload'
 import type { MapAnswer, MapState, Worker } from './worker'
-
-export interface ErrorTrackingOptions {
-    kind?: ArtifactKind
-    mapId?: string
-    release: ReleaseFields
-    infoPlist?: string
-    releaseMode: ReleaseMode
-    publicPathPrefix?: string
-    force: boolean
-    skipOnConflict: boolean
-    // Undefined uses posthog-cli's default for each artifact type.
-    batchSize?: number
-    concurrency: number
-    deleteAfter: boolean
-    includeSource: boolean
-    dryRun: boolean
-}
-
-export interface ReleaseReport {
-    name: string
-    version: string
-    id: string | null
-}
 
 export interface SymbolSetReport {
     path: string
@@ -48,19 +34,6 @@ export interface SymbolSetReport {
     contentHash: string
     size: number
     status: UploadStatus | 'planned'
-}
-
-export interface InjectedReport {
-    path: string
-    map: string
-    chunkId: string
-    action: InjectAction
-}
-
-export interface Selection {
-    artifacts: Artifact[]
-    roots: Root[]
-    cwd: string
 }
 
 export async function select(
@@ -91,60 +64,6 @@ export async function select(
     const artifacts = await discover(worker, roots, cwd, { publicPathPrefix: options.publicPathPrefix })
     return { artifacts, roots, cwd }
 }
-
-// The flags first, then --info-plist, then posthog.json.
-export async function releaseFields(ctx: Context, options: ErrorTrackingOptions): Promise<ReleaseFields> {
-    const configured = (await ctx.config())?.config.errorTracking?.release
-    const plist = options.infoPlist ? plistRelease(resolve(ctx.runtime.cwd(), options.infoPlist), ctx.runtime.env) : {}
-    return {
-        name: options.release.name ?? plist.name ?? configured?.name,
-        version: options.release.version ?? plist.version ?? configured?.version,
-        build: options.release.build ?? plist.build,
-    }
-}
-
-class Releases {
-    private readonly cache = new Map<string, Promise<Release>>()
-
-    constructor(private readonly client: () => Promise<SymbolSetClient>) {}
-
-    get(name: string, version: string, git: GitInfo | undefined): Promise<Release> {
-        const key = `${name}\u0000${version}`
-        if (!this.cache.has(key)) {
-            this.cache.set(
-                key,
-                this.client().then((client) => fetchOrCreateRelease(client, name, version, git ? { git } : {}))
-            )
-        }
-        return this.cache.get(key)!
-    }
-}
-
-// One API client and one release cache per command, created on first use so dry runs and
-// `inject` without a release never read credentials.
-export class Session {
-    private client: Promise<SymbolSetClient> | undefined
-    readonly releases = new Releases(() => this.getClient())
-
-    constructor(private readonly ctx: Context) {}
-
-    getClient(): Promise<SymbolSetClient> {
-        this.client ??= this.ctx
-            .session()
-            .then(
-                (session) =>
-                    new SymbolSetClient(this.ctx.runtime, session, () =>
-                        this.ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_endpoint_fallback')
-                    )
-            )
-        return this.client
-    }
-}
-
-export const DRY_RUN_RELEASE_WARNING =
-    'PostHog assigns the release ID, so a dry run leaves it out. JavaScript content hashes from a dry run can differ from a real run.'
-export const MISSING_RELEASE_WARNING =
-    'No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.'
 
 export interface UploadReport {
     dryRun: boolean

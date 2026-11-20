@@ -283,9 +283,16 @@ main() {
         chmod 755 "$staged_worker"
     fi
     # hog-worker says hello and stops when its input ends.
-    if ! installed=$("$staged" --version 2>/dev/null) ||
+    if ! installed=$("$staged" --version 2>"$tmp/run-error.txt") ||
         { [ -n "$has_worker" ] && ! "$staged_worker" </dev/null >/dev/null 2>&1; }; then
         rm -f "$staged" "$staged_worker"
+        # The musl build of hog links the C++ runtime, which a bare Alpine image lacks. musl's loader
+        # names the library it can't find, and no glibc loader words it this way.
+        if grep -q -e 'Error loading shared library libstdc++\.so' \
+            -e 'Error loading shared library libgcc_s\.so' "$tmp/run-error.txt"; then
+            err "hog $version needs libstdc++ and libgcc, which this machine doesn't have, so the install left $install_dir as it was. On Alpine, install them and run this again:
+  apk add libstdc++ libgcc"
+        fi
         err "hog $version doesn't run on this machine, so the install left $install_dir as it was."
     fi
 

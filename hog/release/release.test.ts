@@ -102,6 +102,9 @@ const hostHasMuslLoader = ['/lib', '/usr/lib'].some((folder) => {
 const here = launcher.targetId(process.platform, process.arch, process.platform === 'linux' && hostHasMuslLoader)
 const INSTALL_SH = join(import.meta.dir, 'install.sh')
 
+const MUSL_MISSING_LIBRARY = 'Error loading shared library libstdc++.so.6: No such file or directory (needed by hog)'
+const EXIT_LOADER_FAILED = 127
+
 interface FakeRelease {
     root: string
     bucket: string
@@ -118,7 +121,12 @@ async function sh(command: string[], cwd: string): Promise<void> {
 async function fakeRelease(
     version: string,
     where: 'bucket' | 'mirror',
-    options: { checksum?: string; target?: string; broken?: 'hog' | 'hog-worker'; worker?: boolean } = {}
+    options: {
+        checksum?: string
+        target?: string
+        broken?: 'hog' | 'hog-worker' | 'hog without libstdc++'
+        worker?: boolean
+    } = {}
 ): Promise<FakeRelease> {
     const root = await mkdtemp(join(tmpdir(), 'hog-install-'))
     const release: FakeRelease = {
@@ -134,8 +142,12 @@ async function fakeRelease(
     await mkdir(build, { recursive: true })
     const files = options.worker === false ? ['hog'] : ['hog', 'hog-worker']
     for (const name of files) {
-        const script =
-            options.broken === name ? 'exit 1' : name === 'hog' ? `echo ${version}` : `echo worker ${version}`
+        let script = name === 'hog' ? `echo ${version}` : `echo worker ${version}`
+        if (options.broken === name) {
+            script = 'exit 1'
+        } else if (name === 'hog' && options.broken === 'hog without libstdc++') {
+            script = `echo '${MUSL_MISSING_LIBRARY}' >&2\nexit ${EXIT_LOADER_FAILED}`
+        }
         await writeFile(join(build, name), `#!/bin/sh\n${script}\n`)
         await chmod(join(build, name), 0o755)
     }
@@ -243,25 +255,24 @@ describe.skipIf(process.platform === 'win32' || !here)('install.sh', () => {
         expect(await Bun.file(join(release.installDir, 'hog')).exists()).toBe(false)
     })
 
-    test.each(['hog', 'hog-worker'] as const)(
-        'keeps the installed pair when the new %s does not run here',
-        async (broken) => {
-            const release = await fakeRelease('1.2.3', 'bucket', { broken })
-            await mkdir(release.installDir, { recursive: true })
-            await writeFile(join(release.installDir, 'hog'), '#!/bin/sh\necho 1.0.0\n')
-            await writeFile(join(release.installDir, 'hog-worker'), '#!/bin/sh\necho worker 1.0.0\n')
+    test.each([
+        ['hog', "doesn't run on this machine"],
+        ['hog-worker', "doesn't run on this machine"],
+        ['hog without libstdc++', 'apk add libstdc++ libgcc'],
+    ] as const)('keeps the installed pair when the new %s does not run here, and says why', async (broken, reason) => {
+        const release = await fakeRelease('1.2.3', 'bucket', { broken })
+        await mkdir(release.installDir, { recursive: true })
+        await writeFile(join(release.installDir, 'hog'), '#!/bin/sh\necho 1.0.0\n')
+        await writeFile(join(release.installDir, 'hog-worker'), '#!/bin/sh\necho worker 1.0.0\n')
 
-            const result = await install(release, ['--version', '1.2.3'])
+        const result = await install(release, ['--version', '1.2.3'])
 
-            expect(result.exitCode).toBe(1)
-            expect(result.stderr).toContain("doesn't run on this machine")
-            expect(await readFile(join(release.installDir, 'hog'), 'utf8')).toBe('#!/bin/sh\necho 1.0.0\n')
-            expect(await readFile(join(release.installDir, 'hog-worker'), 'utf8')).toBe(
-                '#!/bin/sh\necho worker 1.0.0\n'
-            )
-            expect(readdirSync(release.installDir).sort()).toEqual(['hog', 'hog-worker'])
-        }
-    )
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain(reason)
+        expect(await readFile(join(release.installDir, 'hog'), 'utf8')).toBe('#!/bin/sh\necho 1.0.0\n')
+        expect(await readFile(join(release.installDir, 'hog-worker'), 'utf8')).toBe('#!/bin/sh\necho worker 1.0.0\n')
+        expect(readdirSync(release.installDir).sort()).toEqual(['hog', 'hog-worker'])
+    })
 
     test('installs a release from before hog-worker without one', async () => {
         const release = await fakeRelease('0.1.0', 'bucket', { worker: false })

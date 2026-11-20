@@ -293,7 +293,7 @@ export class Worker {
         const message = parseJson(line.value, Answer, failure)
         if (!message.ok) {
             // A request hog built wrong is a bug in hog. Every other failure is a file the worker
-            // could not read or write, reported as hog reported it when it did the work itself.
+            // could not read or write, and its message goes to the person as it is.
             if (message.error.code === 'bad_request') {
                 throw new HogError('worker_failed', `hog-worker refused a request: ${message.error.message}`)
             }

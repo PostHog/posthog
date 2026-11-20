@@ -16,10 +16,11 @@ npm install -g hog                                            # or pnpm add -g, 
 npx hog setup                                                 # run once without installing
 ```
 
-- The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`. It tells you when that folder isn't on your `PATH`.
+- The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`, with `hog-worker`, the program hog runs for `hog error-tracking`, next to it. It tells you when that folder isn't on your `PATH`.
 - `--version <version>` (or `HOG_VERSION`) installs another version, and `--dir <folder>` (or `HOG_INSTALL_DIR`) installs somewhere else: `curl -fsSL https://releases.posthog.com/hog/install.sh | sh -s -- --version 0.1.0`.
 - Builds exist for macOS (Apple silicon and Intel), Linux (x64 and arm64, glibc and musl) and Windows (x64 and arm64).
-- The npm package `hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with the binary for your machine.
+- On Alpine and other musl systems, hog needs `libstdc++` and `libgcc`. Install them first, as in `apk add libstdc++ libgcc`.
+- The npm package `hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with `hog` and `hog-worker` for your machine.
 
 ### Updates
 
@@ -27,7 +28,7 @@ npx hog setup                                                 # run once without
 
 | Installed with                 | `hog upgrade`                                                                                                         |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| The install script, or by hand | Downloads the new build, checks its SHA-256, and replaces the binary in one rename                                    |
+| The install script, or by hand | Downloads the new build, checks its SHA-256, and replaces `hog` and `hog-worker` together                             |
 | Homebrew, npm, pnpm or bun     | Shows the package manager's command, such as `brew upgrade hog`, and runs it once you say yes. Agents get the command |
 | npx, or a project dependency   | Changes nothing, and says which copy runs and how to update it                                                        |
 
@@ -350,6 +351,13 @@ hog error-tracking inject android/app/build/generated/assets         # before th
 hog error-tracking clone index.android.bundle.map index.android.bundle.hbc.composed.map
 hog error-tracking upload android/app/build/generated/sourcemaps     # the composed maps
 ```
+
+`inject`, `clone`, `upload` and `process` hand their file work to `hog-worker`, a program that ships next to `hog` in every install.
+hog starts only the `hog-worker` in its own folder, and the two must come from the same release.
+A hog that can't use its worker stops before it changes a file:
+
+- `worker_missing`: no `hog-worker` sits next to `hog`, for example in an image that copied only the `hog` binary. Copy both files, or follow the hint, which names the command for your install, such as `hog upgrade`.
+- `worker_mismatch`: the `hog-worker` next to `hog` comes from another release, or is another program. Install hog again to replace both.
 
 hog uploads the same bytes and content hashes as posthog-cli, so either CLI can re-upload what the other uploaded. A few things differ on purpose:
 

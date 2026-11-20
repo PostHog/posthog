@@ -2,7 +2,7 @@ import { readdirSync, realpathSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 import { isDsymBundle, isIgnored, type Artifact, type Root } from './discover'
-import type { Skip } from './kinds/js'
+import type { Skip } from './session'
 import { MAX_FILE_SIZE, type SymbolSetFile } from './upload'
 import type { NativeBinary, NativeProblem, PackItem, Worker } from './worker'
 
