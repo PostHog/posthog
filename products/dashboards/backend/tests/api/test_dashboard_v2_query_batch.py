@@ -13,6 +13,7 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.services.query import run_planned_query
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
@@ -179,6 +180,25 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
             lines = self._lines([_insight("$pageview")])
 
         self.assertEqual(lines, [{"i": 0, "error": "The query failed."}])
+
+    def test_an_oversized_entry_is_read_once_however_many_panels_repeat_it(self) -> None:
+        self._warm_via_query_endpoint("$pageview")
+        (hit,) = self._lines([_insight("$pageview", cacheOnly=True)])
+        too_large = {
+            "error": "The cached results in this request are too large to send together. Request fewer panels at once."
+        }
+        budget = len(json.dumps(hit, separators=(",", ":"))) - 64
+        # Room for a full chunk of error lines, so the second chunk is read rather than refused outright.
+        self.assertGreater(budget, 5 * len(json.dumps(too_large, separators=(",", ":"))))
+
+        with (
+            patch("products.dashboards.backend.v2.query_batch.MAX_READY_BYTES", budget),
+            patch("products.dashboards.backend.v2.query_batch.run_planned_query", wraps=run_planned_query) as reads,
+        ):
+            lines = self._lines([_insight("$pageview", cacheOnly=True)] * 7)
+
+        self.assertEqual(lines, [{"i": i, **too_large} for i in range(7)])
+        self.assertEqual(reads.call_count, 1)
 
 
 class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):

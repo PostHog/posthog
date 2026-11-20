@@ -63,6 +63,8 @@ WORKERS_PER_BATCH = 4
 MAX_CONCURRENT_BATCHES = 8
 HEARTBEAT_SECONDS = 10.0
 MAX_READY_BYTES = 128 * 1024 * 1024
+# Every cache hit rendered, kept or not, so oversized entries cannot be read and dropped without end.
+MAX_READ_BYTES = 4 * MAX_READY_BYTES
 CACHE_READ_CHUNK = 5
 MAX_UNREAD_LINES = WORKERS_PER_BATCH
 CANCEL_RETRY_SECONDS = 2.0
@@ -373,6 +375,7 @@ class QueryBatch:
         # Each line's JSON without its `i`, so panels that share a cache entry share one copy of its result.
         self.ready: list[tuple[int, bytes]] = []
         self._ready_bytes = 0
+        self._read_bytes = 0
         # Taken while the request is live: the middleware resets the query tags and team scope before streaming.
         self._context = copy_context()
         self._jobs: list[tuple[int, str, _Job]] = []
@@ -438,7 +441,7 @@ class QueryBatch:
                 for index in chunk:
                     self._add_ready({"i": index, "error": _TIMED_OUT})
                 continue
-            if self._ready_bytes >= MAX_READY_BYTES:
+            if self._ready_bytes >= MAX_READY_BYTES or self._read_bytes >= MAX_READ_BYTES:
                 # Past the budget, later entries are never fetched, so their blobs are not downloaded either.
                 for index in chunk:
                     self._add_ready({"i": index, "error": _TOO_LARGE})
@@ -524,8 +527,10 @@ class QueryBatch:
                     continue
                 body = _render_body(_result_line(index, response, hit=True, stale=stale))
                 del response
+                self._read_bytes += len(body)
                 if self._ready_bytes + len(body) > MAX_READY_BYTES:
-                    self._add_ready({"i": index, "error": _TOO_LARGE})
+                    # Shared like a served body, so panels repeating this entry are not fetched and rendered again.
+                    served[same_entry] = self._add_ready({"i": index, "error": _TOO_LARGE})
                     continue
                 self.ready.append((index, body))
                 self._ready_bytes += len(body)
