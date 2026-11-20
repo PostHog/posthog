@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
-import { createWindowIdRegistry } from '@posthog/replay-shared'
+import { ReplayTelemetry, createWindowIdRegistry } from '@posthog/replay-shared'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
@@ -56,7 +56,13 @@ const parseRawHeader = (line: string): ExportedSessionRecordingFileRawHeader => 
     return header
 }
 
-export const parseRawExportedSessionRecording = async (bytes: Uint8Array): Promise<LoadedSessionRecordingFile> => {
+// Event name the shared parser captures when it drops lines it cannot parse.
+const UNPARSEABLE_LINES_EVENT = 'session recording had unparseable lines'
+
+export const parseRawExportedSessionRecording = async (
+    bytes: Uint8Array,
+    onUnreadableLines?: () => void
+): Promise<LoadedSessionRecordingFile> => {
     const headerEnd = bytes.indexOf(0x0a, RAW_EXPORT_MAGIC.byteLength)
     if (headerEnd === -1) {
         throw new Error('File does not have a valid header')
@@ -81,7 +87,16 @@ export const parseRawExportedSessionRecording = async (bytes: Uint8Array): Promi
     if (blockCount !== header.block_count) {
         throw new Error(`File has ${blockCount} blocks but its header lists ${header.block_count}`)
     }
-    const snapshots = await parseEncodedSnapshots(blocks, header.session_id)
+    // The shared parser's telemetry would send unreadable lines, which hold page content, to analytics.
+    const telemetry: ReplayTelemetry = {
+        capture: (event) => {
+            if (event === UNPARSEABLE_LINES_EVENT) {
+                onUnreadableLines?.()
+            }
+        },
+        captureException: () => {},
+    }
+    const snapshots = await parseEncodedSnapshots(blocks, header.session_id, undefined, undefined, telemetry)
     if (!snapshots.length) {
         throw new Error('File contains no snapshots')
     }
@@ -253,7 +268,11 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                 try {
                     const bytes = new Uint8Array(await file.arrayBuffer())
                     const data = isRawExportedSessionRecording(bytes)
-                        ? await parseRawExportedSessionRecording(bytes)
+                        ? await parseRawExportedSessionRecording(bytes, () =>
+                              lemonToast.warning(
+                                  "Part of this recording couldn't be read, so playback may be incomplete. The file may be damaged."
+                              )
+                          )
                         : parseExportedSessionRecording(new TextDecoder().decode(bytes)).data
                     actions.reportRecordingLoadedFromFile({ success: true })
                     return data

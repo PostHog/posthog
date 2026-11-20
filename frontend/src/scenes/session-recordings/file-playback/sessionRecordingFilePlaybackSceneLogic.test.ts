@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -123,6 +124,20 @@ describe('sessionRecordingFilePlaybackLogic', () => {
             expect(parsed.viewports).toEqual([
                 { timestamp: 1000, width: '1280', height: '720', href: 'https://example.com' },
             ])
+        })
+
+        it('reports unreadable lines without sending them to analytics', async () => {
+            const onUnreadableLines = jest.fn()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            const parsed = await parseRawExportedSessionRecording(
+                encodeRawExport([rawBlock(0), 'not json']),
+                onUnreadableLines
+            )
+
+            expect(parsed.snapshots).toHaveLength(1)
+            expect(onUnreadableLines).toHaveBeenCalled()
+            expect(captureSpy).not.toHaveBeenCalled()
         })
 
         it.each([

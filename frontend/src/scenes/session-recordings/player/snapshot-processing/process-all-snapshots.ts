@@ -28,12 +28,13 @@ export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string,
     posthogInstance?: PostHog,
-    registerWindowId?: RegisterWindowIdCallback
+    registerWindowId?: RegisterWindowIdCallback,
+    telemetry: ReplayTelemetry = posthogTelemetry
 ): Promise<RecordingSnapshot[]> => {
     return _parseEncodedSnapshots(
         items,
         sessionId,
-        posthogTelemetry,
+        telemetry,
         registerWindowId,
         createBrowserDecompressor(posthogInstance)
     )
