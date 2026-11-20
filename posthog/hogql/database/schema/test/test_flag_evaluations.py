@@ -591,6 +591,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("flag_key", "flag_key", "$feature_flag", "probe-flag"),
+            ("flag_key_property", "properties.$feature_flag", "$feature_flag", "probe-flag"),
             ("response", "response", "$feature_flag_response", "variant-x"),
             ("raw_response", "flag_evaluation_response", "$feature_flag_response", "variant-x"),
             ("session_id", "session_id", "$session_id", SESSION_ID),
@@ -1524,6 +1525,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("number_as_string", "100"),
             ("number", 100),
             ("boolean", True),
+            # A materialized-column read turns the text "null" into NULL, so this flag would match nothing.
+            ("flag_named_null", "variant-a", "null"),
             (
                 "quoted_flag_key_read_through_json_extract_string",
                 "variant-a",
@@ -1750,7 +1753,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert ("FROM flag_evaluations" in rewritten.clickhouse) is swaps
 
     def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
-        self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)
+        clickhouse = self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse
+
+        assert clickhouse is not None
+        # A flag call's properties can be large enough that reading them for every call of one flag exhausts memory.
+        assert "properties" not in clickhouse
+        self.assertQueryMatchesSnapshot(clickhouse)
 
     def _create_lazy_join_sources(self) -> None:
         # Each join can reach both calls. Only the events-only call is in events, and only the setUp row is in

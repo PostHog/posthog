@@ -234,6 +234,8 @@ The web analytics dimensional tables `web_stats_dimensional_preaggregated` and `
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
 `flag_evaluations`, `ai_events`, and web analytics dimensional mirror columns are masked through `mirrored_properties_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask. The hidden `goe_N.key` on `flag_evaluations` reads the stored `$group_N` column through an expression field, and it masks too.
+A read of `properties.$feature_flag` on `flag_evaluations` prints as the `flag_key` column instead of a read of the blob.
+The resolver replaces a restricted key with NULL before it makes that substitution, so this read masks as the blob read does.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
 The hidden length fields `input_state_length` and `output_state_length` follow the rule of their state property, so a masked state also hides whether it exists.

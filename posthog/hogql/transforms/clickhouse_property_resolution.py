@@ -36,6 +36,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
@@ -861,6 +862,25 @@ def _feature_flag_compatibility_read(
     return _nonempty_container_json(_compact_feature_flags_map(feature_flags, restricted_keys), "{}")
 
 
+def _flag_key_column_read(
+    node: ast.PropertyAccess, field_type: ast.FieldType, context: HogQLContext
+) -> ast.Field | None:
+    """`flag_key` for a read of `properties.$feature_flag` on flag_evaluations, or None for any other read.
+
+    Ingestion writes a flag call to flag_evaluations only when its `$feature_flag` is a non-empty JSON string, and the
+    shard stores the JSON text of that string, without its quotes, in `flag_key`. The JSON read returns the same text on
+    every row, so the column gives the same value without loading the whole `properties` blob. The column is read
+    without the '' and 'null' scrubbing of a materialized column, because "null" here can only be the name of a flag.
+    """
+    table_type = _unwrap_to_table_type(field_type)
+    if node.keys != ["$feature_flag"] or table_type is None or not isinstance(table_type.table, FlagEvaluationsTable):
+        return None
+    field = field_type.resolve_database_field(context)
+    if not isinstance(field, DatabaseField) or field.name != "properties":
+        return None
+    return _synthetic_column_field(field_type, "flag_key", is_nullable=False)
+
+
 def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> ast.Expr | None:
     """The backing-column read for a `PropertyAccess`, or None to leave it as the JSON extract.
 
@@ -895,6 +915,11 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
         denied = isinstance(feature_flag_read, ast.Constant) and feature_flag_read.value is None
         _record_property_usage(context, None if denied else "json_subcolumn")
         return feature_flag_read
+
+    flag_key = _flag_key_column_read(node, field_type, context)
+    if flag_key is not None:
+        _record_property_usage(context, "materialized_column")
+        return flag_key
 
     source = resolve_materialized_property_source(field_type, first_key, context)
     if source is None:
