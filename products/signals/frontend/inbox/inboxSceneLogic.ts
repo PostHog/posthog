@@ -1088,8 +1088,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
-            // Keep Monitoring behind its report so closing the report does not add a Reports entry to browser history.
-            if (values.activeTab !== 'reports' && values.activeTab !== 'monitoring') {
+            // Keep Monitoring or Scouts behind its report so closing the report does not add a Reports entry to browser history.
+            if (values.activeTab !== 'reports' && values.activeTab !== 'monitoring' && values.activeTab !== 'scouts') {
                 actions.setActiveTab('reports')
             }
             // Reuse the list row if we already have it (instant render), then refresh from the server.

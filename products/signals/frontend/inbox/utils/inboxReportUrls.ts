@@ -1,5 +1,7 @@
-import { combineUrl } from 'kea-router'
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 /**
@@ -11,6 +13,37 @@ export function inboxReportDetailUrl(reportId: string, backUrl?: string): string
     return backUrl
         ? combineUrl(urls.inboxReport('reports', reportId), { back: backUrl }).url
         : urls.inboxReport('reports', reportId)
+}
+
+/**
+ * Report detail URLs that return to the page the reader is on, for report links on inbox surfaces
+ * other than the Reports list (a scout page with its pane and finding, findings, runs, scratchpad).
+ */
+export function useInboxReportDetailUrl(): (reportId: string) => string {
+    const { location } = useValues(router)
+    const backUrl = removeProjectIdIfPresent(location.pathname) + location.search
+    return (reportId) => inboxReportDetailUrl(reportId, backUrl)
+}
+
+/** The report header's back button label for a `?back=` path, named for where it goes. */
+export function inboxReportBackLabel(backUrl: string): string {
+    if (backUrl.startsWith(urls.inboxTriage())) {
+        return 'Triage'
+    }
+    const path = backUrl.split(/[?#]/)[0]
+    switch (path) {
+        case urls.inbox('monitoring'):
+            return 'Monitoring'
+        case urls.inbox('scouts'):
+            return 'Scouts'
+        case urls.inboxFindings():
+            return 'Findings'
+        case urls.inboxRuns():
+            return 'Runs'
+        case urls.inboxScratchpad():
+            return 'Scratchpad'
+    }
+    return path.startsWith(`${urls.inbox('scouts')}/`) ? 'Scout' : 'Back'
 }
 
 /**
