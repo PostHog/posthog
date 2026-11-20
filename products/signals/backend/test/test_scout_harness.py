@@ -3758,6 +3758,57 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "case",
+    ["cancelled_with_message", "cancelled_without_message", "cancel_requested_with_message"],
+)
+async def test_stopped_run_finishes_cancelled_and_leaves_the_failure_streak(ateam, aerrors_skill, case):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam, skill_name="signals-scout-errors", consecutive_failure_count=2
+    )
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(
+        ateam, "partial close-out"
+    )
+
+    async def start(*args, before_task_dispatch=None, **kwargs):
+        await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        if case == "cancel_requested_with_message":
+            update = {"state": {"cancel_requested_at": "2026-11-17T12:00:00+00:00"}}
+        else:
+            update = {"status": TaskRun.Status.CANCELLED}
+        await TaskRun.objects.filter(pk=session.task_run.pk).aupdate(**update)
+        if case == "cancelled_without_message":
+            raise RuntimeError("TaskRun reached terminal status=cancelled — no agent message")
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+        _stubbed_spawn_dependencies(),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == TaskRun.Status.CANCELLED.value
+    assert run_result.task_run_id == str(session.task_run.id)
+    assert run_result.run_id is not None
+    bridge = await SignalScoutRun.objects.aget(id=run_result.run_id)
+    assert bridge.summary == ""
+    await database_sync_to_async(config.refresh_from_db)()
+    assert config.consecutive_failure_count == 2
+    assert config.status == SignalScoutConfig.Status.ACTIVE
+    finished = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_finished"]
+    assert len(finished) == 1
+    assert finished[0].kwargs["properties"]["status"] == TaskRun.Status.CANCELLED.value
+    assert finished[0].kwargs["properties"]["task_run_id"] == str(session.task_run.id)
+    if case != "cancelled_without_message":
+        session.end.assert_awaited_once()
+        assert session.end.await_args.kwargs["status"] == "cancelled"
+        session.send_followup_raw.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_run_skipped_when_no_acting_user(ateam, aerrors_skill):
     # When no user can be resolved to act as (no active org member — `resolve_acting_user_id_for_team`
     # returns None), the run must skip rather than crash deep in _spawn_and_run and book a bogus
@@ -4118,7 +4169,7 @@ async def test_activity_returns_completed_outcome(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("outcome", ["runner_skipped", "skill_missing", "started"])
+@pytest.mark.parametrize("outcome", ["runner_skipped", "skill_missing", "started", "stopped"])
 async def test_activity_puts_back_claimed_workflow_triggers_when_no_run_starts(ateam, outcome):
     def queue_fires() -> tuple[str, ...]:
         for note in ("Issue #1", "Issue #2"):
@@ -4145,15 +4196,16 @@ async def test_activity_puts_back_claimed_workflow_triggers_when_no_run_starts(a
     async def fake_arun(**_kwargs):
         if outcome == "skill_missing":
             raise SkillNotFoundError("signals-scout-errors")
+        ran = outcome in {"started", "stopped"}
         return RunResult(
-            run_id="abc" if outcome == "started" else None,
-            task_run_id="def" if outcome == "started" else None,
-            status="completed" if outcome == "started" else None,
+            run_id="abc" if ran else None,
+            task_run_id="def" if ran else None,
+            status=("cancelled" if outcome == "stopped" else "completed") if ran else None,
             last_message=None,
             runtime_s=0.0,
             skill_name="signals-scout-errors",
             skill_version=1,
-            skip_reason=None if outcome == "started" else "prior run still in progress",
+            skip_reason=None if ran else "prior run still in progress",
         )
 
     with patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun):
@@ -4162,7 +4214,7 @@ async def test_activity_puts_back_claimed_workflow_triggers_when_no_run_starts(a
             RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors", pending_trigger_ids=trigger_ids),
         )
 
-    assert await database_sync_to_async(pending)() == ([] if outcome == "started" else queued_before)
+    assert await database_sync_to_async(pending)() == ([] if outcome in {"started", "stopped"} else queued_before)
 
 
 @pytest.mark.asyncio
