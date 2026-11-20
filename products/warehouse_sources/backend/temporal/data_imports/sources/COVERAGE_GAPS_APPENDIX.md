@@ -15281,9 +15281,9 @@ Diffed against: <https://developers.trustpilot.com/product-reviews-api/>
 - [x] `Conversations (GET /v1/private/conversations/{conversationId})` — resolve conversation IDs on product reviews into customer and business comments for response analysis (high)
 - [x] `Locations (GET /v1/private/business-units/{businessUnitId}/locations)` — resolve review location IDs into complete branch records and addresses for geographic comparisons (high)
 - [x] `Product reviews summaries list (GET /v1/private/product-reviews/business-units/{businessUnitId}/summaries)` — compare official rating averages, distributions, and review counts across products (medium)
-- [ ] `Imported product reviews (GET /v1/product-reviews/business-units/{businessUnitId}/imported-reviews)` — include externally imported feedback in product satisfaction and review volume analysis (medium)
-- [ ] `Categories for business unit (GET /v1/business-units/{businessUnitId}/categories)` — compare ratings across business categories and identify each category assignment (medium)
-- [ ] `Review likes (GET /v1/reviews/{reviewId}/likes)` — identify which consumers engage with service reviews beyond the embedded like count (low)
+- [ ] `Imported product reviews (GET /v1/product-reviews/business-units/{businessUnitId}/imported-reviews)` — include externally imported feedback in product satisfaction and review volume analysis (medium) Skipped: the endpoint requires a sku filter and its rows carry no review ID or SKU, so no unique primary key exists.
+- [x] `Categories for business unit (GET /v1/business-units/{businessUnitId}/categories)` — compare ratings across business categories and identify each category assignment (medium)
+- [x] `Review likes (GET /v1/reviews/{reviewId}/likes)` — identify which consumers engage with service reviews beyond the embedded like count (low)
 
 Note: Parsed GET operations on the official product reviews, private products, locations, categories, business units, and service reviews pages. Conversations require requests for IDs from product reviews; review likes require requests for each service review. Service review tags and company replies already appear in synced rows, so they are excluded. The catalog endpoint replaces the deprecated flat products list; invitation templates and writes are excluded.
 
