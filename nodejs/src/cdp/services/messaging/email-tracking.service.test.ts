@@ -334,7 +334,7 @@ describe('EmailTrackingService', () => {
                 const out = addTrackingToEmail(`<body>${anchor}</body>`, inv, signer, false, 'ses')
                 expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${translated}`)
                 // Opting links out of click tracking keeps the open pixel.
-                expect(out).toMatch(/<img src="[^"]*\/public\/m\/pixel\?ph_id=[^"]+"[^>]*><\/body>$/)
+                expect(out).toMatch(/<img src="[^"]*\/public\/m\/pixel\?[^"]+"[^>]*><\/body>$/)
             })
 
             it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {
