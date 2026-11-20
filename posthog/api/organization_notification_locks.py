@@ -213,7 +213,8 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
 
     def _memberships(self) -> _Memberships:
         return list(
-            OrganizationMembership.objects.select_related("user")
+            OrganizationMembership.objects.with_effective_level()
+            .select_related("user")
             .filter(organization_id=self.organization.id)
             .order_by("user__email")
         )

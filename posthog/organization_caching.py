@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID, uuid4
 
@@ -7,7 +8,7 @@ import django
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import caches
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models.signals import post_delete, post_save
 
 import structlog
@@ -27,7 +28,7 @@ _ORGANIZATION_ACCESS_CACHE_MISS = "missing"
 # Pickled models do not load across Django releases (6.1 pickles import a module 5.2 lacks), so value
 # keys carry the release for deploys and rollbacks. Version keys must stay shared so that an
 # invalidation on one release also makes the cached values of the other release stale.
-_PICKLE_NAMESPACE = f"django{django.VERSION[0]}.{django.VERSION[1]}"
+_PICKLE_NAMESPACE = f"django{django.VERSION[0]}.{django.VERSION[1]}:role-grants-v1"
 
 
 def _organization_model() -> type[Organization]:
@@ -207,10 +208,12 @@ def _cache_membership(membership: OrganizationMembership, version: str | None) -
 
 def get_cached_organization_membership(organization_id: str | UUID, user: User) -> OrganizationMembership | None:
     organization_membership_model = _organization_membership_model()
-    if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
+    if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED or connection.in_atomic_block:
         try:
-            return organization_membership_model.objects.select_related("organization").get(
-                organization_id=organization_id, user_id=user.id
+            return (
+                organization_membership_model.objects.with_effective_level()
+                .select_related("organization")
+                .get(organization_id=organization_id, user_id=user.id)
             )
         except (organization_membership_model.DoesNotExist, ValueError):
             return None
@@ -239,8 +242,10 @@ def get_cached_organization_membership(organization_id: str | UUID, user: User) 
         return _prepare_cached_membership(cached, user, organization)
 
     try:
-        membership = organization_membership_model.objects.select_related("organization").get(
-            organization_id=organization_id, user_id=user.id
+        membership = (
+            organization_membership_model.objects.with_effective_level()
+            .select_related("organization")
+            .get(organization_id=organization_id, user_id=user.id)
         )
     except (organization_membership_model.DoesNotExist, ValueError):
         _set_versioned_access_cache_value(key, _ORGANIZATION_ACCESS_CACHE_MISS, version)
@@ -253,8 +258,12 @@ def get_cached_organization_membership(organization_id: str | UUID, user: User) 
 
 def get_cached_organization_memberships(user: User) -> list[OrganizationMembership]:
     organization_membership_model = _organization_membership_model()
-    if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
-        return list(organization_membership_model.objects.filter(user_id=user.id).select_related("organization"))
+    if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED or connection.in_atomic_block:
+        return list(
+            organization_membership_model.objects.with_effective_level()
+            .filter(user_id=user.id)
+            .select_related("organization")
+        )
 
     key = _user_organization_memberships_cache_key(user.id)
     version = _get_cache_version(key)
@@ -262,7 +271,7 @@ def get_cached_organization_memberships(user: User) -> list[OrganizationMembersh
     if isinstance(cached, list):
         memberships: list[OrganizationMembership] = cached
     else:
-        memberships = list(organization_membership_model.objects.filter(user_id=user.id))
+        memberships = list(organization_membership_model.objects.with_effective_level().filter(user_id=user.id))
         _set_versioned_access_cache_value(key, memberships, version)
     organizations = _get_cached_organizations([membership.organization_id for membership in memberships])
     return [
@@ -281,18 +290,29 @@ def invalidate_organization_access_cache(organization_id: str | UUID) -> None:
 
 
 def invalidate_organization_membership_access_cache(organization_id: str | UUID, user_id: int) -> None:
+    invalidate_organization_membership_access_caches([(organization_id, user_id)])
+
+
+def invalidate_organization_membership_access_caches(members: Iterable[tuple[str | UUID, int]]) -> None:
     if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
         return
-
-    keys = (
-        _organization_membership_cache_key(organization_id, user_id),
-        _user_organization_memberships_cache_key(user_id),
-    )
+    keys = {
+        key
+        for organization_id, user_id in members
+        for key in (
+            _organization_membership_cache_key(organization_id, user_id),
+            _user_organization_memberships_cache_key(user_id),
+        )
+    }
+    if not keys:
+        return
 
     def invalidate_after_commit() -> None:
-        for key in keys:
-            _set_access_cache_value(_access_cache_version_key(key), uuid4().hex)
-            _delete_access_cache_value(_access_cache_value_key(key))
+        _set_access_cache_values({_access_cache_version_key(key): uuid4().hex for key in keys})
+        try:
+            access_cache.delete_many([_access_cache_value_key(key) for key in keys])
+        except Exception:
+            logger.warning("organization_access_cache_delete_failure", cache_keys=list(keys), exc_info=True)
 
     transaction.on_commit(invalidate_after_commit)
 

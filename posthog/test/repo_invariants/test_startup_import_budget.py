@@ -173,6 +173,8 @@ _SIGNALS = ["pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed",
 _CUSTOM_SIGNALS = {
     "model_activity": model_activity_signal,
     "experiment_changed": experiment_changed,
+    "role_access_changed": sys.modules["products.access_control.backend.facade.change_signals"].role_access_changed,
+    "role_access_invalidated": sys.modules["products.access_control.backend.facade.change_signals"].role_access_invalidated,
     "user_logged_in": auth_signals.user_logged_in,
     "user_logged_out": auth_signals.user_logged_out,
     "user_login_failed": auth_signals.user_login_failed,
@@ -265,6 +267,8 @@ _SIGNALS["model_activity"] = model_activity_signal
 # Looked up instead of imported: an import here would connect the experiments save receivers itself, which would hide
 # a dropped import from an AppConfig.ready().
 _SIGNALS["experiment_changed"] = sys.modules["products.experiments.backend.facade.change_signals"].experiment_changed
+_SIGNALS["role_access_changed"] = sys.modules["products.access_control.backend.facade.change_signals"].role_access_changed
+_SIGNALS["role_access_invalidated"] = sys.modules["products.access_control.backend.facade.change_signals"].role_access_invalidated
 
 out = set()
 for signal_name, signal in _SIGNALS.items():

@@ -11,7 +11,8 @@ A pre_save fallback handles credentials loaded with hash/scope deferred (.only()
 where post_init skips the snapshot — without it a deferred-load rotation wouldn't clear the
 old hash. Wired from PostHogConfig.ready(). All handlers no-op without AI_GATEWAY_REDIS_URL,
 and skip credentials that never held the gateway scope before touching Celery/Redis.
-Mutations must go through .save()/.delete(); bulk_update()/.update() bypass signals.
+Credential mutations must go through .save()/.delete(); bulk_update()/.update() bypass signals.
+Role grants and memberships also support queryset mutations through their access-change signal.
 """
 
 from typing import Any
@@ -365,13 +366,12 @@ def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: A
     transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
 
 
-def _reproject_on_role_membership_change(sender: type, instance: Any, **kwargs: Any) -> None:
-    # Role membership feeds role-scoped ACs, so a change can flip project access with no
-    # AccessControl row changing. Per-user, so clear synchronously like the other
-    # user-scoped revocations (unlike the team-wide access-control handler).
-    if not settings.AI_GATEWAY_REDIS_URL or instance.user_id is None:
+def _reproject_on_role_access_change(sender: object, user_id: int, **kwargs: Any) -> None:
+    # Role grants and memberships can change project access without an AccessControl write.
+    # Refresh synchronously after commit and membership-cache invalidation.
+    if not settings.AI_GATEWAY_REDIS_URL:
         return
-    _reproject_user_sync_then_async(instance.user_id)
+    _reproject_user_sync_then_async(user_id)
 
 
 def connect_signal_handlers() -> None:
@@ -399,10 +399,9 @@ def connect_signal_handlers() -> None:
     post_save.connect(_reproject_on_membership_save, sender=OrganizationMembership)
     post_delete.connect(_reproject_on_membership_delete, sender=OrganizationMembership)
 
+    from products.access_control.backend.facade.change_signals import connect_role_access_changed
     from products.access_control.backend.models.access_control import AccessControl
-    from products.access_control.backend.models.role import RoleMembership
 
     post_save.connect(_reproject_on_access_control_change, sender=AccessControl)
     post_delete.connect(_reproject_on_access_control_change, sender=AccessControl)
-    post_save.connect(_reproject_on_role_membership_change, sender=RoleMembership)
-    post_delete.connect(_reproject_on_role_membership_change, sender=RoleMembership)
+    connect_role_access_changed(_reproject_on_role_access_change, dispatch_uid="gateway-credential-role-access")
