@@ -187,7 +187,7 @@ To read the content of a row that a cross-team query found, take its `team_id` a
 ## Query patterns
 
 [references/query-patterns.md](references/query-patterns.md) has checked queries for both engines: slow queries, per-team cost, a `query_id` lookup, cluster state, per-team event series, and app-table reads.
-`posthog.query_log_archive` has typed `lc_*` columns in place of the `log_comment` JSON.
+`posthog.query_log_archive` has typed `lc_*` columns for the common `log_comment` keys, and a `log_comment` column that keeps the initial query's log_comment, without `timings` and `query`, for one month.
 
 ## Other skills
 

@@ -2096,7 +2096,7 @@ Diffed against: <https://www.billomat.com/en/api/>
 - [x] `Articles (GET /api/articles)` — analyze the product and service catalog, prices, and supplier relationships (medium)
 - [x] `Delivery notes (GET /api/delivery-notes)` — connect deliveries to the sales process and analyze fulfillment status (medium)
 - [x] `Activity feed (GET /api/activity-feed)` — track document actions and user activity over time (medium)
-- [ ] `Invoice comments (GET /api/invoice-comments?invoice_id={invoice_id})` — analyze invoice discussions and system actions during billing and collection (medium)
+- [x] `Invoice comments (GET /api/invoice-comments?invoice_id={invoice_id})` — analyze invoice discussions and system actions during billing and collection (medium)
 
 Note: The official API index and individual reference pages supplied explicit GET examples for all listed resources. No usable specification was found at the index. Contacts and comments require calls for each client or invoice. Estimates correctly map to /offers; settings, webhooks, PDF downloads, and write operations are excluded.
 
@@ -5741,11 +5741,11 @@ Diffed against: <https://finnworlds.com/documentation/>
 - [x] `Company Identification` — ticker/ISIN/CIK lookup table that resolves the company identifiers every other synced table keys on (high) — added as `company_identifiers` (`/identifiers`)
 - [x] `Historical Candlestick` — historical OHLC series; stock_prices only covers real-time quotes so there is no price history to analyze (high) — already synced: `stock_prices` calls `/historicalcandlestick`. The uncovered endpoint is the real-time quote one (`/stockprice`), not this one.
 - [x] `Insider Transactions` — insider trade rows, a core analytical fact table absent from the current set (high) — added as `insider_transactions`, one row per Form 4 transaction line
-- [ ] `Market Exchanges` — lookup resolving the exchange codes carried on company and price rows (medium)
-- [ ] `Stock Market Index` — index level series needed to benchmark the synced company data (medium)
+- [ ] `Market Exchanges` — lookup resolving the exchange codes carried on company and price rows (medium) Skipped: `/exchangeinfo` resolves one MIC per request and has no list call, so a sync has nothing to iterate.
+- [x] `Stock Market Index` — index level series needed to benchmark the synced company data (medium) — added as `stock_market_indices` (`/benchmark`), latest level per index, fanned out over the countries field
 - [x] `Macroeconomic Data` — macro indicator series, one of Finnworlds' headline datasets (medium) — added as `macroeconomic_indicators` (`/macroindicator`), fanned out over a new countries field
-- [ ] `Economic Calendar` — scheduled macro releases; useful for event-study joins against price data (medium)
-- [ ] `Currency Exchange Rates` — FX rates required to normalize multi-currency financial statements (medium)
+- [x] `Economic Calendar` — scheduled macro releases; useful for event-study joins against price data (medium) — added as `economic_calendar` (`/macrocalendar`), fanned out over the countries field
+- [x] `Currency Exchange Rates` — FX rates required to normalize multi-currency financial statements (medium) — added as `currency_exchange_rates` (`/currencypairs`), latest quotes, fanned out over a new base currencies field
 - [ ] `ETF Holdings` — fund-to-holding breakdown rows linking funds to already-synced companies (medium)
 - [ ] `Mutual Fund Holdings` — same fund-to-holding join for mutual funds (medium)
 - [ ] `Historical Bond Yields` — bond_yields is synced but only current; the historical series is what yield-curve analysis needs (medium)
@@ -6130,9 +6130,9 @@ Diffed against: <https://developers.freshchat.com/api/>
 - [x] `/v2/users/{user_id}/conversations` — conversations are the product's core analytical object and are entirely absent today (high)
 - [x] `/v2/conversations/{conversation_id}/messages` — message-level data for response time, volume and agent workload analysis (high)
 - [x] `/v2/roles` — lookup resolving the role IDs carried on agents (high)
-- [ ] `/v2/reports/raw` — bulk raw data export - the practical way to land conversation/agent history at scale (medium) — not a readable collection: `POST /reports/raw` submits an async extraction job and `GET /reports/raw/{id}` returns a status plus a link to a generated CSV/JSON file. It needs a mandatory `event` type from a fixed enum, each of which yields a different report schema, over a window capped at one month (24 hours for chat transcripts) and no earlier than 15 months back. There is no single stable table behind it.
+- [ ] `/v2/reports/raw` — bulk raw data export - the practical way to land conversation/agent history at scale (medium) — not a readable collection: `POST /reports/raw` submits an async extraction job and `GET /reports/raw/{id}` returns a status plus a link to a generated CSV/JSON file. It needs a mandatory `event` type from a fixed enum, each of which yields a different report schema, over a window capped at one month (24 hours for chat transcripts) and no earlier than 15 months back. There is no single stable table behind it. Skipped: async export job with a per-event report schema, not a readable collection.
 - [x] `/v2/outbound-messages` — outbound campaign message sends and their delivery state (medium)
-- [ ] `/v2/metrics/historical` — vendor-computed historical conversation/agent metrics (medium)
+- [x] `/v2/metrics/historical` — vendor-computed historical conversation/agent metrics (medium)
 
 Note: There is no top-level GET /v2/conversations list - conversations are only enumerable per user (/v2/users/{user_id}/conversations), so an implementation must fan out from the users table already synced, then fan out again for messages. /v2/agents/{id} status updates and business-hours/within-bh are write/check endpoints, not collections.
 
@@ -8115,10 +8115,10 @@ Diffed against: <https://docs.jfrog.com/artifactory/docs/aql-entities-fields-ref
 - [x] `AQL statistic domain (stat.downloads, stat.downloaded, stat.downloaded_by)` — artifact download counts and last-download - the headline consumption metric for a registry (high)
 - [x] `AQL artifact / module / dependency domains (build artifacts and dependencies)` — line items joining the already-synced builds to the already-synced artifacts, plus the dependency graph (high)
 - [x] `Xray Get Violations (/xray/api/v1/violations)` — security and license policy violations per artifact/build, the main security-analytics fact table (high)
-- [ ] `AQL property domain (artifact properties)` — key/value metadata on artifacts used for promotion and environment labelling (medium)
-- [ ] `Xray Artifact Summary / Build Summary (/xray/api/v1/summary/*)` — per-artifact and per-build vulnerability and license rollups (medium)
-- [ ] `Release bundles: Get All Bundles / Get All Bundle Versions (AQL release domain)` — release-level grouping of artifacts, the unit teams actually ship (medium)
-- [ ] `Xray Get Licenses` — license lookup table resolving license IDs surfaced on artifacts and violations (medium)
+- [x] `AQL property domain (artifact properties)` — key/value metadata on artifacts used for promotion and environment labelling (medium)
+- [ ] `Xray Artifact Summary / Build Summary (/xray/api/v1/summary/*)` — per-artifact and per-build vulnerability and license rollups (medium). Skipped: lookup by artifact path, checksum or build, not a list endpoint; it needs a fan-out over every artifact or build, and `xray_violations` already holds the issues.
+- [x] `Release bundles: Get All Bundles / Get All Bundle Versions (AQL release domain)` — release-level grouping of artifacts, the unit teams actually ship (medium)
+- [x] `Xray Get Licenses` — license lookup table resolving license IDs surfaced on artifacts and violations (medium)
 - [ ] `List Docker Repositories / List Docker Tags` — tag-level inventory for container registries, which AQL items alone do not resolve cleanly (low)
 - [ ] `Archive Entries Search (/api/search/archive)` — class/file entries inside archives for deep dependency auditing (low)
 
@@ -11695,13 +11695,13 @@ Diffed against: <https://core-api.uk.plain.com/graphql/v1/schema.graphql>
 - [x] `tenants` — multi-tenant grouping dimension for customers and threads (high)
 - [x] `customerSurveys` — CSAT survey definitions: template, targeting and send settings, not responses (high)
 - [ ] CSAT survey responses — individual responses and scores, the headline support-quality metric; the schema has no list query for them (high)
-- [ ] `tiers` — SLA tier per company/tenant, needed to segment thread response times (medium)
-- [ ] `tasks` — work items attached to threads, needed for workload analysis (medium)
+- [x] `tiers` — SLA tier per company/tenant, needed to segment thread response times (medium)
+- [x] `tasks` — work items attached to threads, needed for workload analysis (medium)
 - [x] `discussions` — internal discussion threads separate from customer-facing threads (medium)
 - [x] `customerGroups` — lookup resolving group IDs on customers (medium)
 - [x] `workflowExecutions` — automation run history, for measuring deflection and routing (medium)
-- [ ] `threadFieldSchemas` — lookup defining the custom thread fields whose values appear on threads (medium)
-- [ ] `knowledgeGaps` — AI knowledge-gap records for content prioritization (low)
+- [x] `threadFieldSchemas` — lookup defining the custom thread fields whose values appear on threads (medium)
+- [x] `knowledgeGaps` — AI knowledge-gap records for content prioritization (low)
 
 Note: Plain is GraphQL-only; I enumerated every \*Connection field on type Query from the published SDL. 62 paginated collections exist against the 3 tables PostHog exposes. Non-analytical Connections (webhookTargets, workspaceSlackIntegrations, serviceAuthorizations, savedThreadsViews, chatApps, roles, billingPlans) were deliberately excluded as config/plumbing.
 
@@ -12947,8 +12947,8 @@ Today (3): `batches`, `projects`, `tasks`
 
 Diffed against: <https://api-reference.scale.com/llms.txt>
 
-- [ ] `audits (GET /v1/audits?task_id=…)` — fixless audit records and feedback items — the input to Scale's quality scores, the platform's headline metric (medium)
-- [ ] `batches/{name}/status` — per-batch task counts by state (pending/completed/error), a cheap progress breakdown (low)
+- [x] `audits (GET /v1/audits?task_id=…)` — fixless audit records and feedback items — the input to Scale's quality scores, the platform's headline metric (medium)
+- [x] `batches/{name}/status` — per-batch task counts by state (pending/completed/error), a cheap progress breakdown (low)
 
 Note: The v1 REST API is genuinely small: batches, projects, tasks, audits. GenAI Data Engine, GenAI Platform and Taxonomy Service are documented as guides with no listable REST collections. The audits endpoint requires a task_id or audit id, so it has to be driven off the already-synced tasks table rather than bulk-listed.
 
@@ -13453,7 +13453,7 @@ Note: Coverage of the flat top-level collections is complete — every un-pagina
 
 ## Shortio — **thin**
 
-Today (5): `domains`, `links`, `link_clicks`, `last_clicks`, `link_by_interval`
+Today (8): `domains`, `links`, `link_clicks`, `last_clicks`, `link_by_interval`, `domain_by_interval`, `domain_top`, `link_top`
 
 Diffed against: <https://api.short.io/openapi.json>
 
@@ -13461,10 +13461,10 @@ Diffed against: <https://api.short.io/openapi.json>
 - [x] `statistics/domain/{domainId}/last_clicks (POST, statistics.short.io)` — paginated raw clicks for every domain (high)
 - [x] `statistics/domain/{domainId}/link_clicks (GET/POST, statistics.short.io)` — click counts by link ID through GET (high)
 - [x] `statistics/link/{linkId}/by_interval (POST, statistics.short.io)` — daily click counts by link (high)
-- [ ] `statistics/domain/{domainId}/by_interval (POST, statistics.short.io)` — domain-level click time series (medium)
-- [ ] `statistics/domain/{domainId}/top (POST, statistics.short.io)` — breakdown dimensions (country, referrer, device, browser) ordered by clicks (medium)
-- [ ] `statistics/link/{linkId}/top (POST, statistics.short.io)` — same breakdown dimensions scoped to a single link (medium)
-- [ ] `links/folders/{domainId} (GET)` — lookup resolving the folder a link belongs to (medium)
+- [x] `statistics/domain/{domainId}/by_interval (POST, statistics.short.io)` — domain-level click time series (medium)
+- [x] `statistics/domain/{domainId}/top (POST, statistics.short.io)` — breakdown dimensions (country, referrer, device, browser) ordered by clicks (medium)
+- [x] `statistics/link/{linkId}/top (POST, statistics.short.io)` — same breakdown dimensions scoped to a single link (medium)
+- [ ] `links/folders/{domainId} (GET)` — lookup resolving the folder a link belongs to (medium) Skipped: the spec and the official SDK publish no response schema, so the row shape and key are unknown.
 - [ ] `tags/{domainId} (GET)` — lookup for link tags used to group campaign links (medium)
 - [ ] `statistics/domain/{domainId}/paths (GET, statistics.short.io)` — most popular link paths in a time window (low)
 - [ ] `links/bundle/{id}/links (GET)` — link-in-bio bundle membership (low)
@@ -15556,8 +15556,8 @@ Diffed against: <https://docs.unstructured.io/llms.txt>
 - [x] `job failed files (GET /jobs/{id}/failed-files)` — per-file failure reasons — the only place processing errors are enumerated; jobs alone give just a status (high)
 - [x] `job details (GET /jobs/{id}/details)` — per-node processing counts and timings inside a job, the grain needed for throughput and cost analysis (high)
 - [x] `notifications (GET /notifications)` — workspace event stream (job started/failed/completed) with timestamps, an analytical log the jobs table does not reproduce (medium)
-- [ ] `templates (GET /templates)` — lookup resolving the template a workflow was created from, plus its DAG metadata (medium)
-- [ ] `source/destination connection checks (GET /sources/{id}/connection-check, /destinations/{id}/connection-check)` — connector health history to correlate with failed jobs (low)
+- [x] `templates (GET /templates)` — lookup resolving the template a workflow was created from, plus its DAG metadata (medium)
+- [x] `source/destination connection checks (GET /sources/{id}/connection-check, /destinations/{id}/connection-check)` — connector health history to correlate with failed jobs (low)
 
 Note: docs.unstructured.io serves no OpenAPI JSON (api.unstructuredapp.io/openapi.json 404s); the llms.txt index enumerates every api-reference operation and was used for the diff. The four synced tables cover the main workflow objects, so remaining gaps are the per-job detail and notification event surfaces.
 
@@ -16461,7 +16461,7 @@ Diffed against: <https://docs.zapsign.com.br/english/sitemap-pages.xml>
 - [x] `docs/signer-log/{doc_token} (document audit trail)` — per-document signature event history (viewed, signed, refused, timestamps) - the state-transition table behind document status (high)
 - [x] `users (GET /api/v1/users/, account users)` — lookup table resolving the created_by / account user IDs already carried on documents (medium)
 - [x] `signer-verification-details/{signer_token}` — authentication and identity-verification outcome per signer, needed to analyze signing friction and failures (medium)
-- [ ] `checks/{check_id} and checks/{check_id}/details (background checks)` — background-check status and results tied to signers; no list endpoint, so it must fan out from signers (low)
+- [ ] `checks/{check_id} and checks/{check_id}/details (background checks)` — background-check status and results tied to signers; no list endpoint, so it must fan out from signers (low) Skipped: no list endpoint, and no document or signer response carries a check_id, so check IDs cannot be discovered.
 
 Note: Docs are a GitBook site with no OpenAPI spec; the English sitemap enumerates every endpoint page and each page embeds the literal api.zapsign.com.br path, which is what I diffed against. Webhook create/delete/logs endpoints exist but were excluded as plumbing.
 
@@ -16653,17 +16653,17 @@ Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/me
 
 ## Zylo — gaps
 
-Today (18): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationStats`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PendingContracts`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`, `Users`, `Views`
+Today (21): `ActivityHistory`, `ApplicationBudgets`, `ApplicationFunctionalities`, `ApplicationLicenses`, `ApplicationStats`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `CustomFields`, `POLineItems`, `Payments`, `PendingContractLineItems`, `PendingContracts`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`, `Users`, `Views`
 
 Diffed against: <https://developer.zylo.com/sitemap.xml>
 
 - [x] `/v2/users` — the company employee directory - lookup resolving the user IDs on the ApplicationUsers rows we already sync (high) (`users`)
 - [x] `/v2/applicationStats` — per-application spend and utilization stats, Zylo's headline metric and the whole point of SaaS management (high) (`application_stats`, full refresh only: the stats change daily but the only timestamp filters are the application's own dates)
 - [x] `/v2/pendingContracts` — contracts in flight/awaiting approval - the renewal pipeline, invisible from the committed Contracts table (high) (`pending_contracts`)
-- [ ] `/v2/pendingContractLineItems` — line-item grain for pending contracts, needed to forecast renewal spend by product (medium)
-- [ ] `/v2/applications/{applicationId}/functionalities` — functionality taxonomy per app - the breakdown dimension for redundant-spend analysis across the Applications we sync (medium)
-- [ ] `/v2/zybrary` — Zylo's reference SaaS catalog - lookup enriching synced Applications with vendor/category benchmark data (medium)
-- [ ] `/v2/customFields` — custom field definitions - lookup resolving the customer-defined field IDs that appear on applications, contracts and suppliers (medium)
+- [x] `/v2/pendingContractLineItems` — line-item grain for pending contracts, needed to forecast renewal spend by product (medium) (`pending_contract_line_items`)
+- [x] `/v2/applications/{applicationId}/functionalities` — functionality taxonomy per app - the breakdown dimension for redundant-spend analysis across the Applications we sync (medium) (`application_functionalities`, fanned out over `/v2/applications`)
+- [ ] `/v2/zybrary` — Zylo's reference SaaS catalog - lookup enriching synced Applications with vendor/category benchmark data (medium) Skipped: search-only endpoint that requires one of search, app_domain, id or app_name, so it cannot list the full catalog.
+- [x] `/v2/customFields` — custom field definitions - lookup resolving the customer-defined field IDs that appear on applications, contracts and suppliers (medium) (`custom_fields`; needs the `admin` scope)
 - [ ] `/v2/zyloUsers` — Zylo platform users - lookup resolving owner/approver IDs referenced on applications and contracts (medium)
 - [x] `/v2/views` — application groupings (cost centers, business units) - the org breakdown dimension for spend rollups (medium) (`views`; needs the `admin` scope)
 - [ ] `/v2/applicationBudgets/stats` — budget-vs-actual aggregates alongside the raw ApplicationBudgets we already sync (medium)
