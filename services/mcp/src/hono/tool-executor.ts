@@ -33,6 +33,7 @@ import { resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
+import { observedNames } from '@/lib/request-properties'
 import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
@@ -436,6 +437,7 @@ export class ToolExecutor {
         args: Record<string, unknown>
         preparedCall: PreparedToolCall | undefined
     } {
+        const requestMetaKeys = requestMeta ? observedNames(Object.keys(requestMeta)) : undefined
         try {
             const carriesContext = Boolean(requestContext.mcpSessionId || requestContext.mcpConversationId)
             const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, {
@@ -451,13 +453,14 @@ export class ToolExecutor {
                     llmModel: prepared.llmModel,
                     llmModelSource: prepared.llmModelSource,
                     llmModelMissingReason: prepared.llmModel ? undefined : getModelMissingReason(rawArgs.llm_model),
+                    requestMetaKeys,
                 },
                 args: prepared.args ?? rawArgs,
                 preparedCall: prepared,
             }
         } catch {
             return {
-                analyticsMeta: { llmModelMissingReason: 'capture_error' },
+                analyticsMeta: { llmModelMissingReason: 'capture_error', requestMetaKeys },
                 args: rawArgs,
                 preparedCall: undefined,
             }

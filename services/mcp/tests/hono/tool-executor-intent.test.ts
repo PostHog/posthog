@@ -737,6 +737,53 @@ describe('ToolExecutor analytics capture', () => {
         captureSpy.mockRestore()
     })
 
+    it.each([
+        {
+            label: 'names a client conversation id without its value',
+            requestMeta: {
+                'openai/session': 'v1/secret-session-value',
+                'io.modelcontextprotocol/clientInfo': { name: 'openai-mcp', version: '1.0.0' },
+            },
+            requestHeaderNames: ['content-type', 'mcp-protocol-version', 'user-agent'],
+            expectedMetaKeys: ['io.modelcontextprotocol/clientInfo', 'openai/session'],
+            expectedHeaderNames: ['content-type', 'mcp-protocol-version', 'user-agent'],
+        },
+        {
+            label: 'drops names that are blank, padded or too long',
+            requestMeta: { '': 1, 'has space': 1, ['x'.repeat(65)]: 1, sessionId: 'abc' },
+            requestHeaderNames: undefined,
+            expectedMetaKeys: ['sessionId'],
+            expectedHeaderNames: undefined,
+        },
+        {
+            label: 'records nothing when the request carries no _meta',
+            requestMeta: undefined,
+            requestHeaderNames: undefined,
+            expectedMetaKeys: undefined,
+            expectedHeaderNames: undefined,
+        },
+    ])(
+        'request identity: $label',
+        async ({ requestMeta, requestHeaderNames, expectedMetaKeys, expectedHeaderNames }) => {
+            const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+            const state = makeToolExecutorState([], {
+                useSingleExec: true,
+                requestContext: { authMethod: 'personal_api_key', mcpSessionId: 'sess-1', requestHeaderNames },
+            })
+            await executor.handleToolsList(state)
+
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' }, _meta: requestMeta }, state)
+
+            await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+            const properties = captureSpy.mock.calls[0]![0].properties ?? {}
+            expect(properties.mcp_request_meta_keys).toEqual(expectedMetaKeys)
+            expect(properties.mcp_request_header_names).toEqual(expectedHeaderNames)
+            expect(JSON.stringify(captureSpy.mock.calls[0]![0])).not.toContain('secret-session-value')
+
+            captureSpy.mockRestore()
+        }
+    )
+
     it('keeps the handle a wrapper app sent on the conversation header', async () => {
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
         const state = makeToolExecutorState([], {
