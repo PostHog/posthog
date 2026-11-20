@@ -712,7 +712,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 )
             credential = instance.team_credential
             if credential is None:
-                raise serializers.ValidationError({"credential": "This table's credential can't be changed."})
+                raise serializers.ValidationError(
+                    {"credential": "This table's credential can't be changed. Contact support to fix this table."}
+                )
             access_key = credential_data.get("access_key")
             access_secret = credential_data.get("access_secret")
 
