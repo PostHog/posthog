@@ -152,10 +152,20 @@ const CLOSURE_HOLDS_ITSELF: &str = r#"["_H", 1, 52, "make", 0, 0, 32, 31, 52, "l
 // fun make(prev) { return (x) -> prev }; fun build(n) { if (n == 0) { return null } return make(build(n - 1)) }; build(inputs.n); return 1
 const CLOSURE_CHAIN: &str = r#"["_H", 1, 52, "make", 1, 0, 13, 52, "lambda", 1, 1, 3, 55, 0, 38, 53, 1, true, 0, 38, 53, 0, 52, "build", 1, 2, 23, 33, 0, 36, 0, 11, 40, 2, 31, 38, 33, 1, 36, 0, 7, 55, 0, 54, 1, 55, 1, 54, 1, 38, 53, 2, true, 1, true, 0, 32, "n", 32, "inputs", 1, 2, 36, 1, 54, 1, 35, 33, 1, 38, 57, 57]"#;
 
+// The same `make`, then `return ed25519Verify('', '', '', make())`, whose error message prints the fourth argument.
+const CLOSURE_IN_AN_ERROR: &str = r#"["_H", 1, 52, "make", 0, 0, 32, 31, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 52, "lambda", 0, 1, 3, 55, 0, 38, 53, 1, true, 0, 37, 0, 36, 1, 38, 35, 57, 53, 0, 32, "", 32, "", 32, "", 36, 0, 54, 0, 2, "ed25519Verify", 4, 38, 35]"#;
+
 #[test]
-fn comparing_or_dropping_closures_that_hold_closures_does_not_overflow_the_stack() {
+fn comparing_printing_or_dropping_closures_that_hold_closures_does_not_overflow_the_stack() {
     let itself = sync_execute(&context(CLOSURE_HOLDS_ITSELF, json!({})), false).unwrap();
     assert_eq!(itself, json!(true));
+
+    let failure = sync_execute(&context(CLOSURE_IN_AN_ERROR, json!({})), false).unwrap_err();
+    assert!(
+        matches!(failure.error, VmError::NativeCallFailed(_)),
+        "{:?}",
+        failure.error
+    );
 
     let chain = context(CLOSURE_CHAIN, json!({"inputs": {"n": 60000}})).with_max_steps(usize::MAX);
     assert_eq!(sync_execute(&chain, false).unwrap(), json!(1));

@@ -83,13 +83,22 @@ pub enum Callable {
     Stl(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Closure {
     pub captures: Vec<UpvalueCell>,
     pub callable: Callable,
 }
 
-// A closure can capture an upvalue that holds the same closure, so captures compare by identity and not by value.
+// A closure can capture an upvalue that holds the same closure, so captures compare by identity and print as a count.
+impl std::fmt::Debug for Closure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Closure")
+            .field("callable", &self.callable)
+            .field("captures", &self.captures.len())
+            .finish()
+    }
+}
+
 impl PartialEq for Closure {
     fn eq(&self, other: &Self) -> bool {
         self.callable == other.callable
