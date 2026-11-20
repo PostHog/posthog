@@ -52,7 +52,7 @@ from posthog.temporal.common.clickhouse import (
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -496,13 +496,19 @@ def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     return batch.cast(nullable_schema)
 
 
-class UnstorableDecimalError(NonReportableError):
-    """A nested column holds a decimal with more digits than the 128-bit decimals Delta Lake has."""
+class UnstorableDecimalError(NonReportableApplicationError):
+    """A nested column holds a decimal with more digits than the 128-bit decimals Delta Lake has.
+
+    Non-retryable here rather than in the workflow's retry policy, so that a retry of the same
+    query does not repeat the read and the writes before it fails on the same value again.
+    """
 
     def __init__(self, column: str) -> None:
         super().__init__(
             f'Column "{column}" has decimal values with more than 38 digits, which is the most a '
-            f"materialized table can store. Round the values, or wrap the column in toString() to store it as text."
+            f"materialized table can store. Round the values, or wrap the column in toString() to store it as text.",
+            type="UnstorableDecimalError",
+            non_retryable=True,
         )
         self.column = column
 
