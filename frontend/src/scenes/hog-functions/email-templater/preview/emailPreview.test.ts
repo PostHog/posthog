@@ -3,6 +3,7 @@ import {
     personPropertiesUsed,
     renderEmailPreview,
     renderEmailPreviewMarked,
+    renderEmailPreviewText,
     withUnresolvedChips,
 } from './emailPreview'
 
@@ -97,6 +98,37 @@ describe('renderEmailPreview', () => {
         ],
     ])('strips html from %s without hanging', (_name, template, expected) => {
         expect(renderEmailPreview(template, person)).toBe(expected)
+    })
+
+    it('renders plain text without html escaping', () => {
+        expect(
+            renderEmailPreviewText('Hi {{ person.properties.company }} &amp; co', {
+                id: 'p',
+                properties: { company: 'A&B' },
+            })
+        ).toBe('Hi A&B &amp; co')
+    })
+
+    it('strips html without hanging on an unclosed tag', () => {
+        expect(renderEmailPreviewText("{{ 'a<' | strip_html }} {{ '<b>bold</b>' | strip_html }}", person)).toBe(
+            'a< bold'
+        )
+    })
+
+    it('falls back to the template for an expression filter the worker refuses', () => {
+        const template = "{{ person.properties.seats | where_exp: 'seat', 'seat == \"a\"' | size }}"
+
+        expect(renderEmailPreview(template, person)).toBe(template)
+    })
+
+    it('stops marking missing values past the tag limit and renders the rest normally', () => {
+        const template = '{{ person.properties.nickname }}'.repeat(10_001)
+
+        expect(renderEmailPreviewMarked(template, person)).toBe('')
+    })
+
+    it('leaves expressions that are not a variable lookup unmarked', () => {
+        expect(renderEmailPreviewMarked('{{ (1..3).missing }}', person)).toBe('')
     })
 
     it('falls back to the template rather than throwing on a broken tag', () => {

@@ -22,7 +22,8 @@ export function EmailPersonPreview({
 }): JSX.Element {
     const scope = useContext(EmailPreviewScopeContext)
     const { previewPerson } = useValues(emailPreviewPersonLogic({ scope }))
-    const rendered = renderEmailPreviewMarked(html || text || '', previewPerson)
+    // A text-only email sends without html escaping, so it previews that way too.
+    const rendered = renderEmailPreviewMarked(html || text || '', previewPerson, !html)
 
     return (
         <div className="flex flex-col flex-1">

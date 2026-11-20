@@ -176,26 +176,46 @@ class UnsubscribeUrlTag extends Tag {
 }
 
 // NOTE: This should be moved to common package but currently is a copy of nodejs/src/cdp/utils/liquid.ts
+// The worker's EMAIL_BODY_TAG_LIMIT, from nodejs/src/cdp/utils/liquid.ts.
+const MARKED_OUTPUT_LIMIT = 10_000
+// Only a lookup can be a missing value, and a lookup costs a property walk rather than an expression's work.
+const VARIABLE_PATH = /^[A-Za-z_][\w-]*(?:\.[\w-]+|\[(?:'[^']*'|"[^"]*"|\d+)\])*$/
+
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
+    private static _plainTextLiquid: Liquid | null = null
 
     private static get liquid(): Liquid {
-        if (!this._liquid) {
-            this._liquid = new Liquid({
-                outputEscape: 'escape',
-                // Render partials from an in-memory map only: this disables LiquidJS's filesystem-backed
-                // partial loading, so user-controlled templates can't read local files via include/render/layout.
-                templates: {},
-                // Previews render while the page draws, so a runaway loop must fail fast instead of freezing the tab.
-                // The worker's budgets, from nodejs/src/cdp/utils/liquid.ts.
-                renderLimit: 500,
-                memoryLimit: 1_000_000,
+        return (this._liquid ??= this.createLiquid('escape'))
+    }
+
+    // Plain-text fields, such as a subject, render without html escaping, as the worker renders them.
+    private static get plainTextLiquid(): Liquid {
+        return (this._plainTextLiquid ??= this.createLiquid(undefined))
+    }
+
+    private static createLiquid(outputEscape: 'escape' | undefined): Liquid {
+        const liquid = new Liquid({
+            outputEscape,
+            // Render partials from an in-memory map only: this disables LiquidJS's filesystem-backed
+            // partial loading, so user-controlled templates can't read local files via include/render/layout.
+            templates: {},
+            // Previews render while the page draws, so a runaway loop must fail fast instead of freezing the tab.
+            // The worker's budgets, from nodejs/src/cdp/utils/liquid.ts.
+            parseLimit: 5_000_000,
+            renderLimit: 500,
+            memoryLimit: 1_000_000,
+        })
+        liquid.registerFilter('currency', formatCurrency)
+        liquid.registerFilter('strip_html', stripHtml)
+        // The worker refuses these, because each runs a tenant expression per item without a deadline check.
+        for (const name of ['where_exp', 'find_exp', 'find_index_exp', 'reject_exp', 'group_by_exp']) {
+            liquid.registerFilter(name, () => {
+                throw new Error(`liquid filter ${name} is not supported`)
             })
-            this._liquid.registerFilter('currency', formatCurrency)
-            this._liquid.registerFilter('strip_html', stripHtml)
-            this._liquid.registerTag('unsubscribe_url', UnsubscribeUrlTag)
         }
-        return this._liquid
+        liquid.registerTag('unsubscribe_url', UnsubscribeUrlTag)
+        return liquid
     }
 
     private static decodeEntities(source: string): string {
@@ -347,28 +367,26 @@ export class LiquidRenderer {
     public static renderKeepingUnresolved(
         template: string,
         context: Record<string, any>,
-        markUnresolved: (source: string) => string = (source) => source
+        markUnresolved: (source: string) => string = (source) => source,
+        plainText = false
     ): string {
         const decoded = this.decode(template)
         let marked = ''
         let cursor = 0
         const { outputs, locals } = this.outputsOf(this.liquid.parse(decoded))
-        for (const node of outputs) {
+        // Each output costs a lookup outside the render budget, so past the worker's tag limit nothing is marked.
+        for (const node of outputs.length > MARKED_OUTPUT_LIMIT ? [] : outputs) {
             const { begin, end, content } = node.token as unknown as { begin: number; end: number; content: string }
             const expression = content.trim()
             const root = expression.split(/[.[\s]/)[0]
-            if (
-                !expression ||
-                expression.includes('|') ||
-                locals.has(root) ||
-                this.resolvesDecoded(expression, context)
-            ) {
+            if (!VARIABLE_PATH.test(expression) || locals.has(root) || this.resolvesDecoded(expression, context)) {
                 continue
             }
             marked += `${decoded.slice(cursor, begin)}{% raw %}${markUnresolved(decoded.slice(begin, end))}{% endraw %}`
             cursor = end
         }
         // `marked` is already decoded, so render it without a second pass.
-        return this.liquid.parseAndRenderSync(marked + decoded.slice(cursor), context)
+        const liquid = plainText ? this.plainTextLiquid : this.liquid
+        return liquid.parseAndRenderSync(marked + decoded.slice(cursor), context)
     }
 }

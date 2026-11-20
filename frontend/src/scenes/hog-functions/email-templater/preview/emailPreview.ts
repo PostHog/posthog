@@ -35,7 +35,8 @@ function withoutFences(value: unknown): any {
 export function renderEmailPreview(
     template: string,
     person: EmailPreviewPerson | null,
-    markUnresolved?: (source: string) => string
+    markUnresolved?: (source: string) => string,
+    plainText = false
 ): string {
     if (!template || !person) {
         return template
@@ -51,7 +52,7 @@ export function renderEmailPreview(
         now: new Date(),
     }
     try {
-        const rendered = LiquidRenderer.renderKeepingUnresolved(template, context, markUnresolved)
+        const rendered = LiquidRenderer.renderKeepingUnresolved(template, context, markUnresolved, plainText)
         // Render budgets don't bound output size, and the chip and link passes parse the result as a document.
         return rendered.length > MAX_PREVIEW_LENGTH ? template : rendered
     } catch {
@@ -66,8 +67,17 @@ const CHIP_END = '\uE001'
 const CHIP_PATTERN = /\uE000([^\uE000\uE001]*)\uE001/g
 
 /** Renders the template against the person, fencing each tag the person has no value for. */
-export function renderEmailPreviewMarked(template: string, person: EmailPreviewPerson | null): string {
-    return renderEmailPreview(template, person, (source) => `${CHIP_START}${unresolvedLabel(source)}${CHIP_END}`)
+export function renderEmailPreviewMarked(
+    template: string,
+    person: EmailPreviewPerson | null,
+    plainText = false
+): string {
+    return renderEmailPreview(
+        template,
+        person,
+        (source) => `${CHIP_START}${unresolvedLabel(source)}${CHIP_END}`,
+        plainText
+    )
 }
 
 /** "{{ person.properties.first_name }}" reads as "first name". */
@@ -133,4 +143,9 @@ export function personPropertiesUsed(templates: string[]): string[] {
         )
     )
     return Array.from(new Set(keys))
+}
+
+/** Renders as plain text, with each missing value read out as its label, for one-line summaries. */
+export function renderEmailPreviewText(template: string, person: EmailPreviewPerson | null): string {
+    return splitUnresolved(renderEmailPreviewMarked(template, person, true)).join('')
 }
