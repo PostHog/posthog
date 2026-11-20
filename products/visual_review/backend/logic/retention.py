@@ -228,16 +228,13 @@ class RetentionSweep:
     def _run_open_to_approvals(self, run_id: UUID) -> bool:
         # The per-run form of _verdict_open_to_approvals. It looks at one run, so it does not
         # read every open approval of the repo for each run in a sweep batch.
-        run = self._runs().filter(id=run_id).values("pr_number", "run_type", "superseded_by_id", "metadata").first()
-        if run is None or run["superseded_by_id"] is not None:
+        run = self._runs().filter(id=run_id).only("pr_number", "run_type", "superseded_by_id", "metadata").first()
+        if run is None or run.superseded_by_id is not None:
             return False
         open_approvals = self._open_approvals()
-        if (
-            run["pr_number"] is not None
-            and open_approvals.filter(pr_number=run["pr_number"], run_type=run["run_type"]).exists()
-        ):
+        if run.pr_number is not None and open_approvals.filter(pr_number=run.pr_number, run_type=run.run_type).exists():
             return True
-        candidate_ids = ((run["metadata"] or {}).get("baseline") or {}).get("candidate_approval_ids")
+        candidate_ids = ((run.metadata or {}).get("baseline") or {}).get("candidate_approval_ids")
         if not candidate_ids:
             return False
         return open_approvals.filter(id__in=candidate_ids).exists()
