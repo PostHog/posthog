@@ -1,11 +1,10 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
-import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockKafkaClient, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { ClickHouseClient } from '@clickhouse/client'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import { DateTime } from 'luxon'
-import type { HighLevelProducer } from 'node-rdkafka'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -333,10 +332,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         return results
     }
 
-    const kafkaClient = (mockProducer as unknown as { producer: jest.Mocked<HighLevelProducer> }).producer
-
     const deliveryStatuses = (messageId: string): { status: string; reason: string }[] =>
-        kafkaClient.produce.mock.calls
+        mockKafkaClient.produce.mock.calls
             .filter(([topic]) => topic === KAFKA_EMAIL_STATUS)
             .map(([, , value]) => parseJSON(String(value)) as { message_id: string; status: string; reason: string })
             .filter((row) => row.message_id === messageId && row.status !== 'queued')
