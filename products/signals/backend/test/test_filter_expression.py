@@ -25,6 +25,9 @@ class TestFilterExpression(SimpleTestCase):
             "project_name = 'Core' AND NOT has(label_names, 'internal')",
             "isNull(label_names)",
             "HAS(label_names, 'internal')",
+            "empty(label_names)",
+            "NOT notEmpty(label_names)",
+            "EMPTY(label_names) OR priority = 1",
         ]
     )
     def test_boolean_contract(self, expression: str) -> None:
@@ -63,8 +66,10 @@ class TestFilterExpression(SimpleTestCase):
             "startsWith(project_name, 'co')",
             "endsWith(project_name, 're')",
             "length(label_names) > 0",
-            "empty(label_names)",
             "notEmpty(project_name)",
+            "empty(priority)",
+            "empty(['x'])",
+            "empty(label_names, label_names)",
             "has(priority, 1)",
             "label_names = ['x']",
             "priority IN (project_name, priority)",
