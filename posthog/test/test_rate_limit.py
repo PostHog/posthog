@@ -1,9 +1,7 @@
 import json
 import time
-import socket
-import threading
 from collections.abc import Iterator
-from contextlib import AbstractContextManager, contextmanager, nullcontext, suppress
+from contextlib import contextmanager, nullcontext
 from datetime import timedelta
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -31,7 +29,6 @@ from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.caching.throttle_history_cache import throttle_history_cache
 from posthog.exceptions import exception_handler
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
@@ -1260,8 +1257,8 @@ class TestReserveUnits(BaseTest):
             assert response is not None
             self.assertEqual(response.headers["Retry-After"], "60")
 
-    def _lagging_reader_caches(self, primary_location: str | None = None) -> dict[str, Any]:
-        return lagging_reader_caches(self.cache_prefix, primary_location)
+    def _lagging_reader_caches(self) -> dict[str, Any]:
+        return lagging_reader_caches(self.cache_prefix)
 
     def test_a_reservation_counts_the_charge_a_lagging_reader_has_not_seen(self):
         now = time.time()
@@ -1392,120 +1389,6 @@ class TestReserveUnits(BaseTest):
                 self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, len(singles_after)), singles_after)
             finally:
                 shared.delete_pattern("*")
-
-    @contextmanager
-    def _stalled_redis(self) -> Iterator[tuple[str, list[list[bytes]]]]:
-        reads: list[list[bytes]] = []
-        listener = socket.create_server(("127.0.0.1", 0))
-        listener.settimeout(0.05)
-        stopped = threading.Event()
-
-        def answer(connection: socket.socket) -> None:
-            with connection, connection.makefile("rb") as stream:
-                while header := stream.readline():
-                    command = [stream.read(int(stream.readline()[1:]) + 2)[:-2] for _ in range(int(header[1:]))]
-                    if command[0].upper() == b"GET":
-                        reads.append(command)
-                    else:
-                        connection.sendall(b"+OK\r\n")
-
-        def serve() -> None:
-            while not stopped.is_set():
-                with suppress(TimeoutError):
-                    threading.Thread(target=answer, args=(listener.accept()[0],), daemon=True).start()
-
-        server = threading.Thread(target=serve, daemon=True)
-        server.start()
-        port = listener.getsockname()[1]
-        try:
-            yield f"redis://127.0.0.1:{port}/0?socket_connect_timeout=300&socket_timeout=300&retry_on_timeout=1", reads
-        finally:
-            stopped.set()
-            server.join()
-            listener.close()
-
-    @parameterized.expand([("unreachable",), ("stalled",)])
-    def test_a_send_reads_the_replica_when_the_primary_read_fails(self, failure):
-        now = time.time()
-        reader_only = self._lagging_reader_caches(
-            primary_location=self._lagging_reader_caches()["default"]["LOCATION"][1]
-        )
-        failing_primary: AbstractContextManager[tuple[str, list[list[bytes]]]] = (
-            nullcontext(("redis://127.0.0.1:1/0", [])) if failure == "unreachable" else self._stalled_redis()
-        )
-        with (
-            patch.object(TransactionalEmailBurstThrottle, "rate", "3/minute"),
-            patch.object(TransactionalEmailBurstThrottle, "timer", lambda _throttle: now),
-        ):
-            try:
-                with override_settings(CACHES=reader_only):
-                    self.assertEqual(
-                        self._singles_allowed(TransactionalEmailBurstThrottle, 4), [True, True, True, False]
-                    )
-                with (
-                    failing_primary as (primary_location, stalled_reads),
-                    override_settings(CACHES=self._lagging_reader_caches(primary_location=primary_location)),
-                ):
-                    redis_cache = caches["default"]
-                    assert isinstance(redis_cache, RedisCache)
-                    redis_cache.client.get_client(write=True)
-                    outcome = self._send([TransactionalEmailBurstThrottle], 1)
-                    reads_sent = len(stalled_reads)
-            finally:
-                with override_settings(CACHES=reader_only):
-                    caches["default"].delete(
-                        TransactionalEmailBurstThrottle().get_cache_key(self._request(), self.view)
-                    )
-
-        self.assertEqual(outcome, "60")
-        self.assertEqual(reads_sent, 0 if failure == "unreachable" else 1)
-
-    def test_a_send_without_a_replica_passes_when_the_primary_stalls(self):
-        with self._stalled_redis() as (stalled, _reads):
-            default = {"BACKEND": "django_redis.cache.RedisCache", "LOCATION": stalled, "KEY_PREFIX": self.cache_prefix}
-            with (
-                override_settings(CACHES={"default": default, "throttle_history": throttle_history_cache(default)}),
-                patch.object(TransactionalEmailBurstThrottle, "rate", "3/minute"),
-            ):
-                outcome = self._send([TransactionalEmailBurstThrottle], 1)
-
-        self.assertIsNone(outcome)
-
-    @parameterized.expand([("single", 1), ("batch", 3)])
-    def test_a_send_admitted_from_the_replica_leaves_the_primary_charges_alone(self, _name, recipients):
-        now = time.time()
-        lagging = self._lagging_reader_caches()
-        history_unreachable = {
-            **lagging,
-            "throttle_history": {**lagging["throttle_history"], "LOCATION": "redis://127.0.0.1:1/0"},
-        }
-        with (
-            patch.object(TransactionalEmailBurstThrottle, "rate", "4/minute"),
-            patch.object(TransactionalEmailBurstThrottle, "timer", lambda _throttle: now),
-            override_settings(CACHES=lagging),
-        ):
-            redis_cache = caches["default"]
-            assert isinstance(redis_cache, RedisCache)
-            key = TransactionalEmailBurstThrottle().get_cache_key(self._request(), self.view)
-            primary_client, reader_client = clients = [
-                redis_cache.client.get_client(write=True),
-                redis_cache.client.get_client(write=False),
-            ]
-            try:
-                with override_settings(
-                    CACHES=self._lagging_reader_caches(primary_location=lagging["default"]["LOCATION"][1])
-                ):
-                    self.assertIsNone(self._send([TransactionalEmailBurstThrottle], 1))
-                self.assertEqual(self._singles_allowed(TransactionalEmailBurstThrottle, 4), [True] * 4)
-                with override_settings(CACHES=history_unreachable):
-                    admitted_from_the_replica = self._send([TransactionalEmailBurstThrottle], recipients)
-                outcome = self._send([TransactionalEmailBurstThrottle], 1)
-            finally:
-                for client in clients:
-                    redis_cache.delete(key, client=client)
-
-        self.assertIsNone(admitted_from_the_replica)
-        self.assertEqual(outcome, "60")
 
 
 class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):

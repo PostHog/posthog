@@ -172,15 +172,9 @@ def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
 THROTTLE_HISTORY_CACHE_ALIAS = "throttle_history"
 
 
-def _default_cache_reads_a_replica() -> bool:
-    location = settings.CACHES.get("default", {}).get("LOCATION")
-    return isinstance(location, list | tuple) and len(location) > 1
-
-
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     DRF_UNITS_PER_REQUEST = 1
     reads_history_from_primary = False
-    history_from_replica = False
     primary_cache = ConnectionProxy(caches, THROTTLE_HISTORY_CACHE_ALIAS)
     units_to_check: int | None = None
     units_to_charge = 0
@@ -255,26 +249,15 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         self.key = self.get_cache_key(request, view)
         if self.key is None:
             return True
-        history = self._primary_history(self.key)
+        history = self.primary_cache.get(self.key, [])
         self.now = self.timer()
         self.history = [hit for hit in history if hit > self.now - duration]
         cost = units + self.DRF_UNITS_PER_REQUEST if self.units_to_check is not None else units
         self.retry_wait = self._wait_for_room(cost, num_requests, duration)
         if math.isinf(self.retry_wait) or len(self.history) + units > num_requests:
             return False
-        self.units_to_charge = 0 if self.history_from_replica else units
+        self.units_to_charge = units
         return True
-
-    def _primary_history(self, key: str) -> list[float]:
-        self.history_from_replica = False
-        try:
-            return self.primary_cache.get(key, [])
-        except Exception as e:
-            if not _default_cache_reads_a_replica():
-                raise
-            capture_exception(e)
-            self.history_from_replica = True
-            return self.cache.get(key, [])
 
     def wait(self) -> float | None:
         if not self.reads_history_from_primary or getattr(self, "key", None) is None:
@@ -297,7 +280,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not self._has_room_for_units(request, view, self.DRF_UNITS_PER_REQUEST):
             return False
         self.units_to_charge = 0
-        return self.key is None or self.history_from_replica or self.throttle_success()
+        return self.key is None or self.throttle_success()
 
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
