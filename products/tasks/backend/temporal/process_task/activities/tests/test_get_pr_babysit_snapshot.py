@@ -4,6 +4,7 @@ from datetime import timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+import responses
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
@@ -11,7 +12,7 @@ from posthog.github.merge_queue import MergeQueueState
 from posthog.models.github_integration_base import GitHubIntegrationBase
 
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
-from products.tasks.backend.temporal.babysit_pr.snapshot import BODY_EXCERPT_MAX_CHARS, PRSnapshot
+from products.tasks.backend.temporal.babysit_pr.snapshot import BODY_EXCERPT_MAX_CHARS, FailingCheck, PRSnapshot
 from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import (
     GetPrBabysitSnapshotInput,
     get_pr_babysit_snapshot,
@@ -20,6 +21,13 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
 )
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.tests.gitlab_fakes import (
+    GITLAB_API,
+    GITLAB_BOT,
+    MR_URL,
+    gitlab_merge_request,
+    gitlab_task_context,
+)
 
 GET_PR_CONTEXT_MODULE = "products.tasks.backend.temporal.process_task.activities.get_pr_context"
 
@@ -211,3 +219,145 @@ class TestGetPrBabysitSnapshotActivity:
         assert exc_info.value.non_retryable is False
         assert exc_info.value.next_retry_delay == timedelta(seconds=expected_backoff)
         mock_capture.assert_not_called()
+
+
+@pytest.fixture
+def gitlab_context(test_task_run):
+    with patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None)):
+        yield gitlab_task_context(test_task_run)
+
+
+class TestGetGitLabBabysitSnapshotActivity:
+    @pytest.mark.django_db
+    def test_maps_pipeline_discussions_and_comments_and_stores_the_merge_request_state(
+        self, test_task_run, gitlab_context
+    ):
+        test_task_run.output = {"pr_url": MR_URL}
+        test_task_run.save(update_fields=["output"])
+        reviewer = {"id": 5, "username": "reviewer"}
+        outsider = {"id": 6, "username": "outsider"}
+        discussions = [
+            {
+                "id": "d-open",
+                "individual_note": False,
+                "notes": [
+                    {
+                        "id": 101,
+                        "body": "Rename this",
+                        "author": outsider,
+                        "system": False,
+                        "resolvable": True,
+                        "resolved": False,
+                        "position": {"new_path": "app/widget.py"},
+                    },
+                    {
+                        "id": 102,
+                        "body": "Still unclear",
+                        "author": reviewer,
+                        "system": False,
+                        "resolvable": True,
+                        "resolved": False,
+                    },
+                ],
+            },
+            {
+                "id": "d-resolved",
+                "individual_note": False,
+                "notes": [{"id": 103, "body": "ok", "author": reviewer, "resolvable": True, "resolved": True}],
+            },
+            {
+                "id": "d-system",
+                "individual_note": True,
+                "notes": [{"id": 104, "body": "added 1 commit", "author": reviewer, "system": True}],
+            },
+            {
+                "id": "d-bot",
+                "individual_note": True,
+                "notes": [{"id": 105, "body": "Opened by the agent", "author": GITLAB_BOT, "system": False}],
+            },
+            {
+                "id": "d-comment",
+                "individual_note": True,
+                "notes": [{"id": 106, "body": "Why this approach?", "author": outsider, "system": False}],
+            },
+        ]
+        trace = (
+            "section_start:1700000000:step_script\r\x1b[0K\x1b[32;1mRunning tests\x1b[0;m\n"
+            "progress 10%\rprogress 100%\n"
+            "FAILED tests/test_widget.py::test_size\n"
+        )
+        with responses.RequestsMock() as gitlab:
+            gitlab.get(f"{GITLAB_API}/merge_requests/3", json=gitlab_merge_request())
+            gitlab.get(f"{GITLAB_API}/merge_requests/3/discussions", json=discussions)
+            gitlab.get(f"{GITLAB_API}/members/all/5", json={"id": 5, "access_level": 30, "state": "active"})
+            gitlab.get(f"{GITLAB_API}/members/all/6", status=404, json={"message": "404 Not found"})
+            gitlab.get(
+                f"{GITLAB_API}/pipelines/55/jobs",
+                json=[
+                    {"id": 900, "name": "test", "web_url": f"{MR_URL}/jobs/900", "allow_failure": False},
+                    {"id": 901, "name": "lint", "web_url": f"{MR_URL}/jobs/901", "allow_failure": True},
+                ],
+            )
+            gitlab.get(f"{GITLAB_API}/jobs/900/trace", body=trace)
+
+            snapshot = get_pr_babysit_snapshot(GetPrBabysitSnapshotInput(context=gitlab_context))
+
+        assert snapshot is not None
+        assert (snapshot.pr_url, snapshot.pr_state, snapshot.head_sha, snapshot.head_ref) == (
+            MR_URL,
+            "draft",
+            "abc123",
+            "posthog/fix-widget",
+        )
+        assert (snapshot.ci_status, snapshot.has_conflict, snapshot.mergeable, snapshot.review_threads_complete) == (
+            "failing",
+            False,
+            True,
+            True,
+        )
+        assert snapshot.failing_checks == [
+            FailingCheck(
+                key="test",
+                details_url=f"{MR_URL}/jobs/900",
+                log_excerpt="Running tests\nprogress 100%\nFAILED tests/test_widget.py::test_size",
+            )
+        ]
+        assert [
+            (thread.id, thread.last_comment_id, thread.path, thread.author, thread.author_association, thread.url)
+            for thread in snapshot.unresolved_threads
+        ] == [("d-open", "102", "app/widget.py", "reviewer", "DEVELOPER", f"{MR_URL}#note_102")]
+        assert [(comment.id, comment.author, comment.author_association) for comment in snapshot.comments] == [
+            ("106", "outsider", None)
+        ]
+        test_task_run.refresh_from_db()
+        assert (test_task_run.output["pr_state"], test_task_run.output["ci_status"]) == ("draft", "failing")
+
+    @pytest.mark.parametrize(
+        "gitlab_state, expected_state, expected_merged",
+        [("merged", "merged", True), ("closed", "closed", None), ("locked", "closed", None)],
+    )
+    @pytest.mark.django_db
+    def test_terminal_merge_request_stores_its_state_and_keeps_the_last_ci_status(
+        self, test_task_run, gitlab_context, gitlab_state, expected_state, expected_merged
+    ):
+        test_task_run.output = {"pr_url": MR_URL, "pr_state": "open", "ci_status": "passing"}
+        test_task_run.save(update_fields=["output"])
+
+        with responses.RequestsMock() as gitlab:
+            gitlab.get(f"{GITLAB_API}/merge_requests/3", json=gitlab_merge_request(state=gitlab_state, draft=False))
+            snapshot = get_pr_babysit_snapshot(GetPrBabysitSnapshotInput(context=gitlab_context))
+
+        assert snapshot is not None
+        assert snapshot.is_terminal
+        test_task_run.refresh_from_db()
+        assert test_task_run.output["pr_state"] == expected_state
+        assert test_task_run.output.get("pr_merged") is expected_merged
+        assert test_task_run.output["ci_status"] == "passing"
+
+    @pytest.mark.django_db
+    def test_merge_request_outside_the_connected_project_is_never_read(self, test_task_run, gitlab_context):
+        test_task_run.output = {"pr_url": "https://gitlab.com/acme/other/-/merge_requests/3"}
+        test_task_run.save(update_fields=["output"])
+
+        with responses.RequestsMock():
+            assert get_pr_babysit_snapshot(GetPrBabysitSnapshotInput(context=gitlab_context)) is None

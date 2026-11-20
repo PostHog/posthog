@@ -289,6 +289,7 @@ def record_task_spend(
     report_id: str | None = None,
     implementation_kind: str | None = None,
 ) -> None:
+    from products.signals.backend.self_driving_gitlab import gitlab_run_is_free  # noqa: PLC0415
     from products.tasks.backend.facade.billing import locked_task_run_spend  # noqa: PLC0415
 
     if scout_run_id:
@@ -335,7 +336,7 @@ def record_task_spend(
                 raise ValueError("Task funding cannot change")
             spend.trial_grant_id = UUID(run.trial_grant_id)
             spend.billing_exempt = True
-        spend.billing_exempt = spend.billing_exempt or run.billing_exempt
+        spend.billing_exempt = spend.billing_exempt or run.billing_exempt or gitlab_run_is_free(team_id, run.task_id)
         if created:
             spend.created_at = run.created_at
             spend.billing_exempt = spend.billing_exempt or trial_spend_exempt(team_id)

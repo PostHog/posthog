@@ -1,15 +1,26 @@
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+import responses
+
 from posthog.models.integration import GitHubIntegration
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.babysit_pr.snapshot import PRSnapshot
 from products.tasks.backend.temporal.process_task.activities import mark_pr_ready as ready_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.mark_pr_ready import MarkPrReadyInput, mark_pr_ready
+from products.tasks.backend.temporal.process_task.activities.tests.gitlab_fakes import (
+    GITLAB_API,
+    GITLAB_BOT,
+    MR_URL,
+    gitlab_merge_request,
+    gitlab_task_context,
+)
 
 from ee.hogai.sandbox import turn_completed_successfully
 
@@ -133,3 +144,52 @@ def test_final_github_read_preserves_new_commits_and_manual_choices(state, expec
         )
     assert result == {"success": True, "changed": False, "reason": expected_reason}
     graphql.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "labels, notes, marked",
+    [
+        ([], [], True),
+        (["Keep-Draft"], [], False),
+        ([], [{"id": 1, "system": True, "body": "marked this merge request as **draft**"}], False),
+    ],
+    ids=["ready", "keep_draft_label", "person_redrafted"],
+)
+@pytest.mark.django_db
+def test_gitlab_merge_request_is_marked_ready_by_dropping_the_draft_prefix(test_task_run, labels, notes, marked):
+    test_task_run.status = TaskRun.Status.IN_PROGRESS
+    test_task_run.branch = "posthog/fix-widget"
+    test_task_run.output = {"pr_url": MR_URL, "pr_state": "draft"}
+    test_task_run.save(update_fields=["status", "branch", "output"])
+    passing = {"id": 55, "sha": "abc123", "status": "success", "web_url": f"{MR_URL}/pipelines/55"}
+    snapshot = PRSnapshot.from_raw(
+        {
+            "success": True,
+            "url": MR_URL,
+            "state": "draft",
+            "head_sha": "abc123",
+            "head_ref": "posthog/fix-widget",
+            "author_login": GITLAB_BOT["username"],
+            "ci_status": "passing",
+            "mergeable": True,
+            "review_threads_complete": True,
+        },
+        MR_URL,
+    )
+
+    with (
+        patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None)),
+        responses.RequestsMock(assert_all_requests_are_fired=False) as gitlab,
+    ):
+        context = gitlab_task_context(test_task_run)
+        gitlab.get(f"{GITLAB_API}/merge_requests/3", json=gitlab_merge_request(head_pipeline=passing, labels=labels))
+        gitlab.get(f"{GITLAB_API}/merge_requests/3/discussions", json=[])
+        gitlab.get(f"{GITLAB_API}/merge_requests/3/notes", json=notes)
+        gitlab.put(f"{GITLAB_API}/merge_requests/3", json=gitlab_merge_request(draft=False))
+
+        assert mark_pr_ready(MarkPrReadyInput(context=context, snapshot=snapshot)) is marked
+        updates = [json.loads(call.request.body) for call in gitlab.calls if call.request.method == "PUT"]
+
+    assert updates == ([{"title": "Fix the widget"}] if marked else [])
+    test_task_run.refresh_from_db()
+    assert test_task_run.output["pr_state"] == ("open" if marked else "draft")

@@ -143,6 +143,7 @@ from products.signals.backend.facade.tasks import (
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
+    sweep_gitlab_merge_requests,
     sweep_implementation_dispatches,
     sweep_monitoring_research_requests,
     sweep_monitoring_tracker_issues,
@@ -427,6 +428,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sweep_monitoring_research_requests.s(),
         name="emit signals monitoring research requests",
         expires_seconds=60,
+    )
+
+    # GitLab sends no webhooks, so read the state of open Self-driving merge requests - every 10 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        sweep_gitlab_merge_requests.s(),
+        name="refresh signals gitlab merge request states",
+        expires_seconds=10 * 60,
     )
 
     # Return reports whose research run timed out or was terminated to CANDIDATE - every 15 minutes

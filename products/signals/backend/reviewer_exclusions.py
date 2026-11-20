@@ -266,6 +266,12 @@ class StandingExclusions:
                 suppressed.append(Suppression(exclusion_id=suppressing.id, reviewer=candidate))
         return ExclusionReview(kept=tuple(kept), suppressed=tuple(suppressed), unresolved=unresolved)
 
+    def allowed_user_uuids(self, user_uuids: list[str]) -> list[str]:
+        """The members no instruction keeps off this area. A member nobody can decide on is left out."""
+        if not self.exclusions:
+            return list(user_uuids)
+        return [user_uuid for user_uuid in user_uuids if self._verdict(user_uuid) == (None, False)]
+
     def allowed_logins(self, logins: list[str]) -> list[str]:
         """The GitHub logins no instruction keeps off this area. A login nobody can decide on is left out."""
         if not self.exclusions:

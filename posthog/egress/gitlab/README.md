@@ -28,6 +28,9 @@ Add a gate if one token starts to carry enough PostHog traffic to reach the gitl
 No lanes, because nothing is gated.
 `posthog/models/integration/gitlab.py` is the caller, with `source="integration"`.
 It creates, closes and searches issues, lists project members, lists projects and creates and reads merge requests.
+The coding-task follow-up loop (`products/tasks/backend/temporal/babysit_pr/gitlab.py`) polls a task's merge request through it on each follow-up tick: the merge request, up to three pages of its discussions, failed jobs of its head pipeline, the end of up to three job logs, and member access of comment authors.
+To mark a draft ready, the loop also reads the newest notes and renames the merge request.
+Self-driving (`products/signals/backend/gitlab_merge_request_sync.py`) reads up to 500 unfinished merge requests every 10 minutes, at most 25 per team. When it requests a reviewer, it reads project members, searches users by public email, sets reviewers, and comments on and closes a superseded merge request.
 Workload identity looks up a gitlab.com project's ID and exact path with `source="workload_identity"`, through the team's own token first, then PostHog's shared token, or no token when the deployment has none, for public projects only.
 Error tracking code search in `products/error_tracking/backend/presentation/views/git_provider_file_link_resolver.py` still calls GitLab directly and has not moved here yet.
 

@@ -606,3 +606,178 @@ class GitLabIntegration:
         if response.status_code != 200:
             raise GitLabIntegrationError(f"GitLabIntegration: failed to retrieve merge request: {response.text[:300]}")
         return self._merge_request(self._json(response))
+
+    def _update_merge_request(self, project_id: int, merge_request_iid: int, changes: dict[str, Any]) -> None:
+        response = self._request(
+            "PUT",
+            self.hostname,
+            f"projects/{project_id}/merge_requests/{merge_request_iid}",
+            self._access_token(),
+            endpoint="/api/v4/projects/{id}/merge_requests/{iid}",
+            json=changes,
+        )
+        if response.status_code != 200:
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to update merge request: {response.text[:300]}",
+                transient=response.status_code == 429 or response.status_code >= 500,
+            )
+
+    def close_merge_request(self, project_id: int, merge_request_iid: int) -> None:
+        """Close a merge request. Raises on failure."""
+        self._update_merge_request(project_id, merge_request_iid, {"state_event": "close"})
+
+    def set_merge_request_reviewers(self, project_id: int, merge_request_iid: int, reviewer_ids: list[int]) -> None:
+        """Replace the merge request's reviewers. Raises on failure."""
+        self._update_merge_request(project_id, merge_request_iid, {"reviewer_ids": reviewer_ids})
+
+    def add_merge_request_note(self, project_id: int, merge_request_iid: int, body: str) -> None:
+        """Comment on a merge request. Raises on failure."""
+        response = self._request(
+            "POST",
+            self.hostname,
+            f"projects/{project_id}/merge_requests/{merge_request_iid}/notes",
+            self._access_token(),
+            endpoint="/api/v4/projects/{id}/merge_requests/{iid}/notes",
+            json={"body": body},
+        )
+        if response.status_code != 201:
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to comment on merge request: {response.text[:300]}",
+                transient=response.status_code == 429 or response.status_code >= 500,
+            )
+
+    def is_developer(self, user_id: int, *, timeout: float = 10) -> bool:
+        """Whether the GitLab user is an active member of the project with Developer access or more."""
+        member = self._get_json_or_raise(
+            f"projects/{self.integration.config.get('project_id')}/members/all/{int(user_id)}",
+            endpoint="/api/v4/projects/{id}/members/all/{user_id}",
+            timeout=timeout,
+        )
+        return (
+            isinstance(member, dict)
+            and member.get("state", "active") == "active"
+            and (member.get("access_level") or 0) >= DEVELOPER_ACCESS_LEVEL
+        )
+
+    def find_developer_by_public_email(self, email: str, *, timeout: float = 10) -> int | None:
+        """The id of the project developer whose public email is ``email``, or None.
+
+        GitLab shows another user's email only when that user made it public, so a private email finds no one.
+        """
+        users = self._get_json_or_raise(
+            f"users?{urlencode({'search': email})}", endpoint="/api/v4/users", timeout=timeout
+        )
+        if not isinstance(users, list):
+            return None
+        wanted = email.strip().lower()
+        for user in users:
+            if not isinstance(user, dict) or str(user.get("public_email") or "").strip().lower() != wanted:
+                continue
+            if self.is_developer(int(user["id"]), timeout=timeout):
+                return int(user["id"])
+        return None
+
+    def _get_json_page(self, path: str, *, endpoint: str, params: dict[str, Any], timeout: float) -> tuple[Any, str]:
+        """One page of a list endpoint and the ``X-Next-Page`` header. The JSON is None when GitLab refuses or
+        cannot find the resource."""
+        response = self._request(
+            "GET", self.hostname, path, self._access_token(), endpoint=endpoint, params=params, timeout=timeout
+        )
+        if response.status_code in (401, 403, 404):
+            return None, ""
+        if response.status_code != 200:
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to read {endpoint}: {response.text[:300]}",
+                transient=response.status_code == 429 or response.status_code >= 500,
+            )
+        return self._json(response), response.headers.get("X-Next-Page", "")
+
+    def get_merge_request_details(
+        self, project_id: int, merge_request_iid: int, *, timeout: float = 10
+    ) -> dict[str, Any] | None:
+        """The merge request as GitLab returns it, including ``sha``, ``head_pipeline`` and
+        ``detailed_merge_status``. None when GitLab refuses or cannot find it."""
+        payload = self._get_json_or_raise(
+            f"projects/{project_id}/merge_requests/{merge_request_iid}",
+            endpoint="/api/v4/projects/{id}/merge_requests/{iid}",
+            timeout=timeout,
+        )
+        return payload if isinstance(payload, dict) else None
+
+    def list_merge_request_discussions(
+        self, project_id: int, merge_request_iid: int, *, max_pages: int, timeout: float = 10
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """The discussions of a merge request, oldest first, and whether all of them fit in ``max_pages`` pages."""
+        discussions: list[dict[str, Any]] = []
+        page = "1"
+        for _ in range(max_pages):
+            payload, page = self._get_json_page(
+                f"projects/{project_id}/merge_requests/{merge_request_iid}/discussions",
+                endpoint="/api/v4/projects/{id}/merge_requests/{iid}/discussions",
+                params={"per_page": 100, "page": page},
+                timeout=timeout,
+            )
+            if not isinstance(payload, list):
+                return discussions, False
+            discussions.extend(item for item in payload if isinstance(item, dict))
+            if not page:
+                return discussions, True
+        return discussions, False
+
+    def list_merge_request_notes(
+        self, project_id: int, merge_request_iid: int, *, limit: int, timeout: float = 10
+    ) -> list[dict[str, Any]]:
+        """The newest ``limit`` notes of a merge request, system notes included, newest first."""
+        payload, _ = self._get_json_page(
+            f"projects/{project_id}/merge_requests/{merge_request_iid}/notes",
+            endpoint="/api/v4/projects/{id}/merge_requests/{iid}/notes",
+            params={"per_page": limit, "sort": "desc", "order_by": "created_at"},
+            timeout=timeout,
+        )
+        return [note for note in payload if isinstance(note, dict)] if isinstance(payload, list) else []
+
+    def list_failed_pipeline_jobs(
+        self, project_id: int, pipeline_id: int, *, limit: int, timeout: float = 10
+    ) -> list[dict[str, Any]]:
+        """The failed jobs of a pipeline, without the attempts that a retry replaced."""
+        payload, _ = self._get_json_page(
+            f"projects/{project_id}/pipelines/{pipeline_id}/jobs",
+            endpoint="/api/v4/projects/{id}/pipelines/{pipeline_id}/jobs",
+            params={"scope[]": "failed", "per_page": limit},
+            timeout=timeout,
+        )
+        return [job for job in payload if isinstance(job, dict)] if isinstance(payload, list) else []
+
+    def get_job_log_tail(
+        self, project_id: int, job_id: int, *, max_bytes: int, max_read_bytes: int, timeout: float = 10
+    ) -> str | None:
+        """The last ``max_bytes`` of a job log, or None when GitLab does not return the log.
+
+        The trace endpoint cannot return only the end of a log, so this streams it and keeps the tail. A log
+        longer than ``max_read_bytes``, or one that takes longer than ``timeout`` in total, gives None.
+        """
+        deadline = time.monotonic() + timeout
+        response = self._request(
+            "GET",
+            self.hostname,
+            f"projects/{project_id}/jobs/{job_id}/trace",
+            self._access_token(),
+            endpoint="/api/v4/projects/{id}/jobs/{job_id}/trace",
+            timeout=timeout,
+            stream=True,
+        )
+        with response:
+            if response.status_code != 200:
+                return None
+            tail = b""
+            read = 0
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                read += len(chunk)
+                if read > max_read_bytes or time.monotonic() > deadline:
+                    return None
+                tail = (tail + chunk)[-max_bytes:]
+        return tail.decode("utf-8", errors="replace")
+
+    def set_merge_request_title(self, project_id: int, merge_request_iid: int, title: str) -> None:
+        """Rename a merge request. A title without a draft prefix marks it ready. Raises on failure."""
+        self._update_merge_request(project_id, merge_request_iid, {"title": title})

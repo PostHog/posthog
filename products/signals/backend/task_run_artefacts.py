@@ -34,6 +34,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.billing import mark_report_billing_exempt, report_has_implementation_pr
+from products.signals.backend.gitlab_merge_requests import parse_merge_request_url
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_assignments import ReportClaimConflict, claim_report_for_task, release_claim
 from products.signals.backend.report_claims import get_active_claim, is_claim_of_person, is_claim_of_task_creator
@@ -173,9 +174,9 @@ def _runs_claim_implementation_slot(
 
     A task with no runs yet claims the slot, because its first run is about to start; an empty
     status marks such a task row, where no run joined. A run that has not reached a terminal
-    status claims the slot while it works. A run that shipped a GitHub PR claims it for good,
-    because the report is implemented. Everything else is a run that ended with nothing to show,
-    so the report can be tried again.
+    status claims the slot while it works. A run that shipped a GitHub PR or a GitLab merge request
+    claims it for good, because the report is implemented. Everything else is a run that ended with
+    nothing to show, so the report can be tried again.
 
     A shipped PR outranks a live sibling run, because the PR is the more useful thing to send the
     person to.
@@ -187,7 +188,9 @@ def _runs_claim_implementation_slot(
     for run_status, run_pr_url in runs:
         if run_status is None:
             continue
-        if isinstance(run_pr_url, str) and run_pr_url.startswith(_GITHUB_PR_URL_PREFIX):
+        if isinstance(run_pr_url, str) and (
+            run_pr_url.startswith(_GITHUB_PR_URL_PREFIX) or parse_merge_request_url(run_pr_url) is not None
+        ):
             return _ImplementationSlotClaim.SHIPPED_PR
         if run_status not in _TERMINAL_RUN_STATUSES:
             claim = _ImplementationSlotClaim.IN_FLIGHT

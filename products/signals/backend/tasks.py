@@ -47,6 +47,7 @@ from products.signals.backend.first_report_notification_tasks import (
     sweep_first_report_notifications as sweep_first_report_notifications,
 )
 from products.signals.backend.github_writeback_tasks import post_source_issue_links as post_source_issue_links
+from products.signals.backend.gitlab_merge_request_sync import refresh_unfinished_merge_requests
 from products.signals.backend.handoff_claim_tasks import reconcile_task_handoff_claims as reconcile_task_handoff_claims
 from products.signals.backend.implementation_dispatch_tasks import (
     dispatch_implementation_replacement as dispatch_implementation_replacement,
@@ -426,6 +427,12 @@ def sweep_monitoring_tracker_issues() -> None:
 @skip_team_scope_audit
 def sweep_monitoring_research_requests() -> None:
     emit_due_monitoring_research(deadline=time.monotonic() + 40, limit=100)
+
+
+@shared_task(ignore_result=True, soft_time_limit=270, time_limit=300)
+@skip_team_scope_audit
+def sweep_gitlab_merge_requests() -> None:
+    refresh_unfinished_merge_requests(deadline=time.monotonic() + 240)
 
 
 @shared_task(ignore_result=True, soft_time_limit=120, time_limit=150)

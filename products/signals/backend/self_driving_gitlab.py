@@ -1,9 +1,12 @@
+from uuid import UUID
+
 import structlog
 
 from posthog.integrations import IntegrationRecord
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import (
     gitlab_project_for_repository,
     list_team_connected_repositories,
@@ -53,3 +56,13 @@ def self_driving_gitlab_project(team_id: int, repository: str | None) -> Integra
     if project is None or repository.strip().lower() in list_team_connected_repositories(team_id):
         return None
     return project
+
+
+def gitlab_run_is_free(team_id: int, task_id: UUID) -> bool:
+    """Whether a run is free of charge because its task works on a GitLab project.
+
+    The spend is still recorded, but marked exempt. The daily report limit and the org quota gate
+    still apply, but exempt spend does not count toward the paid quota. Delete this helper to start
+    charging for GitLab runs.
+    """
+    return tasks_facade.get_task_repository_integration_id(task_id=task_id, team_id=team_id) is not None

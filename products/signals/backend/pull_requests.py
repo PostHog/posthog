@@ -15,6 +15,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PullRequestLink
 from products.signals.backend.claim_display_name import claim_display_name
+from products.signals.backend.gitlab_merge_requests import parse_implementation_pr_url
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 
@@ -223,7 +224,7 @@ def _repair_missing_merge_times(report: SignalReport, prs: Sequence["Implementat
     for pr in prs:
         if pr.state != "merged" or pr.merged_at is not None:
             continue
-        parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+        parsed = parse_implementation_pr_url(pr.url)
         if parsed is None or not 0 < parsed.number <= MAX_PR_NUMBER or len(parsed.repository) > MAX_REPOSITORY_LENGTH:
             continue
         stored = link_pull_request(
@@ -274,8 +275,6 @@ def apply_report_completion(report: SignalReport) -> None:
 
 
 def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool = False) -> None:
-    from posthog.models.github_integration_base import GitHubIntegrationBase
-
     from products.signals.backend.artefact_schemas import WorkClaim
     from products.signals.backend.models import SignalReportAssignment
     from products.signals.backend.report_assignments import PullRequestDetails, assignment_actor

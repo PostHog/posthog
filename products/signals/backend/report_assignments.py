@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, TypedDict
@@ -11,19 +12,26 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import requests
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
-from posthog.models.integration import GitHubIntegration
+from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.integration import GitHubIntegration, GitLabIntegrationError
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, TaskRunArtefact, WorkClaim, WorkRelease
 from products.signals.backend.claim_display_name import claim_display_name
 from products.signals.backend.claim_takeover_notification import notify_claim_taken_over
+from products.signals.backend.gitlab_merge_requests import (
+    MergeRequestRef,
+    fetch_merge_request,
+    gitlab_connection_for_merge_request,
+    parse_implementation_pr_url,
+)
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
@@ -133,7 +141,7 @@ def assignment_snapshot(
         else None
     )
     if pr is not None:
-        parsed = GitHubIntegration.parse_pull_request_url(pr.url)
+        parsed = parse_implementation_pr_url(pr.url)
         implementation_pr = {
             "url": pr.url,
             "repository": parsed.repository if parsed else None,
@@ -268,9 +276,9 @@ def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int) -
 
 
 def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = False) -> PullRequestDetails:
-    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    parsed = parse_implementation_pr_url(pr_url)
     if parsed is None:
-        raise InvalidPullRequestUrl("pr_url must be a GitHub pull request URL.")
+        raise InvalidPullRequestUrl("pr_url must be a GitHub pull request or GitLab merge request URL.")
     if not 0 < parsed.number <= MAX_PR_NUMBER:
         raise InvalidPullRequestUrl("pr_url must end in a positive pull request number.")
     repository = parsed.repository.lower()
@@ -284,6 +292,8 @@ def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = F
         state=SignalReportAssignment.PrState.UNKNOWN,
         merged=False,
     )
+    if isinstance(parsed, MergeRequestRef):
+        return _merge_request_details(team_id, parsed, details, raise_on_error=raise_on_error)
     try:
         github = GitHubIntegration.first_for_team_repository(
             team_id, parsed.repository, source="signals_reviewers", priority=Priority.NORMAL
@@ -350,6 +360,30 @@ def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = F
     )
 
 
+def _merge_request_details(
+    team_id: int, ref: MergeRequestRef, details: PullRequestDetails, *, raise_on_error: bool
+) -> PullRequestDetails:
+    integration = gitlab_connection_for_merge_request(team_id, ref)
+    if integration is None:
+        raise InvalidPullRequestUrl("pr_url must be a merge request in a GitLab project connected to this project.")
+    try:
+        merge_request = fetch_merge_request(integration, ref)
+    except (GitLabIntegrationError, requests.RequestException):
+        logger.exception("signals.assignment.merge_request_fetch_failed", team_id=team_id, mr_iid=ref.number)
+        if raise_on_error:
+            raise
+        return details
+    if merge_request is None:
+        return details
+    return replace(
+        details,
+        url=merge_request.web_url or details.url,
+        state=merge_request.state,
+        merged=merge_request.state == SignalReportAssignment.PrState.MERGED,
+        merged_at=merge_request.merged_at,
+    )
+
+
 def sync_task_pull_request_to_assignments(
     *,
     team_id: int,
@@ -359,7 +393,7 @@ def sync_task_pull_request_to_assignments(
     pr_merged: bool = False,
 ) -> int:
     """Copy a task-run PR onto reports still owned by that task, or without an explicit PR."""
-    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    parsed = parse_implementation_pr_url(pr_url)
     if parsed is None or not 0 < parsed.number <= MAX_PR_NUMBER:
         return 0
     repository = parsed.repository.lower()
@@ -716,7 +750,7 @@ def update_assignments_for_pull_request(
                 for pr in fetch_implementation_prs_for_reports([str(report.id)], team_id=report.team_id).get(
                     str(report.id), []
                 ):
-                    parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+                    parsed = parse_implementation_pr_url(pr.url)
                     if (
                         parsed
                         and parsed.repository.lower() == repository.lower()
