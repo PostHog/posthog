@@ -343,8 +343,7 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         people = {distinct_id: create_person(team=self.team, distinct_ids=[distinct_id]) for distinct_id, _, _ in calls}
         people["person-3"] = create_person(team=self.team, distinct_ids=["person-3"])
         if not calls_only_in_flag_evaluations:
-            # Mode 1 reads events when a materialized column there backs `$feature_flag_response`, as in production,
-            # and flag_evaluations otherwise, so the events copy carries the same response.
+            # Mode 1 reads `$feature_flag_response` from events, so the events copy carries the same response.
             events_response = response
             for distinct_id, flag_key, properties in calls:
                 _create_event(

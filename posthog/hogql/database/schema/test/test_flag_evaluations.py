@@ -456,6 +456,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert "JSONExtractRaw" not in sql
         assert f"equals(flag_evaluations.{column}, " in sql
 
+    def test_property_with_a_typed_column_reads_the_json_when_materialization_is_disabled(self):
+        read = self._execute("properties.$feature_flag", modifiers=HogQLQueryModifiers(materializationMode="disabled"))
+
+        assert read.results == [("probe-flag",)]
+        assert "JSONExtractRaw(flag_evaluations.properties," in (read.clickhouse or "")
+
     def test_property_response_reads_null_for_an_empty_string(self):
         row_uuid = uuid.uuid4()
         self._insert_row(row_uuid, {"$feature_flag": "probe-flag", "$feature_flag_response": ""})
