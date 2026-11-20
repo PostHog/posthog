@@ -54,6 +54,8 @@ from posthog.hogql.restricted_properties import (
 from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
     before_grouping,
+    candidates_read_inside_keys,
+    comparable_expr,
     is_grouped,
     visit_after_grouping,
 )
@@ -1133,6 +1135,9 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         # Depth of `indexHint(...)` calls above the node being visited. A hint is an optimizer directive only, so a
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
+        # Per SELECT being visited, the JSON functions over one native property that it reads after grouping only
+        # inside a grouping key (`_rewrite_grouped_json_function`).
+        self._keyed_json_functions: list[list[ast.Expr]] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
@@ -1144,6 +1149,9 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 table_type = getattr(table_type, "table_type", None)
             join = join.next_join
         self._tables_in_scope.append(scope)
+        self._keyed_json_functions.append(
+            candidates_read_inside_keys(node, self._is_compiler_json_function) if is_grouped(node) else []
+        )
         try:
             with self._grouped_clause(False):
                 if not is_grouped(node):
@@ -1155,6 +1163,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             return result
         finally:
             self._tables_in_scope.pop()
+            self._keyed_json_functions.pop()
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
         """True if the property's source table is in the current SELECT's FROM/JOIN chain (by object identity)."""
@@ -1279,8 +1288,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         """The native property that `document` serializes, or None.
 
         The property pass writes `ifNull(toJSONString(<property>), '')` as the document of a JSON function whose
-        first key is constant. Its `''` is an inline sentinel, which no query text can produce, so a query that writes
-        the same expression keeps its own serialization of the property's text.
+        first key is constant.
         """
         if not (
             isinstance(document, ast.Call)
@@ -1288,7 +1296,6 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             and len(document.args) == 2
             and isinstance(document.args[1], ast.Constant)
             and document.args[1].value == ""
-            and document.args[1].inline_sentinel
             and isinstance(document.args[0], ast.Call)
             and document.args[0].name == "toJSONString"
             and len(document.args[0].args) == 1
@@ -1392,9 +1399,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 "if",
                 [
                     _call("equals", [value_type, _const("Float64")]),
-                    # JSONType returns an Enum8, and a 'Double' string literal would make the result a String, which
-                    # sorts by name instead of by the enum's order.
-                    _call("JSONType", [_const("0.5")]),
+                    _const("Double"),
                     _call("JSONType", [_call("ifNull", [json_text, _const("")])]),
                 ],
             )
@@ -1437,22 +1442,40 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         result.type = node.type
         return result
 
-    def _rewrite_json_function_on_property_document(self, node: ast.Call) -> ast.Expr | None:
-        """A JSON function over the document the property pass wrote for one native property, read from its path.
+    def _is_compiler_json_function(self, expr: ast.Expr) -> bool:
+        """Whether `expr` is a JSON function over the document the property pass wrote for one native property.
 
-        The property's text would serialize as a JSON string, which quotes a Bool or a number and hides a stored
-        object or array from the function. The path read gives the JSON text that the event's document holds. The
-        property pass writes this document only inside a JSON function, so the read is the same in every clause, and a
-        select column after grouping prints the same SQL as the GROUP BY key that names it.
+        That document's `''` is an inline sentinel, which no query text produces, so a query that spells out the same
+        expression is not taken for it.
         """
-        if node.name not in JSON_KEY_PATH_FUNCTIONS or not node.args:
+        if not (isinstance(expr, ast.Call) and expr.name in JSON_KEY_PATH_FUNCTIONS and expr.args):
+            return False
+        document = expr.args[0]
+        return (
+            isinstance(document, ast.Call)
+            and len(document.args) == 2
+            and isinstance(document.args[1], ast.Constant)
+            and bool(document.args[1].inline_sentinel)
+            and self._native_property_document(document) is not None
+        )
+
+    def _rewrite_grouped_json_function(self, node: ast.Call) -> ast.Expr | None:
+        """A JSON function over one native property after grouping, read from the property's path as it is before
+        grouping, or None to keep the general read.
+
+        The general read serializes the property's text, which quotes a Bool or a number and hides a stored object or
+        array from the function. The path read is not a function of a key such as `properties.x`, so it applies only
+        to a function that the clauses after grouping read inside a grouping key (`candidates_read_inside_keys`). The
+        key and every copy of it then change together, and any other query keeps the SQL it had.
+        """
+        keyed = self._keyed_json_functions[-1]
+        if not keyed or node.name not in JSON_KEY_PATH_FUNCTIONS or comparable_expr(node) not in keyed:
             return None
         rewritten = self._rewrite_json_function_on_property_text(node) or self._rewrite_scalar_json_extract(node)
         if rewritten is not None:
             return rewritten
         prop = self._native_property_document(node.args[0])
-        if prop is None:
-            return None
+        assert prop is not None  # a keyed function is a JSON function over that document
         _record_property_usage(self.context, prop.source.kind)
         json_text = _json_property_json_text(prop.field_type, prop.key, source=prop.source)
         document = _call("ifNull", [json_text, _sentinel("")])
@@ -1466,11 +1489,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 # column either way, so the drop stays safe after grouping and runs before the grouped shortcut below.
                 return self.visit(exported_json_text)
 
-        property_json_function = self._rewrite_json_function_on_property_document(node)
-        if property_json_function is not None:
-            return property_json_function
-
         if self._in_grouped_clause:
+            grouped_json_function = self._rewrite_grouped_json_function(node)
+            if grouped_json_function is not None:
+                return grouped_json_function
             # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
             # so its inputs keep the grouped context while ordinary aggregates above read original rows.
             comparison = _call_form_comparison(node)
@@ -1514,6 +1536,14 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         boolean_conversion = self._rewrite_boolean_property_conversion(node)
         if boolean_conversion is not None:
             return boolean_conversion
+
+        json_function_on_text = self._rewrite_json_function_on_property_text(node)
+        if json_function_on_text is not None:
+            return json_function_on_text
+
+        scalar_json_extract = self._rewrite_scalar_json_extract(node)
+        if scalar_json_extract is not None:
+            return scalar_json_extract
 
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:

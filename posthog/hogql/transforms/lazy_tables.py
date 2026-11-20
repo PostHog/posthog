@@ -285,10 +285,8 @@ class WrappedTableReferenceCollector(GroupedClauseTracker, TraversingVisitor):
             return
         through_lazy_join = any(isinstance(hop, ast.LazyJoinType) for hop in hops)
         # A lazy join's subquery exports the value itself, so a read through one keeps its outer `toJSONString`. After
-        # grouping a user-written serialization exports the value as well, because the resolver serializes the value
-        # there, and a GROUP BY key on the same property shares the column. A JSON function's read stays JSON text in
-        # every clause, as it does on the events table itself.
-        as_json = (property_type.as_json or (as_json and not self._in_grouped_clause)) and not through_lazy_join
+        # grouping the export is the value as well, so a GROUP BY key on the same property shares the column.
+        as_json = (as_json or property_type.as_json) and not through_lazy_join and not self._in_grouped_clause
         field_chain = (*(hop.field for hop in hops), document.name)
         property_path = tuple(property_type.chain)
         # An integer array index and a string key with the same text are different paths.

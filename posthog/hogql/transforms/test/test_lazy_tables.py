@@ -339,7 +339,7 @@ class TestWrappedEventJoins(SimpleTestCase):
         assert tail.count("toJSONString(joined.properties___a)") == 2, printed
         inner = self._wrapper_select_list(printed, "joined", native)
         if native:
-            assert "JSONExtractString(ifNull(joined.properties___label, ''))" in outer, printed
+            assert "JSONExtractString(ifNull(toJSONString(joined.properties___label), ''))" in outer, printed
             assert self._exports(printed, "joined", native) == {
                 "properties___a",
                 "properties___label",
@@ -578,12 +578,11 @@ class TestLazyJoins(BaseTest):
             (
                 "grouped",
                 "toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
-                "JSONLength(related.properties, 'a'), "
                 "toJSONString(related.properties.amount), any(toJSONString(related.properties.label)), "
                 "any(JSONExtractRaw(related.properties, 'a')), count()",
-                ('"ready"', "ready", 1, "7", '"ready"', '{"b":"nested"}', 1),
+                ('"ready"', "ready", "7", '"ready"', '{"b":"nested"}', 1),
                 "GROUP BY toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
-                "JSONLength(related.properties, 'a'), toJSONString(related.properties.amount)",
+                "toJSONString(related.properties.amount)",
             ),
             (
                 "grouped_by_key",

@@ -811,11 +811,21 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             (
                 "json_functions",
                 "SELECT JSONExtractRaw(toString(properties), 'value') AS raw, JSONType(properties, 'value') AS type, "
-                "count() FROM events GROUP BY raw, type ORDER BY type",
+                "count() FROM events GROUP BY raw, type "
+                "HAVING JSONExtractRaw(toString(properties), 'value') != 'false' ORDER BY raw",
                 ['{"value":"a"}', '{"value":true}', '{"value":true}', '{"value":1.5}', '{"value":{"b":1}}'],
-                [('"a"', "String", 1), ("true", "Bool", 2), ("1.5", "Double", 1), ('{"b":1}', "Object", 1)],
+                [('"a"', "String", 1), ("1.5", "Double", 1), ("true", "Bool", 2), ('{"b":1}', "Object", 1)],
                 "String",
                 ("blob", "native"),
+            ),
+            (
+                "json_function_beside_property_key",
+                "SELECT JSONExtractString(properties, 'value') AS extracted, count() "
+                "FROM events GROUP BY properties.value ORDER BY extracted",
+                ['{"value":"a"}', '{"value":"b"}', '{"value":"a"}'],
+                [("a", 2), ("b", 1)],
+                "String",
+                ("native",),
             ),
         ]
     )

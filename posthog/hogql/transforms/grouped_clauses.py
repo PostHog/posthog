@@ -11,7 +11,7 @@ from posthog.hogql.database.models import StringJSONDatabaseField
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import find_hogql_aggregation
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS
 
@@ -262,6 +262,71 @@ def _grouping_keys(node: ast.SelectQuery) -> list[ast.Expr]:
                 keys.append(key)
     seen: set[int] = set()
     return [part for key in keys for part in _key_parts(key, aliases, seen)]
+
+
+def comparable_expr(expr: ast.Expr) -> ast.Expr:
+    """`expr` without source locations, so two copies of one written expression compare equal. The types stay, so
+    the same text over two tables of a join stays apart."""
+    return clone_expr(expr, clear_locations=True)
+
+
+class _CandidatesInsideKeys(TraversingVisitor):
+    """Sorts each candidate in the clauses after grouping by whether it sits inside an expression equal to a key."""
+
+    def __init__(self, keys: list[ast.Expr], is_candidate: Callable[[ast.Expr], bool]) -> None:
+        super().__init__()
+        self.keys = keys
+        self.key_types = {type(key) for key in keys}
+        self.is_candidate = is_candidate
+        self.inside: list[ast.Expr] = []
+        self.loose: list[ast.Expr] = []
+        self._inside_key = False
+
+    def visit(self, node: AST | None) -> None:
+        if (
+            not self._inside_key
+            and isinstance(node, ast.Expr)
+            and type(node) in self.key_types
+            and comparable_expr(node) in self.keys
+        ):
+            self._inside_key = True
+            try:
+                super().visit(node)
+            finally:
+                self._inside_key = False
+            return
+        super().visit(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        if find_hogql_aggregation(node.name):
+            return
+        if self.is_candidate(node):
+            (self.inside if self._inside_key else self.loose).append(comparable_expr(node))
+            return
+        super().visit_call(node)
+
+    def visit_field(self, node: ast.Field) -> None:
+        """A field holds no candidate, and the base visitor would walk the alias type it shares with other fields."""
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        """A nested query starts its own split."""
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        """A nested query starts its own split."""
+
+
+def candidates_read_inside_keys(node: ast.SelectQuery, is_candidate: Callable[[ast.Expr], bool]) -> list[ast.Expr]:
+    """The candidates that the clauses after grouping read only inside an expression equal to a grouping key, without
+    source locations.
+
+    A pass may rewrite such a candidate in all of those clauses. Each expression that holds it equals a key, so after
+    the rewrite it still equals the rewritten key, and the query still reads only what it groups by. A candidate that
+    a clause also reads anywhere else must keep its form, because that clause may read it as a function of other keys.
+    """
+    keys = [comparable_expr(key) for key in _grouping_keys(node)]
+    finder = _CandidatesInsideKeys(keys, is_candidate)
+    visit_after_grouping(node, finder.visit)
+    return [candidate for candidate in finder.inside if candidate not in finder.loose]
 
 
 def raise_on_whole_document_grouping(node: ast.SelectQuery, context: "HogQLContext") -> None:
