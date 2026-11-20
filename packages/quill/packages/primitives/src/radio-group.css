@@ -80,7 +80,7 @@
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
     }
 
-    .quill-radio:disabled {
+    .quill-radio:is(:disabled, [data-disabled]) {
         cursor: not-allowed;
         opacity: 0.5;
     }

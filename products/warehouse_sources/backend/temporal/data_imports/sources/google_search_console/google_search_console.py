@@ -706,6 +706,20 @@ def _property_rows(
                 f"Google Search Console server error while listing {resource_name}; retrying (retryable)"
             ) from e
         raise
+    except RefreshError as e:
+        # `list_sites`/`list_sitemaps` call out through `AuthorizedSession`, which refreshes the
+        # access token first — a failing token endpoint raises here before any response exists, the
+        # same OAuth-refresh class `_query_search_analytics` retries inline. These two calls have no
+        # inline retry budget of their own, so mark a transient failure (e.g. the token endpoint's own
+        # 502) the same way rather than letting a bare RefreshError fall through and get logged as an
+        # exception. A permanent failure (invalid_grant/invalid_scope) still raises unchanged, so it
+        # keeps reaching `get_non_retryable_errors`.
+        if _is_transient_refresh_error(e):
+            raise GoogleSearchConsoleServerError(
+                f"Google Search Console server error refreshing credentials while listing {resource_name}; "
+                "retrying (retryable)"
+            ) from e
+        raise
 
     if rows:
         yield rows

@@ -19,6 +19,7 @@ import type {
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
+    AiObservabilityTracesListParams,
     AiObservabilityTracesNodesDatasetItemRetrieveParams,
     AiObservabilityTracesNodesParserTestCreateParams,
     AiObservabilityTracesNodesRawRetrieveParams,
@@ -30,6 +31,7 @@ import type {
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
+    ClusteringConfigSetEnabledApi,
     ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
@@ -183,16 +185,22 @@ import type {
     TraceExportCreateApi,
     TraceExportFileApi,
     TraceFeedbackApi,
+    TraceListApi,
     TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
     TraceNodeParserTestApi,
     TraceNodeParserTestRequestApi,
     TraceNodeRawApi,
+    TracePageRequestApi,
+    TracePageWithBoundsRequestApi,
+    TracePeopleListApi,
+    TracePreviewListApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
     TraceReviewStatusApi,
     TraceSearchResultsApi,
+    TraceSentimentListApi,
     TraceSummaryApi,
     TraceSummaryRequestApi,
     TranslateRequestApi,
@@ -684,6 +692,37 @@ export const aiObservabilityOfflineScorersHistoryList = async (
     options?: RequestInit
 ): Promise<OfflineHistoryPageApi> => {
     return apiMutator<OfflineHistoryPageApi>(getAiObservabilityOfflineScorersHistoryListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesListUrl = (projectId: string, params?: AiObservabilityTracesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/`
+}
+
+/**
+ * The project's traces in a date range, newest first, a page at a time. The first page also carries how many
+ * traces the selection holds.
+ */
+export const aiObservabilityTracesList = async (
+    projectId: string,
+    params?: AiObservabilityTracesListParams,
+    options?: RequestInit
+): Promise<TraceListApi> => {
+    return apiMutator<TraceListApi>(getAiObservabilityTracesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1211,6 +1250,66 @@ export const aiObservabilityTracesAvailabilityCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceAvailabilityRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesPeopleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/people/`
+}
+
+/**
+ * The person each trace on a page ran for, labeled by the project's display name properties.
+ */
+export const aiObservabilityTracesPeopleCreate = async (
+    projectId: string,
+    tracePageWithBoundsRequestApi: TracePageWithBoundsRequestApi,
+    options?: RequestInit
+): Promise<TracePeopleListApi> => {
+    return apiMutator<TracePeopleListApi>(getAiObservabilityTracesPeopleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracePageWithBoundsRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesPreviewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/previews/`
+}
+
+/**
+ * The input and output previews of a page of traces: the user's message each trace answered and its answer.
+ */
+export const aiObservabilityTracesPreviewsCreate = async (
+    projectId: string,
+    tracePageRequestApi: TracePageRequestApi,
+    options?: RequestInit
+): Promise<TracePreviewListApi> => {
+    return apiMutator<TracePreviewListApi>(getAiObservabilityTracesPreviewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracePageRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesSentimentCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/sentiment/`
+}
+
+/**
+ * The sentiment of each trace on a page, from its sentiment evaluation results.
+ */
+export const aiObservabilityTracesSentimentCreate = async (
+    projectId: string,
+    tracePageWithBoundsRequestApi: TracePageWithBoundsRequestApi,
+    options?: RequestInit
+): Promise<TraceSentimentListApi> => {
+    return apiMutator<TraceSentimentListApi>(getAiObservabilityTracesSentimentCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracePageWithBoundsRequestApi),
     })
 }
 
@@ -2282,6 +2381,26 @@ export const llmAnalyticsClusteringConfigList = async (
     return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsClusteringConfigSetEnabledCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/clustering_config/set_enabled/`
+}
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const llmAnalyticsClusteringConfigSetEnabledCreate = async (
+    projectId: string,
+    clusteringConfigSetEnabledApi: ClusteringConfigSetEnabledApi,
+    options?: RequestInit
+): Promise<ClusteringConfigApi> => {
+    return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigSetEnabledCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringConfigSetEnabledApi),
     })
 }
 

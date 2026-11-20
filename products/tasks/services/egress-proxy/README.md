@@ -19,7 +19,14 @@ Guest -> private sidecar HTTP -> mTLS -> regional /v1/probe
 Trusted controller -> renew lease / replace capability file -> revoke on exit
 ```
 
-Build the relay for the sandbox's architecture and put it at `/usr/local/bin/egress-relay` in a prebuilt Modal image with Python 3 and OpenSSL. For an AMD64 image, build with `GOOS=linux GOARCH=amd64 CGO_ENABLED=0`.
+Build the relay image directly from this checkout using a development Modal app:
+
+```bash
+python products/tasks/services/egress-proxy/scripts/build_modal_relay.py --app agent-egress-dev --env <worker-environment>
+```
+
+Put the printed `im-...` ID in `relay_image_id` below. The build uses `Dockerfile.relay`; no local Go build or registry push is needed.
+Use the Tasks worker's Modal workspace and environment. The script prints the selected environment before building; the worker's Modal credentials must be able to load the image ID.
 Run the regional proxy and registry first, using development signing keys and an ephemeral client CA.
 The CA key stays with the controller; the relay key stays in its sidecar.
 The mounted verifier bundle must include the run's signing key.
@@ -106,6 +113,38 @@ Observation failures stop that probe and are logged. They do not change the agen
 
 ## Run the processes
 
+### Container images
+
+From the repository root:
+
+```bash
+docker build -t agent-egress-proxy -f products/tasks/services/egress-proxy/Dockerfile products/tasks/services/egress-proxy
+docker build -t agent-egress-relay -f products/tasks/services/egress-proxy/Dockerfile.relay products/tasks/services/egress-proxy
+docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+  -p 127.0.0.1:8443:8443 \
+  --mount type=bind,src=/run/egress,dst=/run/egress,readonly \
+  agent-egress-proxy -config /run/egress/proxy.json
+```
+
+The proxy runs as UID/GID 65532 with no shell. Give that user read access to its mounted configuration and keys. Its admin listener stays on loopback inside the container; do not publish it.
+The relay image includes Python and OpenSSL for enrollment; the controller locks with Python's `fcntl.flock`. The image defaults to `sleep infinity` for manual runs. Modal's controller supplies its own sleep command, then starts `/usr/local/bin/egress-relay` after installing its configuration and certificate.
+It runs as root inside the isolated sidecar because the controller writes `/run/egress` and may pin the development endpoint in `/etc/hosts`. Moving those writes to a user-owned directory and removing the hosts-file override must precede running the relay as UID/GID 65532.
+
+Local Docker builds target the host architecture and are for smoke tests. Use the Modal builder above for the sandbox image.
+
+Both builds cross-compile Go for the target architecture, use digest-pinned bases and copy only Go source and module files. Pass `--build-arg COMMIT_HASH=<revision>` when building a release; local builds default to `development`. No credentials or configuration are baked in.
+CI starts both images with temporary TLS material, checks readiness and verifies that a request through the relay reaches the proxy and is rejected without a capability. Run the same check locally with `bash products/tasks/services/egress-proxy/scripts/smoke_images.sh` after building the images above.
+After tests and image smoke checks pass, the `Agent Egress` workflow publishes multi-architecture images from GitHub-hosted Ubuntu runners on master in the repository with `CD_DEPLOY_ENABLED=true`:
+
+- `posthog-agent-egress`: the regional service.
+- `posthog-agent-egress-relay`: the Modal sidecar.
+
+Each shared-services ECR image has an immutable full-commit tag and an ordered `r<position>-<short-sha>` alias for Kargo. The workflow verifies that the alias resolves to the published digest and prints the digest in its summary. Push and manual runs for the same commit serialize, and retries reuse an existing commit image. `ORDERED_IMAGE_ALIAS_PAUSED=true` pauses publication of both tags. Pull requests only build and test; manual publication also requires master.
+
+The ECR repositories and their publisher permissions must exist before enabling publication. Consume images by digest; a release does not update the development probe's `relay_image_id` or deploy the service. Certificate delivery and regional deployment remain separate work.
+
+### Local binaries
+
 From the repository root:
 
 ```bash
@@ -159,6 +198,8 @@ Before adding streaming adapters, set and test these budgets together, leaving r
 
 Listener addresses must use IP literals. Administration must bind to loopback.
 It exposes `GET /livez`, `/readyz` and `/metrics` on its own listener; those routes do not exist on the request listener.
+Use `egress-proxy -config /run/egress/proxy.json -healthcheck ready` for a Kubernetes exec readiness probe, or `-healthcheck live` for liveness. The relay supports the same flags with its own configuration.
+The check calls the configured loopback listener directly, refuses redirects and exits nonzero on failure within two seconds. It needs no shell, upstream credentials or access to the TLS key files.
 Readiness checks local material and audit health, not registry or upstream availability.
 Keep a relay's plaintext HTTP listener on a provider-isolated bridge if it must be reachable outside loopback.
 
@@ -226,12 +267,22 @@ Tests allow three seconds. Capability, certificate-chain and lease expiry stay s
 
 Trusted workers use `AgentEgressRegistry` in `backend/logic/services/agent_egress.py` to register, renew, revoke and issue capabilities.
 Registration binds one execution to its team, actor, relay key, exact hostname and region, with a 30-second lease.
+It also binds the execution to its sandbox. Lookup, renewal and capability issuance check that the run still owns that sandbox. Standalone development probes use their saved execution state; registrations without a sandbox binding are denied.
+Workers must save the new sandbox binding before registering its execution. Registration rejects a sandbox that the run does not yet own. Saving the same binding again leaves the registration active.
 It keeps the run's exact team ID, including for child environments.
 Reads and registration retries do not renew it. Renewal requires a live lease; an expired or revoked execution cannot be reused.
 Replacement requires the previous execution ID and keeps the old registration revoked.
 Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
 The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
 Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
+
+Changing or clearing the run's sandbox, or preparing a cloud resume, revokes its existing registration in the same transaction. If revocation fails, the state change fails too: otherwise restoring earlier run state could revive the old registration. Unrelated state updates do not access the egress table.
+
+Sandbox cleanup revokes matching registrations before contacting the provider; delayed cleanup of an old sandbox leaves its replacement alone. A revocation failure is logged and provider teardown still runs. Connection metadata stays in run state until cleanup succeeds; strict cleanup reports the failure for retry. A later retry can revoke and clear that state even when the VM is already gone. The proxy can still use a cached lease until its existing deadline.
+
+Registrations created before sandbox binding was added remain unbound and are denied, even if their stored `revoked` flag is false. In-flight development probes need a fresh execution after deployment. Replacement revokes the old row without inventing a historical revocation timestamp.
+
+These checks apply to the current development enrollment path. Production enrollment still needs regional deployment, private registry access and managed certificate issuance and renewal. They do not route agent traffic through the proxy or remove agentsh.
 
 Capabilities last five minutes, with `iss=posthog:tasks`, `aud=posthog:agent_egress`, `sub` set to the run ID and a separate `execution_id`.
 Issuance checks current registration and pins the signing key in the run's existing `sandbox_jwt_kid` state.
@@ -253,6 +304,17 @@ The `/internal/` route also needs private ingress when the service is deployed.
 ### Registry client and cache
 
 `registry.New` takes a fixed HTTPS origin, region, active registry signing key and lookup timeout.
+
+For a registry in the same Kubernetes cluster, `registry_allow_cluster_http: true` permits
+HTTP to a fully qualified `<service>.<namespace>.svc.cluster.local` origin. It is off by
+default. This sends lookup tokens and responses without transport encryption; the hostname
+check is not a network boundary. Use it only with trusted cluster networking and an enforced
+L7 policy that limits the destination pods, port, method and registry path. Keep HTTPS for
+other origins. The registry must serve this internal endpoint over HTTP without an
+HTTP-to-HTTPS redirect. Django's `SECURE_SSL_REDIRECT` can cause such a redirect; keep
+HTTPS unless the internal route is configured to accept HTTP. The client refuses
+redirects in both modes and reports them as unavailable.
+
 It signs each lookup with a scoped 30-second service JWT and checks the response's team, run, execution and region.
 It refuses redirects, limits response bodies to 16 KiB and honors cancellation through body reads.
 It drains small error bodies within those same limits so HTTP/1.1 connections can be reused.

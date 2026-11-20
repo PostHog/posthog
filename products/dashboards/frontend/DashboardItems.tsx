@@ -122,6 +122,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         tiles,
         layouts,
         placement,
+        isPreview,
         isRefreshingQueued,
         isRefreshing,
         highlightedInsightId,
@@ -214,12 +215,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
         // Dashboard pages hide the survey suggestion in compact headers; notebook embeds also use this component and can show it.
-        skip: placement === DashboardPlacement.Dashboard,
+        skip: placement === DashboardPlacement.Dashboard || isPreview,
     })
 
-    const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
-        ? null
-        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
+    const bestSurveyOpportunityFunnel =
+        surveyLinkedInsightsLoading || isPreview
+            ? null
+            : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
     const retryFailedDashboardTile = isSharedView()
         ? undefined
         : () => loadDashboard({ action: DashboardLoadAction.Update })

@@ -42,6 +42,19 @@ class SimpleCastEndpointConfig:
     default_incremental_field: Optional[str] = None
 
 
+TECHNOLOGY_DIMENSIONS = (
+    "applications",
+    "browsers",
+    "devices",
+    "device_class",
+    "listening_methods",
+    "network_types",
+    "operating_systems",
+    "providers",
+    "web_players",
+)
+
+
 # All endpoints are full refresh only: Simplecast exposes no server-side updated-since filter on
 # its lists, and the analytics reports return running totals that change on every sync.
 SIMPLECAST_ENDPOINTS: dict[str, SimpleCastEndpointConfig] = {
@@ -77,6 +90,40 @@ SIMPLECAST_ENDPOINTS: dict[str, SimpleCastEndpointConfig] = {
         path="/analytics/episodes/listeners?podcast={podcast_id}",
         fanout=_PODCAST_FANOUT,
     ),
+    "seasons": SimpleCastEndpointConfig(
+        name="seasons",
+        path="/podcasts/{podcast_id}/seasons",
+        # Season list items carry only `href` and `number`, no `id`.
+        primary_keys=["podcast_id", "number"],
+        fanout=_PODCAST_FANOUT,
+    ),
+    "locations": SimpleCastEndpointConfig(
+        name="locations",
+        path="/analytics/location?podcast={podcast_id}",
+        primary_keys=["podcast_id", "id"],
+        data_selector="countries",
+        paginated=False,
+        fanout=_PODCAST_FANOUT,
+    ),
+    "distribution_channels": SimpleCastEndpointConfig(name="distribution_channels", path="/distribution_channels"),
+    "podcast_distribution_channels": SimpleCastEndpointConfig(
+        name="podcast_distribution_channels",
+        path="/podcasts/{podcast_id}/distribution_channels",
+        primary_keys=["podcast_id", "id"],
+        fanout=_PODCAST_FANOUT,
+    ),
+    # Each technology report ranks the podcast's all-time downloads by one listening-platform
+    # dimension, one row per value with no id, so the value's `name` keys the row.
+    **{
+        f"technology_{dimension}": SimpleCastEndpointConfig(
+            name=f"technology_{dimension}",
+            path=f"/analytics/technology/{dimension}?podcast={{podcast_id}}",
+            primary_keys=["podcast_id", "name"],
+            paginated=False,
+            fanout=_PODCAST_FANOUT,
+        )
+        for dimension in TECHNOLOGY_DIMENSIONS
+    },
 }
 
 ENDPOINTS = tuple(SIMPLECAST_ENDPOINTS.keys())

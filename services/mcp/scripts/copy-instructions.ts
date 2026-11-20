@@ -10,7 +10,7 @@ import { dirname, resolve } from 'path'
 const ROOT_DIR = resolve(__dirname, '..')
 const REPO_ROOT = resolve(ROOT_DIR, '../..')
 
-const PROMPTS = [
+export const PROMPTS = [
     {
         src: 'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md',
         dest: 'shared/guidelines.md',

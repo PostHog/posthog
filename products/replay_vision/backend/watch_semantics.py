@@ -30,6 +30,7 @@ from products.replay_vision.backend.models.replay_scanner_semantics import (
 )
 from products.replay_vision.backend.observation_ranks import CATEGORY_NAMES, set_rank_clusters
 from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
+from products.replay_vision.backend.scope.load import snapshot_experiment_id
 from products.replay_vision.backend.semantic_space import (
     SEMANTIC_DIMENSIONS,
     ClusterWrites,
@@ -199,10 +200,8 @@ def _valence_unknown_for_row(
 
 
 def _experiment_scoped(snapshot: dict[str, Any] | None) -> bool:
-    snapshot = snapshot or {}
-    targeting = snapshot.get("experiment_targeting") or {}
-    config = snapshot.get("scanner_config") or {}
-    return bool(targeting.get("experiment_id") or config.get("experiment_id"))
+    # Reads every store, so a scan narrowed only by `scope` counts as experiment-scoped here.
+    return snapshot_experiment_id(snapshot) is not None
 
 
 def _prune(team_id: int, scanner_id: str, now: datetime) -> None:

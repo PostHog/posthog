@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import field
 from functools import reduce
 from operator import or_
@@ -74,8 +77,9 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system._ticket_assignee_roles": frozenset({"ticket"}),
     "system._event_definition_tagged_items": frozenset({"event_definition"}),
     "system._property_definition_tagged_items": frozenset({"property_definition"}),
-    # Task predicates need these public channel IDs even under object-only task grants.
+    # Task predicates need these public channel and Slack task IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
+    "system._task_public_slack_tasks": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
     # Insight alerts are readable only with their insight, so the reader's insight rules decide their rows.
     "system.alerts": frozenset({"insight"}),
@@ -108,6 +112,18 @@ class _WarehouseCatalog:
     view_queries: dict[str, object] = field(default_factory=dict)
     looked_up_names: set[str] = field(default_factory=set)
     walked_views: set[str] = field(default_factory=set)
+
+    def for_next_fingerprint(self) -> "_WarehouseCatalog":
+        """A catalog that reuses these name lookups but walks views afresh. Walked views must not carry
+        over: a later query that reads an already walked view would skip it and drop the scopes it reads
+        from its cache key."""
+        return _WarehouseCatalog(
+            team_id=self.team_id,
+            table_names=self.table_names,
+            looked_up_table_names=self.looked_up_table_names,
+            view_queries=self.view_queries,
+            looked_up_names=self.looked_up_names,
+        )
 
     def has_table(self, names: set[str]) -> bool:
         # Deferred to break the query_runner -> this module -> hogql import cycle.
@@ -180,6 +196,35 @@ class _WarehouseCatalog:
         return [(name, self.view_queries[name]) for name in sorted(names) if name in self.view_queries]
 
 
+# Catalogs per team for the queries fingerprinted inside `shared_warehouse_lookups`. None outside it,
+# so nothing outside an explicit scope, such as a long-lived worker, reuses a lookup.
+_shared_catalogs: ContextVar[dict[int, _WarehouseCatalog] | None] = ContextVar(
+    "shared_warehouse_catalogs", default=None
+)
+
+
+@contextmanager
+def shared_warehouse_lookups() -> Iterator[None]:
+    """Share warehouse name lookups between the queries fingerprinted inside the block.
+
+    A dashboard fingerprints every tile's query to find its cached result, and each raw HogQL tile
+    otherwise looks up the names it reads in Postgres again. Inside the block a name is looked up once."""
+    token = _shared_catalogs.set({})
+    try:
+        yield
+    finally:
+        _shared_catalogs.reset(token)
+
+
+def _catalog_for_fingerprint(team_id: int) -> _WarehouseCatalog:
+    shared = _shared_catalogs.get()
+    if shared is None:
+        return _WarehouseCatalog(team_id=team_id)
+    if team_id not in shared:
+        shared[team_id] = _WarehouseCatalog(team_id=team_id)
+    return shared[team_id].for_next_fingerprint()
+
+
 def queried_access_controlled_resources(
     query: BaseModel,
     team: "Team",
@@ -212,7 +257,7 @@ def queried_access_controlled_resources(
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
-    catalog = _catalog or _WarehouseCatalog(team_id=team.pk)
+    catalog = _catalog or _catalog_for_fingerprint(team.pk)
 
     # The macro can read tables through encoded actor queries, actions, and cohorts. Until those
     # references are expanded here, conservatively partition on every access-control scope.

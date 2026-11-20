@@ -673,11 +673,24 @@ class KnowledgeUsageQuerySerializer(serializers.Serializer):
     )
 
 
-class DailyCitedRunsSerializer(serializers.Serializer):
+class DailyUsageSerializer(serializers.Serializer):
     date = serializers.DateField(read_only=True, help_text="Day, in UTC.")
     cited_run_count = serializers.IntegerField(
         read_only=True, help_text="Support agent runs that cited knowledge on this day."
     )
+    chunks_ingested = serializers.IntegerField(read_only=True, help_text="Chunks written on this day.")
+    query_count = serializers.IntegerField(read_only=True, help_text="Knowledge searches made on this day.")
+
+
+class SurfaceUsageSerializer(serializers.Serializer):
+    surface = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Where the usage came from. For chunks: text, url, file, or generated (learned from a support "
+            "ticket). For searches: api (the API and MCP), support, posthog_ai, or learning."
+        ),
+    )
+    total = serializers.IntegerField(read_only=True, help_text="Usage from this surface in the period.")
 
 
 class SourceUsageSerializer(serializers.Serializer):
@@ -695,7 +708,7 @@ class SourceUsageSerializer(serializers.Serializer):
 
 
 class KnowledgeUsageSerializer(serializers.Serializer):
-    """How much support agent runs used the knowledge base in a period."""
+    """How much the knowledge base was used in a period: ingestion, searches, and support agent citations."""
 
     days = serializers.IntegerField(read_only=True, help_text="Number of days the report covers, today included.")
     cited_run_count = serializers.IntegerField(
@@ -709,7 +722,22 @@ class KnowledgeUsageSerializer(serializers.Serializer):
     cited_source_count = serializers.IntegerField(
         read_only=True, help_text="Knowledge sources that at least one run cited in the period."
     )
-    daily = DailyCitedRunsSerializer(many=True, read_only=True, help_text="One entry per day, oldest first.")
+    chunks_ingested = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Chunks written in the period. Content that a refresh finds changed is chunked again and counts again."
+        ),
+    )
+    query_count = serializers.IntegerField(
+        read_only=True, help_text="Knowledge searches made in the period, from every surface."
+    )
+    chunks_by_surface = SurfaceUsageSerializer(
+        many=True, read_only=True, help_text="Chunks written in the period by source type, largest first."
+    )
+    queries_by_surface = SurfaceUsageSerializer(
+        many=True, read_only=True, help_text="Searches in the period by where they came from, largest first."
+    )
+    daily = DailyUsageSerializer(many=True, read_only=True, help_text="One entry per day, oldest first.")
     top_sources = SourceUsageSerializer(
         many=True, read_only=True, help_text="The most cited sources in the period, most cited first."
     )

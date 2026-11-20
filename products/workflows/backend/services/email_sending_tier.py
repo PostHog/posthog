@@ -413,6 +413,7 @@ def apply_tier_decision(
         previous_tier=decision.previous_tier,
         new_tier=decision.new_tier,
         reason=decision.reason,
+        pin_change=(False, False),
         trigger=trigger,
         user_id=user_id,
         was_impersonated=was_impersonated,

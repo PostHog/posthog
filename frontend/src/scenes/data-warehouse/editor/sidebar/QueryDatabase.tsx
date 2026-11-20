@@ -1377,13 +1377,20 @@ export const QueryDatabase = ({
                     'table',
                     'view',
                     'managed-view',
-                    'endpoint',
                     'draft',
                     'metric',
                     'column',
                     'unsaved-query',
                     'folder',
                 ]
+                if (item.record?.type === 'endpoint') {
+                    return (
+                        <div className="flex flex-col gap-1">
+                            <span className="font-semibold">{item.name}</span>
+                            <span>Materialized endpoint</span>
+                        </div>
+                    )
+                }
                 if (tooltipTypes.includes(item.record?.type)) {
                     let label = item.name
                     if (item.record?.type === 'column' && item.record?.field?.type === 'field_traverser') {

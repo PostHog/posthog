@@ -6,8 +6,8 @@ import { useViewer } from '@/auth/useViewer'
 import { changeNavPin } from '@/features/tabs/navPinActions'
 import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import { useIsNavPinned } from '@/features/tabs/navPinStore'
+import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
-import { useTabHeader } from '@/features/tabs/tabHeaderStore'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
 import { ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
@@ -80,6 +80,7 @@ export function ErrorsListScreen({ chrome }: { chrome: 'tab' | 'stack' }): React
 function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
     const colors = useColors()
     const styles = useStyles()
+    const listRef = useRef<FlatList<IssueRow>>(null)
     const router = useRouter()
     const insets = useScreenInsets()
     const tabBottom = useTabBottomOffset()
@@ -283,6 +284,7 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
         }
         body = (
             <FlatList
+                ref={listRef}
                 onScroll={scrollTitle.onScroll}
                 scrollEventThrottle={16}
                 data={rows}
@@ -329,7 +331,13 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
 
     return (
         <View style={styles.fill}>
-            {chrome === 'tab' ? <TabHeaderPublisher status={status} /> : null}
+            {chrome === 'tab' ? (
+                <TabHeaderPublisher
+                    tab="errors"
+                    status={status}
+                    scrollToTop={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+                />
+            ) : null}
             {body}
             <ErrorsSortSheet visible={sortOpen} sort={sort} onSelect={changeSort} onClose={() => setSortOpen(false)} />
             {chrome === 'stack' ? (
@@ -375,15 +383,6 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
             />
         </View>
     )
-}
-
-/**
- * The pinned tab's status line in the shared tabs header. Its own component, so a pushed Errors screen never writes
- * the tab's header slot, and never clears it when it closes.
- */
-function TabHeaderPublisher({ status }: { status: string | null }): null {
-    useTabHeader('errors', { hint: null, status, editing: null, editPins: null, filter: null })
-    return null
 }
 
 function CardGap(): ReactElement {

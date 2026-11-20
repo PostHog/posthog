@@ -392,7 +392,18 @@ class TestAgentEgressLifecycle(TestCase):
         self.assertFalse(self.registration().revoked)
 
     @parameterized.expand(
-        [("expired",), ("config",), ("workflow",), ("execution",), ("actor",), ("cancelled",), ("completed",)]
+        [
+            ("expired",),
+            ("config",),
+            ("workflow",),
+            ("execution",),
+            ("actor",),
+            ("cancelled",),
+            ("completed",),
+            ("sandbox",),
+            ("closed",),
+            ("probe_owner",),
+        ]
     )
     def test_renewal_does_not_extend_invalid_authority(self, failure: str) -> None:
         self.controller().prepare()
@@ -409,6 +420,17 @@ class TestAgentEgressLifecycle(TestCase):
             TaskRun.objects.filter(id=self.task_run.id, team_id=self.team.id).update(status=TaskRun.Status.COMPLETED)
         elif failure == "cancelled":
             TaskRun.update_state_atomic(self.task_run.id, updates={"cancel_requested_at": timezone.now().isoformat()})
+        elif failure in ("sandbox", "closed", "probe_owner"):
+            self.task_run.refresh_from_db()
+            probe = dict(self.task_run.state[STATE_KEY])
+            probe.update(
+                {"sandbox_id": "sb-foreign"}
+                if failure == "sandbox"
+                else {"closed": True}
+                if failure == "closed"
+                else {"owns_sandbox": False}
+            )
+            TaskRun.update_state_atomic(self.task_run.id, updates={STATE_KEY: probe})
         controller = AgentEgressLifecycle(
             config,
             execution_id=uuid4() if failure == "execution" else self.execution_id,

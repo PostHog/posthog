@@ -33,7 +33,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
-from posthog.ph_client import ScopedCapture, ph_scoped_capture
+from posthog.ph_client import ScopedCapture, ph_background_capture, ph_scoped_capture
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -295,13 +295,13 @@ def _queue_workflows_email(
 
     Takes the same arguments as posthog-python's `Emails.send`, so the SDK can replace this body once it ships.
     """
-    payload: dict[str, Any] = {"to": to, "message_data": template_data}
+    payload: dict[str, Any] = {"template_id": template_id, "to": to, "message_data": template_data}
     if distinct_id:
-        payload["identifiers"] = {"distinct_id": distinct_id}
+        payload["distinct_id"] = distinct_id
     try:
         response = requests.post(
-            # The project secret API key names the project, so `@current` resolves to it.
-            f"{settings.POSTHOG_HOST.rstrip('/')}/api/projects/@current/messaging_templates/{template_id}/send/",
+            # The path names no project, because PostHog sends from the project the secret API key belongs to.
+            f"{settings.POSTHOG_HOST.rstrip('/')}/api/messaging/send/email/",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY}",
@@ -512,6 +512,7 @@ def _send_via_http_batch(
 def _send_via_smtp(
     to: list[dict[str, str]],
     campaign_key: str,
+    template_name: str,
     subject: str,
     txt_body: str,
     html_body: str,
@@ -519,6 +520,12 @@ def _send_via_smtp(
     reply_to: Optional[str] = None,
 ) -> None:
     """Sends emails using SMTP"""
+    # One client per process: a client made per send stays registered for interpreter exit and is never freed.
+    try:
+        capture = ph_background_capture(event_region=get_instance_region())
+    except Exception as err:
+        logger.warning("email_capture_client_failed", error=str(err))
+        capture = ScopedCapture(None)
     connection = None
     try:
         klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
@@ -575,6 +582,16 @@ def _send_via_smtp(
                         )
                     record.sent_at = timezone.now()
                     record.save()
+                    _capture_email_event(
+                        capture,
+                        dest,
+                        "transactional email triggered",
+                        {
+                            "template_name": template_name,
+                            "campaign_key": campaign_key,
+                            "provider": "smtp",
+                        },
+                    )
                     EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
     except _TRANSIENT_SMTP_ERRORS as err:
         # Re-raise so the task's autoretry (3x + backoff) retries instead of dropping the email.
@@ -803,6 +820,7 @@ def _send_email_now(
         _send_via_smtp(
             to=to,
             campaign_key=campaign_key,
+            template_name=template_name,
             subject=subject,
             txt_body=txt_body,
             html_body=html_body,

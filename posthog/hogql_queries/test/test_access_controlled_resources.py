@@ -34,6 +34,7 @@ from posthog.hogql_queries.access_controlled_resources import (
     _TRANSITIVE_SYSTEM_TABLE_SCOPES,
     _references_data_warehouse,
     queried_access_controlled_resources,
+    shared_warehouse_lookups,
 )
 
 from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
@@ -98,6 +99,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("ticket_assignments", "select * from system._ticket_assignments", {"ticket"}),
             ("ticket_assignee_roles", "select * from system._ticket_assignee_roles", {"ticket"}),
             ("task_public_channels", "select * from system._task_public_channels", {"task"}),
+            ("task_public_slack_tasks", "select * from system._task_public_slack_tasks", {"task"}),
             ("customer_tasks", "select * from system.customer_tasks", {"customer_task", "account"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
@@ -410,6 +412,25 @@ class TestQueriedAccessControlledResources(BaseTest):
         assert queries_6 == queries_2
         # Each added view costs one parse. A base view walked again for each parent would cost two.
         assert parses_6 - parses_2 == 4
+
+    def test_shared_lookups_reuse_names_but_walk_each_querys_views(self) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="notebook_view",
+            query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+        )
+        expected = {"warehouse_view", "warehouse_table", "external_data_source", "notebook"}
+
+        with shared_warehouse_lookups():
+            first = queried_access_controlled_resources(HogQLQuery(query="select * from notebook_view"), self.team)
+            with CaptureQueriesContext(connection) as ctx:
+                second = queried_access_controlled_resources(
+                    HogQLQuery(query="select count() from notebook_view"), self.team
+                )
+
+        assert first == expected
+        assert second == expected
+        assert len(ctx.captured_queries) == 0
 
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")
