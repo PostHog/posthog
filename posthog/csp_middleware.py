@@ -1,7 +1,7 @@
 """The Content Security Policy PostHog serves, and the middleware that attaches it.
 
-The policy lives apart from the other middleware so that team-security owns the file in
-`.github/CODEOWNERS` and reviews every change to it.
+The policy lives apart from the other middleware so that the `master` branch ruleset can
+require a team-security review for every change to this file.
 """
 
 import re

@@ -9,7 +9,7 @@ What each file contains and how per-folder overrides resolve: [the engine's "Pol
 
 `policy.yml` declares only what differs from the shipped default, which the engine merges it onto:
 
-- `infra_cicd` replaces its `paths` list. It also matches `.github/pr-deploy`, and of the workflows it keeps only the ones that CODEOWNERS assigns to `team-security`, so those stay denied for every author. Of the compose files it leaves out only the local-only ones that `dev_stack` matches, so the files a hobby deploy or an image build reads stay denied for every author.
+- `infra_cicd` replaces its `paths` list. It also matches `.github/pr-deploy`, and of the workflows it keeps only the ones that the `master` branch ruleset requires `team-security` to review, so those stay denied for every author. Of the compose files it leaves out only the local-only ones that `dev_stack` matches, so the files a hobby deploy or an image build reads stay denied for every author.
 - `ci_workflows` is an extra, owner-only category. It matches every file under `.github/workflows/` and `.depot/workflows/`, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
 - `dev_stack` is an extra, owner-only category. It matches the compose files that only local runs start (`docker-compose.dev-full.yml`, `playwright` and `sandbox`), and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
 - `stamphog_policy` extends its paths with `packages/owners-yaml/`, because the resolver there is a gate input. It also matches the dependency and revert proof workflows, the `tools/change-prover/` package with the prover and the scanner, and the `setup-uv` action they run, because an edit to them changes what a proof checks.

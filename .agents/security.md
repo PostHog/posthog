@@ -311,7 +311,7 @@ the name check, so address pinning and the egress proxy stay the controls there.
 
 `CSPMiddleware` in `posthog/csp_middleware.py` attaches a policy to every HTML response.
 Treat it as enforced.
-team-security owns that file in `.github/CODEOWNERS`, so every policy change needs their approval.
+The `master` branch ruleset requires a team-security review for that file, so every policy change needs their approval.
 A refused resource produces no user-visible error, so the feature simply does not work, and the only signal is a `$csp_violation` event in project 2.
 
 Three policies exist, and a change lands in whichever one covers the page:
