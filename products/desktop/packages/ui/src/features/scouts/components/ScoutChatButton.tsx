@@ -1,5 +1,4 @@
 import { SparkleIcon } from "@phosphor-icons/react";
-import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
 import { buildScoutCheckinPrompt } from "@posthog/core/scouts/scoutPrompts";
 import { Button } from "@posthog/quill";
 import type { ScoutSurface } from "@posthog/shared";
@@ -13,16 +12,18 @@ import { useScoutChatTask } from "../hooks/useScoutChatTask";
  */
 export function ScoutChatButton({
   skillName,
+  displayName,
   surface,
   label,
 }: {
   skillName: string;
+  displayName: string;
   surface: ScoutSurface;
   label?: string;
 }) {
   const prompt = useMemo(
-    () => buildScoutCheckinPrompt(skillName, prettifyScoutSkillName(skillName)),
-    [skillName],
+    () => buildScoutCheckinPrompt(skillName, displayName),
+    [skillName, displayName],
   );
   const { runTask, isRunning } = useScoutChatTask({
     prompt,
@@ -57,7 +58,7 @@ export function ScoutChatButton({
         size="icon-sm"
         onClick={() => void runTask()}
         disabled={isRunning}
-        aria-label={`Ask PostHog about the ${skillName} agent`}
+        aria-label={`Ask PostHog about the ${displayName} agent`}
         className={isRunning ? "animate-pulse text-(--iris-9)" : undefined}
         data-attr="scout-discuss"
       >

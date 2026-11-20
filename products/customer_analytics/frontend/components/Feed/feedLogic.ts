@@ -15,6 +15,7 @@ import {
 } from 'products/signals/frontend/inbox/logics/inboxFiltersLogic'
 import { SignalReport, SignalReportPriority, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { DismissalFeedback, suppressDismissalPayload } from 'products/signals/frontend/inbox/utils/dismissalReasons'
+import { scoutNameForSkill, scoutNamesBySkill } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import type { UserType } from '../../../../../frontend/src/types'
 
@@ -41,6 +42,7 @@ export interface feedLogicValues {
     scoutConfigs: SignalScoutConfigApi[] | null
     scoutConfigsLoading: boolean
     scoutFilter: string[]
+    scoutLabels: Record<string, string>
     scoutNames: string[]
     searchQuery: string
     sortDirection: InboxSortDirection
@@ -121,7 +123,8 @@ export interface feedLogicActions {
 export interface feedLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         reports: (reportsResponse: CountedPaginatedResponse<SignalReport> | null) => SignalReport[]
-        scoutNames: (scoutConfigs: SignalScoutConfigApi[] | null, scoutFilter: string[]) => string[]
+        scoutNames: (scoutConfigs: SignalScoutConfigApi[] | null, scoutFilter: string[], scoutLabels: any) => string[]
+        scoutLabels: (scoutConfigs: SignalScoutConfigApi[] | null) => Record<string, string>
         hasActiveFilters: (
             searchQuery: string,
             statusFilter: SignalReportStatus | null,
@@ -222,8 +225,12 @@ export const feedLogic = kea<feedLogicType>([
         // `scout_prefix` filter already excludes, so offering them would only ever empty the list.
         // Selected scouts stay listed even if their config was since deleted, so they can be untoggled.
         scoutNames: [
-            (s) => [s.scoutConfigs, s.scoutFilter],
-            (scoutConfigs: SignalScoutConfigApi[] | null, scoutFilter: string[]): string[] =>
+            (s) => [s.scoutConfigs, s.scoutFilter, s.scoutLabels],
+            (
+                scoutConfigs: SignalScoutConfigApi[] | null,
+                scoutFilter: string[],
+                scoutLabels: Record<string, string>
+            ): string[] =>
                 [
                     ...new Set([
                         ...(scoutConfigs ?? [])
@@ -231,7 +238,12 @@ export const feedLogic = kea<feedLogicType>([
                             .filter((name) => name.startsWith(CUSTOMER_ANALYTICS_SCOUT_PREFIX)),
                         ...scoutFilter,
                     ]),
-                ].sort((a, b) => a.localeCompare(b)),
+                ].sort((a, b) => scoutNameForSkill(scoutLabels, a).localeCompare(scoutNameForSkill(scoutLabels, b))),
+        ],
+        // Skill name → the scout's display name, for the scout picker's labels.
+        scoutLabels: [
+            (s) => [s.scoutConfigs],
+            (scoutConfigs: SignalScoutConfigApi[] | null): Record<string, string> => scoutNamesBySkill(scoutConfigs),
         ],
         // Whether any list-narrowing filter is active. Sort is excluded for the same reason
         // `clearFilters` leaves it alone — it never hides a report, so it can't make the list empty.

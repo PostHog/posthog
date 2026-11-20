@@ -37,6 +37,7 @@ import {
     captureTodayReportsImpressed,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
@@ -169,6 +170,7 @@ export interface todayLogicValues {
     isCloudOrDev: boolean | undefined // preflightLogic
     recents: FileSystemEntry[] // recentItemsModel
     recentsHasLoaded: boolean // recentItemsModel
+    scoutNamesBySkill: Record<string, string> // scoutFleetLogic
     currentProjectId: number | string // teamLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     doneHighlightKeys: string[] // todayHighlightsLogic
@@ -453,7 +455,8 @@ export interface todayLogicMeta {
         exploreItems: (currentTeam: TeamPublicType | TeamType | null) => TodayExploreItem[]
         reportPreviews: (
             reports: SignalReport[],
-            loadedMoreReports: SignalReport[]
+            loadedMoreReports: SignalReport[],
+            scoutNamesBySkill: any
         ) => Record<string, TodayReportPreview>
     }
 }
@@ -488,6 +491,8 @@ export const todayLogic = kea<todayLogicType>([
             ['activeCampaign', 'activeCampaignResolved'],
             preflightLogic,
             ['isCloudOrDev'],
+            scoutFleetLogic,
+            ['scoutNamesBySkill'],
         ],
         actions: [
             router,
@@ -888,11 +893,15 @@ export const todayLogic = kea<todayLogicType>([
             (): TodayExploreItem[] => EXPLORE_ITEMS.filter((item) => !getProductAccessDisabledReason(item)),
         ],
         reportPreviews: [
-            (s) => [s.reports, s.loadedMoreReports],
-            (reports: SignalReport[], loadedMoreReports: SignalReport[]): Record<string, TodayReportPreview> => {
+            (s) => [s.reports, s.loadedMoreReports, s.scoutNamesBySkill],
+            (
+                reports: SignalReport[],
+                loadedMoreReports: SignalReport[],
+                scoutNamesBySkill: Record<string, string>
+            ): Record<string, TodayReportPreview> => {
                 const previews: Record<string, TodayReportPreview> = {}
                 for (const report of [...reports, ...loadedMoreReports]) {
-                    const preview = reportPreview(report)
+                    const preview = reportPreview(report, scoutNamesBySkill)
                     if (preview) {
                         previews[report.id] = preview
                     }
