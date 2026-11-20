@@ -14898,7 +14898,7 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         },
         "feature_flag": "scout-trials"
     },
