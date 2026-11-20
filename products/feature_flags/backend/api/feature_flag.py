@@ -6036,7 +6036,7 @@ class FeatureFlagViewSet(
 
         return Response(flags_with_evaluation_reasons)
 
-    def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
+    def dangerously_get_required_scopes(self, request, view) -> Optional[builtins.list[str]]:
         # Sizing a condition counts persons (or groups) by their property values, so a key also needs
         # the scope that reads them.
         if self.action == "user_blast_radius":
@@ -6061,9 +6061,11 @@ class FeatureFlagViewSet(
         group_type_index = request.data.get("group_type_index", None)
 
         if group_type_index is None and use_blast_radius_query_v2(self.team):
-            result = get_person_blast_radius_v2(self.team, condition, user=request.user)
+            result = get_person_blast_radius_v2(self.team, condition, user=cast(Optional[User], request.user))
         else:
-            result = get_user_blast_radius(self.team, condition, group_type_index, user=request.user)
+            result = get_user_blast_radius(
+                self.team, condition, group_type_index, user=cast(Optional[User], request.user)
+            )
 
         return Response({"affected": result.affected, "total": result.total})
 

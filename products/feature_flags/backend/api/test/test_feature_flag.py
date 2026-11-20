@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 import pytest
 import time_machine
@@ -9700,7 +9700,9 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(detail_fragment, response.json()["detail"])
 
-    def _restrict_for_member(self, name: str, type_: str, group_type_index: int | None = None) -> None:
+    def _restrict_for_member(
+        self, name: str, type_: PropertyDefinition.Type, group_type_index: int | None = None
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
@@ -9756,7 +9758,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         assert (response.json()["affected"], response.json()["total"]) == (0, 2)
 
     def test_user_blast_radius_ignores_another_group_types_property_restriction(self):
-        for index, name in enumerate(["organization", "company"]):
+        group_types: list[tuple[Literal[0, 1], str]] = [(0, "organization"), (1, "company")]
+        for index, name in group_types:
             create_group_type_mapping(
                 team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
             )
@@ -9779,7 +9782,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         assert (response.json()["affected"], response.json()["total"]) == (1, 1)
 
     def test_group_count_keeps_other_group_type_restrictions_for_hogql_filters(self):
-        for index, name in enumerate(["organization", "company"]):
+        group_types: list[tuple[Literal[0, 1], str]] = [(0, "organization"), (1, "company")]
+        for index, name in group_types:
             create_group_type_mapping(
                 team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
             )
