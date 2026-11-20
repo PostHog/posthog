@@ -17,16 +17,13 @@ export function isHermesBundlePath(path: string): boolean {
     return HERMES_BUNDLE_EXTENSIONS.some((extension) => path.endsWith(extension))
 }
 
-// The fields that decide whether a map is empty. Each one counts on its own, so its answer is
-// taken when the field is read and the value is not kept.
 const EMPTINESS_FIELDS = new Set(['mappings', 'sources', 'names', 'sections'])
 
 const COMMA = Buffer.from(',')
 const CLOSE = Buffer.from('}')
 
-// A Hermes map without its tree. hog only moves two ids between these maps, so every other field
-// is serialized as soon as it is parsed. A packager or composed map is often over 100 MB, and its
-// tree is several times larger than its bytes.
+// A Hermes map without its tree, which is several times larger than its bytes. hog only moves two
+// ids between these maps, so every other field is serialized as soon as it is parsed.
 export interface HermesMap extends MapIds {
     composed: boolean
     empty: boolean
@@ -43,7 +40,6 @@ class HermesMapBuilder {
 
     constructor(private readonly parts: HermesMapParts) {}
 
-    // A repeated key keeps the last value, as in serde_json's Value.
     field(key: string): Utf8Writer | undefined {
         this.composed ||= key === FUNCTION_OFFSETS
         if (EMPTINESS_FIELDS.has(key)) {
@@ -58,8 +54,6 @@ class HermesMapBuilder {
         return piece
     }
 
-    // `value` is the whole value of the field, or an array of some of its elements. An array is
-    // empty when every part of it is, so the parts can arrive one at a time.
     inspect(key: string, value: JsonValue): void {
         if (EMPTINESS_FIELDS.has(key)) {
             const empty = isEmptyMap((name) => (name === key ? value : undefined))
@@ -98,18 +92,15 @@ const CLOSE_BRACE = 0x7d
 const COMMA_BYTE = 0x2c
 const COLON = 0x3a
 const MIN_SPLIT_ARRAY_BYTES = 256 * 1024
-// The depth serde_json is at inside the map's top-level object.
 const FIELD_DEPTH = 1
 
 const isJsonWhitespace = (byte: number | undefined): boolean =>
     byte === 0x20 || byte === 0x0a || byte === 0x0d || byte === 0x09
 
-// Reads a map from its bytes, one field at a time and one element at a time for a large array.
-// Decoding the whole file to a string costs two bytes per character when a single character is
-// outside Latin-1, and parsing it whole holds every decoded source file at once. This reader only
-// finds where each value starts and ends. `JsonParser` still parses every value, so a valid map
-// reads the same either way. On anything unexpected it gives up, and the caller reads the text
-// whole instead.
+// Reads a map one field at a time, and a large array one element at a time, so the text and the
+// tree of the whole map never exist. It only finds where each value starts and ends: `JsonParser`
+// still parses every value, so a valid map reads the same either way. On anything unexpected it
+// throws, and the caller reads the text whole instead.
 class SplitMapReader {
     private readonly builder: HermesMapBuilder
 
@@ -205,8 +196,7 @@ class SplitMapReader {
         piece?.push(']')
     }
 
-    // Parses one value on its own, at the depth it has in the map, so the recursion limit still
-    // counts from the top of the file.
+    // The value starts at the depth it has in the map, so the recursion limit counts from the top.
     private parse(start: number, end: number, depth: number): JsonValue {
         const parser = new JsonParser(decodeUtf8(this.bytes.subarray(start, end)))
         for (let level = 0; level < depth; level++) {
@@ -230,8 +220,6 @@ class SplitMapReader {
         return index
     }
 
-    // A quote ends the string unless an odd number of backslashes comes right before it. The
-    // native search skips the text of a source file much faster than a loop over its bytes.
     private stringEnd(start: number): number {
         const bytes = this.bytes
         for (let quote = bytes.indexOf(QUOTE, start + 1); quote >= 0; quote = bytes.indexOf(QUOTE, quote + 1)) {
@@ -246,8 +234,7 @@ class SplitMapReader {
         throw new NotSplittable('EOF while parsing a string')
     }
 
-    // Where the value that starts at `start` ends. It only matches quotes and brackets: the
-    // parser that reads the value afterwards decides whether it is valid.
+    // Only quotes and brackets are matched: the parser that reads the value decides if it is valid.
     private valueEnd(start: number): number {
         const bytes = this.bytes
         const first = bytes[start]
