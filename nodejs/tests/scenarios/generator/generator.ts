@@ -248,7 +248,7 @@ export async function drive(
         step.dueUnits = Math.max(
             sent,
             Array.from({ length: cycles }, (_, cycle) => startedAt + cycle * lastsMs).reduce(
-                (due, cycleAt) => due + slots.filter(({ atMs }) => cycleAt + atMs < step.endedAt).length,
+                (due, cycleAt) => due + slots.filter(({ atMs }) => cycleAt + atMs <= step.endedAt).length,
                 0
             )
         )
