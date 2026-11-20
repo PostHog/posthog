@@ -978,7 +978,9 @@ describe('scenario environment', () => {
                 await missing.start([spec])
 
                 await waitForExpect(() => expect(missing.exits().length).toBeGreaterThanOrEqual(2), 5000, 20)
-                expect(missing.exits()[0]).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
+                const [first] = missing.exits()
+                expect(first).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
+                expect(Date.parse(first.relaunchedAt!) - Date.parse(first.at)).toBeGreaterThanOrEqual(20)
             } finally {
                 await missing.stop()
             }

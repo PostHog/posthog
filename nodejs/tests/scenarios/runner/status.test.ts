@@ -304,10 +304,31 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (code 1) without a valve causing it; pg.drop_connections on postgres was not observed: the first sweep failed`,
         ],
         [
-            'a role exited with an error during a valve that sets no exit grace',
-            { timeline: [failedOver], exits: [exitedWithError(HOGFLOW_WORKER, 15)] },
+            'a role that writes to Cyclotron exited with an error during the failover',
+            { timeline: [failedOver], exits: [exitedWithError('cdp-processed-events', 15)] },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role that writes to Cyclotron exited with an error before the failover was observed, and again after the fail-back began',
+            {
+                timeline: [{ ...failedOver, observedAt: at(24), releaseIntentAt: at(30), releasedAt: at(46) }],
+                exits: [exitedWithError('cdp-processed-events', 20), exitedWithError('cdp-processed-events', 41)],
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role that never opens Cyclotron exited with an error during the failover',
+            { timeline: [failedOver], exits: [exitedWithError('cdp-ses-webhooks', 15)] },
             'failed',
-            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it, while pg.failover on cyclotron was applied`,
+            'cdp-ses-webhooks exited (code 1) without a valve causing it, while pg.failover on cyclotron was applied',
+        ],
+        [
+            'a role that writes to Cyclotron exited with an error well after the fail-back',
+            { timeline: [failedOver], exits: [exitedWithError('cdp-processed-events', 40)] },
+            'failed',
+            'cdp-processed-events exited (code 1) without a valve causing it',
         ],
         [
             'a role failed to start while the connections were dropped',
@@ -331,7 +352,19 @@ describe('statusOf', () => {
             'dependencies went away: provider-edge',
         ],
     ])('%s', (_story, change, status, statusReason) => {
-        expect(statusOf({ ...HELD, ...change })).toEqual({ status, statusReason })
+        expect(statusOf({ ...HELD, ...change })).toEqual({ status, statusReason, restarts: expect.any(Array) })
+    })
+
+    it('lists the exits a valve caused without killing them, and leaves out the rest', () => {
+        const restart = exitedWithError('cdp-processed-events', 15)
+
+        const { restarts } = statusOf({
+            ...HELD,
+            timeline: [failedOver, killed(EMAIL_WORKER, 20, 21)],
+            exits: [restart, exitedWithError('cdp-ses-webhooks', 15), exited(EMAIL_WORKER, 20, true)],
+        })
+
+        expect(restarts).toEqual([restart])
     })
 
     const BASELINE: Baseline = {

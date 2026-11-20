@@ -36,6 +36,7 @@ import {
     secretsOf,
 } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
+import type { RoleExit } from '../environment/supervisor'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
@@ -92,6 +93,7 @@ export type RunResult = {
     admissions: Admission[]
     bars: BarResult[]
     timeline: ValveTimelineEntry[]
+    restarts?: RoleExit[]
     startedAt: string
     endedAt: string
     evidenceDir: string
@@ -123,6 +125,7 @@ type Outcome = Pick<
     | 'invariants'
     | 'measurements'
     | 'admissions'
+    | 'restarts'
     | 'bars'
 >
 

@@ -163,7 +163,7 @@ describe('pg.failover', () => {
         ],
         [
             'a capacity read with fewer values than timestamps',
-            { shortValuesOf: 'Maximum' },
+            { shortValuesOf: 'Average' },
             () => undefined,
             /-reader's capacity read has 5 timestamps and 4 values/,
         ],
@@ -181,7 +181,7 @@ describe('pg.failover', () => {
         ],
         [
             'a capacity read with a timestamp that is not a time',
-            { unknownTimestampOf: 'Maximum' },
+            { unknownTimestampOf: 'Average' },
             () => undefined,
             /-reader's capacity read has a timestamp that is not a time: unknown/,
         ],
@@ -337,14 +337,18 @@ describe('pg.failover', () => {
         expect(cloud.promotions.map(({ to }) => to)).toEqual([run.reader, run.writer])
     })
 
-    it.each([
-        ['at its minimum', [1, 1, 1, 1, 1]],
-        ['idle above its minimum, under the idle limit', [2, 2, 2, 2, 2]],
-        ['at the idle limit', [2, 2.5, 2, 2, 2]],
+    it.each<[string, FakeCloudOptions['liveReaderAcu']]>([
+        ['at its minimum', { maxima: [1, 1, 1, 1, 1] }],
+        ['idle above its minimum, under the idle limit', { maxima: [2, 2, 2, 2, 2] }],
+        ['at the idle limit', { maxima: [2, 2.5, 2, 2, 2] }],
+        [
+            'idle on average in a minute its maximum bursts above the idle limit',
+            { maxima: [1, 1, 5, 1, 1], averages: [1, 1, 1.6, 1, 1] },
+        ],
     ])(
         'promotes a reader %s, observes each recovery stage, then fails back to the original writer',
-        async (_story, maxima) => {
-            const run = runOf({ liveReaderAcu: { maxima } })
+        async (_story, liveReaderAcu) => {
+            const run = runOf({ liveReaderAcu })
 
             const actuation = await failOverOn(run)
             await expect(actuation.observed()).resolves.toBe(true)
