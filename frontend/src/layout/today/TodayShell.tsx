@@ -69,7 +69,7 @@ const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: Component
 }
 
 const NewSpaceDialog = lazyWithRetry(() =>
-    import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
+    import('products/today/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */

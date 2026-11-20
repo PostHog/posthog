@@ -59,6 +59,7 @@ from products.signals.backend.filter_catalog import (
     SignalFilterSourceDefinition as SignalFilterSourceDefinition,
 )
 from products.signals.backend.filter_state import SignalSourceFilterState as SignalSourceFilterState
+from products.signals.backend.implementation_authorization import ImplementationAuthorization
 from products.signals.backend.rated_usage_models import SignalRatedUsage as SignalRatedUsage
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
@@ -497,6 +498,9 @@ class SignalReport(UUIDModel):
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
     monitoring_started_at = models.DateTimeField(null=True, blank=True)
+    # When Monitoring ended in Resolved or Closed. Archiving only pauses Monitoring, so it leaves this unset,
+    # and reopening clears it with `monitoring_started_at`. Lets the inbox list reports that left Monitoring recently.
+    monitoring_ended_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -593,6 +597,11 @@ class SignalReport(UUIDModel):
                 fields=["last_run_at"],
                 condition=models.Q(status="in_progress"),
                 name="signals_report_in_progress",
+            ),
+            models.Index(
+                fields=["team", "monitoring_ended_at"],
+                condition=models.Q(monitoring_ended_at__isnull=False, status__in=["resolved", "closed"]),
+                name="signals_report_monitoring_end",
             ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(
@@ -697,7 +706,8 @@ class SignalReport(UUIDModel):
                 if monitoring_started_at is None or timezone.is_naive(monitoring_started_at):
                     raise ValueError("An aware implementation-complete timestamp is required to enter Monitoring.")
                 self.monitoring_started_at = monitoring_started_at
-                updated_fields.add("monitoring_started_at")
+                self.monitoring_ended_at = None
+                updated_fields.update(["monitoring_started_at", "monitoring_ended_at"])
 
             case (S.MONITORING, S.MONITORING):
                 if self.monitoring_started_at is None:
@@ -711,7 +721,9 @@ class SignalReport(UUIDModel):
                 updated_fields.add("status_before_suppression")
 
             case (S.MONITORING, S.RESOLVED | S.READY | S.CLOSED):
-                pass
+                if new_status != S.READY:
+                    self.monitoring_ended_at = timezone.now()
+                    updated_fields.add("monitoring_ended_at")
 
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
@@ -796,6 +808,9 @@ class SignalReport(UUIDModel):
             # so they are preserved as-is. In-flight states (candidate/in_progress) are never restored
             # here — they have no live workflow to resume and instead route back through POTENTIAL above.
             case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.CLOSED | S.FAILED):
+                if self.status_before_suppression == S.MONITORING and new_status in (S.RESOLVED, S.CLOSED):
+                    self.monitoring_ended_at = timezone.now()
+                    updated_fields.add("monitoring_ended_at")
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
 
@@ -877,7 +892,8 @@ class SignalReport(UUIDModel):
         self.status = new_status
         if new_status in (S.POTENTIAL, S.READY) and self.monitoring_started_at is not None:
             self.monitoring_started_at = None
-            updated_fields.add("monitoring_started_at")
+            self.monitoring_ended_at = None
+            updated_fields.update(["monitoring_started_at", "monitoring_ended_at"])
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
 
@@ -1683,6 +1699,8 @@ class SignalReportArtefact(UUIDModel):
     actor_agent = models.CharField(max_length=200, null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # Execution permission is bound to this reviewer version independently of writer attribution.
+    implementation_authorization = models.JSONField(null=True, blank=True, editable=False)
     claim = models.ForeignKey(
         "self",
         null=True,
@@ -1817,6 +1835,7 @@ class SignalReportArtefact(UUIDModel):
         content: ArtefactContent,
         attribution: ArtefactAttribution,
         claim_id: str | None = None,
+        implementation_authorization: ImplementationAuthorization | None = None,
     ) -> "SignalReportArtefact":
         """Single write funnel: derive the row's type from the content model's class, map
         attribution to columns, and insert. Content is a typed model (parsed at the API boundary
@@ -1849,6 +1868,9 @@ class SignalReportArtefact(UUIDModel):
             report_id=report_id,
             type=artefact_type_for(content),
             content=content.model_dump_json(),
+            implementation_authorization=implementation_authorization.model_dump()
+            if implementation_authorization
+            else None,
             actor_kind=attribution.kind,
             actor_agent=attribution.agent_name,
             created_by_id=attribution.user_id,
@@ -1870,6 +1892,7 @@ class SignalReportArtefact(UUIDModel):
         reevaluate_autostart: bool = True,
         reviewer_proposal: ReviewerProposal | None = None,
         reviewer_edit: ReviewerEdit | None = None,
+        implementation_authorization: ImplementationAuthorization | None = None,
     ) -> "SignalReportArtefact":
         """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
@@ -1890,7 +1913,7 @@ class SignalReportArtefact(UUIDModel):
             from posthog.models.team.team import Team
 
             from products.signals.backend.report_claims import actor_works_under_claim, get_active_claim
-            from products.signals.backend.reviewer_rules import ReviewerRules
+            from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
 
             rules = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
             with transaction.atomic():
@@ -1914,18 +1937,44 @@ class SignalReportArtefact(UUIDModel):
                         attribution=attribution,
                         claim_id=claim_id,
                     )
-                if update.current is not None and cls._parse_as(update.current, SuggestedReviewers) == update.reviewers:
+                current_reviewers = cls._parse_as(update.current, SuggestedReviewers)
+                unchanged = current_reviewers == update.reviewers
+                retains_reviewers = (
+                    implementation_authorization is not None
+                    and implementation_authorization.mode == "reviewer"
+                    and (
+                        current_reviewers is None
+                        or any(
+                            contains_reviewer(tuple(current_reviewers.root), entry) for entry in update.reviewers.root
+                        )
+                    )
+                )
+                if update.current is not None and reviewer_edit is None and (unchanged or retains_reviewers):
+                    implementation_authorization = ImplementationAuthorization.from_stored(
+                        update.current.implementation_authorization
+                    )
+                authorization = implementation_authorization.model_dump() if implementation_authorization else None
+                if (
+                    update.current is not None
+                    and unchanged
+                    and update.current.implementation_authorization == authorization
+                ):
                     return update.current
                 artefact = cls._create(
                     team_id=team_id,
                     report_id=report_id,
                     content=update.reviewers,
+                    implementation_authorization=implementation_authorization,
                     attribution=attribution,
                     claim_id=claim_id,
                 )
                 if reevaluate_autostart and (not update.protected or rules.effects_enabled):
                     cls._schedule_autostart_reevaluation(
-                        team_id=team_id, report_id=str(report_id), triggering_user_id=attribution.user_id
+                        team_id=team_id,
+                        report_id=str(report_id),
+                        triggering_user_id=implementation_authorization.user_id
+                        if implementation_authorization
+                        else None,
                     )
                 return artefact
         return cls._create(
@@ -2328,6 +2377,7 @@ class SignalReportArtefact(UUIDModel):
         reevaluate_autostart: bool = True,
         reviewer_proposal: ReviewerProposal | None = None,
         reviewer_edit: ReviewerEdit | None = None,
+        implementation_authorization: ImplementationAuthorization | None = None,
     ) -> "SignalReportArtefact":
         """Append an artefact of any content model, routing to its type's append semantics.
 
@@ -2351,6 +2401,7 @@ class SignalReportArtefact(UUIDModel):
                 reevaluate_autostart=reevaluate_autostart,
                 reviewer_proposal=reviewer_proposal,
                 reviewer_edit=reviewer_edit,
+                implementation_authorization=implementation_authorization,
                 claim_id=claim_id,
             )
         if artefact_type in cls.LOG_ARTEFACT_TYPES:

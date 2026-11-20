@@ -1453,6 +1453,7 @@ export class EmailService {
                     const recipient = await this.recipientsManager.get({
                         teamId: invocation.teamId,
                         identifier: email,
+                        anyCase: true,
                     })
                     return recipient ? this.recipientsManager.getEmailTrackingPreference(recipient) : 'NO_PREFERENCE'
                 })
