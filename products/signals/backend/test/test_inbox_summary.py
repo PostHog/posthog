@@ -400,6 +400,25 @@ class TestInboxSummary(APIBaseTest):
         pr.refresh_from_db()
         assert pr.review_decision == SignalReportPullRequest.ReviewDecision.APPROVED
 
+    @parameterized.expand(
+        [
+            ("stale_draft_becomes_open", "draft", None, "open", "open"),
+            ("stale_open_becomes_draft", "open", None, "draft", "draft"),
+            ("merged_is_kept", "merged", MERGED_AT, "open", "merged"),
+            ("missing_state_is_ignored", "draft", None, None, "draft"),
+        ]
+    )
+    def test_review_refresh_repairs_stale_state(
+        self, _name: str, stored: str, merged_at: datetime | None, fresh: str | None, expected: str
+    ) -> None:
+        pr = self.make_pr(state=stored, merged_at=merged_at)
+        github = MagicMock()
+        github.get_pull_request_snapshot.return_value = {"success": True, "state": fresh, "review_decision": None}
+        with patch("products.signals.backend.tasks.GitHubIntegration.first_for_team_repository", return_value=github):
+            refresh_pull_request_review_decision.run(team_id=self.team.id, repository="example/app", pr_number=1)
+        pr.refresh_from_db()
+        assert pr.state == expected
+
     def test_cache_failure_does_not_stop_participant_or_review_refresh(self) -> None:
         pr = self.make_pr()
         github = MagicMock()
