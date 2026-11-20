@@ -20,17 +20,12 @@ from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
 from products.growth.backend.constants import SDK_TYPES, SdkVersionEntry, github_sdk_versions_key
 from products.growth.backend.models import SdkVersionsDaily
-from products.growth.backend.sdk_health import (
-    SdkAssessment,
-    _is_safe_for_interpolation,
-    compute_sdk_health,
-    is_mobile_major_upgrade,
-)
+from products.growth.backend.sdk_health import SdkAssessment, _is_safe_for_interpolation, compute_sdk_health
 from products.growth.backend.sdk_version_rollup import SDK_VERSIONS_WINDOW_DAYS, sdk_versions_from_rollup
 
 # Issue severity follows the SDK Health assessment severity: a single outdated SDK is a warning,
 # but when the bulk of a team's SDKs are outdated the assessment escalates to "danger".
-# A mobile SDK that is a major version behind is always info, see `is_mobile_major_upgrade`.
+# A mobile SDK that is a major version behind never escalates, see `is_mobile_major_upgrade`.
 _SEVERITY_BY_ASSESSMENT: dict[str, HealthIssue.Severity] = {
     "danger": HealthIssue.Severity.CRITICAL,
     "warning": HealthIssue.Severity.WARNING,
@@ -224,11 +219,7 @@ def _build_health_result(assessment: SdkAssessment) -> HealthCheckResult:
     The payload carries everything both the alert (render_alert) and the unified Health scene's
     per-version table (SdkOutdatedRenderer) need, so neither has to recompute or re-query.
     """
-    severity = (
-        HealthIssue.Severity.INFO
-        if is_mobile_major_upgrade(assessment)
-        else _SEVERITY_BY_ASSESSMENT.get(assessment.severity, HealthIssue.Severity.WARNING)
-    )
+    severity = _SEVERITY_BY_ASSESSMENT.get(assessment.severity, HealthIssue.Severity.WARNING)
     primary = assessment.releases[0] if assessment.releases else None
     migration = (
         {

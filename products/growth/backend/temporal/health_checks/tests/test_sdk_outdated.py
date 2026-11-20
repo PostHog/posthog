@@ -180,7 +180,7 @@ class TestSdkOutdatedCheck(BaseTest):
             (
                 "mobile",
                 "posthog-android",
-                HealthIssue.Severity.INFO,
+                HealthIssue.Severity.WARNING,
                 "https://github.com/PostHog/posthog-android/blob/main/MIGRATION.md",
             ),
         ]
@@ -194,7 +194,7 @@ class TestSdkOutdatedCheck(BaseTest):
         results = self._run(github, rows, [1])
 
         # The team's only SDK is outdated (1 of 1 >= ceil(1/2)), so a server SDK escalates to critical.
-        # A mobile SDK that is a major behind stays info.
+        # A mobile SDK that is a major behind stays a warning.
         assert results[1][0].severity == expected_severity
         assert results[1][0].payload["migration_guide_url"] == expected_guide
 

@@ -395,7 +395,7 @@ def outdatedness_baseline(
 
 
 def is_mobile_major_upgrade(assessment: "SdkAssessment") -> bool:
-    """Mobile users upgrade only through a store update, so a major behind never gets the top severity."""
+    """Mobile users upgrade only through a store update, so a major behind stays a warning and never escalates."""
     return assessment.lib in MOBILE_SDKS and assessment.major_versions_behind > 0
 
 
