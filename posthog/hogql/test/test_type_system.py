@@ -1405,6 +1405,8 @@ class TestHogQLTypeSystem:
         for query in (
             "SELECT accurateCast('not-a-number', 'Int64') AS x",
             "SELECT accurateCast('not-a-uuid', 'UUID') AS x",
+            "SELECT accurateCast('1 ', 'Float64') AS x",
+            "SELECT accurateCast('1_000', 'Int64') AS x",
         ):
             expr = _simplified_expr(query)
             assert isinstance(expr, ast.Call)

@@ -951,6 +951,7 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1, 1, 1]),
             ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0, 0, 0]),
             ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0, 0, 0]),
+            ("padded_number_in", "properties.step IN ('5 ', '5')", [0, 0, 1, 1, None, 0, 0, 0]),
             ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0, 0, 0]),
             ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1, 0, 0]),
             ("empty_equals", "properties.step = ''", [0, 0, 0, 0, 0, 0, 1, 0]),

@@ -907,16 +907,24 @@ def comparison_compatibility(
     return ComparisonCompatibility.INCOMPATIBLE
 
 
+# The number text ClickHouse reads. Python's int() and float() also accept surrounding whitespace, underscores and
+# non-ASCII digits. ClickHouse rejects that text, so a cast of it returns NULL and a comparison with it fails.
+_CLICKHOUSE_INTEGER_TEXT = re.compile(r"[+-]?[0-9]+")
+_CLICKHOUSE_FLOAT_TEXT = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+
+
 def _convert_integer_literal(value: object) -> int | None:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
-    if isinstance(value, str):
+    if isinstance(value, str) and _CLICKHOUSE_INTEGER_TEXT.fullmatch(value):
         return int(value)
     return None
 
 
 def _convert_float_literal(value: object) -> float | None:
     if not isinstance(value, (int, float, str)) or isinstance(value, bool):
+        return None
+    if isinstance(value, str) and not _CLICKHOUSE_FLOAT_TEXT.fullmatch(value):
         return None
     result = float(value)
     return result if math.isfinite(result) else None
