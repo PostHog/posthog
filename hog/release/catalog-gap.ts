@@ -215,33 +215,58 @@ interface Block {
 }
 
 interface GeneratedModule {
-    // Whether the module has only the shape the generator writes, which runs no code of its own on import.
+    // Whether the module's statements other than imports have only the shape the generator writes.
     declarative: boolean
+    // Whether it imports only types, zod and generated schema files.
+    allowedImports: boolean
+    // The generated schema files it imports values from, which must be declarative too.
+    schemaImports: string[]
     // The import statements, as compiled.
     imports: string
     blocks: Map<string, Block>
 }
 
-// The generator writes imports and consts, and each const is a literal, an arrow function, `new RegExp` of a
-// string, a chain of zod builders, or an object or array of those and of the module's other consts. Evaluating
-// that calls no code but zod's, so hog runs nothing of the module's own when it imports it. Any other statement
-// or expression, such as a call, an assignment or a global, makes the module not declarative, so no exemption
-// applies to it.
-function generatedModule(source: string | undefined): GeneratedModule {
+// The generated schema file a specifier names, as `@/generated/<name>/api` or a relative path. Undefined for
+// any other module.
+function generatedSchemaFile(importer: string, specifier: string): string | undefined {
+    const path = specifier.startsWith('@/')
+        ? posix.normalize(`services/mcp/src/${specifier.slice(2)}`)
+        : specifier.startsWith('.')
+          ? posix.normalize(posix.join(posix.dirname(importer), specifier))
+          : undefined
+    const file = path && `${path}.ts`
+    return file?.startsWith(GENERATED_SCHEMAS_DIR) && !file.includes('..') ? file : undefined
+}
+
+// The generator writes imports from zod and from generated schema files, and consts. Each const is a literal,
+// an arrow function, `new RegExp` of a string, a chain of zod builders, or an object or array of those and of
+// the module's other consts. Evaluating that calls no code but zod's, so hog runs nothing of the module's own
+// when it imports it. Any other statement, import or expression, such as a side-effect import, a call, an
+// assignment or a global, makes the module not declarative, so no exemption applies to it.
+function generatedModule(source: string | undefined, path: string): GeneratedModule {
     const file = ts.createSourceFile('module.ts', source ?? '', ts.ScriptTarget.Latest, true)
     const zod = new Set<string>()
     const imported = new Set<string>()
     const consts = new Map<string, ts.Expression>()
     const blocks = new Map<string, Block>()
     const imports: string[] = []
+    const schemaImports: string[] = []
     let declarative = true
+    let allowedImports = true
 
     for (const statement of file.statements) {
         if (ts.isImportDeclaration(statement)) {
             const clause = statement.importClause
             const bindings = clause?.namedBindings
-            const fromZod =
-                ts.isStringLiteral(statement.moduleSpecifier) && ZOD_MODULES.has(statement.moduleSpecifier.text)
+            const specifier = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : ''
+            const fromZod = ZOD_MODULES.has(specifier)
+            const schemaFile = generatedSchemaFile(path, specifier)
+            if (!clause?.isTypeOnly) {
+                allowedImports &&= !!clause && !clause.name && !!bindings && (fromZod || schemaFile !== undefined)
+                if (schemaFile) {
+                    schemaImports.push(schemaFile)
+                }
+            }
             if (clause?.name) {
                 imported.add(clause.name.text)
             }
@@ -343,7 +368,22 @@ function generatedModule(source: string | undefined): GeneratedModule {
     }
 
     declarative &&= [...consts.values()].every((initializer) => eager(initializer))
-    return { declarative, imports: imports.join('\n'), blocks }
+    return { declarative, allowedImports, schemaImports, imports: imports.join('\n'), blocks }
+}
+
+// Whether the generated module at a path is declarative and imports only what's allowed, along with every
+// generated schema file it imports, so hog runs no code of its own when it imports the module.
+function qualifies(path: string, read: (path: string) => string | undefined, seen = new Set<string>()): boolean {
+    if (seen.has(path)) {
+        return true
+    }
+    seen.add(path)
+    const module = generatedModule(read(path), path)
+    return (
+        module.declarative &&
+        module.allowedImports &&
+        module.schemaImports.every((file) => read(file) !== undefined && qualifies(file, read, seen))
+    )
 }
 
 function referencesAny(text: string, names: Iterable<string>): boolean {
@@ -353,11 +393,11 @@ function referencesAny(text: string, names: Iterable<string>): boolean {
 // Undefined when the file isn't declarative on either side, which leaves every importer suspect. A change to
 // its imports alters every schema.
 function alteredSchemas(input: GapInput, file: string): Set<string> | undefined {
-    const base = generatedModule(input.readBase(file))
-    const head = generatedModule(input.readHead(file))
-    if (!base.declarative || !head.declarative) {
+    if (!qualifies(file, input.readBase) || !qualifies(file, input.readHead)) {
         return undefined
     }
+    const base = generatedModule(input.readBase(file), file)
+    const head = generatedModule(input.readHead(file), file)
 
     const altered = new Set(
         [...new Set([...base.blocks.keys(), ...head.blocks.keys()])].filter(
@@ -382,7 +422,7 @@ function schemasByTool(source: string | undefined): Map<string, Set<string>> | u
     if (!source) {
         return undefined
     }
-    const { blocks } = generatedModule(source)
+    const { blocks } = generatedModule(source, '')
     const schemasOf = (name: string, seen: Set<string>): Set<string> => {
         const text = blocks.get(name)?.text ?? ''
         const schemas = new Set([...text.matchAll(/orvalSchemas\.(\w+)/g)].map((match) => match[1]!))
@@ -530,7 +570,7 @@ function registryChangeDelivered(input: GapInput, carried: Set<string>): boolean
         return (
             path === undefined ||
             (generatedModuleName(path) !== undefined &&
-                generatedModule(read(path)).declarative &&
+                qualifies(path, read) &&
                 tools.length > 0 &&
                 tools.every((tool) => carried.has(tool)))
         )
@@ -559,10 +599,12 @@ export function findCatalogGaps(input: GapInput): GapResult {
         }
 
         if (generatedModuleName(file)) {
-            if (
-                !generatedModule(input.readBase(file)).declarative ||
-                !generatedModule(input.readHead(file)).declarative
-            ) {
+            // Imports that stay the same ran before this change too, so a module edited in place only needs
+            // declarative statements. One whose imports change has to qualify on both sides.
+            const base = generatedModule(input.readBase(file), file)
+            const head = generatedModule(input.readHead(file), file)
+            const sameImports = base.declarative && head.declarative && base.imports === head.imports
+            if (!sameImports && (!qualifies(file, input.readBase) || !qualifies(file, input.readHead))) {
                 reasons.push({ file, why: 'code other than the declarations the generator writes' })
                 continue
             }

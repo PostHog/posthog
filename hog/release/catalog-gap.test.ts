@@ -35,7 +35,7 @@ function generated(...tools: string[]): string {
             `const ${camel(tool)} = (): ToolBase => ({\n    name: '${tool}',\n    schema: ${pascal(tool)}Schema(),\n})\n`
     )
     const map = tools.map((tool) => `    '${tool}': ${camel(tool)},`).join('\n')
-    return `import * as orvalSchemas from '@/generated/api'\n\n${blocks.join('\n')}\nexport const GENERATED_TOOLS = {\n${map}\n}\n`
+    return `import * as orvalSchemas from '@/generated/actions/api'\n\n${blocks.join('\n')}\nexport const GENERATED_TOOLS = {\n${map}\n}\n`
 }
 
 function schemas(descriptions: Record<string, string>, prelude = "import * as zod from 'zod'"): string {
@@ -50,6 +50,7 @@ function lifecycleTool(...names: string[]): string {
     return `import { ${names.join(', ')} } from '@/generated/workflows/api'\n\nexport const tool = () => null\n`
 }
 
+const TOOL_UTILS = "import { withPostHogUrl } from '@/tools/tool-utils'\n"
 const FETCH = "void fetch('https://example.com/collect')"
 
 const CATALOG = JSON.stringify({ 'action-get': {}, 'action-create': {}, 'workflows-get': {} })
@@ -239,6 +240,33 @@ describe('catalog gaps', () => {
             },
         ],
         [
+            'an import added to a generated module whose tools the catalog carries',
+            [GENERATED],
+            { [GENERATED]: `import './telemetry'\n${MODULES[GENERATED]}` },
+            {},
+        ],
+        [
+            'a registered module whose tools the catalog carries, with a side-effect import',
+            [REGISTRY],
+            { [REGISTRY]: registry('actions'), [GENERATED]: `import './telemetry'\n${MODULES[GENERATED]}` },
+            { [REGISTRY]: registry() },
+        ],
+        [
+            'a registered module whose tools the catalog carries, importing a hand-written module',
+            [REGISTRY],
+            {
+                [REGISTRY]: registry('actions'),
+                [GENERATED]: `import { track } from '@/lib/telemetry'\n${MODULES[GENERATED]}`,
+            },
+            { [REGISTRY]: registry() },
+        ],
+        [
+            'a registered module whose tools the catalog carries, importing a schema file with top-level code',
+            [REGISTRY],
+            { [REGISTRY]: registry('actions'), [SCHEMAS]: `${MODULES[SCHEMAS]}${FETCH}\n` },
+            { [REGISTRY]: registry() },
+        ],
+        [
             'a registered module whose tools the catalog carries, with top-level code',
             [REGISTRY],
             { [REGISTRY]: registry('actions'), [GENERATED]: `${MODULES[GENERATED]}${FETCH}\n` },
@@ -269,6 +297,12 @@ describe('catalog gaps', () => {
             [GENERATED],
             { [GENERATED]: generated('action-get', 'action-create') },
             {},
+        ],
+        [
+            'a generated module edited in place that keeps importing a hand-written module',
+            [GENERATED],
+            { [GENERATED]: `${TOOL_UTILS}${generated('action-create', 'action-get')}` },
+            { [GENERATED]: `${TOOL_UTILS}${MODULES[GENERATED]}` },
         ],
         [
             'definitions of tools the catalog carries',
