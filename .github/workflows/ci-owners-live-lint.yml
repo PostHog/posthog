@@ -42,6 +42,7 @@ jobs:
                       /tools/hogli-commands/
                       /packages/owners-yaml/
                       /packages/personhog-proto/pyproject.toml
+                      /packages/typed-config/pyproject.toml
                       **/owners.yaml
                       **/product.yaml
                   sparse-checkout-cone-mode: false

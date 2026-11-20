@@ -40,6 +40,7 @@ jobs:
                       /tools/hogli-commands/
                       /packages/owners-yaml/
                       /packages/personhog-proto/
+                      /packages/typed-config/
                       /packages/llm-normalizer/
                       /services/mcp/
                       /products/*/mcp/

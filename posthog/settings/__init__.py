@@ -47,6 +47,7 @@ from posthog.settings.web import *
 from posthog.settings.web_bot_auth import *
 from posthog.settings.mobile_app_links import *
 from posthog.settings.data_warehouse import *
+from posthog.settings.warehouse_destinations import *
 from posthog.settings.managed_migrations import *
 from posthog.settings.nextgensquash import *
 from posthog.settings.session_replay import *

@@ -42,6 +42,7 @@ jobs:
                       tools
                       packages/owners-yaml
                       packages/personhog-proto
+                      packages/typed-config
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token

@@ -679,6 +679,9 @@ const TRIPWIRE_RULES = [
     // directory rules read as frontend, but every importer is python under
     // posthog/.
     ['packages/personhog-proto/**', PYTHON],
+    // The typed config runtime. It sits under packages/ like the stubs above, and every importer is
+    // python under products/.
+    ['packages/typed-config/**', PYTHON],
     ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
     ['posthog/schema.py', PRODUCT_SURFACE],
     // A manifest publishes its product's urls, routes, and tree items into

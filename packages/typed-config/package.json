@@ -1,0 +1,10 @@
+{
+    "name": "@posthog/typed-config",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Typed config runtime (posthog-typed-config). Python uv workspace member; this manifest registers it in the turbo graph so turbo-discover can see when it changed and re-test the products that import it.",
+    "scripts": {
+        "backend:test": "pytest tests -v --tb=short"
+    },
+    "pythonImportName": "typed_config"
+}

@@ -31,6 +31,7 @@ FORBIDDEN_AT_SETUP = [
     "products.revenue_analytics.backend.views.sources.stripe",  # revenue view builders (pandas-heavy)
     "user_agents",  # UA parser — only the request-time UA-summary path needs it (deferred in posthog.utils)
     "products.batch_exports.backend.temporal",  # batch export workflows + every destination's vendor SDK
+    "products.warehouse_destinations.backend.destinations",  # each warehouse destination's vendor SDK
     "databricks",  # Databricks SDK — only the databricks batch export destination needs it
     "snowflake",  # Snowflake SDK — only the snowflake batch export destination needs it
     "temporalio",  # Temporal SDK — only workers and call-time service paths need it (gated on sys.modules)

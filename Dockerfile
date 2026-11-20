@@ -258,10 +258,15 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     # copies it into the venv so the image never depends on this bind mount's path surviving.
     --mount=type=bind,source=packages/owners-yaml,target=packages/owners-yaml \
     --mount=type=bind,source=packages/personhog-proto,target=packages/personhog-proto \
+    --mount=type=bind,source=packages/typed-config,target=packages/typed-config \
     uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
+
+# typed-config is installed from a bind mount that does not survive into the image. Warehouse source
+# configs import it, so fail here if a missing --no-editable left an editable install behind.
+RUN python -c "import typed_config"
 
 # Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
 # blobs from disk instead of fetching them from OpenAI's blob host on first use, which fails under

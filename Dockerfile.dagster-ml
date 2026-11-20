@@ -34,6 +34,7 @@ RUN --mount=from=uv,source=/uv,target=/bin/uv \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
     --mount=type=bind,source=packages/owners-yaml,target=packages/owners-yaml \
     --mount=type=bind,source=packages/personhog-proto,target=packages/personhog-proto \
+    --mount=type=bind,source=packages/typed-config,target=packages/typed-config \
     uv sync --locked --inexact --no-dev --no-editable --no-install-project \
         --no-binary-package lxml --no-binary-package xmlsec --group inbox-ranking
 

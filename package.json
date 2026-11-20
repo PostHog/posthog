@@ -24,6 +24,7 @@
         "grammar:build:cpp": "cd posthog/hogql/grammar && cat HogQLLexer.cpp.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 >> HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
         "build:products": "pnpm --filter=@posthog/frontend run build:products",
         "generate:source-configs": "DEBUG=1 python manage.py generate_source_configs",
+        "generate:destination-configs": "DEBUG=1 python manage.py generate_destination_configs",
         "// DEPRECATED - use hogli migrations:run instead": "",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "// DEPRECATED - use hogli migrations:run instead ": "",

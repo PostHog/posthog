@@ -51,6 +51,7 @@ members = [
     "owners-yaml",
     "personhog-proto",
     "posthog",
+    "posthog-typed-config",
 ]
 constraints = [{ name = "posthoganalytics", specifier = "<8" }]
 
@@ -6182,6 +6183,7 @@ dependencies = [
     { name = "playwright" },
     { name = "polars" },
     { name = "posthog-hogland" },
+    { name = "posthog-typed-config" },
     { name = "posthoganalytics" },
     { name = "protobuf" },
     { name = "psycopg", extra = ["binary"] },
@@ -6487,6 +6489,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.44.2" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
+    { name = "posthog-typed-config", editable = "packages/typed-config" },
     { name = "posthoganalytics", specifier = "==7.91.4" },
     { name = "protobuf", specifier = "~=6.33.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.13" },
@@ -6655,6 +6658,20 @@ sdist = { url = "https://files.pythonhosted.org/packages/b1/ca/c67965f512f9d4e2a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/35/2a/527ef6d0c3eee98b676bf5c9878c3010e749601210eb1b32dd99548b51b4/posthog_hogland-0.4.1-py3-none-any.whl", hash = "sha256:2bc2fd6bf4a710df8eaf4e5bfa1a4ffd8d29751eb13edc650b89bdcba045eaf2", size = 38357, upload-time = "2026-09-01T14:21:01.536Z" },
 ]
+
+[[package]]
+name = "posthog-typed-config"
+version = "0.1.0"
+source = { editable = "packages/typed-config" }
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" }]
+provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"

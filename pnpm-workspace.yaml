@@ -13,6 +13,7 @@ packages:
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
+    - packages/typed-config
     - frontend
     - hog
     - playwright
