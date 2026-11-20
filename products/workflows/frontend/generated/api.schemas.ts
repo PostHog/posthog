@@ -1859,6 +1859,11 @@ export interface HogFlowPublishRequestApi {
     confirm?: boolean
     /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
     confirm_token?: string
+    /**
+     * With confirm=true, whether the preview's moves_to_sandbox_sender warning was shown. False refuses the publish (409) when the live workflow changed so that it now moves steps onto the PostHog test sender. Omit it to skip that check.
+     * @nullable
+     */
+    sandbox_sender_warned?: boolean | null
 }
 
 export interface HogFlowPublishImpactMoveTargetApi {
@@ -1937,6 +1942,11 @@ export interface HogFlowPublishResponseApi {
     confirm_token: string | null
     /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
     impact: HogFlowPublishImpactApi | null
+    /**
+     * Whether publishing moves email steps of the enabled workflow onto the PostHog test sender, which reaches only verified members of the organization. Only set on previews.
+     * @nullable
+     */
+    moves_to_sandbox_sender: boolean | null
     /** The workflow after publishing (only set when published=true). */
     workflow?: HogFlowApi | null
 }

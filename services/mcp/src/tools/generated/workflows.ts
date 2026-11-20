@@ -808,6 +808,9 @@ const workflowsPublish = (): ToolBase<
             if (params.confirm_token !== undefined) {
                 body['confirm_token'] = params.confirm_token
             }
+            if (params.sandbox_sender_warned !== undefined) {
+                body['sandbox_sender_warned'] = params.sandbox_sender_warned
+            }
             const result = await context.api.request<Schemas.HogFlowPublishResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,

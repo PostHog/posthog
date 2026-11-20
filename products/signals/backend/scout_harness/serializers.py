@@ -3648,8 +3648,8 @@ GRANTABLE_REPORT_ACTIONS: list[str] = sorted(kind.value for kind in SCOUT_GRANTA
 
 _REPORT_ACTIONS_HELP = (
     "Report actions this scout may start on inbox reports, from "
-    f"{', '.join(f'`{kind}`' for kind in GRANTABLE_REPORT_ACTIONS)}. Empty by default, so every start is "
-    "refused. A scout cannot send its own message with an action. Each action starts an agent run with "
+    f"{' and '.join(f'`{kind}`' for kind in GRANTABLE_REPORT_ACTIONS)}. Empty by default. A scout "
+    "cannot send its own message with an action. Each action starts an agent run with "
     "the full access of the person the scout's runs act as, so only that person can add one. A project "
     "admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds "
     "the grant. Applies from the scout's next run."
