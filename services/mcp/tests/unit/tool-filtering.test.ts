@@ -1080,6 +1080,17 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
+    it.each([false, true])('app tools require their own flag with collaboration=%s', async (collaboration) => {
+        for (const enabled of [false, true]) {
+            const tools = await getToolsFromContext(createMockContext(['notebook:read', 'notebook:write']), {
+                featureFlags: { 'notebooks-collaboration': collaboration, 'notebook-app-builder': enabled },
+            })
+            const names = tools.map((tool) => tool.name)
+            expect(names.includes('notebooks-app-get')).toBe(enabled)
+            expect(names.includes('notebooks-app-update')).toBe(enabled)
+        }
+    })
+
     it('organization-billing-api flag gates the tools that call the organization billing API', () => {
         const gated = [
             'billing-subscription-get',
@@ -1142,8 +1153,8 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
+            'notebook-app-builder',
             'workflows-email-activity',
-            'workflows-supabase-auth-emails',
             'scout-trials',
             'scout-scratchpad-discard-mcp',
             'signals-report-monitoring',
@@ -1182,6 +1193,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'signals-source-filters',
             'error-tracking-issue-tags',
             'static-cohort-replace-on-recalc',
+            'inbox-plan-edits-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
