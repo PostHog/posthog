@@ -314,6 +314,21 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
             error=snapshot.get("error"),
         )
         return
+    # A state-change webhook writes the state its payload carried, so one handled late can store a
+    # stale state over a newer one. This read is fresh, so it repairs that on the next PR event. A merge
+    # stays with the paths that also record its merge time.
+    snapshot_state = snapshot.get("state")
+    if (
+        pr.state != SignalReportPullRequest.State.MERGED
+        and snapshot_state != pr.state
+        and snapshot_state
+        in {
+            SignalReportPullRequest.State.DRAFT,
+            SignalReportPullRequest.State.OPEN,
+            SignalReportPullRequest.State.CLOSED,
+        }
+    ):
+        update_pull_request_state(team_id=team_id, repository=pr.repository, number=pr.number, state=snapshot_state)
     raw_review_decision = snapshot.get("review_decision")
     review_decision = raw_review_decision if isinstance(raw_review_decision, str) else None
     update_pull_request_review_decision(
