@@ -7,6 +7,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -172,9 +173,9 @@ function useSenderMocks(senders: IntegrationType[]): void {
     useMocks({ get: { '/api/projects/:team_id/integrations/': { results: senders, next: null } } })
 }
 
-function showSenderRow(): void {
+function showSenderRow(show = true): void {
     featureFlagLogic.mount()
-    featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER]: true })
+    featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER]: show })
 }
 
 async function renderStep(step: HogFlowAction, readyTestId = 'workflow-email-sender-select'): Promise<void> {
@@ -319,18 +320,42 @@ describe('SandboxSenderChoiceProvider', () => {
         expect(screen.queryByTestId('workflow-email-sender-select')).not.toBeInTheDocument()
     })
 
-    it.each<[string, IntegrationType[], boolean]>([
-        ['no sender is verified yet', [VERIFYING_SENDER], true],
-        ['the only verified sender stopped sending', [STOPPED_SENDER], true],
-        ['a verified sender can send', [OWN_SENDER], false],
-    ])('offers the PostHog test sender on an own step when %s', async (_, senders, offered) => {
-        useSenderMocks(senders)
+    it('shows the From picker once a sender verified in another tab is found by Check again', async () => {
+        useSenderMocks([VERIFYING_SENDER])
         showSenderRow()
-        await renderStep(ownStep({ from: { integrationId: 7 } }))
-        await waitFor(() => expect(sandboxSenderLogic.values.sandboxStatus).toEqual(SANDBOX_STATUS))
+        await renderStep(SANDBOX_STEP, 'workflow-email-test-sender')
 
-        expect(!!within(openFromPicker()).queryByText('PostHog test sender')).toEqual(offered)
+        useSenderMocks([OWN_SENDER])
+        fireEvent.click(screen.getByTestId('workflow-email-test-sender-refresh'))
+        await screen.findByTestId('workflow-email-sender-select')
+
+        fireEvent.click(within(openFromPicker()).getByText('hello@example.com'))
+        await waitFor(() => expect(storedStep()?.type).toEqual('function_email'))
     })
+
+    it.each<[string, string, IntegrationType[], boolean]>([
+        ['no sender is verified yet', 'legacy', [VERIFYING_SENDER], true],
+        ['the only verified sender stopped sending', 'legacy', [STOPPED_SENDER], true],
+        ['a verified sender can send', 'legacy', [OWN_SENDER], false],
+        ['no sender is verified yet', 'sender row', [VERIFYING_SENDER], true],
+        ['the only verified sender stopped sending', 'sender row', [STOPPED_SENDER], true],
+        ['a verified sender can send', 'sender row', [OWN_SENDER], false],
+    ])(
+        'offers the PostHog test sender on an own step when %s, with the %s header',
+        async (_, header, senders, offered) => {
+            useSenderMocks(senders)
+            showSenderRow(header === 'sender row')
+            await renderStep(ownStep({ from: { integrationId: 7 } }))
+            await waitFor(() => {
+                expect(sandboxSenderLogic.values.sandboxStatus).toEqual(SANDBOX_STATUS)
+                expect(integrationsLogic.values.integrations?.map(({ config }) => config)).toEqual(
+                    senders.map(({ config }) => config)
+                )
+            })
+
+            expect(!!within(openFromPicker()).queryByText('PostHog test sender')).toEqual(offered)
+        }
+    )
 
     it('offers no sandbox sender when the project has not adopted it', async () => {
         useMocks({

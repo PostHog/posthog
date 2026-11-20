@@ -1,6 +1,9 @@
-import { IconExternal } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+
+import { IconExternal, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
 import { EmailHeaderRow } from './EmailHeaderRow'
@@ -19,6 +22,8 @@ export function TestSenderRow({
         .filter((sender) => sender.config?.verified !== true && !isSendingStopped(sender))
         .map((sender) => sender.config?.email ?? sender.display_name ?? `Sender ${sender.id}`)
     const stopped = sendingStoppedWarning(senders)
+    const { integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
     return (
         <EmailHeaderRow label="From" className="py-1">
             <div className="flex-1 min-w-0" data-attr="workflow-email-test-sender">
@@ -33,6 +38,17 @@ export function TestSenderRow({
                     {stopped ? <span className="min-w-0 break-words text-warning">{stopped}</span> : null}
                 </div>
             </div>
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                className="shrink-0"
+                icon={<IconRefresh />}
+                loading={integrationsLoading}
+                onClick={() => loadIntegrations()}
+                data-attr="workflow-email-test-sender-refresh"
+            >
+                Check again
+            </LemonButton>
             <LemonButton
                 size="xsmall"
                 type="secondary"
