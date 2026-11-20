@@ -35,6 +35,12 @@ export const aiToolCallExtractionCounter = new Counter({
     labelNames: ['status'],
 })
 
+export const aiToolUsageExtractionCounter = new Counter({
+    name: 'llma_ai_tool_usage_extraction_total',
+    help: 'AI tool result, unknown tool and intent extraction outcomes',
+    labelNames: ['kind', 'status'],
+})
+
 export const aiOtelMiddlewareCounter = new Counter({
     name: 'llma_ai_otel_middleware_total',
     help: 'OTel events processed by library middleware',

@@ -1,8 +1,14 @@
 import { parseJSON } from '~/common/utils/json-parse'
-import { aiToolCallExtractionCounter } from '~/ingestion/pipelines/ai/metrics'
+import { aiToolCallExtractionCounter, aiToolUsageExtractionCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
+import {
+    extractDefinedToolNames,
+    extractToolCallIntent,
+    extractToolResults,
+    findUnknownTools,
+} from './extract-tool-usage'
 
 const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"', 'tool-call']
 export const MAX_OUTPUT_CHOICES_LENGTH = 500_000
@@ -156,4 +162,117 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
         aiToolCallExtractionCounter.labels({ status: 'error' }).inc()
         return event
     }
+}
+
+export const MAX_INPUT_LENGTH = 2_000_000
+const TOOL_RESULT_INDICATORS = [
+    'tool_result',
+    'tool-result',
+    'tool_call_response',
+    'function_call_output',
+    'custom_tool_call_output',
+    'function_call_result',
+    'functionResponse',
+    '"tool"',
+]
+
+type Parsed = { value: unknown } | { skipped: 'too_large' | 'no_indicators' | 'invalid_json' }
+
+function parseIfString(value: unknown, maxLength: number, indicators?: string[]): Parsed {
+    if (typeof value !== 'string') {
+        return { value }
+    }
+    if (value.length > maxLength) {
+        return { skipped: 'too_large' }
+    }
+    if (indicators && !indicators.some((indicator) => value.includes(indicator))) {
+        return { skipped: 'no_indicators' }
+    }
+    try {
+        return { value: parseJSON(value) }
+    } catch {
+        return { skipped: 'invalid_json' }
+    }
+}
+
+const isSet = (value: unknown): boolean => value !== undefined && value !== null
+
+// Runs after processAiToolCallExtraction, because unknown tools and intent read $ai_tools_called.
+export function processAiToolUsageExtraction<T extends PluginEvent>(event: T): T {
+    if (!event.properties || event.event !== '$ai_generation') {
+        return event
+    }
+    const properties = event.properties
+
+    if (!isSet(properties['$ai_tool_result_count']) && isSet(properties['$ai_input'])) {
+        try {
+            const input = parseIfString(properties['$ai_input'], MAX_INPUT_LENGTH, TOOL_RESULT_INDICATORS)
+            if ('skipped' in input) {
+                aiToolUsageExtractionCounter.labels({ kind: 'results', status: input.skipped }).inc()
+            } else {
+                const results = extractToolResults(input.value)
+                if (results.length === 0) {
+                    aiToolUsageExtractionCounter.labels({ kind: 'results', status: 'none' }).inc()
+                } else {
+                    const named = results.filter((result) => result.name !== null)
+                    const errors = results.filter((result) => result.isError)
+                    const namedErrors = named.filter((result) => result.isError)
+                    properties['$ai_tool_result_count'] = results.length
+                    properties['$ai_tool_error_count'] = errors.length
+                    if (named.length > 0) {
+                        properties['$ai_tool_results'] = named.map((result) => result.name).join(',')
+                    }
+                    if (namedErrors.length > 0) {
+                        properties['$ai_tool_errors'] = namedErrors.map((result) => result.name).join(',')
+                    }
+                    aiToolUsageExtractionCounter
+                        .labels({ kind: 'results', status: named.length === results.length ? 'extracted' : 'unnamed' })
+                        .inc()
+                }
+            }
+        } catch {
+            aiToolUsageExtractionCounter.labels({ kind: 'results', status: 'error' }).inc()
+        }
+    }
+
+    const toolsCalled = properties['$ai_tools_called']
+    const called = typeof toolsCalled === 'string' ? toolsCalled.split(',').filter((name) => name.length > 0) : []
+    if (called.length === 0) {
+        return event
+    }
+
+    if (!isSet(properties['$ai_tools_unknown']) && isSet(properties['$ai_tools'])) {
+        try {
+            const tools = parseIfString(properties['$ai_tools'], MAX_INPUT_LENGTH)
+            const defined = 'skipped' in tools ? null : extractDefinedToolNames(tools.value)
+            if (defined === null) {
+                aiToolUsageExtractionCounter.labels({ kind: 'unknown', status: 'unnamed_definitions' }).inc()
+            } else {
+                const unknown = findUnknownTools(called, defined)
+                if (unknown.length > 0) {
+                    properties['$ai_tools_unknown'] = unknown.join(',')
+                }
+                aiToolUsageExtractionCounter
+                    .labels({ kind: 'unknown', status: unknown.length > 0 ? 'found' : 'none' })
+                    .inc()
+            }
+        } catch {
+            aiToolUsageExtractionCounter.labels({ kind: 'unknown', status: 'error' }).inc()
+        }
+    }
+
+    if (!isSet(properties['$ai_tool_intent']) && isSet(properties['$ai_output_choices'])) {
+        try {
+            const output = parseIfString(properties['$ai_output_choices'], MAX_OUTPUT_CHOICES_LENGTH)
+            const intent = 'skipped' in output ? null : extractToolCallIntent(output.value)
+            if (intent !== null) {
+                properties['$ai_tool_intent'] = intent
+            }
+            aiToolUsageExtractionCounter.labels({ kind: 'intent', status: intent !== null ? 'found' : 'none' }).inc()
+        } catch {
+            aiToolUsageExtractionCounter.labels({ kind: 'intent', status: 'error' }).inc()
+        }
+    }
+
+    return event
 }
