@@ -5,6 +5,7 @@ import { useId } from 'react'
 import { IconBell, IconGraph, IconList, IconPulse, IconTarget } from '@posthog/icons'
 import { Button, Dialog, DialogContent, Field, FieldLabel, Switch, Text } from '@posthog/quill'
 
+import { closesIntoLemonPopover } from 'lib/components/QuillSurface/closesIntoLemonPopover'
 import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
@@ -39,7 +40,14 @@ export function QuillLogsAlertEditModal({ alert, onClose }: QuillLogsAlertEditMo
     return (
         <Dialog
             open={alert !== null}
-            onOpenChange={(open: boolean) => {
+            // The service and filter pickers open Lemon popovers that portal outside the dialog. A modal dialog would
+            // make them inert and pull focus back, so the dialog stays non-modal and ignores clicks that land in them.
+            modal={false}
+            onOpenChange={(open, details) => {
+                if (closesIntoLemonPopover(open, details)) {
+                    details.cancel()
+                    return
+                }
                 if (!open) {
                     onClose()
                 }

@@ -1,4 +1,5 @@
-import type { ColumnDef } from '@tanstack/react-table'
+import type { CellContext, ColumnDef } from '@tanstack/react-table'
+import { createContext, useContext } from 'react'
 import type { RefObject } from 'react'
 
 import { IconCheck, IconPencil, IconPlus, IconTrash, IconWarning, IconX } from '@posthog/icons'
@@ -31,6 +32,182 @@ import {
 } from './constants'
 import { isInvalidConversionGoal } from './isInvalidConversionGoal'
 import { QuillCountsAsToggles } from './QuillCountsAsToggles'
+
+interface ConversionGoalRowEditing {
+    editingGoalId: string | null
+    editingGoal: ConversionGoalFilter | null
+    onEditingGoalChange: React.Dispatch<React.SetStateAction<ConversionGoalFilter | null>>
+    restrictedReason: string | null
+    onStartEdit: (goal: ConversionGoalFilter) => void
+    onSaveEdit: () => void
+    onCancelEdit: () => void
+    onRemoveGoal: (goalId: string) => void
+}
+
+// DataTable renders each cell function as a component, so the cells live at module scope and read the edit state
+// from context. Recreating them on every render would remount the name input and drop focus on each keystroke.
+const ConversionGoalRowEditingContext = createContext<ConversionGoalRowEditing | null>(null)
+
+function useConversionGoalRowEditing(): ConversionGoalRowEditing {
+    const rowEditing = useContext(ConversionGoalRowEditingContext)
+    if (!rowEditing) {
+        throw new Error('Conversion goal cells must render inside ConversionGoalRowEditingContext')
+    }
+    return rowEditing
+}
+
+function GoalNameCell({ row }: CellContext<ConversionGoalFilter, unknown>): JSX.Element {
+    const { editingGoalId, editingGoal, onEditingGoalChange, restrictedReason } = useConversionGoalRowEditing()
+    const goal = row.original
+
+    if (editingGoalId === goal.conversion_goal_id && editingGoal) {
+        return (
+            <Input
+                size="sm"
+                aria-label="Goal name"
+                value={editingGoal.conversion_goal_name}
+                onChange={(event) => {
+                    const value = event.target.value
+                    onEditingGoalChange((prev) => (prev ? { ...prev, conversion_goal_name: value } : null))
+                }}
+                disabledReason={restrictedReason}
+            />
+        )
+    }
+
+    if (isInvalidConversionGoal(goal)) {
+        return (
+            <span className="flex items-center gap-1.5 text-warning-foreground">
+                <span>{goal.conversion_goal_name}</span>
+                <IconWarning className="size-4 shrink-0" />
+            </span>
+        )
+    }
+
+    return <span>{goal.conversion_goal_name}</span>
+}
+
+function GoalEventCell({ row }: CellContext<ConversionGoalFilter, unknown>): JSX.Element {
+    const { editingGoalId, editingGoal, onEditingGoalChange } = useConversionGoalRowEditing()
+    const goal = row.original
+
+    if (editingGoalId === goal.conversion_goal_id && editingGoal) {
+        return (
+            <ConversionGoalDropdown value={editingGoal} typeKey="conversion-goal-edit" onChange={onEditingGoalChange} />
+        )
+    }
+
+    return <>{goal.custom_name || goal.name || 'No name'}</>
+}
+
+function GoalCountsAsCell({ row }: CellContext<ConversionGoalFilter, unknown>): JSX.Element {
+    const { editingGoalId, editingGoal, onEditingGoalChange, restrictedReason } = useConversionGoalRowEditing()
+    const goal = row.original
+
+    if (editingGoalId === goal.conversion_goal_id && editingGoal) {
+        return (
+            <QuillCountsAsToggles goal={editingGoal} onChange={onEditingGoalChange} disabledReason={restrictedReason} />
+        )
+    }
+
+    const flags = [goal.counts_as_revenue && 'Revenue', goal.counts_as_customer && 'Customer'].filter(Boolean)
+
+    return flags.length ? (
+        <Text size="xs" render={<span />}>
+            {flags.join(', ')}
+        </Text>
+    ) : (
+        <Text size="xs" variant="muted" render={<span />}>
+            Conversions only
+        </Text>
+    )
+}
+
+function GoalSchemaCell({ row }: CellContext<ConversionGoalFilter, unknown>): JSX.Element {
+    const goal = row.original
+
+    if (!goal.schema_map) {
+        return <span>Not configured</span>
+    }
+
+    return (
+        <Text size="xs" variant="muted" render={<div className="flex flex-col" />}>
+            <span>{`Campaign: ${goal.schema_map.utm_campaign_name}`}</span>
+            <span>{`Source: ${goal.schema_map.utm_source_name}`}</span>
+            {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (
+                <span>{`Timestamp: ${goal.schema_map.timestamp_field}`}</span>
+            )}
+            {goal.kind === 'DataWarehouseNode' && goal.schema_map.distinct_id_field && (
+                <span>{`Distinct ID: ${goal.schema_map.distinct_id_field}`}</span>
+            )}
+        </Text>
+    )
+}
+
+function GoalActionsCell({ row }: CellContext<ConversionGoalFilter, unknown>): JSX.Element {
+    const { editingGoalId, restrictedReason, onStartEdit, onSaveEdit, onCancelEdit, onRemoveGoal } =
+        useConversionGoalRowEditing()
+    const goal = row.original
+
+    if (editingGoalId === goal.conversion_goal_id) {
+        return (
+            <div className="flex justify-end gap-1">
+                <Button
+                    size="icon-sm"
+                    variant="primary"
+                    aria-label="Save changes"
+                    tooltip="Save changes"
+                    onClick={onSaveEdit}
+                    disabledReason={restrictedReason}
+                >
+                    <IconCheck />
+                </Button>
+                <Button
+                    size="icon-sm"
+                    aria-label="Cancel"
+                    tooltip="Cancel"
+                    onClick={onCancelEdit}
+                    disabledReason={restrictedReason}
+                >
+                    <IconX />
+                </Button>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex justify-end gap-1">
+            <Button
+                size="icon-sm"
+                aria-label="Edit conversion goal"
+                tooltip="Edit conversion goal"
+                onClick={() => onStartEdit(goal)}
+                disabledReason={restrictedReason}
+            >
+                <IconPencil />
+            </Button>
+            <Button
+                size="icon-sm"
+                variant="destructive-outline"
+                aria-label="Remove conversion goal"
+                tooltip="Remove conversion goal"
+                onClick={() => onRemoveGoal(goal.conversion_goal_id)}
+                disabledReason={restrictedReason}
+            >
+                <IconTrash />
+            </Button>
+        </div>
+    )
+}
+
+const COLUMNS: ColumnDef<ConversionGoalFilter>[] = [
+    { id: 'name', header: 'Goal name', meta: { expand: true }, cell: GoalNameCell },
+    { id: 'type', header: 'Type', cell: ({ row }) => QUERY_TYPES_METADATA[row.original.kind]?.name },
+    { id: 'event', header: 'Event/Table', cell: GoalEventCell },
+    { id: 'counts_as', header: 'Counts as', cell: GoalCountsAsCell },
+    { id: 'schema', header: 'Schema mapping', cell: GoalSchemaCell },
+    { id: 'actions', header: 'Actions', meta: { align: 'right' }, cell: GoalActionsCell },
+]
 
 export function QuillConversionGoalsConfiguration({
     hideTitle,
@@ -97,181 +274,16 @@ export function QuillConversionGoalsConfiguration({
     onCancelEdit: () => void
     onRemoveGoal: (goalId: string) => void
 }): JSX.Element {
-    const isEditing = (goal: ConversionGoalFilter): boolean => editingGoalId === goal.conversion_goal_id
-
-    const columns: ColumnDef<ConversionGoalFilter>[] = [
-        {
-            id: 'name',
-            header: 'Goal name',
-            meta: { expand: true },
-            cell: ({ row }) => {
-                const goal = row.original
-
-                if (isEditing(goal) && editingGoal) {
-                    return (
-                        <Input
-                            size="sm"
-                            aria-label="Goal name"
-                            value={editingGoal.conversion_goal_name}
-                            onChange={(event) => {
-                                const value = event.target.value
-                                onEditingGoalChange((prev) => (prev ? { ...prev, conversion_goal_name: value } : null))
-                            }}
-                            disabledReason={restrictedReason}
-                        />
-                    )
-                }
-
-                if (isInvalidConversionGoal(goal)) {
-                    return (
-                        <span className="flex items-center gap-1.5 text-warning-foreground">
-                            <span>{goal.conversion_goal_name}</span>
-                            <IconWarning className="size-4 shrink-0" />
-                        </span>
-                    )
-                }
-
-                return <span>{goal.conversion_goal_name}</span>
-            },
-        },
-        {
-            id: 'type',
-            header: 'Type',
-            cell: ({ row }) => QUERY_TYPES_METADATA[row.original.kind]?.name,
-        },
-        {
-            id: 'event',
-            header: 'Event/Table',
-            cell: ({ row }) => {
-                const goal = row.original
-
-                if (isEditing(goal) && editingGoal) {
-                    return (
-                        <ConversionGoalDropdown
-                            value={editingGoal}
-                            typeKey="conversion-goal-edit"
-                            onChange={onEditingGoalChange}
-                        />
-                    )
-                }
-
-                return goal.custom_name || goal.name || 'No name'
-            },
-        },
-        {
-            id: 'counts_as',
-            header: 'Counts as',
-            cell: ({ row }) => {
-                const goal = row.original
-
-                if (isEditing(goal) && editingGoal) {
-                    return (
-                        <QuillCountsAsToggles
-                            goal={editingGoal}
-                            onChange={onEditingGoalChange}
-                            disabledReason={restrictedReason}
-                        />
-                    )
-                }
-
-                const flags = [goal.counts_as_revenue && 'Revenue', goal.counts_as_customer && 'Customer'].filter(
-                    Boolean
-                )
-
-                return flags.length ? (
-                    <Text size="xs" render={<span />}>
-                        {flags.join(', ')}
-                    </Text>
-                ) : (
-                    <Text size="xs" variant="muted" render={<span />}>
-                        Conversions only
-                    </Text>
-                )
-            },
-        },
-        {
-            id: 'schema',
-            header: 'Schema mapping',
-            cell: ({ row }) => {
-                const goal = row.original
-
-                if (!goal.schema_map) {
-                    return <span>Not configured</span>
-                }
-
-                return (
-                    <Text size="xs" variant="muted" render={<div className="flex flex-col" />}>
-                        <span>{`Campaign: ${goal.schema_map.utm_campaign_name}`}</span>
-                        <span>{`Source: ${goal.schema_map.utm_source_name}`}</span>
-                        {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (
-                            <span>{`Timestamp: ${goal.schema_map.timestamp_field}`}</span>
-                        )}
-                        {goal.kind === 'DataWarehouseNode' && goal.schema_map.distinct_id_field && (
-                            <span>{`Distinct ID: ${goal.schema_map.distinct_id_field}`}</span>
-                        )}
-                    </Text>
-                )
-            },
-        },
-        {
-            id: 'actions',
-            header: 'Actions',
-            meta: { align: 'right' },
-            cell: ({ row }) => {
-                const goal = row.original
-
-                if (isEditing(goal)) {
-                    return (
-                        <div className="flex justify-end gap-1">
-                            <Button
-                                size="icon-sm"
-                                variant="primary"
-                                aria-label="Save changes"
-                                tooltip="Save changes"
-                                onClick={onSaveEdit}
-                                disabledReason={restrictedReason}
-                            >
-                                <IconCheck />
-                            </Button>
-                            <Button
-                                size="icon-sm"
-                                aria-label="Cancel"
-                                tooltip="Cancel"
-                                onClick={onCancelEdit}
-                                disabledReason={restrictedReason}
-                            >
-                                <IconX />
-                            </Button>
-                        </div>
-                    )
-                }
-
-                return (
-                    <div className="flex justify-end gap-1">
-                        <Button
-                            size="icon-sm"
-                            aria-label="Edit conversion goal"
-                            tooltip="Edit conversion goal"
-                            onClick={() => onStartEdit(goal)}
-                            disabledReason={restrictedReason}
-                        >
-                            <IconPencil />
-                        </Button>
-                        <Button
-                            size="icon-sm"
-                            variant="destructive-outline"
-                            aria-label="Remove conversion goal"
-                            tooltip="Remove conversion goal"
-                            onClick={() => onRemoveGoal(goal.conversion_goal_id)}
-                            disabledReason={restrictedReason}
-                        >
-                            <IconTrash />
-                        </Button>
-                    </div>
-                )
-            },
-        },
-    ]
+    const rowEditing: ConversionGoalRowEditing = {
+        editingGoalId,
+        editingGoal,
+        onEditingGoalChange,
+        restrictedReason,
+        onStartEdit,
+        onSaveEdit,
+        onCancelEdit,
+        onRemoveGoal,
+    }
 
     return (
         <section className="flex flex-col gap-4">
@@ -382,13 +394,15 @@ export function QuillConversionGoalsConfiguration({
                 <Heading size="sm" render={<h3 className="m-0" />}>
                     {getConfiguredConversionGoalsLabel(conversionGoals.length)}
                 </Heading>
-                <DataTable
-                    columns={columns}
-                    data={conversionGoals}
-                    getRowId={(goal) => goal.conversion_goal_id}
-                    fullWidth
-                    empty="No conversion goals configured yet. Add your first conversion goal above."
-                />
+                <ConversionGoalRowEditingContext.Provider value={rowEditing}>
+                    <DataTable
+                        columns={COLUMNS}
+                        data={conversionGoals}
+                        getRowId={(goal) => goal.conversion_goal_id}
+                        fullWidth
+                        empty="No conversion goals configured yet. Add your first conversion goal above."
+                    />
+                </ConversionGoalRowEditingContext.Provider>
             </div>
         </section>
     )

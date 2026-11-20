@@ -13,8 +13,13 @@ export function QuillWebAndApiAccessSummary({
         <Item tone="info" size="sm">
             <ItemContent>
                 <ItemDescription>
-                    {domainsSummary} {secretSummary && <>{secretSummary} </>}These settings apply to the widget and the
-                    Direct API.
+                    <span>{domainsSummary}</span>{' '}
+                    {secretSummary && (
+                        <>
+                            <span>{secretSummary}</span>{' '}
+                        </>
+                    )}
+                    <span>These settings apply to the widget and the Direct API.</span>
                 </ItemDescription>
             </ItemContent>
             <ItemActions>
