@@ -468,7 +468,7 @@ def prepare_ast_for_printing(
                 clickhouse_property_resolution,
             )
 
-            node = clickhouse_property_resolution(node, context)
+            node = clickhouse_property_resolution(node, context, settings)
 
         if context.order_events_reads_by_sort_key:
             # After property resolution, so the timestamp column is already wrapped and every table type is final.

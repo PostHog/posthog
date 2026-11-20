@@ -32,6 +32,7 @@ from posthog.hogql.constants import (
     FEATURE_FLAG_PROPERTY_PREFIX,
     FEATURE_FLAG_VARIANT_SENTINELS,
     INACTIVE_FEATURE_FLAG_VALUES,
+    HogQLGlobalSettings,
     is_virtual_feature_flag_key,
 )
 from posthog.hogql.context import HogQLContext
@@ -1175,10 +1176,11 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     `PropertyAccess` and prints as the raw JSON extract.
     """
 
-    def __init__(self, context: HogQLContext) -> None:
+    def __init__(self, context: HogQLContext, *, transform_null_in: bool = False) -> None:
         # The AST is printed directly after this pass, so keep resolved types rather than clearing them.
         super().__init__(clear_types=False)
         self.context = context
+        self._transform_null_in = transform_null_in
         # Identity set of the table types in scope for the SELECT currently being visited (its FROM/JOIN chain,
         # including the layers behind alias/virtual wrappers). Guards the comparison rewrites: a rewrite reads a real
         # table column, which is only printable when that table is in the current FROM. A property read that an earlier
@@ -2468,8 +2470,8 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         """A flag compared with text, as a test of the value the flags map stores for it, with no presence check.
 
         A missing flag stores '', which matches no text here. Outside a join constraint the printer turns the NULL that
-        the value read gives a missing flag into false for `=` and `IN` and true for `!=` and `NOT IN`, which is what
-        the stored value gives. A join constraint keeps that NULL, so a comparison there keeps the value read.
+        the value read gives a missing flag into false for `=` and true for `!=` and `NOT IN`, which is what the stored
+        value gives. A join constraint keeps that NULL, so a comparison there keeps the value read.
         """
         if self._join_constraint_depth:
             return None
@@ -2478,7 +2480,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             if constant is None:
                 operand, constant = node.right, _string_pattern_constant(node.left)
             values = [constant.value] if constant is not None else None
-        elif node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+        # The printer leaves `IN` unwrapped, so a missing flag's NULL compares as false only under transform_null_in.
+        elif node.op == ast.CompareOperationOp.NotIn or (
+            node.op == ast.CompareOperationOp.In and self._transform_null_in
+        ):
             operand, values = node.left, self._extract_string_constants(node.right)
         else:
             return None
@@ -2894,10 +2899,15 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         return None
 
 
-def clickhouse_property_resolution(node: _T_AST, context: HogQLContext) -> _T_AST:
+def clickhouse_property_resolution(
+    node: _T_AST, context: HogQLContext, settings: HogQLGlobalSettings | None = None
+) -> _T_AST:
     """Rewrite every backed lowered `PropertyAccess` (and comparison over it) to read its backing column.
 
     ClickHouse only. Expects a resolved, swapped, lowered AST, and runs right after `lower_property_access` in the
-    ClickHouse print pipeline (see `prepare_ast_for_printing`).
+    ClickHouse print pipeline (see `prepare_ast_for_printing`). `settings` are the ones the printed query runs with,
+    or None when the caller runs the SQL with settings of its own, as batch exports do with a filter clause.
     """
-    return cast(_T_AST, ClickHousePropertyResolver(context).visit(node))
+    # Batch exports pass a `HogQLQuerySettings` subclass, which has no field for this setting.
+    transform_null_in = isinstance(settings, HogQLGlobalSettings) and bool(settings.transform_null_in)
+    return cast(_T_AST, ClickHousePropertyResolver(context, transform_null_in=transform_null_in).visit(node))

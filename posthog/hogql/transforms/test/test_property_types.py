@@ -34,6 +34,7 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.escape_sql import escape_hogql_string
@@ -115,6 +116,7 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
         restricted_properties: set[RestrictedProperty] | None = None,
         property_groups_mode: PropertyGroupsMode | None = None,
         event_properties: dict[str, dict[str, str | None]] | None = None,
+        settings: HogQLGlobalSettings | None = None,
     ) -> str:
         expr = parse_select(select)
         context = self._context(use_new_events_schema, event_properties)
@@ -127,6 +129,7 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
                 expr,
                 context,
                 "clickhouse",
+                settings=settings,
             )
         return pretty_print_in_tests(query, 1)
 
@@ -539,14 +542,22 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
             ("json_text", "JSONExtractRaw(properties, '$feature/checkout') = 'true'", {".keys", ".key_checkout"}),
             ("presence", "JSONHas(properties, '$feature/checkout')", {".keys"}),
             ("nested_presence", "JSONHas(properties, '$feature_flags', 'checkout', 'a')", {".key_checkout"}),
+            # Without HogQL's settings the query may run with transform_null_in off, where `IN` keeps NULL.
+            (
+                "set_without_hogql_settings",
+                "properties.`$feature/checkout` IN ('a', 'b')",
+                {".keys", ".key_checkout"},
+                False,
+            ),
         ]
     )
     def test_one_flag_filter_reads_only_its_map_subcolumns(
-        self, _name: str, where_clause: str, subcolumns: set[str]
+        self, _name: str, where_clause: str, subcolumns: set[str], hogql_settings: bool = True
     ) -> None:
         printed = self._print_select(
             f"SELECT properties.$active_feature_flags AS flags, count() FROM events WHERE {where_clause}",
             use_new_events_schema=True,
+            settings=HogQLGlobalSettings() if hogql_settings else None,
         )
         where = printed.split("WHERE", 1)[1]
 
@@ -2651,7 +2662,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
         flag_reads = (
             "SELECT properties.`$feature/variant`, properties.`$feature/named-true`, properties.`$feature/checkout`, "
             "properties.`$feature/empty`, properties.`$feature/missing`, properties.`$feature/a.b`, "
-            "properties.`$feature/it``s`, "
+            "JSONExtractString(properties, '$feature/a%2Eb'), properties.`$feature/it``s`, "
             "properties.`$feature/variant` = 'control', properties.`$feature/named-true` = 'true', "
             "properties.`$feature/checkout` IN ('true', 'other'), properties.`$feature/disabled` != 'false', "
             "properties.`$feature/variant` NOT IN ('test'), properties.`$feature/empty` != 'x', "
@@ -2663,7 +2674,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
         native_flags = read_flags(flag_reads, use_new_events_schema=True)
         assert native_flags == read_flags(flag_reads, use_new_events_schema=False)
         assert native_flags[0] == [
-            ("control", "true", "true", "", None, "dotted", "tick", 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0)
+            ("control", "true", "true", "", None, "dotted", "escaped", "tick", 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0)
         ]
 
         breakdown = (

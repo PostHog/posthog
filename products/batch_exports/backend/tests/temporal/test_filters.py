@@ -185,6 +185,20 @@ async def test_filters_preserve_property_types(
     assert matches is expected
 
 
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+async def test_negated_flag_set_filter_skips_an_event_without_the_flag(ateam, use_new_events_schema):
+    clause, values = await database_sync_to_async(compose_filters_clause)(
+        [{"key": "NOT (properties.`$feature/checkout` IN ('test', 'control'))", "type": "hogql"}],
+        team_id=ateam.id,
+        use_new_events_schema=use_new_events_schema,
+    )
+
+    # The export query runs without HogQL's transform_null_in, so the missing flag's NULL keeps the event out.
+    matches = await _evaluate_filters_clause(clause, values, '{"value":1}', use_new_events_schema=use_new_events_schema)
+
+    assert matches is False
+
+
 @pytest.mark.parametrize(
     "filters",
     (
