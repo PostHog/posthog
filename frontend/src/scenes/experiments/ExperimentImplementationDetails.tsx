@@ -57,7 +57,7 @@ const DEFAULT_IMPLEMENTATION_OPTION: ImplementationOption = 'agent_prompt'
 
 // The test arm opens the agent prompt and long code snippets on a preview, so they don't push the page down.
 // It stops after the prompt's context lines.
-const IMPLEMENTATION_PREVIEW_LINES = 8
+const IMPLEMENTATION_PREVIEW_LINES = 10
 
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null
