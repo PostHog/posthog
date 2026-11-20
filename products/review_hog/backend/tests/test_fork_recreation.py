@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.integration import GitHubIntegrationError
 
 from products.review_hog.backend.fork_recreation import (
@@ -49,7 +50,9 @@ class FakeGitHub:
     ) -> None:
         self.branch_exists = False
         self.comment_fails = False
-        self.failing_posts: set[str] = set()
+        self.review_request_fails = False
+        self.mode_changed_on_base: frozenset[str] = frozenset()
+        self.failing_posts: dict[str, Exception | None] = {}
         self.deleted: list[str] = []
         self.permission_lookups: list[tuple[str, int | None]] = []
         self.open_pull_requests: list[dict[str, Any]] = [{"number": 12, "html_url": "https://pr/12", "user": APP_BOT}]
@@ -90,6 +93,9 @@ class FakeGitHub:
             return _Response(204)
         if method == "POST":
             if path.removeprefix(base) in self.failing_posts:
+                error = self.failing_posts[path.removeprefix(base)]
+                if error is not None:
+                    raise error
                 return _Response(422, {})
             self.writes.append((path.removeprefix(base), json_body))
             return _Response(201, {"sha": f"sha-{len(self.writes)}", "number": 12, "html_url": "https://pr/12"})
@@ -123,13 +129,16 @@ class FakeGitHub:
 
     def _graphql(self, query: str) -> dict[str, Any]:
         result: dict[str, Any] = {}
-        for alias, sha, path in _OBJECT_FIELD.findall(query):
-            if alias.startswith("d"):
-                result[alias] = {"entries": self.trees.get(path, [])}
-            elif sha == BASE_SHA and path in self.changed_on_base:
-                result[alias] = {"oid": f"new-{path}"}
-            else:
-                result[alias] = {"oid": f"old-{path}"}
+        for alias, sha, directory in _OBJECT_FIELD.findall(query):
+            entries = []
+            for entry in self.trees.get(directory, []):
+                path = f"{directory}/{entry['name']}" if directory else entry["name"]
+                if sha == BASE_SHA and path in self.changed_on_base:
+                    entry = {**entry, "oid": f"new-{path}"}
+                if sha == BASE_SHA and path in self.mode_changed_on_base:
+                    entry = {**entry, "mode": 0o100755}
+                entries.append(entry)
+            result[alias] = {"entries": entries}
         return result
 
     def get_pull_request_reviews(self, repository: str, pr_number: int) -> list[dict[str, Any]]:
@@ -149,6 +158,8 @@ class FakeGitHub:
         return {"success": True}
 
     def request_pull_request_reviews(self, repository: str, pr_number: int, reviewers: list[str]) -> dict[str, Any]:
+        if self.review_request_fails:
+            return {"success": False}
         self.reviewers += reviewers
         return {"success": True}
 
@@ -195,6 +206,19 @@ CI_PATHS = [
     "bin/start",
     "posthog/conftest.py",
     "docker/Dockerfile.dev",
+    "frontend/bin/check-css-coupling.mjs",
+    "ee/bin/run",
+    "uv.lock",
+    "pyproject.toml",
+    "pytest.ini",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    ".pnpmfile.cjs",
+    "patches/some-package.patch",
+    ".semgrep/rules/security/rule.yaml",
+    "nodejs/jest.config.js",
+    "docker-compose.dev.yml",
+    "turbo.json",
 ]
 
 
@@ -217,6 +241,7 @@ class TestForkRecreation(SimpleTestCase):
                 _review("alice", 1, "APPROVED"),
                 _review("bob", 2, "APPROVED", commit_id=LATER_SHA),
                 _review("bob", 2, "COMMENTED", commit_id=LATER_SHA),
+                _review("carol", 5, "CHANGES_REQUESTED"),
             ],
             permissions={"alice": "write"},
             files=FILES,
@@ -249,7 +274,7 @@ class TestForkRecreation(SimpleTestCase):
         assert "<!-- fork-pr: 7 @jane -->" in writes["/pulls"]["body"]
         assert "cc @\u200bmaintainer" in writes["/pulls"]["body"]
         assert writes["/pulls"]["title"] == "Fix the widget for @\u200bmaintainer"
-        assert github.permission_lookups == [("alice", 1)]
+        assert github.permission_lookups == [("carol", 5), ("alice", 1)]
         assert github.labels == expected_labels
         assert github.reviewers == ["alice"]
         assert "#12" in github.comments[0] and "not included" in github.comments[0]
@@ -280,6 +305,19 @@ class TestForkRecreation(SimpleTestCase):
                 "also changed on the default branch",
             ),
             (
+                "mode_change_on_the_default_branch",
+                lambda github: setattr(github, "mode_changed_on_base", frozenset({"src/app.py"})),
+                "also changed on the default branch",
+            ),
+            (
+                "changes_requested_by_a_writer",
+                lambda github: (
+                    github.reviews.append(_review("bob", 2, "CHANGES_REQUESTED")),
+                    github.permissions.update(bob="write"),
+                ),
+                "@bob requested changes",
+            ),
+            (
                 "approval_without_write_access",
                 lambda github: github.permissions.update(alice="read"),
                 "No one with write access has approved",
@@ -287,13 +325,13 @@ class TestForkRecreation(SimpleTestCase):
             (
                 "approval_withdrawn",
                 lambda github: github.reviews.append(_review("alice", 1, "CHANGES_REQUESTED", commit_id=LATER_SHA)),
-                "No one with write access has approved",
+                "@alice requested changes",
             ),
             *[
                 (
                     f"ci_file_{path}",
                     lambda github, path=path: github.files.append({"filename": path, "status": "modified"}),
-                    "changes files CI runs",
+                    "changes CI configuration, scripts or install inputs",
                 )
                 for path in CI_PATHS
             ],
@@ -336,11 +374,20 @@ class TestForkRecreation(SimpleTestCase):
         with self.assertRaises(RecreationFailed):
             ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
 
-    def test_deletes_the_branch_when_the_pull_request_cannot_be_opened(self) -> None:
+    @parameterized.expand(
+        [
+            ("refused_by_github", None),
+            ("shed_by_the_egress_budget", GitHubEgressBudgetExhausted("budget spent")),
+        ]
+    )
+    def test_deletes_the_branch_when_the_pull_request_cannot_be_opened(
+        self, _name: str, error: Exception | None
+    ) -> None:
         github = FakeGitHub(
             reviews=[_review("alice", 1, "APPROVED")], permissions={"alice": "write"}, files=list(FILES)
         )
-        github.failing_posts = {"/pulls"}
+        github.failing_posts = {"/pulls": error}
+        github.open_pull_requests = []
 
         with self.assertRaises(RecreationFailed):
             ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
@@ -348,9 +395,22 @@ class TestForkRecreation(SimpleTestCase):
         assert github.deleted == ["/git/refs/heads/fork-pr/7"]
         assert github.comments == [] and github.closed == []
 
-    def test_a_retry_finishes_a_handover_that_failed(self) -> None:
+    def test_keeps_a_pull_request_github_opened_despite_a_failed_response(self) -> None:
+        github = FakeGitHub(
+            reviews=[_review("alice", 1, "APPROVED")], permissions={"alice": "write"}, files=list(FILES)
+        )
+        github.failing_posts = {"/pulls": None}
+
+        outcome = ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
+
+        assert outcome.created and outcome.handed_over and outcome.pull_request_number == 12
+        assert github.deleted == [] and github.closed == [7]
+
+    @parameterized.expand([("comment",), ("review_request",)])
+    def test_a_retry_finishes_a_handover_that_failed(self, failing_step: str) -> None:
         github = FakeGitHub(reviews=[_review("alice", 1, "APPROVED")], permissions={"alice": "write"}, files=FILES)
-        github.comment_fails = True
+        github.comment_fails = failing_step == "comment"
+        github.review_request_fails = failing_step == "review_request"
 
         first = ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
 
@@ -358,6 +418,7 @@ class TestForkRecreation(SimpleTestCase):
         assert github.closed == []
 
         github.comment_fails = False
+        github.review_request_fails = False
         github.branch_exists = True
         writes_before_retry = list(github.writes)
 

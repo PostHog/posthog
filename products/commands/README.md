@@ -134,7 +134,8 @@ The defenses do not depend on an agent ignoring instructions:
 - A command runs only when the pull request's branch name is a plain identifier: letters, digits, `.`, `_`, `/` and `-`. Even then, the name never goes into a prompt or a loop payload. Only the head commit SHA does, and the QA task gets the branch as checkout data.
 - Fork pull requests are refused by every command that runs or reviews code.
   `recreate` accepts them, because it copies only the approved commit into a new pull request in the repository, where CI runs it.
-  It refuses a commit that changes files CI runs, such as workflows, scripts, `package.json` or Dockerfiles, because the new branch runs CI with secrets before anyone approves it.
+  It refuses a commit that changes CI configuration, scripts or install inputs, such as workflows, `bin/` scripts, lockfiles, package manifests, test configuration or Dockerfiles, because the new branch runs CI with secrets before anyone approves it.
+  That list is defence in depth: CI also runs the source the commit changes, so the approval of that exact commit is the control that matters.
   It runs only from a pull request comment, because a Slack command has no GitHub write-access check.
 - The QA task gets the head commit seen at request time, and is told to stop if the branch moved since.
 - A loop fires only for its owner, because a loop runs with its owner's credentials and its payload becomes part of its prompt.

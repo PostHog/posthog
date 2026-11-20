@@ -216,7 +216,7 @@ def handle_recreate(context: CommandContext, args: RecreateArgs) -> CommandOutco
     if not outcome.handed_over:
         return CommandOutcome(
             accepted=True,
-            message=f"Re-created as #{outcome.pull_request_number}, but I couldn't comment on and close this pull request. "
+            message=f"Re-created as #{outcome.pull_request_number}, but I couldn't finish handing it over. "
             "Comment `@posthog recreate` again to finish.",
         )
     return CommandOutcome(accepted=True, message=f"Re-created as #{outcome.pull_request_number}.")

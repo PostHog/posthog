@@ -1,12 +1,12 @@
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Literal
 
 import requests
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
@@ -22,13 +22,55 @@ VERDICT_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "DISMISSED"})
 MERGE_QUEUE_LABEL = "trunk-merge-queue-submit"
 FORK_PR_MARKER = "<!-- fork-pr: {number} @{login} -->"
 RECREATED_MARKER = "<!-- fork-pr-recreated -->"
-CI_PATH_PREFIXES = (".github/", ".depot/", "bin/")
-CI_FILE_NAMES = frozenset({"package.json", "conftest.py"})
+CI_PATH_PREFIXES = (".github/", ".depot/", ".semgrep/", ".husky/", ".flox/", "patches/")
+CI_DIRECTORY_NAMES = frozenset({"bin"})
+CI_FILE_NAMES = frozenset(
+    {
+        ".npmrc",
+        ".nvmrc",
+        ".pnpmfile.cjs",
+        ".test_quarantine.json",
+        "build.rs",
+        "cargo.lock",
+        "cargo.toml",
+        "conftest.py",
+        "go.mod",
+        "go.sum",
+        "hogli.yaml",
+        "makefile",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "pyproject.toml",
+        "pytest.ini",
+        "setup.cfg",
+        "setup.py",
+        "tach.toml",
+        "turbo.json",
+        "uv.lock",
+    }
+)
+CI_FILE_PREFIXES = (
+    "babel.config",
+    "docker-compose",
+    "dockerfile",
+    "jest.config",
+    "playwright.config",
+    "requirements",
+    "vite.config",
+    "vitest.config",
+    "webpack.config",
+)
 MAX_COMPARE_FILES = 300
 GRAPHQL_PATHS_PER_QUERY = 100
 MAX_COMMENT_PAGES = 10
 _SOURCE = "review_hog_fork_recreation"
-_CALL_ERRORS = (GitHubIntegrationError, GitHubRateLimitError, requests.RequestException)
+_CALL_ERRORS = (
+    GitHubIntegrationError,
+    GitHubRateLimitError,
+    GitHubEgressBudgetExhausted,
+    requests.RequestException,
+)
 _MENTION_RE = re.compile(r"@(?=[A-Za-z0-9])")
 _LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
 
@@ -74,22 +116,33 @@ class TreeEntry:
     sha: str | None
 
 
-def latest_approvals(reviews: Sequence[Mapping[str, Any]]) -> list[Approval]:
+def _latest_verdicts(reviews: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     latest: dict[int, Mapping[str, Any]] = {}
     for review in reviews:
         user = review.get("user") or {}
         if review.get("state") in VERDICT_STATES and isinstance(user.get("id"), int):
             latest[user["id"]] = review
+    return [review for review in latest.values() if not str(review["user"].get("login") or "").endswith("[bot]")]
+
+
+def changes_requested(reviews: Sequence[Mapping[str, Any]]) -> list[Approval]:
+    return [
+        Approval(login=review["user"]["login"], user_id=review["user"]["id"], commit_sha=str(review.get("commit_id")))
+        for review in _latest_verdicts(reviews)
+        if review["state"] == "CHANGES_REQUESTED"
+    ]
+
+
+def latest_approvals(reviews: Sequence[Mapping[str, Any]]) -> list[Approval]:
     approved = [
         review
-        for review in latest.values()
+        for review in _latest_verdicts(reviews)
         if review["state"] == "APPROVED" and isinstance(review.get("commit_id"), str)
     ]
     approved.sort(key=lambda review: str(review.get("submitted_at") or ""), reverse=True)
     return [
         Approval(login=review["user"]["login"], user_id=review["user"]["id"], commit_sha=review["commit_id"])
         for review in approved
-        if not review["user"]["login"].endswith("[bot]")
     ]
 
 
@@ -131,8 +184,14 @@ def touched_paths(files: Sequence[ChangedFile]) -> list[str]:
 def ci_paths(paths: Iterable[str]) -> list[str]:
     def runs_in_ci(path: str) -> bool:
         lowered = path.lower()
-        name = lowered.rpartition("/")[2]
-        return lowered.startswith(CI_PATH_PREFIXES) or name in CI_FILE_NAMES or name.startswith("dockerfile")
+        *directories, name = lowered.split("/")
+        return (
+            lowered.startswith(CI_PATH_PREFIXES)
+            or any(directory in CI_DIRECTORY_NAMES for directory in directories)
+            or name in CI_FILE_NAMES
+            or name.startswith(CI_FILE_PREFIXES)
+            or name.endswith(".dockerfile")
+        )
 
     return [path for path in paths if runs_in_ci(path)]
 
@@ -225,8 +284,8 @@ class ForkRecreation:
         paths = touched_paths(files)
         if ci_paths(paths):
             raise RecreationRefused(
-                "The approved commit changes files CI runs, such as workflows, scripts, `package.json` or Dockerfiles. "
-                "Re-create it by hand."
+                "The approved commit changes CI configuration, scripts or install inputs, such as workflows, `bin/` scripts, "
+                "lockfiles, package manifests, test configuration or Dockerfiles. Re-create it by hand."
             )
 
         merge_base_sha = comparison["merge_base_commit"]["sha"]
@@ -271,6 +330,7 @@ class ForkRecreation:
             {"ref": f"refs/heads/{branch}", "sha": commit_sha},
         )
 
+        new_pr: Mapping[str, Any]
         try:
             new_pr = self._post(
                 f"/repos/{self._repository}/pulls",
@@ -283,9 +343,11 @@ class ForkRecreation:
                     "maintainer_can_modify": True,
                 },
             )
-        except RecreationFailed:
-            self._delete_branch(branch)
-            raise
+        except Exception:
+            opened = self._pull_request_opened_despite_failure(branch)
+            if opened is None:
+                raise
+            new_pr = opened
 
         return self._outcome(new_pr, self._hand_over(new_pr["number"], approval, contributor, fork_pr))
 
@@ -297,6 +359,17 @@ class ForkRecreation:
             pull_request_url=pull_request["html_url"],
             handed_over=handed_over,
         )
+
+    def _pull_request_opened_despite_failure(self, branch: str) -> Mapping[str, Any] | None:
+        try:
+            existing = self._open_pull_request_from(branch)
+        except RecreationFailed:
+            logger.warning("fork_recreation_outcome_unknown", repository=self._repository, branch=branch)
+            return None
+        if existing is None:
+            self._delete_branch(branch)
+            return None
+        return existing if matches_app_bot(existing.get("user"), self._app_login) else None
 
     def _open_pull_request_from(self, branch: str) -> Mapping[str, Any] | None:
         response = self._request(
@@ -323,6 +396,11 @@ class ForkRecreation:
             reviews = self._github.get_pull_request_reviews(self._repository, self._pr_number)
         except _CALL_ERRORS as error:
             raise RecreationFailed("GitHub did not answer the review lookup") from error
+        for blocker in changes_requested(reviews):
+            if self._can_write(blocker):
+                raise RecreationRefused(
+                    f"@{blocker.login} requested changes. Resolve or dismiss that review, then comment again."
+                )
         unverified = 0
         for approval in latest_approvals(reviews):
             try:
@@ -341,6 +419,15 @@ class ForkRecreation:
             "No one with write access has approved this pull request. Approve the commit you reviewed, then comment again."
         )
 
+    def _can_write(self, reviewer: Approval) -> bool:
+        try:
+            permission = self._github.get_collaborator_permission(
+                self._repository, reviewer.login, expected_user_id=reviewer.user_id
+            )
+        except _CALL_ERRORS as error:
+            raise RecreationFailed("GitHub did not answer a permission lookup") from error
+        return permission in WRITE_PERMISSIONS
+
     def _contributor(self, login: str) -> Contributor:
         user = self._get(f"/users/{login}", "/users/{username}")
         return Contributor(login=user["login"], user_id=user["id"], name=user.get("name") or user["login"])
@@ -356,20 +443,9 @@ class ForkRecreation:
         return True
 
     def _paths_changed_since(self, merge_base_sha: str, base_sha: str, paths: Sequence[str]) -> list[str]:
-        changed: list[str] = []
-        for start in range(0, len(paths), GRAPHQL_PATHS_PER_QUERY):
-            chunk = paths[start : start + GRAPHQL_PATHS_PER_QUERY]
-            fields = []
-            for index, path in enumerate(chunk):
-                fields.append(f"b{index}: object(expression: {_graphql_string(f'{merge_base_sha}:{path}')}) {{ oid }}")
-                fields.append(f"h{index}: object(expression: {_graphql_string(f'{base_sha}:{path}')}) {{ oid }}")
-            repository = self._graphql(fields)
-            for index, path in enumerate(chunk):
-                before = (repository.get(f"b{index}") or {}).get("oid")
-                after = (repository.get(f"h{index}") or {}).get("oid")
-                if before != after:
-                    changed.append(path)
-        return changed
+        before = self._entries_at(merge_base_sha, paths)
+        after = self._entries_at(base_sha, paths)
+        return [path for path in paths if before.get(path) != after.get(path)]
 
     def _entries_at(self, commit_sha: str, paths: Sequence[str]) -> dict[str, TreeEntry]:
         directories = list(dict.fromkeys(_parent(path) for path in paths))
@@ -421,33 +497,48 @@ class ForkRecreation:
     def _hand_over(
         self, new_pr_number: int, approval: Approval, contributor: Contributor, fork_pr: Mapping[str, Any]
     ) -> bool:
-        if self._enqueue:
-            self._attempt("enqueue", lambda: self._add_merge_queue_label(new_pr_number))
-        self._attempt(
-            "request_review",
-            lambda: self._github.request_pull_request_reviews(self._repository, new_pr_number, [approval.login]),
-        )
-        commented = self._attempt("comment", lambda: self._comment_once(new_pr_number, approval, contributor, fork_pr))
-        if not commented:
-            return False
-        closed = self._attempt("close", lambda: self._github.close_pull_request(self._repository, self._pr_number))
-        return bool(closed and closed.get("success"))
+        steps = [
+            ("enqueue", lambda: not self._enqueue or self._add_merge_queue_label(new_pr_number)),
+            ("request_review", lambda: self._request_review(new_pr_number, approval)),
+            ("comment", lambda: self._comment_once(new_pr_number, approval, contributor, fork_pr)),
+            ("close", lambda: self._succeeded(self._github.close_pull_request(self._repository, self._pr_number))),
+        ]
+        for step, call in steps:
+            if not self._attempt(step, call):
+                return False
+        return True
 
-    def _attempt(self, step: str, call: Any) -> Any:
+    def _attempt(self, step: str, call: Callable[[], bool]) -> bool:
         try:
-            return call()
+            done = call()
         except (RecreationFailed, *_CALL_ERRORS):
             logger.warning(
                 "fork_recreation_handover_step_failed", step=step, repository=self._repository, exc_info=True
             )
-            return None
+            return False
+        if not done:
+            logger.warning("fork_recreation_handover_step_failed", step=step, repository=self._repository)
+        return done
 
-    def _add_merge_queue_label(self, new_pr_number: int) -> None:
+    def _succeeded(self, result: Mapping[str, Any]) -> bool:
+        return bool(result.get("success"))
+
+    def _request_review(self, new_pr_number: int, approval: Approval) -> bool:
+        return self._succeeded(
+            self._github.request_pull_request_reviews(self._repository, new_pr_number, [approval.login])
+        )
+
+    def _add_merge_queue_label(self, new_pr_number: int) -> bool:
         label = self._request(
             "GET", f"/repos/{self._repository}/labels/{MERGE_QUEUE_LABEL}", "/repos/{owner}/{repo}/labels/{name}"
         )
-        if label.status_code == 200:
+        if label.status_code == 404:
+            return True
+        if label.status_code != 200:
+            return False
+        return self._succeeded(
             self._github.add_pull_request_labels(self._repository, new_pr_number, [MERGE_QUEUE_LABEL])
+        )
 
     def _comment_once(
         self, new_pr_number: int, approval: Approval, contributor: Contributor, fork_pr: Mapping[str, Any]
