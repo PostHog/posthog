@@ -1150,11 +1150,18 @@ def query_batch_stream(
     dashboard_id: int | None,
     client_query_id: str,
     asynchronous: bool,
+    is_query_service: bool = False,
 ) -> Iterator[bytes] | AsyncIterator[bytes]:
     """The `dashboard-v2` query batch as NDJSON: plans every query for `user` and reads the cache before it returns,
     then streams one line per query. Pass a `dashboard_id` the user may view to run its queries as that dashboard's
-    tiles, under the dashboard query limits."""
+    tiles, under the dashboard query limits. `is_query_service` marks a personal API key caller, whose queries get
+    `/query`'s API limits and budget."""
     batch = v2_query_batch.QueryBatch(
-        team=team, user=user, inputs=inputs, dashboard_id=dashboard_id, client_query_id=client_query_id
+        team=team,
+        user=user,
+        inputs=inputs,
+        dashboard_id=dashboard_id,
+        client_query_id=client_query_id,
+        is_query_service=is_query_service,
     )
     return batch.astream() if asynchronous else batch.stream()

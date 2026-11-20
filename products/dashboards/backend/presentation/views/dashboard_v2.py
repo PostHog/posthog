@@ -13,7 +13,15 @@ from posthog.api.query import required_scopes_for_query_payload
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.models.user import User
+from posthog.rate_limit import (
+    APIQueriesBurstThrottle,
+    APIQueriesSustainedThrottle,
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    HogQLQueryThrottle,
+)
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.api import (
@@ -114,13 +122,29 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return None
         queries = request.data.get("queries") if isinstance(request.data, dict) else None
         if not isinstance(queries, list):
-            return None
+            return ["query:read"]
         scopes = {"query:read"}
         for item in queries:
             target = item.get("target") if isinstance(item, dict) else None
             if isinstance(target, dict):
                 scopes.update(required_scopes_for_query_payload(_scoped_node(target)) or [])
         return sorted(scopes)
+
+    def get_throttles(self):
+        # One request runs many ClickHouse queries, so it gets `/query`'s query throttles, not the generic ones.
+        if self.action != "query_batch":
+            return super().get_throttles()
+        if _is_personal_api_key_request():
+            return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
+        queries = self.request.data.get("queries") if isinstance(self.request.data, dict) else None
+        if isinstance(queries, list) and any(
+            isinstance(item, dict)
+            and isinstance(item.get("target"), dict)
+            and item["target"].get("language") == QueryBatchLanguage.HOGQL
+            for item in queries
+        ):
+            return [HogQLQueryThrottle()]
+        return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     @validated_request(
         request_serializer=QueryBatchRequestSerializer,
@@ -139,7 +163,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "read as the requesting user, keyed by its content, and cached hits come first."
         ),
     )
-    @action(methods=["POST"], detail=False, required_scopes=["query:read"])
+    @action(methods=["POST"], detail=False)
     def query_batch(self, request: ValidatedRequest, **kwargs: Any) -> HttpResponseBase:
         if request.user.is_anonymous:
             raise exceptions.NotFound()
@@ -181,12 +205,17 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             dashboard_id=dashboard_id,
             client_query_id=f"dashboard-v2-batch-{uuid.uuid4().hex[:12]}",
             asynchronous=settings.SERVER_GATEWAY_INTERFACE == "ASGI",
+            is_query_service=_is_personal_api_key_request(),
         )
         return streaming_response(
             stream,
             content_type="application/x-ndjson",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
+
+
+def _is_personal_api_key_request() -> bool:
+    return get_query_tag_value("access_method") == "personal_api_key"
 
 
 def _scoped_node(target: dict[str, Any]) -> object:
