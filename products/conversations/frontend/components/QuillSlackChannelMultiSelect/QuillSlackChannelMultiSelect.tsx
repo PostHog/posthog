@@ -11,6 +11,9 @@ import {
     useComboboxAnchor,
 } from '@posthog/quill'
 
+// Large workspaces have thousands of channels, so the list shows the top matches only.
+const MAX_CHANNEL_RESULTS = 100
+
 import { SlackChannelOption } from '../../scenes/settings/slackSettingsHelpers'
 
 export function QuillSlackChannelMultiSelect({
@@ -33,6 +36,7 @@ export function QuillSlackChannelMultiSelect({
             multiple
             autoHighlight
             items={options.map((option) => option.key)}
+            limit={MAX_CHANNEL_RESULTS}
             itemToStringLabel={(key: string) => labelsByKey[key] ?? key}
             value={value}
             onValueChange={(next: string[]) => onChange(next ?? [])}

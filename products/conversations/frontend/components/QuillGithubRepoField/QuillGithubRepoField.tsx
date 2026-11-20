@@ -33,7 +33,6 @@ export function QuillGithubRepoField({
     onOpen: () => void
 }): JSX.Element {
     const id = useId()
-    const anchor = useComboboxAnchor()
 
     return (
         <Field>
@@ -52,32 +51,47 @@ export function QuillGithubRepoField({
                     }
                 }}
             >
-                <ComboboxChips ref={anchor} disabledReason={disabledReason}>
-                    <ComboboxValue>
-                        {(repos: string[]) => (
-                            <>
-                                {repos.map((repo) => (
-                                    <ComboboxChip key={repo}>{repo}</ComboboxChip>
-                                ))}
-                                <ComboboxChipsInput
-                                    id={id}
-                                    placeholder={repos.length ? '' : 'Select repositories...'}
-                                />
-                            </>
-                        )}
-                    </ComboboxValue>
-                </ComboboxChips>
-                <ComboboxContent anchor={anchor}>
-                    <ComboboxEmpty>{loading ? <Spinner /> : 'No matching repositories'}</ComboboxEmpty>
-                    <ComboboxList>
-                        {(repo: string) => (
-                            <ComboboxItem key={repo} value={repo}>
-                                {repo}
-                            </ComboboxItem>
-                        )}
-                    </ComboboxList>
-                </ComboboxContent>
+                <QuillGithubRepoChips id={id} loading={loading} disabledReason={disabledReason} />
             </Combobox>
         </Field>
+    )
+}
+
+function QuillGithubRepoChips({
+    id,
+    loading,
+    disabledReason,
+}: {
+    id: string
+    loading: boolean
+    disabledReason: string | null
+}): JSX.Element {
+    const anchor = useComboboxAnchor()
+
+    return (
+        <>
+            <ComboboxChips ref={anchor} disabledReason={disabledReason}>
+                <ComboboxValue>
+                    {(repos: string[]) => (
+                        <>
+                            {repos.map((repo) => (
+                                <ComboboxChip key={repo}>{repo}</ComboboxChip>
+                            ))}
+                            <ComboboxChipsInput id={id} placeholder={repos.length ? '' : 'Select repositories...'} />
+                        </>
+                    )}
+                </ComboboxValue>
+            </ComboboxChips>
+            <ComboboxContent anchor={anchor}>
+                <ComboboxEmpty>{loading ? <Spinner /> : 'No matching repositories'}</ComboboxEmpty>
+                <ComboboxList>
+                    {(repo: string) => (
+                        <ComboboxItem key={repo} value={repo}>
+                            {repo}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </>
     )
 }
