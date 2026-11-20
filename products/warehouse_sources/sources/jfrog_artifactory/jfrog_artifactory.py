@@ -343,7 +343,12 @@ def _walk_related(
 def flatten_related(config: JfrogArtifactoryEndpointConfig, item: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Emit one row per leaf related entry, carrying the parent and intermediate-level fields."""
     parent = _strip_domain_prefix(item, config.aql_domain)
-    row = {f"{config.parent_field_prefix}{key}": parent.get(key) for key in config.aql_fields}
+    # Parent fields are scalars in AQL. Drop anything else, as `_walk_related` does for child fields, so
+    # a nested value can't repeat on every row past the expanded-size batch budget.
+    row = {
+        f"{config.parent_field_prefix}{key}": None if isinstance(value := parent.get(key), (list, dict)) else value
+        for key in config.aql_fields
+    }
     yield from _walk_related(item, config.aql_related_path, row)
 
 

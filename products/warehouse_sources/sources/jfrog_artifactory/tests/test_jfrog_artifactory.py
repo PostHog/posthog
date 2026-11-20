@@ -176,6 +176,21 @@ class TestFlattenRelated:
         parent = {"repo": "libs", "path": "com/acme", "name": "app.jar", "created": "2026-01-01"}
         assert rows == [{**parent, "key": "env", "value": "prod"}, {**parent, "key": "env", "value": "qa"}]
 
+    def test_non_scalar_parent_fields_are_dropped(self) -> None:
+        item = {
+            "repo": "libs",
+            "path": ["x" * 100] * 100,
+            "name": {"nested": "x" * 100},
+            "created": "2026-01-01",
+            "properties": [{"key": "env", "value": "prod"}],
+        }
+
+        rows = list(flatten_related(JFROG_ARTIFACTORY_ENDPOINTS["artifact_properties"], item))
+
+        assert rows == [
+            {"repo": "libs", "path": None, "name": None, "created": "2026-01-01", "key": "env", "value": "prod"}
+        ]
+
     def test_parent_without_related_entries_emits_nothing(self) -> None:
         item = {"build.name": "app", "build.number": "7", "build.created": "2026-01-01"}
         assert list(flatten_related(JFROG_ARTIFACTORY_ENDPOINTS["build_promotions"], item)) == []
