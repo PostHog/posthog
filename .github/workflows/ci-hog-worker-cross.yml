@@ -1,8 +1,10 @@
 name: hog-worker cross-build
 
 # hog-worker ships for every hog target, and only the Release hog workflow builds it for a target
-# other than the runner's. This builds one target for each C library and linker a release uses, so a
-# dependency that can't cross-compile fails the pull request that adds it and not the next release.
+# other than the runner's. This builds the targets cargo-zigbuild covers quickly, on glibc, static
+# musl and macOS, so a dependency that can't cross-compile fails the pull request that adds it and
+# not the next release. The Windows targets need cargo-xwin's download of Microsoft's C runtime and
+# SDK, which is slow, so only the release builds them.
 # It is not a required check, so a trigger `paths:` filter is safe.
 on:
     pull_request:
@@ -25,7 +27,7 @@ jobs:
     cross-build:
         name: Cross-compile hog-worker
         runs-on: ubuntu-24.04
-        timeout-minutes: 45
+        timeout-minutes: 30
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -36,16 +38,15 @@ jobs:
                       /hog/worker/
                   sparse-checkout-cone-mode: false
 
-            # glibc, static musl, macOS and Windows. The arm64 builds use the same tools, and the
-            # release builds all eight.
-            - name: Cross-compile one target for each platform
+            # glibc on both architectures, static musl and macOS. The release builds all eight.
+            - name: Cross-compile the fast targets
               working-directory: hog
               run: >-
                   release/build-worker.sh
                   --target linux-x64
                   --target linux-x64-musl
                   --target darwin-arm64
-                  --target windows-x64
+                  --target linux-arm64
 
             # The worker says hello in the first line it prints, and stops when its input ends.
             - name: Check the Linux builds start
