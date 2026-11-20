@@ -94,6 +94,7 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             ("sent_an_hour_after_it_was_scheduled", [("scheduled", 0, ""), ("sent", 3600, "")], "sent", 3600, None),
             ("sent", [("queued", 0, ""), ("sent", 2, "")], "sent", 2, None),
             ("sent_with_tracking_off", [("queued", 0, ""), ("sent", 2, "untracked")], "sent", 2, None),
+            ("sent_with_another_reason", [("queued", 0, ""), ("sent", 2, "relayed")], "sent", 2, "relayed"),
             ("failed", [("queued", 0, ""), ("failed", 2, "provider_error")], "failed", 2, "provider_error"),
             ("delivered", [("queued", 0, ""), ("sent", 2, ""), ("delivered", 5, "")], "delivered", 5, None),
             ("bounced", [("queued", 0, ""), ("sent", 2, ""), ("bounced", 5, "hard")], "bounced", 5, "hard"),

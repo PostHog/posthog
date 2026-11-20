@@ -284,10 +284,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_shows_a_send_with_tracking_off_as_sent_without_a_reason(self, _flag):
         message_id = self._send(10, "jane@example.com", [("sent", 1, "untracked"), ("delivered", 2, "")])
         sent_id = self._send(5, "bob@example.com", [("sent", 1, "untracked")])
-        self._send(3, "ann@example.com", [("sent", 1, "relayed")])
+        relayed_id = self._send(3, "ann@example.com", [("sent", 1, "relayed")])
 
         body = self.client.get(self._url(f"{sent_id}/")).json()
         delivered_body = self.client.get(self._url(f"{message_id}/")).json()
+        relayed_body = self.client.get(self._url(f"{relayed_id}/")).json()
 
         assert (body["status"], body["reason"]) == ("sent", None)
         assert [(event["kind"], event["reason"]) for event in body["timeline"]] == [("queued", None), ("sent", None)]
@@ -296,6 +297,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("sent", None),
             ("delivered", None),
         ]
+        assert (relayed_body["status"], relayed_body["reason"]) == ("sent", "relayed")
+        assert [(event["kind"], event["reason"]) for event in relayed_body["timeline"]] == [
+            ("queued", None),
+            ("sent", "relayed"),
+        ]
         listed = self.client.get(self._url()).json()["results"]
         assert [(row["recipient"], row["status"], row["reason"]) for row in listed] == [
             ("ann@example.com", "sent", "relayed"),
@@ -303,6 +309,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("jane@example.com", "delivered", None),
         ]
         assert self.client.get(self._url(), {"reason": "untracked"}).json()["results"] == []
+        assert [row["message_id"] for row in self.client.get(self._url(), {"reason": "relayed"}).json()["results"]] == [
+            relayed_id
+        ]
 
     def test_looks_past_email_status_only_for_a_recent_keyed_send(self, _flag):
         # Missing from email_status hours after it was queued, a send is gone, not waiting on a lagging consumer.
