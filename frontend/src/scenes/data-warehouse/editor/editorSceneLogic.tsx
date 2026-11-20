@@ -719,7 +719,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 return
             }
             openSaveAsCohortDialog(actions.createStaticCohort, {
-                query: `SELECT ${identifier} FROM (\n${statements[0].query}\n)`,
+                query: `SELECT ${identifier} FROM (\n${statements[0].query}\n) GROUP BY ${identifier}`,
                 variables,
                 filters,
                 values: queryValues,

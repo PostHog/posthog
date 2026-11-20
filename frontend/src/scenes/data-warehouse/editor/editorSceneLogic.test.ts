@@ -41,7 +41,7 @@ describe('editorSceneLogic', () => {
                 name: 'wildcard results with variables, filters and an explicit limit',
                 identifier: 'person_id',
                 expectedSQL:
-                    'SELECT person_id FROM (\nSELECT * FROM (SELECT id AS person_id FROM persons WHERE {filters} LIMIT 5)\n)',
+                    'SELECT person_id FROM (\nSELECT * FROM (SELECT id AS person_id FROM persons WHERE {filters} LIMIT 5)\n) GROUP BY person_id',
                 query: {
                     kind: NodeKind.HogQLQuery,
                     query: 'SELECT * FROM (SELECT id AS person_id FROM persons WHERE {filters} LIMIT 5);',
@@ -53,7 +53,7 @@ describe('editorSceneLogic', () => {
                 name: 'distinct ID beside an event ID with a bound constant',
                 identifier: 'distinct_id',
                 expectedSQL:
-                    'SELECT distinct_id FROM (\nSELECT uuid AS id, distinct_id FROM events WHERE properties.plan = {plan} -- query end\n)',
+                    'SELECT distinct_id FROM (\nSELECT uuid AS id, distinct_id FROM events WHERE properties.plan = {plan} -- query end\n) GROUP BY distinct_id',
                 query: {
                     kind: NodeKind.HogQLQuery,
                     query: 'SELECT uuid AS id, distinct_id FROM events WHERE properties.plan = {plan} -- query end',
