@@ -1539,7 +1539,8 @@ class SourceConfigSpec:
 
     A kind can have both. `mirror` and `delete` then serve the alerts that have a source row, and
     `native` serves the ones that have none. A create goes through `create`, unless `native_create`
-    says the team's new alerts get no source row.
+    says the team's new alerts get no source row. A kind with no `mirror` keeps none of an alert's
+    settings on its source row, so an edit treats a copy as an alert with no source row.
     """
 
     model: type[BaseModel]

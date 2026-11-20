@@ -8764,7 +8764,7 @@ Note: Endpoint map in products/warehouse_sources/sources/langfuse/settings.py is
 
 Re-audited 2026-11-19 against: <https://cloud.langfuse.com/generated/api/openapi.yml>
 
-- [ ] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low)
+- [x] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low) — synced as `skills`, full refresh only: moving the production label between older versions does not change `latestVersionLastUpdatedAt`, so `fromUpdatedAt` would miss it
 
 Note (2026-11-19): Parsed the full OpenAPI file and diffed it against the synced tables. Everything else listable is already synced, skipped in the earlier audit, or under /unstable/ (dashboards, topics) and config-shaped. Skills lists with page, limit and fromUpdatedAt/toUpdatedAt filters, so incremental sync is possible.
 
