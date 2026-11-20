@@ -317,6 +317,13 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
                 [],
                 {"sends_sensitive_email": 2},
             ),
+            (
+                "sensitive_push",
+                {"actions": [{"id": "push", "type": "function_push", "config": {"sensitive": True}}]},
+                {},
+                [],
+                {"sends_sensitive_email": 2},
+            ),
             ("step_template_excluded", {}, {"exclude_template_ids": ("template-hubspot",)}, [], None),
             ("step_template_not_selected", {}, {"template_ids": ("template-google-ads",)}, [], None),
         ]

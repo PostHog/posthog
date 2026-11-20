@@ -41,6 +41,8 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[catalog.APIScopeObje
     # to one person's account. Publishing, labels and archiving stay closed to these keys.
     ("llm_prompt", "read"),
     ("logs", "read"),
+    # Lets a service send logs with its key as the ingestion token. No logs route lists a write action for these keys.
+    ("logs", "write"),
     # Lets a customer's own agent search and read business knowledge without a credential tied
     # to one person's account. Every write, and the sources, settings and playground routes, stay closed.
     ("business_knowledge", "read"),
