@@ -996,13 +996,12 @@ impl<'a> HogVM<'a> {
         self.push_stack(HogLiteral::Boolean(matched ^ negate))
     }
 
-    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default path accepts numbers and lexicographically ordered
-    /// numeric arrays, through [`compare_values`]. `sortableSemver` returns a numeric array, so
-    /// server-side property filters need this narrow array case even when they retain strict
-    /// comparison semantics. Other non-number
-    /// operands still error, which lets cymbal auto-disable malformed rules. Only when the context
-    /// opts into coercing comparisons does a non-number operand reach [`compare_values`]. `a` is the
-    /// top of the stack.
+    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default path accepts numbers, and orders two numeric arrays
+    /// through [`compare_values`]. `sortableSemver` returns a numeric array, so server-side property
+    /// filters need this narrow array case even when they retain strict comparison semantics. Other
+    /// non-number operands still error, which lets cymbal auto-disable malformed rules. Only when the
+    /// context opts into coercing comparisons does a non-number, non-array operand reach
+    /// [`compare_values`]. `a` is the top of the stack.
     fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
         let a = self.pop_stack()?;
         let b = self.pop_stack()?;

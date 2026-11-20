@@ -551,14 +551,15 @@ pub(crate) fn boolean_text_equals(a: &HogLiteral, b: &HogLiteral) -> Option<bool
     }
 }
 
-/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
+/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, three concerns in order:
 ///
-/// TWO ENTRY POINTS, and only one of them is opt-in, so weigh both before you edit this. The
-/// `compare_op` opcode path reaches this only when the context sets
+/// TWO ENTRY POINTS, and neither is fully opt-in, so weigh both before you edit this. The
+/// `compare_op` opcode path reaches this for every pair of arrays, on every consumer, and for all
+/// other operands only when the context sets
 /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons),
-/// today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`) keeps
-/// the strict ordering path where operands other than numbers and numeric arrays error, so this
-/// coercion of ORDERING operands does NOT change their opcode behavior. The named functions
+/// today just the realtime-cohort evaluator. A strict consumer (e.g. `cymbal`) still errors on a
+/// non-number, non-array operand, so the coercion rules in step 3 do NOT change its opcode
+/// behavior, but the temporal check and the array arm do. The named functions
 /// `less`/`greater`/`lessOrEquals`/`greaterOrEquals` are the ungated entry point: they reach this
 /// through [`compare_fn`](crate::stl) on every consumer, so an edit here moves them everywhere. It
 /// says nothing about equality:

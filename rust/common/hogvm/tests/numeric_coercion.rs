@@ -220,6 +220,26 @@ fn strict_equality_functions_unify_numeric_variants() {
 }
 
 #[test]
+fn ordering_functions_order_numeric_arrays() {
+    assert_both_paths(
+        call(
+            "greater",
+            &[array(&[int(1), int(10)]), array(&[int(1), int(9)])],
+        ),
+        json!(true),
+        "greater([1, 10], [1, 9])",
+    );
+    assert_both_paths(
+        call(
+            "less",
+            &[array(&[int(1), int(2)]), array(&[int(1), int(2), int(0)])],
+        ),
+        json!(true),
+        "less([1, 2], [1, 2, 0])",
+    );
+}
+
+#[test]
 fn number_vs_numeric_string_coerces_the_string() {
     // The exact cohort case: `bc_num gt "10"` (threshold compiled as a string).
     assert_eq!(
