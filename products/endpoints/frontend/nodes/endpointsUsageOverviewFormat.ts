@@ -20,18 +20,31 @@ export const ENDPOINTS_USAGE_OVERVIEW_KEYS = Object.keys(
 ) as EndpointsUsageOverviewItemKey[]
 
 /**
- * Whether a rise in the metric is good news, which decides the color of its change pill. More executions is good.
- * Slower, failing or costlier executions are not.
+ * Which way a change is good, which decides the color of its change pill. A rising error rate or latency is bad
+ * news. A volume (executions, bytes, CPU) can go either way, so `null` keeps its change neutral.
  */
-export const ENDPOINTS_USAGE_OVERVIEW_GOOD_DIRECTION: Record<EndpointsUsageOverviewItemKey, 'up' | 'down'> = {
-    total_requests: 'up',
-    materialized_requests: 'up',
-    inline_requests: 'up',
+export const ENDPOINTS_USAGE_OVERVIEW_GOOD_DIRECTION: Record<EndpointsUsageOverviewItemKey, 'up' | 'down' | null> = {
+    total_requests: null,
+    materialized_requests: null,
+    inline_requests: null,
     error_rate: 'down',
     avg_query_duration_ms: 'down',
     p95_query_duration_ms: 'down',
-    total_bytes_read: 'down',
-    total_cpu_seconds: 'down',
+    total_bytes_read: null,
+    total_cpu_seconds: null,
+}
+
+export type EndpointsUsageChangeTone = 'neutral' | 'good' | 'bad'
+
+export function endpointsUsageChangeTone(
+    key: EndpointsUsageOverviewItemKey,
+    changePct: number
+): EndpointsUsageChangeTone {
+    const goodDirection = ENDPOINTS_USAGE_OVERVIEW_GOOD_DIRECTION[key]
+    if (changePct === 0 || goodDirection === null) {
+        return 'neutral'
+    }
+    return changePct > 0 === (goodDirection === 'up') ? 'good' : 'bad'
 }
 
 export function formatEndpointsUsageOverviewValue(

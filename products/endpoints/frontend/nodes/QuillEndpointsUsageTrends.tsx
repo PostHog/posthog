@@ -1,4 +1,4 @@
-import { Empty, EmptyDescription, EmptyHeader, Skeleton } from '@posthog/quill'
+import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Skeleton } from '@posthog/quill'
 
 import { IntervalType } from '~/types'
 
@@ -8,6 +8,8 @@ import { type EndpointsUsageMetric, type TrendsDataPoint } from './endpointsUsag
 export interface QuillEndpointsUsageTrendsProps {
     results: TrendsDataPoint[] | undefined
     loading: boolean
+    error: string | null
+    onRetry: () => void
     metric: EndpointsUsageMetric
     interval?: IntervalType
 }
@@ -16,11 +18,29 @@ export interface QuillEndpointsUsageTrendsProps {
 export function QuillEndpointsUsageTrends({
     results,
     loading,
+    error,
+    onRetry,
     metric,
     interval,
 }: QuillEndpointsUsageTrendsProps): JSX.Element {
     if (loading) {
         return <Skeleton className="h-60 w-full" />
+    }
+
+    if (error) {
+        return (
+            <Empty className="h-60 py-0">
+                <EmptyHeader>
+                    <EmptyTitle>Couldn't load this chart</EmptyTitle>
+                    <EmptyDescription>{error}</EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                    <Button variant="outline" onClick={onRetry} data-attr="endpoints-usage-chart-retry">
+                        Try again
+                    </Button>
+                </EmptyContent>
+            </Empty>
+        )
     }
 
     if (!results || results.length === 0) {

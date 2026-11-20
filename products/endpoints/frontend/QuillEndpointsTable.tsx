@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCopy, IconEndpoints, IconRefresh, IconSearch } from '@posthog/icons'
+import { IconCopy, IconEndpoints, IconRefresh, IconSearch, IconX } from '@posthog/icons'
 import {
     Avatar,
     AvatarFallback,
@@ -17,17 +17,18 @@ import {
     EmptyTitle,
     FilterClearItem,
     FilterMenuTrigger,
+    FilterSearchSubMenu,
     IconStack,
     IconStackItem,
     InputGroup,
     InputGroupAddon,
+    InputGroupButton,
     InputGroupInput,
     InputGroupText,
     Skeleton,
     Text,
 } from '@posthog/quill'
 
-import { QuillTagsFilterSubMenu } from 'lib/components/QuillTagsFilterSubMenu'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -41,6 +42,7 @@ import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 import { QuillEndpointActionsMenu } from './QuillEndpointActionsMenu'
+import { QuillEndpointTagsChip } from './QuillEndpointTagsChip'
 
 const PAGE_SIZE = 20
 
@@ -114,16 +116,7 @@ const columns: DataTableProps<EndpointType, unknown>['columns'] = [
         accessorKey: 'tags',
         header: 'Tags',
         enableSorting: false,
-        cell: ({ row }) => {
-            const tags = row.original.tags ?? []
-            return tags.length > 0 ? (
-                <span className="flex flex-wrap gap-1">
-                    {[...tags].sort().map((tag) => (
-                        <Badge key={tag}>{tag}</Badge>
-                    ))}
-                </span>
-            ) : null
-        },
+        cell: ({ row }) => <QuillEndpointTagsChip endpoint={row.original} />,
     },
     {
         accessorKey: 'created_at',
@@ -210,7 +203,7 @@ const columns: DataTableProps<EndpointType, unknown>['columns'] = [
 ]
 
 export function QuillEndpointsTable(): JSX.Element {
-    const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic)
+    const { endpoints, allEndpointsLoading, filters, availableTags } = useValues(endpointsLogic)
     const { setFilters, loadEndpoints } = useActions(endpointsLogic)
     const { duplicateEndpoint } = useValues(endpointLogic)
 
@@ -239,16 +232,34 @@ export function QuillEndpointsTable(): JSX.Element {
                         onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
                             setFilters({ search: event.target.value })
                         }
+                        // The browser's own clear button would sit next to this one.
+                        className="[&::-webkit-search-cancel-button]:hidden"
                         data-attr="endpoints-search"
                     />
+                    {filters.search !== '' && (
+                        <InputGroupAddon align="inline-end">
+                            <InputGroupButton
+                                size="icon-xs"
+                                aria-label="Clear search"
+                                onClick={() => setFilters({ search: '' })}
+                            >
+                                <IconX />
+                            </InputGroupButton>
+                        </InputGroupAddon>
+                    )}
                 </InputGroup>
                 <DropdownMenu>
                     <FilterMenuTrigger active={tagsActive} dataAttr="endpoints-tag-filter" />
                     <DropdownMenuContent align="start" className="min-w-64">
-                        <QuillTagsFilterSubMenu
-                            logicKey="endpoints-list"
+                        <FilterSearchSubMenu
+                            label="Tags"
+                            allLabel="Any tag"
+                            pluralNoun="tags"
+                            options={availableTags.map((tag) => ({ value: tag, label: tag }))}
                             selected={filters.tags}
                             onChange={(tags) => setFilters({ tags })}
+                            searchPlaceholder="Search tags"
+                            emptyText="No matching tags"
                             dataAttr="endpoints-tag-filter-tags"
                             optionDataAttr="endpoints-tag-filter-tag"
                         />

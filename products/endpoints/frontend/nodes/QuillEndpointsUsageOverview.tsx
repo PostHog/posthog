@@ -1,4 +1,4 @@
-import { Card, Skeleton, Text } from '@posthog/quill'
+import { Badge, Card, Skeleton, Text } from '@posthog/quill'
 import {
     Metric,
     MetricDelta,
@@ -14,6 +14,7 @@ import {
     ENDPOINTS_USAGE_OVERVIEW_GOOD_DIRECTION,
     ENDPOINTS_USAGE_OVERVIEW_KEYS,
     ENDPOINTS_USAGE_OVERVIEW_LABELS,
+    endpointsUsageChangeTone,
     formatEndpointsUsageOverviewValue,
 } from './endpointsUsageOverviewFormat'
 
@@ -21,6 +22,8 @@ export interface QuillEndpointsUsageOverviewProps {
     results: EndpointsUsageOverviewItem[] | undefined
     loading: boolean
 }
+
+const CHANGE_TOOLTIP = 'Compared with the previous period of the same length'
 
 export function QuillEndpointsUsageOverview({ results, loading }: QuillEndpointsUsageOverviewProps): JSX.Element {
     const itemByKey = new Map((results ?? []).map((item) => [item.key, item]))
@@ -65,7 +68,8 @@ function OverviewTile({
         )
     }
 
-    const change = item.changeFromPreviousPct != null ? { value: item.changeFromPreviousPct } : null
+    const changePct = item.changeFromPreviousPct ?? null
+    const tone = changePct != null ? endpointsUsageChangeTone(metricKey, changePct) : null
     const previous =
         item.previous != null ? `Previous period: ${formatEndpointsUsageOverviewValue(metricKey, item.previous)}` : null
 
@@ -74,14 +78,22 @@ function OverviewTile({
             className="px-3"
             value={item.value ?? 0}
             formatValue={format}
-            change={change}
-            goodDirection={ENDPOINTS_USAGE_OVERVIEW_GOOD_DIRECTION[metricKey]}
-            changeTooltip="Compared with the previous period of the same length"
+            // A neutral change (a volume, or no change) shows as a plain badge instead of a colored pill.
+            change={tone && tone !== 'neutral' && changePct != null ? { value: changePct } : null}
+            goodDirection={ENDPOINTS_USAGE_OVERVIEW_GOOD_DIRECTION[metricKey] ?? 'up'}
+            changeTooltip={CHANGE_TOOLTIP}
             restingSubtitle={previous}
         >
             <MetricHeader>
                 <MetricTitle>{label}</MetricTitle>
-                <MetricDelta />
+                {tone === 'neutral' && changePct != null ? (
+                    <Badge title={CHANGE_TOOLTIP}>
+                        {changePct > 0 ? '+' : ''}
+                        {changePct.toFixed(1)}%
+                    </Badge>
+                ) : (
+                    tone && <MetricDelta />
+                )}
             </MetricHeader>
             <MetricValue className="mt-2" />
             {previous && <MetricSubtitle className="mt-1" />}

@@ -11,11 +11,13 @@ import {
     ComboboxItem,
     ComboboxList,
     ComboboxTrigger,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuSeparator,
+    FilterClearItem,
+    FilterMenuTrigger,
+    FilterOption,
+    FilterRadioSubMenu,
 } from '@posthog/quill'
 
 import { EndpointsUsageBreakdown } from '~/queries/schema/schema-general'
@@ -26,30 +28,32 @@ import { QuillEndpointsUsageDateFilter } from './QuillEndpointsUsageDateFilter'
 
 type MaterializationType = 'materialized' | 'inline'
 
-// A Select value is a string, so "all" stands in for the logic's null.
-const ALL_EXECUTION_TYPES = 'all'
-const EXECUTION_TYPE_LABELS: Record<MaterializationType | typeof ALL_EXECUTION_TYPES, string> = {
-    all: 'All execution types',
-    materialized: 'Materialized executions',
-    inline: 'Direct executions',
-}
+// Radio rows hold strings, and "no choice" has no string of its own.
+const NONE = 'none'
+type OrNone<T extends string> = T | typeof NONE
 
-const INTERVAL_OPTIONS: { value: IntervalType; label: string }[] = [
+const EXECUTION_TYPE_OPTIONS: FilterOption<OrNone<MaterializationType>>[] = [
+    { value: NONE, label: 'All execution types' },
+    { value: 'materialized', label: 'Materialized executions' },
+    { value: 'inline', label: 'Direct executions' },
+]
+
+const BREAKDOWN_OPTIONS: FilterOption<OrNone<EndpointsUsageBreakdown>>[] = [
+    { value: NONE, label: 'No breakdown' },
+    { value: EndpointsUsageBreakdown.Endpoint, label: 'By endpoint' },
+    { value: EndpointsUsageBreakdown.MaterializationType, label: 'By execution type' },
+    { value: EndpointsUsageBreakdown.ApiKey, label: 'By personal API key' },
+    { value: EndpointsUsageBreakdown.Status, label: 'By status' },
+]
+
+const INTERVAL_OPTIONS: FilterOption<IntervalType>[] = [
     { value: 'hour', label: 'Hourly' },
     { value: 'day', label: 'Daily' },
     { value: 'week', label: 'Weekly' },
     { value: 'month', label: 'Monthly' },
 ]
 
-const NO_BREAKDOWN = 'none'
-const BREAKDOWN_LABELS: Record<EndpointsUsageBreakdown | typeof NO_BREAKDOWN, string> = {
-    none: 'No breakdown',
-    [EndpointsUsageBreakdown.Endpoint]: 'By endpoint',
-    [EndpointsUsageBreakdown.MaterializationType]: 'By execution type',
-    [EndpointsUsageBreakdown.ApiKey]: 'By personal API key',
-    [EndpointsUsageBreakdown.Status]: 'By status',
-}
-
+/** The endpoint filter stays visible because the "View usage" links set it, so a person sees what the page is scoped to. */
 const EndpointNameFilter = (): JSX.Element => {
     const { endpointNames, endpointNamesLoading, endpointFilter } = useValues(endpointsUsageLogic)
     const { setEndpointFilter } = useActions(endpointsUsageLogic)
@@ -91,79 +95,46 @@ const EndpointNameFilter = (): JSX.Element => {
     )
 }
 
-const MaterializationTypeFilter = (): JSX.Element => {
-    const { materializationType } = useValues(endpointsUsageLogic)
-    const { setMaterializationType } = useActions(endpointsUsageLogic)
+/** The execution type filter and the chart choices in one menu, so the row never wraps into a column of selects. */
+const UsageFilterMenu = (): JSX.Element => {
+    const { materializationType, breakdownBy, interval } = useValues(endpointsUsageLogic)
+    const { setMaterializationType, setBreakdownBy, setInterval } = useActions(endpointsUsageLogic)
+    const active = materializationType !== null
 
     return (
-        <Select
-            value={materializationType ?? ALL_EXECUTION_TYPES}
-            onValueChange={(value: string | null) =>
-                value && setMaterializationType(value === ALL_EXECUTION_TYPES ? null : (value as MaterializationType))
-            }
-        >
-            <SelectTrigger data-attr="materialization-type-filter">
-                <SelectValue>
-                    {(value: MaterializationType | typeof ALL_EXECUTION_TYPES) => EXECUTION_TYPE_LABELS[value]}
-                </SelectValue>
-            </SelectTrigger>
-            <SelectContent align="start" alignItemWithTrigger={false}>
-                {Object.entries(EXECUTION_TYPE_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                        {label}
-                    </SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-    )
-}
-
-const IntervalFilter = (): JSX.Element => {
-    const { interval } = useValues(endpointsUsageLogic)
-    const { setInterval } = useActions(endpointsUsageLogic)
-
-    return (
-        <Select value={interval} onValueChange={(value: string | null) => value && setInterval(value as IntervalType)}>
-            <SelectTrigger data-attr="interval-filter">
-                <SelectValue>
-                    {(value: IntervalType) => INTERVAL_OPTIONS.find((option) => option.value === value)?.label}
-                </SelectValue>
-            </SelectTrigger>
-            <SelectContent align="end" alignItemWithTrigger={false}>
-                {INTERVAL_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                    </SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-    )
-}
-
-const BreakdownFilter = (): JSX.Element => {
-    const { breakdownBy } = useValues(endpointsUsageLogic)
-    const { setBreakdownBy } = useActions(endpointsUsageLogic)
-
-    return (
-        <Select
-            value={breakdownBy ?? NO_BREAKDOWN}
-            onValueChange={(value: string | null) =>
-                value && setBreakdownBy(value === NO_BREAKDOWN ? null : (value as EndpointsUsageBreakdown))
-            }
-        >
-            <SelectTrigger data-attr="breakdown-filter">
-                <SelectValue>
-                    {(value: EndpointsUsageBreakdown | typeof NO_BREAKDOWN) => BREAKDOWN_LABELS[value]}
-                </SelectValue>
-            </SelectTrigger>
-            <SelectContent align="end" alignItemWithTrigger={false}>
-                {Object.entries(BREAKDOWN_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                        {label}
-                    </SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
+        <DropdownMenu>
+            <FilterMenuTrigger active={active} dataAttr="endpoints-usage-filter" />
+            <DropdownMenuContent align="start" className="min-w-64">
+                <FilterRadioSubMenu
+                    label="Execution type"
+                    options={EXECUTION_TYPE_OPTIONS}
+                    value={materializationType ?? NONE}
+                    defaultValue={NONE}
+                    onChange={(next) => setMaterializationType(next === NONE ? null : next)}
+                    dataAttr="materialization-type-filter"
+                />
+                <DropdownMenuSeparator />
+                <FilterRadioSubMenu
+                    label="Break down by"
+                    options={BREAKDOWN_OPTIONS}
+                    value={breakdownBy ?? NONE}
+                    onChange={(next) => setBreakdownBy(next === NONE ? null : next)}
+                    dataAttr="breakdown-filter"
+                />
+                <FilterRadioSubMenu
+                    label="Interval"
+                    options={INTERVAL_OPTIONS}
+                    value={interval}
+                    onChange={setInterval}
+                    dataAttr="interval-filter"
+                />
+                <FilterClearItem
+                    active={active}
+                    onClear={() => setMaterializationType(null)}
+                    dataAttr="endpoints-usage-filter-clear"
+                />
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }
 
@@ -194,10 +165,8 @@ export const QuillEndpointsUsageFilters = (): JSX.Element => {
         <div className="flex flex-wrap items-center gap-2">
             <QuillEndpointsUsageDateFilter />
             <EndpointNameFilter />
-            <MaterializationTypeFilter />
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-                <IntervalFilter />
-                <BreakdownFilter />
+            <UsageFilterMenu />
+            <div className="ml-auto">
                 <RefreshButton />
             </div>
         </div>

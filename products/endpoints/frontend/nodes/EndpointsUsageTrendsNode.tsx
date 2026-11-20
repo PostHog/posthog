@@ -1,4 +1,4 @@
-import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -48,7 +48,8 @@ export function EndpointsUsageTrendsNode(props: {
 
     useAttachedLogic(logic, props.attachTo)
 
-    const { response, responseLoading } = useValues(logic)
+    const { response, responseLoading, responseError } = useValues(logic)
+    const { loadData } = useActions(logic)
     const queryResponse = response as EndpointsUsageTrendsQueryResponse | undefined
     const results = queryResponse?.results as TrendsDataPoint[] | undefined
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -58,6 +59,8 @@ export function EndpointsUsageTrendsNode(props: {
             <QuillEndpointsUsageTrends
                 results={results}
                 loading={responseLoading}
+                error={responseError}
+                onRetry={() => loadData()}
                 metric={props.query.metric}
                 interval={props.query.interval}
             />
