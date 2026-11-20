@@ -3,14 +3,14 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 1 enabled ops
+ * PostHog API - MCP 2 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * Saves a draft ticket to PostHog support. It does not send it. The person opens review_url, checks and edits the ticket, and sends it from the PostHog web app.
- * @summary Draft a PostHog support ticket for the person to send
+ * Saves a draft ticket to PostHog support. It does not send it. The person approves it in chat, so the agent sends it with the send endpoint, or opens review_url to edit it and send it from the PostHog web app.
+ * @summary Draft a PostHog support ticket for the person to approve
  */
 export const PosthogSupportDraftsCreateParams = () => zod.object({
     project_id: zod
@@ -88,4 +88,19 @@ export const PosthogSupportDraftsCreateBody = () => zod.object({
         ])
         .optional()
         .describe('Name of the agent or client drafting the ticket, such as Claude Code or Codex.'),
+})
+
+/**
+ * Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling again returns the same ticket, and a draft sent from the review link can't be sent here.
+ * @summary Send a drafted ticket to PostHog support after the person approved it
+ */
+export const posthogSupportDraftsSendCreatePathDraftIdRegExp = new RegExp('^[0-9a-f-]{36}$')
+
+export const PosthogSupportDraftsSendCreateParams = () => zod.object({
+    draft_id: zod.string().regex(posthogSupportDraftsSendCreatePathDraftIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })

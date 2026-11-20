@@ -6,7 +6,7 @@ description: >
   once the docs and the product's own skills could not solve the problem, when only PostHog staff
   can do what the person needs (such as deleting specific events), or when the person asks to
   contact PostHog support, talk to a human, or file a ticket. Covers the information a ticket needs,
-  its fixed shape, and handing the draft to the person to review and send. It does not investigate
+  its fixed shape, and asking the person to approve the draft before you send it. It does not investigate
   or solve the problem. Not for a team's own helpdesk tickets from its customers, which the
   conversations-tickets tools cover.
 ---
@@ -16,7 +16,7 @@ description: >
 This skill turns what you already know into a ticket a support engineer can act on without asking a follow-up question.
 It does not solve the problem.
 The docs and the product's own skills run first, and this skill takes over when they could not settle it, or when the person asks for a human.
-The person decides to contact support, and the person sends the ticket.
+The person decides to contact support, and nothing is sent until the person approves the ticket.
 
 ## When to write one
 
@@ -50,7 +50,7 @@ Ask the person only for what you cannot look up, such as when it started or what
 
 ## 2. Write it
 
-Write in the person's voice, because they send it.
+Write in the person's voice, because the ticket goes to support in their name.
 Use this shape, and leave out any part you have nothing real for.
 Keep the labels plain, without Markdown bold, because the person reviews the ticket in a plain text box.
 
@@ -112,10 +112,7 @@ Cut these:
 - Credentials of any kind, such as personal API keys, `phx_` and `phs_` tokens, cookies, auth headers or passwords. They often hide in error text, so say when you removed one.
 - Personal data about their users beyond what the request needs, such as one distinct ID, or the IDs a deletion query names, and any other customer's data.
 
-## 3. Draft it through the MCP
-
-Show the person the full ticket, and tell them nothing is sent until they send it.
-Never say that a ticket was filed, and do not promise a response time.
+## 3. Draft it, and send it only on a yes
 
 When `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it:
 
@@ -126,10 +123,18 @@ When `posthog:posthog-support-draft-create` is in your tool list, draft the tick
   - `user_asked_for_support` when you answered what they asked and they still want a human to confirm or check it.
   - `needs_posthog_staff` when you had no answer, because only staff can do what they ask, or see the records that answer it, such as what the flag service returned.
   - `unexplained_error` for an error you reproduced that nothing explains.
-- Give the person the `review_url` it returns. They open it, check and edit the ticket, and send it from PostHog, which checks that their plan allows it.
+    Then show the person the full ticket, and follow the `next_step` the draft returns:
 
-Otherwise, they paste the ticket into the Support panel in the PostHog app, which attaches their project and session to it.
-Either way, say which details or links you could not find, so they can add them before they send it.
+- **When `can_send` is true**, ask whether to send it to PostHog support, such as "Do you want me to send this to PostHog support?". Also give them the `review_url`, where they can edit it and send it from PostHog.
+- **Send it only when the person says yes to this ticket in this conversation**, such as "Yes, send it" or "Please post it for me". Then call `posthog:posthog-support-draft-send` with the draft's `id`, and give them the ticket number and the `tickets_url` it returns.
+- Anything else is not a yes: a question, a change they want, or no answer. Change the ticket and draft it again, or give them the `review_url`. A yes to an earlier version does not cover a changed ticket, so show the new one and ask again.
+- **When `can_send` is false**, do not offer to send it. Tell them what `next_step` says, such as asking the community when their plan doesn't include support tickets.
+- When the send fails, tell them what its `detail` says. When the detail says the ticket may already be with support, do not send it again.
+
+Never say a ticket was filed before the send returns its number, and do not promise a response time.
+
+Without the draft tool, they paste the ticket into the Support panel in the PostHog app, which attaches their project and session to it.
+Either way, say which details or links you could not find, so they can add them before the ticket is sent.
 
 ## Before you hand it over, check
 
@@ -139,3 +144,4 @@ Either way, say which details or links you could not find, so they can add them 
 - Each "<your name> checked" line is a lookup run in this conversation.
 - No credential or personal data about their users made it in.
 - It fits on one screen.
+- You send it only after the person said yes to this version of the ticket.

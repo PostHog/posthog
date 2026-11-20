@@ -49,6 +49,28 @@ const posthogSupportDraftCreate = (): ToolBase<
     },
 })
 
+const PosthogSupportDraftSendSchema = () => {
+    const PosthogSupportDraftsSendCreateParams = orvalSchemas.PosthogSupportDraftsSendCreateParams()
+    return PosthogSupportDraftsSendCreateParams.omit({ project_id: true })
+}
+
+const posthogSupportDraftSend = (): ToolBase<
+    ReturnType<typeof PosthogSupportDraftSendSchema>,
+    Schemas.PostHogSupportSentTicket
+> => ({
+    name: 'posthog-support-draft-send',
+    schema: PosthogSupportDraftSendSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PosthogSupportDraftSendSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PostHogSupportSentTicket>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/posthog_support/drafts/${encodeURIComponent(String(params.draft_id))}/send/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'posthog-support-draft-create': posthogSupportDraftCreate,
+    'posthog-support-draft-send': posthogSupportDraftSend,
 }

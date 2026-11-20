@@ -1,8 +1,9 @@
-"""Let a logged-in user's agent draft a ticket to PostHog support, for the person to review and send.
+"""Let a logged-in user's agent draft a ticket to PostHog support, for the person to approve.
 
-The agent can draft a ticket but never send one. The person opens the draft in the web app and sends
-it from the support form. Reading a draft and claiming it for sending accept browser sessions only,
-so no API key or OAuth token can complete a send.
+The agent shows the person the draft in chat. When the person approves it there, the agent sends it,
+and the server posts it to PostHog support as the person. Otherwise the person opens the review link
+and sends it from the web app's support form. Reading a draft and claiming it for that form accept
+browser sessions only.
 """
 
 from __future__ import annotations
@@ -26,11 +27,22 @@ from posthog.rate_limit import PostHogSupportDraftCreateThrottle
 
 from products.conversations.backend.permissions import SessionAuthenticationOnly
 from products.conversations.backend.services.posthog_support import (
+    AGENT_CLAIMANT,
     DraftedVia,
     FilingReason,
+    SentVia,
     SupportDraftStore,
     SupportTicketDraft,
+    TicketPermission,
+    check_ticket_permission,
     compose_ticket_message,
+)
+from products.conversations.backend.services.posthog_support_widget import (
+    PostHogSupportWidgetClient,
+    SentSupportTicket,
+    SupportTicketNotSent,
+    SupportTicketOutcomeUnknown,
+    resolve_support_widget_target,
 )
 
 DRAFT_ID_PATTERN = r"[0-9a-f-]{36}"
@@ -135,14 +147,46 @@ class PostHogSupportDraftSerializer(serializers.Serializer):
     billing_question = serializers.BooleanField(
         help_text="True when the draft is a billing or usage question, which the person can send on any plan."
     )
+    can_send = serializers.BooleanField(
+        help_text="True when the person's plan lets them send this ticket. Offer to send it only when this is true."
+    )
     review_url = serializers.CharField(
         help_text="Link the person opens in their browser to review, edit and send the ticket."
     )
     next_step = serializers.CharField(help_text="What to tell the person now.")
 
 
+class PostHogSupportSentTicketSerializer(serializers.Serializer):
+    ticket_id = serializers.CharField(help_text="Id of the ticket PostHog support received.")
+    ticket_number = serializers.IntegerField(
+        allow_null=True, help_text="The ticket's number, which the person can quote to support."
+    )
+    tickets_url = serializers.CharField(help_text="Page in PostHog where the person reads support's replies.")
+    next_step = serializers.CharField(help_text="What to tell the person now.")
+
+
 class _SendFromWebAppOnly(SessionAuthenticationOnly):
-    message = "Only the person can send a support ticket, from the PostHog web app."
+    message = "Only the person can open a draft or send it from the PostHog web app."
+
+
+COMMUNITY_URL = "https://posthog.com/questions"
+
+NEXT_STEP_BY_PERMISSION = {
+    TicketPermission.ALLOWED: (
+        "Nothing has been sent. Show the person the full message above and ask whether to send it to PostHog "
+        "support. Call posthog-support-draft-send only after they say yes in this conversation. If they want "
+        "to edit it or send it themselves, give them review_url. Do not tell them the ticket was filed."
+    ),
+    TicketPermission.PLAN_EXCLUDES_SUPPORT: (
+        "Nothing has been sent. Their plan doesn't include support tickets, so don't offer to send it. Show "
+        f"them the message and tell them they can ask the community at {COMMUNITY_URL}. Mention upgrading "
+        "only if they ask."
+    ),
+    TicketPermission.PLAN_UNKNOWN: (
+        "Nothing has been sent. PostHog couldn't check their plan, so don't offer to send it from here. Show "
+        "them the message and give them review_url to send it from PostHog."
+    ),
+}
 
 
 def _claimant(request: ValidatedRequest) -> str | None:
@@ -156,8 +200,8 @@ def _draft_not_found() -> Response:
 class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "posthog_support"
     # The draft reads and the claim are left out on purpose: the scope check refuses tokens on
-    # unlisted actions, so only a browser session can open or send a draft.
-    scope_object_write_actions = ["create_draft"]
+    # unlisted actions, so only a browser session can open a draft or send it from the web app.
+    scope_object_write_actions = ["create_draft", "send_draft"]
     pagination_class = None
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -172,23 +216,50 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _draft_store(self) -> SupportDraftStore:
         return SupportDraftStore(self._user.pk)
 
+    def _tickets_url(self) -> str:
+        return f"{settings.SITE_URL}/project/{self.team_id}/my-tickets"
+
+    def _permission(self, draft: SupportTicketDraft) -> TicketPermission:
+        return check_ticket_permission(self.organization, self._user, draft.filing_reason)
+
     def _draft_response(self, draft: SupportTicketDraft, status_code: int = status.HTTP_200_OK) -> Response:
+        permission = self._permission(draft)
         data = PostHogSupportDraftSerializer(
             {
                 "id": draft.id,
                 "message": draft.message,
-                "ticket_context": draft.ticket_context,
+                "ticket_context": draft.ticket_context(SentVia.WEB_APP),
                 "expires_at": draft.expires_at,
                 "billing_question": draft.filing_reason == FilingReason.BILLING_QUESTION,
-                "review_url": f"{settings.SITE_URL}/project/{self.team_id}/my-tickets?support_draft={draft.id}",
-                "next_step": (
-                    "Nothing has been sent. Show the person the message above and give them review_url. "
-                    "They open it in PostHog, check and edit the ticket, and send it themselves. "
-                    "Do not tell them the ticket was filed."
-                ),
+                "can_send": permission == TicketPermission.ALLOWED,
+                "review_url": f"{self._tickets_url()}?support_draft={draft.id}",
+                "next_step": NEXT_STEP_BY_PERMISSION[permission],
             }
         ).data
         return Response(data, status=status_code)
+
+    def _sent_response(self, ticket: SentSupportTicket) -> Response:
+        data = PostHogSupportSentTicketSerializer(
+            {
+                "ticket_id": ticket.ticket_id,
+                "ticket_number": ticket.ticket_number,
+                "tickets_url": self._tickets_url(),
+                "next_step": (
+                    "The ticket is with PostHog support. Tell the person its number, and that support's replies "
+                    "show up at tickets_url and in the Support panel in PostHog. Don't promise a response time."
+                ),
+            }
+        ).data
+        return Response(data, status=status.HTTP_200_OK)
+
+    def _send_failed(self, draft: SupportTicketDraft, reason: str, detail: str, status_code: int) -> Response:
+        report_user_action(
+            self._user,
+            "posthog support draft send failed",
+            {"draft_id": draft.id, "filing_reason": draft.filing_reason, "reason": reason},
+            team=self.team,
+        )
+        return Response({"detail": detail}, status=status_code)
 
     @validated_request(
         request_serializer=PostHogSupportDraftCreateSerializer,
@@ -196,10 +267,11 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             201: OpenApiResponse(response=PostHogSupportDraftSerializer),
             429: OpenApiResponse(response=PostHogSupportErrorSerializer),
         },
-        summary="Draft a PostHog support ticket for the person to send",
+        summary="Draft a PostHog support ticket for the person to approve",
         description=(
-            "Saves a draft ticket to PostHog support. It does not send it. The person opens review_url, "
-            "checks and edits the ticket, and sends it from the PostHog web app."
+            "Saves a draft ticket to PostHog support. It does not send it. The person approves it in chat, so "
+            "the agent sends it with the send endpoint, or opens review_url to edit it and send it from the "
+            "PostHog web app."
         ),
     )
     @action(methods=["POST"], detail=False, url_path="drafts")
@@ -282,7 +354,92 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         report_user_action(
             self._user,
             "posthog support draft submitted",
-            {"draft_id": draft_id, "filing_reason": draft.filing_reason},
+            {"draft_id": draft_id, "filing_reason": draft.filing_reason, "sent_via": SentVia.WEB_APP.value},
             team=self.team,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=PostHogSupportSentTicketSerializer),
+            403: OpenApiResponse(response=PostHogSupportErrorSerializer),
+            404: OpenApiResponse(response=PostHogSupportErrorSerializer),
+            409: OpenApiResponse(response=PostHogSupportErrorSerializer),
+            502: OpenApiResponse(response=PostHogSupportErrorSerializer),
+            503: OpenApiResponse(response=PostHogSupportErrorSerializer),
+        },
+        summary="Send a drafted ticket to PostHog support after the person approved it",
+        description=(
+            "Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the "
+            "person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling "
+            "again returns the same ticket, and a draft sent from the review link can't be sent here."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path=rf"drafts/(?P<draft_id>{DRAFT_ID_PATTERN})/send")
+    def send_draft(self, request: ValidatedRequest, draft_id: str, *args: Any, **kwargs: Any) -> Response:
+        store = self._draft_store()
+        if (sent := store.sent_ticket(draft_id)) is not None:
+            return self._sent_response(sent)
+        draft = store.get(draft_id, claimant=AGENT_CLAIMANT)
+        if draft is None:
+            return Response(
+                {"detail": "Draft not found, expired, or already sent from PostHog."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        permission = self._permission(draft)
+        if permission == TicketPermission.PLAN_EXCLUDES_SUPPORT:
+            return self._send_failed(
+                draft,
+                permission.value,
+                "Nothing was sent, because their plan doesn't include support tickets. Tell them they can ask "
+                f"the community at {COMMUNITY_URL}.",
+                status.HTTP_403_FORBIDDEN,
+            )
+        if permission == TicketPermission.PLAN_UNKNOWN:
+            return self._send_failed(
+                draft,
+                permission.value,
+                "Nothing was sent, because PostHog couldn't check their plan. Give them the draft's review_url "
+                "to send it from PostHog.",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        may_be_sent = (
+            "The ticket may already be with PostHog support, so don't send it again. Ask the person to check "
+            f"their tickets at {self._tickets_url()}."
+        )
+        if not store.claim(draft_id, AGENT_CLAIMANT):
+            return _draft_not_found()
+        if not store.start_send(draft_id):
+            return self._send_failed(draft, "already_sending", may_be_sent, status.HTTP_409_CONFLICT)
+        try:
+            ticket = PostHogSupportWidgetClient(resolve_support_widget_target()).send_ticket(
+                self._user, draft.outgoing_message(SentVia.CHAT)
+            )
+        except SupportTicketNotSent:
+            store.cancel_send(draft_id)
+            store.release(draft_id, AGENT_CLAIMANT)
+            return self._send_failed(
+                draft,
+                "not_sent",
+                "Nothing was sent, because PostHog support couldn't take the ticket. Try again in a moment, "
+                "or give the person the draft's review_url to send it from PostHog.",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except SupportTicketOutcomeUnknown:
+            return self._send_failed(draft, "outcome_unknown", may_be_sent, status.HTTP_502_BAD_GATEWAY)
+
+        store.record_sent(draft_id, ticket)
+        report_user_action(
+            self._user,
+            "posthog support draft submitted",
+            {
+                "draft_id": draft_id,
+                "filing_reason": draft.filing_reason,
+                "sent_via": SentVia.CHAT.value,
+                "ticket_id": ticket.ticket_id,
+            },
+            team=self.team,
+        )
+        return self._sent_response(ticket)

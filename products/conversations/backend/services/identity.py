@@ -1,7 +1,10 @@
 import hmac
 import time
+import uuid
 import hashlib
 from collections.abc import Callable
+
+from posthog.dataclasses import frozen
 
 # NUL separates claim fields so adjacent values cannot form an ambiguous signed input.
 _CLAIM_SEP = "\x00"
@@ -106,3 +109,28 @@ def verify_identity_claim_hash(
     except ValueError:
         return False
     return hmac.compare_digest(expected, hash_value)
+
+
+@frozen
+class SignedEmailClaim:
+    value: str
+    expires_at: int
+    hash: str
+
+
+def sign_email_claim(distinct_id: str, email: str, secret: str) -> SignedEmailClaim:
+    """Attest an email that PostHog verified, bound to the distinct_id it belongs to. Pass only a
+    verified email, because the widget trusts the claim to match tickets that other channels keyed
+    on an email address."""
+    value = canonicalize_claim_value("email", email)
+    expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
+    return SignedEmailClaim(
+        value=value,
+        expires_at=expires_at,
+        hash=compute_identity_claim_hash(distinct_id, "email", value, secret, expires_at=expires_at),
+    )
+
+
+def widget_session_id_for_identity_hash(identity_hash: str) -> str:
+    """The widget stores a verified identity's tickets under this session id."""
+    return str(uuid.UUID(identity_hash[:32]))

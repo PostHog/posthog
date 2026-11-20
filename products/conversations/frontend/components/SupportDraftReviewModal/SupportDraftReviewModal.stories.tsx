@@ -24,6 +24,7 @@ const DRAFT: PostHogSupportDraftApi = {
     ticket_context: 'Drafted by an AI agent through the PostHog MCP, then reviewed and sent by the person.',
     expires_at: 0,
     billing_question: false,
+    can_send: true,
     review_url: '',
     next_step: '',
 }

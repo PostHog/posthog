@@ -795,8 +795,8 @@ export const ConversationsZendeskImportsCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Saves a draft ticket to PostHog support. It does not send it. The person opens review_url, checks and edits the ticket, and sends it from the PostHog web app.
- * @summary Draft a PostHog support ticket for the person to send
+ * Saves a draft ticket to PostHog support. It does not send it. The person approves it in chat, so the agent sends it with the send endpoint, or opens review_url to edit it and send it from the PostHog web app.
+ * @summary Draft a PostHog support ticket for the person to approve
  */
 export const posthogSupportDraftsCreateBodyTitleMax = 100
 

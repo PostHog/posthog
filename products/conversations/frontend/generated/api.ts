@@ -36,6 +36,7 @@ import type {
     PatchedTicketViewApi,
     PostHogSupportDraftApi,
     PostHogSupportDraftCreateApi,
+    PostHogSupportSentTicketApi,
     PylonImportJobApi,
     PylonImportStartApi,
     SigningSecretApi,
@@ -898,8 +899,8 @@ export const getPosthogSupportDraftsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Saves a draft ticket to PostHog support. It does not send it. The person opens review_url, checks and edits the ticket, and sends it from the PostHog web app.
- * @summary Draft a PostHog support ticket for the person to send
+ * Saves a draft ticket to PostHog support. It does not send it. The person approves it in chat, so the agent sends it with the send endpoint, or opens review_url to edit it and send it from the PostHog web app.
+ * @summary Draft a PostHog support ticket for the person to approve
  */
 export const posthogSupportDraftsCreate = async (
     projectId: string,
@@ -947,6 +948,25 @@ export const posthogSupportDraftsClaimCreate = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getPosthogSupportDraftsClaimCreateUrl(projectId, draftId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPosthogSupportDraftsSendCreateUrl = (projectId: string, draftId: string) => {
+    return `/api/projects/${projectId}/posthog_support/drafts/${draftId}/send/`
+}
+
+/**
+ * Posts the draft to PostHog support as the person, and returns the ticket. Call it only after the person saw the full ticket and approved sending it. A draft becomes at most one ticket: calling again returns the same ticket, and a draft sent from the review link can't be sent here.
+ * @summary Send a drafted ticket to PostHog support after the person approved it
+ */
+export const posthogSupportDraftsSendCreate = async (
+    projectId: string,
+    draftId: string,
+    options?: RequestInit
+): Promise<PostHogSupportSentTicketApi> => {
+    return apiMutator<PostHogSupportSentTicketApi>(getPosthogSupportDraftsSendCreateUrl(projectId, draftId), {
         ...options,
         method: 'POST',
     })

@@ -69,6 +69,7 @@ from products.conversations.backend.services.identity import (
     identity_claim_has_expired,
     verify_identity_claim_hash,
     verify_identity_hash,
+    widget_session_id_for_identity_hash,
 )
 
 logger = logging.getLogger(__name__)
@@ -485,7 +486,7 @@ class WidgetMessageView(APIView):
         if verified_distinct_id is not None:
             distinct_id = verified_distinct_id
             # Deterministic widget_session_id from the HMAC (for DB storage)
-            widget_session_id = str(uuid.UUID(serializer.validated_data["identity_hash"][:32]))
+            widget_session_id = widget_session_id_for_identity_hash(serializer.validated_data["identity_hash"])
         elif "widget_session_id" in serializer.validated_data:
             widget_session_id = str(serializer.validated_data["widget_session_id"])
             distinct_id = serializer.validated_data["distinct_id"]
@@ -613,6 +614,7 @@ class WidgetMessageView(APIView):
         return Response(
             {
                 "ticket_id": str(ticket.id),
+                "ticket_number": ticket.ticket_number,
                 "message_id": str(comment.id),
                 "ticket_status": ticket.status,
                 "unread_count": ticket.unread_customer_count,  # Unread messages for customer

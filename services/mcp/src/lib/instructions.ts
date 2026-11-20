@@ -242,6 +242,7 @@ export class ToolDomainExtractor {
         'resume',
         'revoke',
         'save',
+        'send',
         'ship',
         'show',
         'skip',

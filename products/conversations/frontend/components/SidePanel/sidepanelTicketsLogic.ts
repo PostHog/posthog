@@ -529,6 +529,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         // Opening a ticket is the paid part of support. Reading and replying to tickets already in
         // the account isn't — free plans can end up with tickets via billing questions or PostHog AI
         // bug reports, and abandoning those threads helps nobody.
+        // check_ticket_permission in products/conversations/backend/services/posthog_support.py applies the
+        // same plan rule when an agent sends a ticket, so change both together.
         canCreateTicket: [
             (s) => [s.billing, s.isCurrentOrganizationNew, s.hasSupportExemption, s.earnsSupportExemption],
             (

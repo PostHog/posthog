@@ -100718,6 +100718,8 @@ export namespace Schemas {
       expires_at: number;
       /** True when the draft is a billing or usage question, which the person can send on any plan. */
       billing_question: boolean;
+      /** True when the person's plan lets them send this ticket. Offer to send it only when this is true. */
+      can_send: boolean;
       /** Link the person opens in their browser to review, edit and send the ticket. */
       review_url: string;
       /** What to tell the person now. */
@@ -100765,6 +100767,20 @@ export namespace Schemas {
     export interface PostHogSupportError {
       /** What went wrong. */
       detail: string;
+    }
+
+    export interface PostHogSupportSentTicket {
+      /** Id of the ticket PostHog support received. */
+      ticket_id: string;
+      /**
+         * The ticket's number, which the person can quote to support.
+         * @nullable
+         */
+      ticket_number: number | null;
+      /** Page in PostHog where the person reads support's replies. */
+      tickets_url: string;
+      /** What to tell the person now. */
+      next_step: string;
     }
 
     /**

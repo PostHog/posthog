@@ -157,6 +157,7 @@ describe('buildToolDomainsBlock', () => {
             'resume',
             'revoke',
             'save',
+            'send',
             'ship',
             'show',
             'skip',

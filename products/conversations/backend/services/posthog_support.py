@@ -1,7 +1,7 @@
-"""Drafts of tickets to PostHog's own support team, written by a person's agent for the person to send.
+"""Drafts of tickets to PostHog's own support team, written by a person's agent for the person to approve.
 
-Nothing here files a ticket. An agent stores a draft, and only the web app's support form, driven by
-the person in their browser, sends it.
+An agent stores a draft. The person then sends it from the web app's support form, or approves it in
+chat so the agent sends it. Either way, a draft becomes at most one ticket.
 """
 
 from __future__ import annotations
@@ -10,13 +10,31 @@ import re
 import time
 import uuid
 from dataclasses import asdict
+from enum import StrEnum
 
 from django.core.cache import caches
 from django.db import models
+from django.utils import timezone
 
+from dateutil.relativedelta import relativedelta
+
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
+from posthog.models.organization import Organization
+from posthog.models.user import User
+
+from products.conversations.backend.services.posthog_support_widget import SentSupportTicket
+
+from ee.billing.billing_manager import BillingManager
 
 DRAFT_TTL_SECONDS = 24 * 60 * 60
+# The claimant an agent's send uses. A browser session claims with its session key, which never has
+# this value, so the review link and the agent can never both hold a draft.
+AGENT_CLAIMANT = "agent"
+NEW_ORGANIZATION_SUPPORT_MONTHS = 3
+SUPPORT_TRIAL_TARGETS = frozenset({"boost", "scale", "enterprise"})
+BILLING_TIMEOUT_SECONDS = (3.0, 5.0)
 # Renders as a horizontal line. It needs the blank lines, because `---` right under text turns that
 # text into a Markdown heading. The support form finds sections by this string to place images.
 SECTION_SEPARATOR = "\n\n---\n\n"
@@ -37,6 +55,44 @@ class DraftedVia(models.TextChoices):
     API = "api", "Drafted through the PostHog API"
 
 
+class SentVia(models.TextChoices):
+    WEB_APP = "web_app", "then reviewed and sent by the person"
+    CHAT = "chat", "then sent by the agent after the person approved it in chat"
+
+
+class TicketPermission(StrEnum):
+    ALLOWED = "allowed"
+    PLAN_EXCLUDES_SUPPORT = "plan_excludes_support"
+    PLAN_UNKNOWN = "plan_unknown"
+
+
+def check_ticket_permission(organization: Organization, user: User, filing_reason: str) -> TicketPermission:
+    """Whether the organization's plan lets it open a ticket with PostHog support.
+
+    Keep this rule the same as canCreateTicket in sidepanelTicketsLogic.ts, which the web app's
+    support form applies in the browser.
+    """
+    if filing_reason == FilingReason.BILLING_QUESTION:
+        return TicketPermission.ALLOWED
+    if organization.created_at > timezone.now() - relativedelta(months=NEW_ORGANIZATION_SUPPORT_MONTHS):
+        return TicketPermission.ALLOWED
+    instance_license = get_cached_instance_license()
+    if instance_license is None:
+        # Without a license there is no billing account, and the web app shows such an instance as free.
+        return TicketPermission.PLAN_EXCLUDES_SUPPORT
+    try:
+        billing = BillingManager(instance_license, user).get_billing(organization, timeout=BILLING_TIMEOUT_SECONDS)
+    except Exception as e:
+        capture_exception(e)
+        return TicketPermission.PLAN_UNKNOWN
+    trial = billing.get("trial") or {}
+    if billing.get("subscription_level") in ("paid", "custom") or (
+        trial.get("status") == "active" and trial.get("target") in SUPPORT_TRIAL_TARGETS
+    ):
+        return TicketPermission.ALLOWED
+    return TicketPermission.PLAN_EXCLUDES_SUPPORT
+
+
 @frozen
 class SupportTicketDraft:
     id: str
@@ -47,12 +103,11 @@ class SupportTicketDraft:
     mcp_session_id: str | None = None
     mcp_conversation_id: str | None = None
 
-    @property
-    def ticket_context(self) -> str:
+    def ticket_context(self, sent_via: SentVia) -> str:
         # The person cannot see or edit this note, so it holds only text the server writes. The MCP ids
         # come from request headers, so the API keeps a value only when it has the form of an id.
         lines = [
-            f"{DraftedVia(self.drafted_via).label}, then reviewed and sent by the person.",
+            f"{DraftedVia(self.drafted_via).label}, {sent_via.label}.",
             f"Why it was drafted: {FilingReason(self.filing_reason).label}.",
             f"Draft id: {self.id}",
         ]
@@ -62,6 +117,11 @@ class SupportTicketDraft:
         if self.mcp_conversation_id:
             lines.append(f"MCP conversation id: {self.mcp_conversation_id}")
         return "\n".join(lines)
+
+    def outgoing_message(self, sent_via: SentVia) -> str:
+        # The same layout as appendTicketContext in supportLogic.ts, so support sees one shape whichever
+        # way the ticket was sent.
+        return f"{self.message}\n\n-----\n{self.ticket_context(sent_via)}"
 
 
 def compose_ticket_message(
@@ -162,6 +222,34 @@ class SupportDraftStore:
         return bool(self._cache.add(self._claim_key(draft_id), claimant, DRAFT_TTL_SECONDS)) or (
             self._cache.get(self._claim_key(draft_id)) == claimant
         )
+
+    def release(self, draft_id: str, claimant: str) -> None:
+        """Give back a claim after a send that created no ticket, so the review link works again."""
+        if self._cache.get(self._claim_key(draft_id)) == claimant:
+            self._cache.delete(self._claim_key(draft_id))
+
+    def start_send(self, draft_id: str) -> bool:
+        """Mark a server-side send as running. Only one send can run. A send with an unknown result
+        keeps the mark until the draft expires, because a retry could create a second ticket."""
+        return bool(self._cache.add(self._sending_key(draft_id), 1, DRAFT_TTL_SECONDS))
+
+    def cancel_send(self, draft_id: str) -> None:
+        self._cache.delete(self._sending_key(draft_id))
+
+    def record_sent(self, draft_id: str, ticket: SentSupportTicket) -> None:
+        self._cache.set(self._sent_key(draft_id), asdict(ticket), DRAFT_TTL_SECONDS)
+
+    def sent_ticket(self, draft_id: str) -> SentSupportTicket | None:
+        stored = self._cache.get(self._sent_key(draft_id))
+        if stored is None:
+            return None
+        return SentSupportTicket(ticket_id=stored["ticket_id"], ticket_number=stored.get("ticket_number"))
+
+    def _sending_key(self, draft_id: str) -> str:
+        return f"posthog_support_draft_sending:{self._user_id}:{draft_id}"
+
+    def _sent_key(self, draft_id: str) -> str:
+        return f"posthog_support_draft_sent:{self._user_id}:{draft_id}"
 
     def _claim_key(self, draft_id: str) -> str:
         return f"posthog_support_draft_claim:{self._user_id}:{draft_id}"

@@ -16,8 +16,23 @@ tools:
             idempotent: false
         title: Draft a PostHog support ticket
         description: >
-            Draft a ticket to PostHog's human support team for the person to review and send. It sends nothing. Load the
+            Draft a ticket to PostHog's human support team for the person to approve. It sends nothing. Load the
             writing-posthog-support-tickets skill first, and draft only after you checked the docs and did the lookups
-            it asks for. Each field is one part of the ticket. Afterwards, show the person the message and the
-            review_url, and tell them nothing is sent until they send it from PostHog.
+            it asks for. Each field is one part of the ticket. Afterwards, show the person the full message and follow
+            next_step: when can_send is true, ask whether to send it, and otherwise give them what next_step says.
+        feature_flag: mcp-posthog-support-tickets
+    posthog-support-draft-send:
+        operation: posthog_support_drafts_send_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Send a drafted PostHog support ticket
+        description: >
+            Send a draft from posthog-support-draft-create to PostHog's human support team, as the person. Call it only
+            after the person saw the full ticket in this conversation and said yes to sending it, such as "please post
+            it". Never call it on your own judgment, and never after they asked to edit it first. A draft becomes at
+            most one ticket: calling again returns the same ticket. Afterwards, give them the ticket number and
+            tickets_url.
         feature_flag: mcp-posthog-support-tickets

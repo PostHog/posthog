@@ -818,12 +818,7 @@ def _build_template_context(
 
         support_secret = get_instance_setting("CONVERSATIONS_HMAC_SIGNING_SECRET")
         if support_secret:
-            from products.conversations.backend.services.identity import (
-                IDENTITY_CLAIM_MAX_AGE_SECONDS,
-                canonicalize_claim_value,
-                compute_identity_claim_hash,
-                compute_identity_hash,
-            )
+            from products.conversations.backend.services.identity import compute_identity_hash, sign_email_claim
 
             context["js_posthog_identity_distinct_id"] = posthog_distinct_id
             context["js_posthog_identity_hash"] = compute_identity_hash(
@@ -840,20 +835,9 @@ def _build_template_context(
                 if identity_user.is_email_verified is True:
                     user_email = identity_user.email
             if user_email:
-                canonical_email = canonicalize_claim_value("email", user_email)
-                expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
+                claim = sign_email_claim(posthog_distinct_id, user_email, support_secret)
                 context["js_posthog_identity_claims"] = {
-                    "email": {
-                        "value": canonical_email,
-                        "expires_at": expires_at,
-                        "hash": compute_identity_claim_hash(
-                            posthog_distinct_id,
-                            "email",
-                            canonical_email,
-                            support_secret,
-                            expires_at=expires_at,
-                        ),
-                    }
+                    "email": {"value": claim.value, "expires_at": claim.expires_at, "hash": claim.hash}
                 }
 
     return context

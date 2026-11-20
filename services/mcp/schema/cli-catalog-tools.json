@@ -39435,6 +39435,38 @@
             "validators": []
         }
     },
+    "posthog-support-draft-send": {
+        "name": "posthog-support-draft-send",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/posthog_support/drafts/{draft_id}/send/",
+            "pathParams": ["draft_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "pr-lifecycle": {
         "name": "pr-lifecycle",
         "kind": "http",
