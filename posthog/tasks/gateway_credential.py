@@ -25,6 +25,7 @@ from posthog.storage.gateway_credential_cache import (
     drain_gateway_credential_last_used,
     project_gateway_credential,
     refresh_all_gateway_credentials,
+    reproject_organization_gateway_credentials,
 )
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 
@@ -99,24 +100,7 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def reproject_organization_gateway_credentials_task(organization_id: str) -> None:
-    querysets = (
-        ProjectSecretAPIKey.objects.using("default")
-        .select_related("team")
-        .filter(team__organization_id=organization_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]),
-        OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
-        .using("default")
-        .select_related("user", "application")
-        .filter(application__organization_id=organization_id),
-    )
-    first_error: Exception | None = None
-    for queryset in querysets:
-        for credential in queryset:
-            try:
-                project_gateway_credential(credential)
-            except Exception as e:
-                first_error = first_error or e
-    if first_error is not None:
-        raise first_error
+    reproject_organization_gateway_credentials(organization_id)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

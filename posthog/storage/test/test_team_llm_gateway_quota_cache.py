@@ -250,6 +250,21 @@ class TestProjectTeamQuota(QuotaProjectionTestMixin):
             self.assertIsNone(project_team_quota(self.team))
         capture.assert_called_once()
 
+    def test_a_batch_stops_writing_once_redis_keeps_failing(self, mock_settings):
+        self._enable(mock_settings)
+        for index in range(4):
+            Team.objects.create(organization=self.organization, name=f"team {index}")
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        attempted: list[int] = []
+
+        def fail_write(team: Team, *args: object, **kwargs: object) -> None:
+            attempted.append(team.id)
+            raise ConnectionError("redis down")
+
+        with patch.object(hypercache, "set_cache_value_redis_only", side_effect=fail_write):
+            self.assertEqual(project_org_quota(self.organization), 0)
+        self.assertEqual(len(attempted), 3)
+
     def test_a_writer_that_read_stale_state_rewrites_the_current_state(self, mock_settings):
         # A writer read "limited", then the limit lifted and another writer deleted the blob before
         # this one wrote. The re-read after its write must leave the blob deleted.

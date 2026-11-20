@@ -520,6 +520,34 @@ def refresh_all_gateway_credentials() -> int:
     return count
 
 
+def reproject_organization_gateway_credentials(organization_id: str) -> None:
+    querysets = (
+        ProjectSecretAPIKey.objects.using("default")
+        .select_related("team")
+        .filter(team__organization_id=organization_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]),
+        OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
+        .using("default")
+        .select_related("user", "application")
+        .filter(application__organization_id=organization_id),
+    )
+    first_error: Exception | None = None
+    infra_failures_in_a_row = 0
+    for queryset in querysets:
+        for credential in queryset:
+            try:
+                project_gateway_credential(credential)
+            except Exception as e:
+                first_error = first_error or e
+                if isinstance(e, _REFRESH_INFRA_ERRORS):
+                    infra_failures_in_a_row += 1
+                    if infra_failures_in_a_row >= REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES:
+                        raise
+                continue
+            infra_failures_in_a_row = 0
+    if first_error is not None:
+        raise first_error
+
+
 # Gateway-owned Valkey hash (credential sha256$<hex> -> unix-second last-used),
 # written by the gateway. Wire contract: must match internal/lastused.ValkeyKey.
 GATEWAY_CREDENTIAL_LAST_USED_KEY = "ai-gateway:cred-last-used"
