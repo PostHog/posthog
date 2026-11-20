@@ -719,7 +719,7 @@ run_sandbox_review (executor.py)
 The PR-branch checkout that ReviewHog depends on is performed by master's
 `get_sandbox_for_repository.py` block (driven by `ctx.branch`, which originates from `TaskRun.branch`), **not**
 by ReviewHog. The contract surface ReviewHog binds to — **imported only through the Tasks facade
-`products.tasks.backend.facade.agents`** (Tasks is an isolated product; `tach` enforces the boundary) and
+`products.tasks.backend.facade.agents`** (Tasks is an isolated product; hoglint's `public-surface` rule reports any import past its facade) and
 that any future merge must preserve: `MultiTurnSession.start(prompt, context, model, *, branch, step_name)
 -> (session, model)`, `CustomPromptSandboxContext(team_id, user_id, repository)`, and `session.end()`.
 

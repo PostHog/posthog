@@ -2,7 +2,7 @@
 
 This is the ONLY module other products (and the presentation layer) are
 allowed to import. Internal modules (query runners) stay behind this seam
-so import-linter's strict-mode contract holds.
+so hoglint's `presentation-uses-facade` rule holds.
 """
 
 import math
