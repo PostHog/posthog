@@ -1781,7 +1781,7 @@ Note (2026-11-19): Parsed the v2 OpenAPI spec from the docs repo and diffed ever
 
 ## AzureDevOps — **thin**
 
-Today (23): `build_definitions`, `build_timeline_records`, `builds`, `commits`, `pipeline_runs`, `pipelines`, `projects`, `pull_request_reviewers`, `pull_request_thread_comments`, `pull_request_threads`, `pull_request_work_items`, `pull_requests`, `release_deployments`, `releases`, `repositories`, `team_members`, `teams`, `test_runs`, `work_item_classification_nodes`, `work_item_revisions`, `work_item_type_states`, `work_item_types`, `work_iterations`
+Today (24): `build_definitions`, `build_timeline_records`, `builds`, `commits`, `pipeline_runs`, `pipelines`, `projects`, `pull_request_iteration_statuses`, `pull_request_reviewers`, `pull_request_thread_comments`, `pull_request_threads`, `pull_request_work_items`, `pull_requests`, `release_deployments`, `releases`, `repositories`, `team_members`, `teams`, `test_runs`, `work_item_classification_nodes`, `work_item_revisions`, `work_item_type_states`, `work_item_types`, `work_iterations`
 
 Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/master/specification>
 
@@ -1789,7 +1789,7 @@ Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/maste
 - [x] `git Pull Request Threads + Thread Comments` — review discussion and timestamps - required for review latency and cycle time on the PRs we already sync (high)
 - [x] `git Pull Request Reviewers (and Pull Request Iteration Statuses)` — approval votes per reviewer; the membership table that turns pull_requests into review analytics (high)
 - [x] `core Teams (GET /_apis/teams, /projects/{projectId}/teams) and Team Members` — lookup resolving team ownership for projects, work items and boards (high)
-- [ ] `git Pull Request Iteration Statuses (GET .../pullRequests/{pullRequestId}/iterations/{iterationId}/statuses)` — per-iteration policy and status checks; needs a fan-out one level deeper than the reviewers table above (medium)
+- [x] `git Pull Request Iteration Statuses (GET .../pullRequests/{pullRequestId}/iterations/{iterationId}/statuses)` — per-iteration policy and status checks; needs a fan-out one level deeper than the reviewers table above (medium); landed as `pull_request_iteration_statuses`, full refresh, because the status listing takes no time filter
 - [x] `build Definitions (GET /{project}/_apis/build/definitions)` — lookup resolving definition.id carried on every build row we already sync (high)
 - [x] `build Timeline (GET /{project}/_apis/build/builds/{buildId}/timeline/{timelineId})` — per-job/step records and durations - where build time actually goes (high)
 - [x] `release Releases + release Deployments` — deployment frequency and environment promotion history; entirely absent today (high)
