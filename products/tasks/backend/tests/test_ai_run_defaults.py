@@ -138,8 +138,7 @@ class TestResolveAIRunDefaults(APIBaseTest):
         assert resolved.source == "none"
 
     def test_unsupported_effort_is_dropped_but_model_passes_through(self):
-        # claude-sonnet-4-6 caps at high; a stored max effort must not reach the run.
-        self._set_team({"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "reasoning_effort": "max"})
+        self._set_team({"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "reasoning_effort": "xhigh"})
         resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.model == "claude-sonnet-4-6"
         assert resolved.reasoning_effort is None
@@ -458,7 +457,7 @@ class TestTasksConfigAPI(APIBaseTest):
             ("unknown_adapter", {"runtime_adapter": "gemini", "model": "gemini-3"}),
             (
                 "unsupported_effort",
-                {"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "reasoning_effort": "max"},
+                {"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "reasoning_effort": "xhigh"},
             ),
             ("pi_with_an_adapter", {"runtime": "pi", "runtime_adapter": "codex", "model": "gpt-5.6-terra"}),
             ("pi_without_a_model", {"runtime": "pi", "reasoning_effort": "high"}),

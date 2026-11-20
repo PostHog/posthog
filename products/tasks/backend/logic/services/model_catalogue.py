@@ -18,14 +18,14 @@ can't make every interaction wait the full timeout.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from products.tasks.backend import model_catalog
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
-from products.tasks.backend.logic.services.gateway_models import GatewayModel, list_gateway_models
-from products.tasks.backend.model_catalog import COST_BASELINE_MODEL, display_name_for_model  # noqa: F401 — re-exported
+from products.tasks.backend.logic.services.gateway_models import GatewayModel, known_gateway_models, list_gateway_models
+from products.tasks.backend.model_catalog import COST_BASELINE_MODEL
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import Product
@@ -97,6 +97,70 @@ def group_by_runtime(choices: tuple[ModelChoice, ...]) -> tuple[RuntimeGroup, ..
     )
 
 
+_ALIAS_NAME_SUFFIX = " (latest)"
+
+_RUNTIME_ADAPTER_BY_PROVIDER: dict[str, str] = {
+    provider: adapter for adapter, provider in model_catalog.PROVIDER_BY_RUNTIME_ADAPTER.items()
+}
+
+
+def _listing() -> tuple[GatewayModel, ...]:
+    return known_gateway_models(TASK_RUN_GATEWAY_PRODUCT)
+
+
+def listed_model(model: str | None) -> GatewayModel | None:
+    if not model:
+        return None
+    normalized = model_catalog.normalize_model_id(model)
+    return next((listed for listed in _listing() if listed.id == normalized), None)
+
+
+def _runtime_adapter(listed: GatewayModel) -> str | None:
+    if listed.api_shapes:
+        return model_catalog.runtime_adapter_for_api_shapes(listed.api_shapes)
+    return _RUNTIME_ADAPTER_BY_PROVIDER.get(listed.owned_by)
+
+
+def _name_from_id(model: str) -> str:
+    return model_catalog.format_model_id(model.rsplit("/", 1)[-1])
+
+
+def _display_name(listed: GatewayModel) -> str:
+    return listed.name.removesuffix(_ALIAS_NAME_SUFFIX) or _name_from_id(listed.id)
+
+
+def _efforts(listed: GatewayModel) -> tuple[str, ...]:
+    return model_catalog.reasoning_efforts_from_provider(listed.id, listed.reasoning_efforts or ())
+
+
+def _cost(listed: GatewayModel | None) -> model_catalog.ModelCost | None:
+    if listed is None or not listed.input_per_mtok or not listed.output_per_mtok:
+        return None
+    return model_catalog.ModelCost(listed.input_per_mtok, listed.output_per_mtok)
+
+
+def _choices(rows: Iterable[GatewayModel], listing: tuple[GatewayModel, ...]) -> tuple[ModelChoice, ...]:
+    baseline = _cost(next((listed for listed in listing if listed.id == COST_BASELINE_MODEL), None))
+    choices = []
+    for listed in rows:
+        runtime_adapter = _runtime_adapter(listed)
+        if runtime_adapter is None:
+            continue
+        cost = _cost(listed)
+        choices.append(
+            ModelChoice(
+                runtime_adapter=runtime_adapter,
+                model=listed.id,
+                label=_display_name(listed),
+                supported_efforts=_efforts(listed),
+                cost_multiplier=model_catalog.cost_multiplier_label_for_cost(cost, baseline)
+                if cost and baseline
+                else None,
+            )
+        )
+    return tuple(choices)
+
+
 def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     """Every model a run on the given gateway product may use.
 
@@ -104,83 +168,53 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     offer" rather than falling back to a hardcoded list, so a gateway outage can't route
     a run to a model the gateway would reject anyway.
     """
-    # Deferred because `temporal.process_task.utils` pulls the tasks ORM, mcp_store, and
-    # sandbox config at import time; keeping that off the import path of every catalogue
-    # consumer is the reason, and the App Home tests' `sys.modules` swap depends on it
-    # staying that way.
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see above
-        get_supported_reasoning_efforts,
-    )
-
-    by_provider = _runtime_adapter_by_provider()
-    choices = []
-    for model in list_gateway_models(product):
-        if not model_allowed_by_product_pin(product, model.id):
-            continue
-        # The catalog names the harness that drives a model; `owned_by` names whoever
-        # serves it, which for the vendor-served models is `cloudflare`/`baseten`/the
-        # vendor org and says nothing about the harness. Falling back to the provider
-        # keeps an unlisted `gpt-*` working and still drops a provider we cannot route.
-        runtime_adapter = runtime_adapter_for(model.id) or by_provider.get(model.owned_by)
-        if runtime_adapter is None:
-            continue
-        choices.append(
-            ModelChoice(
-                runtime_adapter=runtime_adapter,
-                model=model.id,
-                label=model_catalog.display_name_for_model(model.id),
-                supported_efforts=tuple(e.value for e in get_supported_reasoning_efforts(runtime_adapter, model.id)),
-                cost_multiplier=model_catalog.cost_multiplier_label(model.id),
-            )
-        )
-    return tuple(choices)
+    listing = list_gateway_models(product)
+    return _choices((listed for listed in listing if model_allowed_by_product_pin(product, listed.id)), listing)
 
 
-@lru_cache(maxsize=1)
+def supported_efforts(runtime_adapter: str, model: str) -> tuple[str, ...]:
+    listed = listed_model(model)
+    if listed is None or _runtime_adapter(listed) != runtime_adapter:
+        return ()
+    return _efforts(listed)
+
+
+def _undescribed_efforts(runtime_adapter: str, model: str) -> tuple[str, ...]:
+    efforts = model_catalog.reasoning_efforts_from_provider(model, model_catalog.REASONING_EFFORTS)
+    if runtime_adapter == model_catalog.CLAUDE:
+        return efforts
+    return tuple(effort for effort in efforts if effort != model_catalog.ULTRACODE)
+
+
+def takes_reasoning_effort(runtime_adapter: str, model: str, effort: str) -> bool:
+    listed = listed_model(model)
+    if listed is None:
+        return effort in _undescribed_efforts(runtime_adapter, model)
+    if _runtime_adapter(listed) != runtime_adapter:
+        return False
+    if listed.reasoning_efforts is None:
+        return effort in _undescribed_efforts(runtime_adapter, model)
+    return effort in _efforts(listed)
+
+
+def display_name_for_model(model: str) -> str:
+    listed = listed_model(model)
+    return _display_name(listed) if listed else _name_from_id(model)
+
+
 def catalog_model_choices() -> tuple[ModelChoice, ...]:
-    """Every model the catalog serves, without asking the gateway.
-
-    The gateway answers one question the catalog cannot — which models it is serving
-    right now — and a caller that only needs to recognise a model and read what it
-    supports is asking the catalog's questions, not that one. Those callers take this
-    and stay off the network.
-    """
-    return tuple(
-        ModelChoice(
-            runtime_adapter=entry.runtime_adapter,
-            model=entry.id,
-            label=model_catalog.display_name_for_model(entry.id),
-            supported_efforts=entry.reasoning_efforts,
-            cost_multiplier=model_catalog.cost_multiplier_label(entry.id),
-        )
-        for entry in model_catalog.MODELS
-    )
+    listing = _listing()
+    listed_by_id = {listed.id: listed for listed in listing}
+    return _choices((listed_by_id[entry.id] for entry in model_catalog.MODELS if entry.id in listed_by_id), listing)
 
 
-@lru_cache(maxsize=1)
 def offered_model_choices() -> tuple[ModelChoice, ...]:
-    """The models a picker may offer: every catalog model except the retired ones.
-
-    A caller that recognises a model a person named, rather than asking them to choose one,
-    wants ``catalog_model_choices`` instead. A retired model still runs and still reads its
-    name and cost from the catalog.
-    """
     return tuple(choice for choice in catalog_model_choices() if model_catalog.is_offered_model(choice.model))
 
 
 def runtime_adapter_for(model: str | None) -> str | None:
-    """Which runtime drives this model, per the static run-config map.
-
-    The adapter is a property of the model rather than an independent choice, so
-    deriving it is what keeps a `(runtime_adapter, model)` pair from ever disagreeing.
-    `None` for a model this product has no runtime for.
-    """
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see `available_model_choices`
-        get_runtime_adapter_for_model,
-    )
-
-    adapter = get_runtime_adapter_for_model(model)
-    return adapter.value if adapter else None
+    listed = listed_model(model)
+    return _runtime_adapter(listed) if listed else None
 
 
 def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, effort: str | None) -> str | None:
@@ -190,33 +224,9 @@ def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, ef
     The single answer to "is this effort legal for this pair" — every stored-preference
     resolver routes through it.
     """
-    # A missing adapter or model supports nothing: an unknown model must not inherit the
-    # adapter's fallback ladder and quietly keep an effort the run would be rejected for.
     if not effort or not runtime_adapter or not model:
         return None
-    return effort if effort in model_catalog.reasoning_efforts_for(runtime_adapter, model) else None
-
-
-@lru_cache(maxsize=1)
-def _runtime_adapter_by_provider() -> dict[str, str]:
-    """Gateway `owned_by` → runtime adapter.
-
-    Inverted from the adapter → provider mapping rather than written out here, so the
-    two can never disagree about which runtime serves a provider. Providers with no
-    adapter (bedrock, vertex) are simply absent, which is what drops their models from
-    the catalogue.
-    """
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — see `available_model_choices`
-        RuntimeAdapter,
-        get_provider_for_runtime_adapter,
-    )
-
-    by_provider = {}
-    for adapter in RuntimeAdapter:
-        provider = get_provider_for_runtime_adapter(adapter)
-        if provider is not None:
-            by_provider[provider.value] = adapter.value
-    return by_provider
+    return effort if takes_reasoning_effort(runtime_adapter, model, effort) else None
 
 
 def label_for(value: str | None, mapping: dict[str, str]) -> str:
@@ -241,5 +251,8 @@ __all__ = [
     "group_by_runtime",
     "label_for",
     "list_gateway_models",
+    "listed_model",
     "runtime_adapter_for",
+    "supported_efforts",
+    "takes_reasoning_effort",
 ]

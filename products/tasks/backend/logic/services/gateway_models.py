@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_CACHE_KEY_PREFIX = "tasks:llm_gateway_models:v2"
-_LAST_GOOD_CACHE_KEY_PREFIX = "tasks:llm_gateway_models:last_good"
+_CACHE_KEY_PREFIX = "tasks:llm_gateway_models:v3"
+_LAST_GOOD_CACHE_KEY_PREFIX = "tasks:llm_gateway_models:v3:last_good"
 _CACHE_TTL_SECONDS = 30 * 60
 _NEGATIVE_CACHE_TTL_SECONDS = 30
 _LAST_GOOD_TTL_SECONDS = 6 * 60 * 60
@@ -32,6 +32,7 @@ class GatewayModel:
     family: str = ""
     release_date: str = ""
     reasoning_efforts: tuple[str, ...] | None = None
+    api_shapes: tuple[str, ...] = ()
     input_per_mtok: float | None = None
     output_per_mtok: float | None = None
 
@@ -41,12 +42,18 @@ def _text(row: Any, field: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _texts(values: Any) -> tuple[str, ...]:
+    return tuple(value for value in values if isinstance(value, str)) if isinstance(values, list) else ()
+
+
+_NOT_DESCRIBED: Any = object()
+
+
 def _reasoning_efforts(row: Any) -> tuple[str, ...] | None:
-    reasoning = getattr(row, "reasoning", None)
-    efforts = reasoning.get("efforts") if isinstance(reasoning, dict) else None
-    if not isinstance(efforts, list):
+    reasoning = getattr(row, "reasoning", _NOT_DESCRIBED)
+    if reasoning is _NOT_DESCRIBED:
         return None
-    return tuple(effort for effort in efforts if isinstance(effort, str))
+    return _texts(reasoning.get("efforts")) if isinstance(reasoning, dict) else ()
 
 
 def _per_mtok(row: Any, field: str) -> float | None:
@@ -70,6 +77,7 @@ def _gateway_model(row: Any) -> GatewayModel:
         family=_text(row, "family"),
         release_date=_text(row, "release_date"),
         reasoning_efforts=_reasoning_efforts(row),
+        api_shapes=_texts(getattr(row, "api_shapes", None)),
         input_per_mtok=_per_mtok(row, "prompt"),
         output_per_mtok=_per_mtok(row, "completion"),
     )
@@ -87,6 +95,18 @@ def _last_good(product: Product) -> tuple[GatewayModel, ...]:
         return cache.get(f"{_LAST_GOOD_CACHE_KEY_PREFIX}:{product}") or ()
     except Exception:
         return ()
+
+
+def cached_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
+    try:
+        cached = cache.get(f"{_CACHE_KEY_PREFIX}:{product}")
+    except Exception:
+        return ()
+    return cached if cached is not None else _last_good(product)
+
+
+def known_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
+    return cached_gateway_models(product) or list_gateway_models(product)
 
 
 def list_gateway_models(product: Product) -> tuple[GatewayModel, ...]:

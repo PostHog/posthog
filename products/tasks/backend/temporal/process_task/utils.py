@@ -72,6 +72,11 @@ from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _re
 
 # Re-exported so existing activity/workflow imports keep working after the move to
 # logic/services (non-temporal callers import run_actor directly).
+from products.tasks.backend.logic.services.model_catalogue import (
+    runtime_adapter_for,
+    supported_efforts,
+    takes_reasoning_effort,
+)
 from products.tasks.backend.logic.services.run_actor import (
     get_actor_distinct_id as get_actor_distinct_id,
     get_task_run_actor_user as get_task_run_actor_user,
@@ -195,7 +200,7 @@ def runtime_adapter_serves_model(runtime_adapter: RuntimeAdapter | str | None, m
     if runtime_adapter is None:
         return False
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    return model_catalog.serves_model(adapter_value, model)
+    return runtime_adapter_for(model) == adapter_value
 
 
 # Applied at fire time when a run or loop leaves its model unset ("" / None): a blank
@@ -278,7 +283,7 @@ def get_supported_reasoning_efforts(
         return ()
 
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    return tuple(ReasoningEffort(effort) for effort in model_catalog.reasoning_efforts_for(adapter_value, model))
+    return tuple(ReasoningEffort(effort) for effort in supported_efforts(adapter_value, model))
 
 
 def get_reasoning_effort_error(
@@ -290,12 +295,11 @@ def get_reasoning_effort_error(
         return None
 
     effort_value = reasoning_effort.value if isinstance(reasoning_effort, ReasoningEffort) else reasoning_effort
-    supported_efforts = get_supported_reasoning_efforts(runtime_adapter, model)
-    if any(supported_effort.value == effort_value for supported_effort in supported_efforts):
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    if takes_reasoning_effort(adapter_value, model, effort_value):
         return None
 
-    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    supported_values = ", ".join(effort.value for effort in supported_efforts) or "none"
+    supported_values = ", ".join(supported_efforts(adapter_value, model)) or "none"
     return (
         f"Reasoning effort '{effort_value}' is not supported for runtime_adapter "
         f"'{adapter_value}' and model '{model}'. Supported values: {supported_values}."
@@ -309,7 +313,7 @@ def get_runtime_adapter_for_model(model: str | None) -> RuntimeAdapter | None:
     deriving it is what lets callers reject a `(runtime_adapter, model)` pair that
     disagrees with itself. `None` when no adapter claims the model.
     """
-    adapter = model_catalog.runtime_adapter_for_model(model)
+    adapter = runtime_adapter_for(model)
     return RuntimeAdapter(adapter) if adapter else None
 
 

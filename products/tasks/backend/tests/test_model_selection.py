@@ -54,7 +54,7 @@ def test_valid_selections_pass(runtime_adapter, model, reasoning_effort) -> None
             "codex", "claude-sonnet-5", None, "runs on runtime_adapter 'claude'", id="anthropic-model-under-codex"
         ),
         pytest.param("bedrock", "claude-sonnet-5", None, "Unknown runtime_adapter", id="unknown-adapter"),
-        pytest.param("claude", "claude-sonnet-4-6", "max", "not supported", id="effort-above-what-model-offers"),
+        pytest.param("claude", "claude-sonnet-4-6", "xhigh", "not supported", id="effort-the-model-does-not-list"),
     ],
 )
 def test_invalid_selections_raise(runtime_adapter, model, reasoning_effort, expected_message) -> None:

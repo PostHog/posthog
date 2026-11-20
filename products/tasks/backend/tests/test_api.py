@@ -5988,11 +5988,11 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_6_sol_max", "codex", "gpt-5.6-sol", "max", "openai"),
             ("gpt_5_6_luna_xhigh", "codex", "gpt-5.6-luna", "xhigh", "openai"),
             ("gpt_5_6_luna_max", "codex", "gpt-5.6-luna", "max", "openai"),
-            ("glm_5_2_high", "claude", "@cf/zai-org/glm-5.2", "high", "anthropic"),
-            ("glm_5_2_max", "claude", "@cf/zai-org/glm-5.2", "max", "anthropic"),
+            ("glm_5_3_high", "claude", "zai-org/glm-5.3", "high", "anthropic"),
+            ("glm_5_3_max", "claude", "zai-org/glm-5.3", "max", "anthropic"),
         ]
     )
-    # GLM 5.2 is gated, and this case is about the metadata a run persists rather than about
+    # GLM is gated, and this case is about the metadata a run persists rather than about
     # entitlement, so the flag is granted here and gating is covered in `test_feature_flags`.
     @patch(
         "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
@@ -6294,8 +6294,8 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("gpt_5_4_xhigh", "gpt-5.4", "xhigh", "low, medium, high"),
-            ("gpt_5_4_max", "gpt-5.4", "max", "low, medium, high"),
+            ("gpt_5_xhigh", "gpt-5", "xhigh", "low, medium, high"),
+            ("gpt_5_4_max", "gpt-5.4", "max", "low, medium, high, xhigh"),
             ("gpt_5_5_max", "gpt-5.5", "max", "low, medium, high, xhigh"),
         ]
     )
@@ -6330,7 +6330,7 @@ class TestTaskAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("unknown_model", "claude-sonnet-4-5", "high", "none"),
-            ("glm_medium", "@cf/zai-org/glm-5.2", "medium", "high, max"),
+            ("glm_medium", "zai-org/glm-5.3", "medium", "low, high, max"),
         ]
     )
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
@@ -6454,10 +6454,10 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_run_endpoint_rejects_unsupported_claude_sonnet_4_6_reasoning_effort(
         self, reasoning_effort, mock_workflow, mock_capture
     ):
-        # claude-sonnet-4-6 supports low/medium/high but not xhigh/ultracode (claude-sonnet-5
-        # accepts the full set, ReviewHog pins its xhigh) - this pins the "Supported values:
-        # <non-empty list>" message and confirms the rejection capture also fires for a model
-        # with some supported efforts.
+        # claude-sonnet-4-6 lists low/medium/high/max but not xhigh, so it gets no ultracode either
+        # (claude-sonnet-5 accepts the full set, ReviewHog pins its xhigh). This pins the "Supported
+        # values: <non-empty list>" message and confirms the rejection capture also fires for a
+        # model with some supported efforts.
         task = self.create_task()
 
         response = self.client.post(
@@ -6476,7 +6476,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "code": "invalid_input",
             "detail": (
                 f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
-                "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
+                "and model 'claude-sonnet-4-6'. Supported values: low, medium, high, max."
             ),
             "attr": "reasoning_effort",
         }
@@ -6492,7 +6492,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "reasoning_effort": reasoning_effort,
                 "error": (
                     f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'claude' "
-                    "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
+                    "and model 'claude-sonnet-4-6'. Supported values: low, medium, high, max."
                 ),
             },
             groups=ANY,
@@ -6739,7 +6739,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "code": "invalid_input",
             "detail": (
                 "Reasoning effort 'max' is not supported for runtime_adapter 'codex' "
-                "and model 'gpt-5.4'. Supported values: low, medium, high."
+                "and model 'gpt-5.4'. Supported values: low, medium, high, xhigh."
             ),
             "attr": "reasoning_effort",
         }
@@ -20241,8 +20241,14 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
 
 class TestModelCatalogueAPI(BaseTaskAPITest):
     GATEWAY_MODELS = (
-        GatewayModel(id="claude-opus-4-8", owned_by="anthropic", context_window=200_000),
-        GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000),
+        GatewayModel(
+            id="claude-opus-4-8",
+            owned_by="anthropic",
+            context_window=200_000,
+            reasoning_efforts=("low", "medium", "high", "xhigh", "max"),
+            api_shapes=("anthropic-messages",),
+        ),
+        GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000, api_shapes=("openai-responses",)),
         GatewayModel(id="titan-express", owned_by="bedrock", context_window=8_000),
     )
 

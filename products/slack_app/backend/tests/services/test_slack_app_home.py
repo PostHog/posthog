@@ -97,6 +97,8 @@ from products.slack_app.backend.services.slack_app_home import (
 from products.slack_app.backend.services.slack_settings import AIPreferences
 from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.tasks.backend.facade.ai_run_defaults import get_user_ai_run_preferences, update_user_ai_run_preferences
+from products.tasks.backend.facade.model_catalogue import GatewayModel
+from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
 from products.tasks.backend.models import Task, TaskRun
 
 SLACK_WORKSPACE_ID = "T_HOME"
@@ -259,9 +261,6 @@ def _stub_picker_facade():
 
     saved_facade = sys.modules.get(facade_name)
     sys.modules[facade_name] = fake
-    # The provider → adapter map is cached for the process, so the fake only governs once
-    # the cache is dropped on the way in and back out.
-    model_catalogue._runtime_adapter_by_provider.cache_clear()
     try:
         with (
             patch(f"{utils_name}.get_supported_reasoning_efforts", fake_get_supported),
@@ -270,7 +269,6 @@ def _stub_picker_facade():
         ):
             yield
     finally:
-        model_catalogue._runtime_adapter_by_provider.cache_clear()
         if saved_facade is None:
             sys.modules.pop(facade_name, None)
         else:
@@ -1315,8 +1313,10 @@ class TestRenderEditModal:
         assert "Claude Sonnet 5" in options["claude-opus-5"]["description"]["text"]
         assert "2.5×" in options["claude-opus-5"]["description"]["text"]
 
-    def test_model_option_omits_the_cost_line_when_the_catalog_prices_nothing(self):
-        view = render_edit_modal(current=AIPreferences(runtime_adapter="codex"))
+    def test_model_option_omits_the_cost_line_when_the_listing_prices_nothing(self):
+        unpriced = GatewayModel(id="gpt-5", owned_by="openai", context_window=400000, api_shapes=("openai-responses",))
+        with serve_gateway_listing((unpriced,)):
+            view = render_edit_modal(current=AIPreferences(runtime_adapter="codex"))
         model_block = _find_block(view, MODAL_BLOCK_MODEL)
         assert model_block
         options = {o["value"]: o for o in model_block["element"]["options"]}
@@ -1918,8 +1918,8 @@ class TestPersonalSubmit:
     @pytest.mark.parametrize(
         "runtime_adapter,model,effort",
         [
-            # `max` isn't supported on claude-sonnet-4-6.
-            pytest.param("claude", "claude-sonnet-4-6", "max", id="unsupported-effort"),
+            # `xhigh` isn't supported on claude-sonnet-4-6.
+            pytest.param("claude", "claude-sonnet-4-6", "xhigh", id="unsupported-effort"),
             # A model owned by the other runtime.
             pytest.param("claude", "gpt-5.5", None, id="cross-runtime-model"),
         ],
