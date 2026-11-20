@@ -36,6 +36,13 @@ export const isRawExportedSessionRecording = (bytes: Uint8Array): boolean =>
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 
+// The player parses width and height as integers and puts href into the patched meta event.
+const isValidViewport = (viewport: unknown): boolean => {
+    const { timestamp, width, height, href } = (viewport ?? {}) as Record<string, unknown>
+    const isDimension = (value: unknown): boolean => /^\d+$/.test(String(value))
+    return isFiniteNumber(timestamp) && isDimension(width) && isDimension(height) && typeof href === 'string'
+}
+
 const parseRawHeader = (line: string): ExportedSessionRecordingFileRawHeader => {
     const header = JSON.parse(line)
     if (typeof header !== 'object' || header === null) {
@@ -48,7 +55,7 @@ const parseRawHeader = (line: string): ExportedSessionRecordingFileRawHeader => 
         typeof header.session_id !== 'string' ||
         !Number.isInteger(header.block_count) ||
         !Array.isArray(header.viewports) ||
-        !header.viewports.every((viewport: unknown) => isFiniteNumber((viewport as { timestamp?: unknown })?.timestamp))
+        !header.viewports.every(isValidViewport)
     ) {
         throw new Error('File does not have a valid header')
     }

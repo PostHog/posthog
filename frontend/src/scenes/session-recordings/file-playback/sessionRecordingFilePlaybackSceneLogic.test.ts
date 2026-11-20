@@ -150,6 +150,13 @@ describe('sessionRecordingFilePlaybackLogic', () => {
                 encodeRawExport([rawBlock(0)], { viewports: [{ width: '1', height: '1' }] }),
                 'valid header',
             ],
+            [
+                'a viewport with a non-numeric width',
+                encodeRawExport([rawBlock(0)], {
+                    viewports: [{ timestamp: 1, width: 'x', height: '1', href: 'https://example.com' }],
+                }),
+                'valid header',
+            ],
             ['a missing block count', encodeRawExport([rawBlock(0)], { block_count: undefined }), 'valid header'],
             ['an empty block', encodeRawExport(['']), 'empty block'],
         ])('rejects %s', async (_, bytes, message) => {
