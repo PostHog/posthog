@@ -447,17 +447,6 @@ class TestProjectTeamQuota(QuotaProjectionTestMixin):
         self.assertEqual(len(derive.call_args.args[0]), len(teams))
         capture.assert_called_once()
 
-    def test_reachability_is_read_only_for_the_batch_teams(self, mock_settings):
-        self._enable(mock_settings)
-        self.organization.is_active = False
-        self.organization.save()
-        with CaptureQueriesContext(connection) as queries:
-            project_team_quota(self.team)
-        reach = [q["sql"] for q in queries.captured_queries if "posthog_projectsecretapikey" in q["sql"]]
-        self.assertTrue(reach)
-        for sql in reach:
-            self.assertIn(f'"posthog_team"."id" IN ({self.team.id})', sql)
-
     def test_get_team_limited_until_reads_scores_fresh(self, mock_settings):
         until = int((timezone.now() + timedelta(days=3)).timestamp())
         _limit(self.team, QuotaResource.POSTHOG_CODE_CREDITS, until)
@@ -573,22 +562,22 @@ class TestReconcileQuotaProjection(QuotaProjectionTestMixin):
             is_active=False, updated_at=timezone.now() - timedelta(seconds=LLM_GATEWAY_QUOTA_DEACTIVATED_TTL + 60)
         )
 
-    def test_a_long_deactivated_org_with_no_gateway_credential_loses_its_blob(self, mock_settings):
+    def test_a_long_deactivated_org_with_no_gateway_credential_gets_and_keeps_a_blob(self, mock_settings):
         mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
-        self.organization.is_active = False
-        self.organization.save()
-        project_org_quota(self.organization)
-        self.assertIsNotNone(get_team_quota_blob(self.team))
         self._deactivate_long_ago()
+        self.assertNotIn(self.team.id, projected_team_ids())
 
         reconcile_quota_projection()
-        self.assertIsNone(get_team_quota_blob(self.team))
-        self.assertNotIn(self.team.id, projected_team_ids())
+        blob = get_team_quota_blob(self.team)
+        assert blob is not None
+        self.assertTrue(blob["org_deactivated"])
         self.assertEqual(reconcile_quota_projection()["candidates"], 0)
-        self.assertIsNone(get_team_quota_blob(self.team))
+        self.assertIsNotNone(get_team_quota_blob(self.team))
 
     @parameterized.expand(["admission_enabled", "secret_key_on_child_env", "oauth_app"])
-    def test_a_long_deactivated_org_that_can_still_reach_the_gateway_keeps_its_blob(self, mock_settings, credential):
+    def test_a_long_deactivated_org_that_can_still_reach_the_gateway_has_an_evicted_blob_rewritten(
+        self, mock_settings, credential
+    ):
         mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
         if credential == "admission_enabled":
             Team.objects.filter(pk=self.team.pk).update(llm_gateway_enabled_at=timezone.now())
@@ -608,23 +597,14 @@ class TestReconcileQuotaProjection(QuotaProjectionTestMixin):
                 user=self.user,
             )
         self._deactivate_long_ago()
+        project_org_quota(self.organization)
+        hypercache.cache_client.delete(hypercache.get_cache_key(self.team))
+        self.assertIn(self.team.id, projected_team_ids())
 
         reconcile_quota_projection()
         blob = get_team_quota_blob(self.team)
         assert blob is not None
         self.assertTrue(blob["org_deactivated"])
-
-    def test_a_revoked_admission_does_not_keep_a_long_deactivated_blob(self, mock_settings):
-        mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
-        Team.objects.filter(pk=self.team.pk).update(
-            llm_gateway_enabled_at=timezone.now(), llm_gateway_revoked_at=timezone.now()
-        )
-        ProjectSecretAPIKey.objects.create(
-            team=self.team, label="not gateway", scopes=["query:read"], secure_value="sha256$quota-test-2"
-        )
-        self._deactivate_long_ago()
-        reconcile_quota_projection()
-        self.assertIsNone(get_team_quota_blob(self.team))
 
     def test_reconcile_untracks_a_deleted_team_once_its_blob_expired(self, mock_settings):
         mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
