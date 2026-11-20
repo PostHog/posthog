@@ -75,6 +75,60 @@ describe('RecipientsManager', () => {
             })
         })
 
+        it('finds an email address stored in another case', async () => {
+            await createRecipient(team.id, 'User@Example.com', { $all: 'OPTED_OUT' })
+
+            const results = await manager.getMany([
+                { teamId: team.id, identifier: 'user@example.com', anyCase: true },
+                { teamId: team.id, identifier: 'USER@EXAMPLE.COM', anyCase: true },
+            ])
+
+            expect(results[`${team.id}:user@example.com`]?.preferences).toEqual({ $all: 'OPTED_OUT' })
+            expect(results[`${team.id}:USER@EXAMPLE.COM`]?.preferences).toEqual({ $all: 'OPTED_OUT' })
+        })
+
+        it('lets the spelling the send names win over another spelling of the address', async () => {
+            await createRecipient(team.id, 'user@example.com', { $all: 'OPTED_IN', 'category-1': 'OPTED_OUT' })
+            await createRecipient(team.id, 'User@Example.com', { $all: 'OPTED_OUT' })
+
+            const result = await manager.get({ teamId: team.id, identifier: 'user@example.com', anyCase: true })
+
+            expect(result?.identifier).toBe('user@example.com')
+            expect(result?.preferences).toEqual({ $all: 'OPTED_IN', 'category-1': 'OPTED_OUT' })
+        })
+
+        it('matches an identifier exactly unless the caller says it is an email address', async () => {
+            await createRecipient(team.id, 'User@Example.com', { $all: 'OPTED_OUT' })
+
+            expect(await manager.get({ teamId: team.id, identifier: 'user@example.com' })).toBeNull()
+            expect(await manager.get({ teamId: team.id, identifier: 'user@example.com', anyCase: true })).not.toBeNull()
+        })
+
+        it('reads many spellings of one address without slowing down', async () => {
+            // Every upper and lower case mix of 16 letters, 50,000 spellings of one address in all.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                 SELECT gen_random_uuid(), $1,
+                    (SELECT string_agg(CASE WHEN (g >> i) & 1 = 1 THEN 'A' ELSE 'a' END, '' ORDER BY i) FROM generate_series(0, 15) i)
+                        || '@example.com',
+                    '{"$all": "OPTED_OUT"}', NOW(), NOW(), false
+                 FROM generate_series(0, 49999) g`,
+                [team.id],
+                'testInsertSpellings'
+            )
+
+            const started = Date.now()
+            const result = await manager.get({
+                teamId: team.id,
+                identifier: 'aaaaaaaaaaaaaaaa@example.com',
+                anyCase: true,
+            })
+
+            expect(result?.preferences).toEqual({ $all: 'OPTED_OUT' })
+            expect(Date.now() - started).toBeLessThan(2000)
+        })
+
         it('should filter out deleted recipients', async () => {
             const id = await createRecipient(team.id, 'user@example.com', {})
 

@@ -20,7 +20,7 @@ fn main() {
     init_detailed_diagnostics();
 
     let result = cmd::Cli::run();
-    posthog_rs::flush();
+    posthog::flush();
 
     match result {
         // A child process (the `api` proxy) failed: telemetry is flushed above,

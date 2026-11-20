@@ -39,6 +39,9 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
         # web GET /health: 5 server spans, healthy.
         for _ in range(5):
             w.span("web", name="GET /health", env="prod")
+        # web GET /report: satisfied, tolerating (between 500 ms and 2 s) and frustrated -> Apdex 0.5.
+        for ms in (100, 900, 2500):
+            w.span("web", name="GET /report", ms=ms, env="prod")
         # api POST /charge: a non-root server span is still an endpoint.
         for _ in range(4):
             w.span("api", name="POST /charge", env="prod", parent=root)
@@ -52,6 +55,22 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
             w.span("worker", name="cron.tick", kind=3, env="prod")
         # Another environment must not appear for prod.
         w.span("eu-only", name="GET /eu", env="staging")
+        # Bare-method server spans keep the path template in an attribute, in their own environment.
+        for _ in range(3):
+            w.span("rest", name="POST", env="routes", attributes={"http.route": "/users/:id"})
+        w.span("rest", name="POST", env="routes", attributes={"http.route": "/teams/:id"})
+        w.span("rest", name="GET", env="routes", attributes={"url.template": "/items/{id}"})
+        w.span("rest", name="GET", env="routes", attributes={"http.route": "/a/:id", "url.template": "/b/{id}"})
+        w.span("rest", name="DELETE", env="routes")
+        # A present but empty http.route still outranks url.template, as the drilldown's is_not_set guard reads it.
+        w.span("rest", name="PUT", env="routes", attributes={"http.route": "", "url.template": "/x/{id}"})
+        w.span("rest", name="process", env="routes", attributes={"http.route": "/ignored"})
+        # Outgoing calls named only by their method take their target: the database system first, then the host.
+        w.span("rest", name="GET", env="routes", attributes={"db.system": "redis", "net.peer.name": "cache.internal"})
+        w.span(
+            "rest", name="POST", env="routes", attributes={"server.address": "profiles.internal", "url.path": "/ingest"}
+        )
+        w.span("rest", name="HEAD", env="routes", attributes={"net.peer.name": "cache.internal"})
         w.insert()
 
     def _list(self, **params) -> dict:
@@ -71,9 +90,23 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
                 ("web", "GET /orders"),
                 ("api", "POST /charge"),
                 ("web", "GET /health"),
+                ("web", "GET /report"),
                 ("worker", "cron.tick"),
             ],
         )
+
+    def test_one_service_cannot_fill_the_list_unless_filtered_to_it(self) -> None:
+        with (
+            patch("products.apm.backend.logic.health.sources.ENDPOINTS_LIMIT", 4),
+            patch("products.apm.backend.logic.health.sources.ENDPOINTS_PER_SERVICE_LIMIT", 1),
+        ):
+            rows = [(r["service_name"], r["endpoint"]) for r in self._list()["results"]]
+            web = [r["endpoint"] for r in self._list(service="web")["results"]]
+        self.assertEqual(
+            rows,
+            [("queue", "orders process"), ("web", "GET /orders"), ("api", "POST /charge"), ("worker", "cron.tick")],
+        )
+        self.assertEqual(web, ["GET /orders", "GET /health", "GET /report"])
 
     def test_row_carries_the_health_contract(self) -> None:
         orders = next(r for r in self._list()["results"] if r["endpoint"] == "GET /orders")
@@ -84,6 +117,9 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(orders["health"]["error_rate"], 0.1)
         self.assertAlmostEqual(orders["health"]["request_rate"], 10 / 7200, places=6)
         self.assertGreaterEqual(orders["health"]["p95_ms"], 50)
+        self.assertAlmostEqual(orders["health"]["apdex"], 0.9)
+        report = next(r for r in self._list()["results"] if r["endpoint"] == "GET /report")
+        self.assertAlmostEqual(report["health"]["apdex"], 0.5)
 
     def test_client_and_internal_child_spans_are_not_endpoints(self) -> None:
         endpoints = {r["endpoint"] for r in self._list()["results"]}
@@ -92,7 +128,7 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_service_filter(self) -> None:
         rows = self._list(service="web")["results"]
-        self.assertEqual([r["endpoint"] for r in rows], ["GET /orders", "GET /health"])
+        self.assertEqual([r["endpoint"] for r in rows], ["GET /orders", "GET /health", "GET /report"])
 
     def test_environment_filter(self) -> None:
         self.assertNotIn("eu-only", {r["service_name"] for r in self._list()["results"]})
@@ -102,10 +138,33 @@ class TestEndpointsHealthAPI(ClickhouseTestMixin, APIBaseTest):
     def test_no_environment_lists_endpoints_from_every_environment(self) -> None:
         everything = self._list(environment=None)
         self.assertIsNone(everything["environment"])
-        prod_and_staging = self._list()["results"] + self._list(environment="staging")["results"]
+        per_environment = [
+            row for env in ("prod", "staging", "routes") for row in self._list(environment=env)["results"]
+        ]
         self.assertEqual(
             sorted((r["service_name"], r["endpoint"], r["health"]["span_count"]) for r in everything["results"]),
-            sorted((r["service_name"], r["endpoint"], r["health"]["span_count"]) for r in prod_and_staging),
+            sorted((r["service_name"], r["endpoint"], r["health"]["span_count"]) for r in per_environment),
+        )
+
+    def test_bare_method_spans_are_labelled_with_their_route(self) -> None:
+        rows = {
+            r["endpoint"]: (r["span_name"], r["route_attribute"], r["route"], r["health"]["span_count"])
+            for r in self._list(environment="routes")["results"]
+        }
+        self.assertEqual(
+            rows,
+            {
+                "POST /users/:id": ("POST", "http.route", "/users/:id", 3),
+                "POST /teams/:id": ("POST", "http.route", "/teams/:id", 1),
+                "GET /items/{id}": ("GET", "url.template", "/items/{id}", 1),
+                "GET /a/:id": ("GET", "http.route", "/a/:id", 1),
+                "DELETE": ("DELETE", None, None, 1),
+                "PUT": ("PUT", None, None, 1),
+                "process": ("process", None, None, 1),
+                "GET redis": ("GET", "db.system", "redis", 1),
+                "POST profiles.internal": ("POST", "server.address", "profiles.internal", 1),
+                "HEAD cache.internal": ("HEAD", "net.peer.name", "cache.internal", 1),
+            },
         )
 
     def test_rejects_a_window_over_seven_days(self) -> None:

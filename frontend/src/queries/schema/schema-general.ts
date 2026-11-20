@@ -2091,6 +2091,7 @@ export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 export type ResultCustomizationBase = {
     color?: DataColorToken
     hidden?: boolean
+    yAxisPosition?: 'auto' | 'left' | 'right'
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
@@ -2218,6 +2219,8 @@ export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusion
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
+    /** @default false */
+    showSummaryOnDashboards?: boolean
     /** @default [] */
     exclusions?: FunnelExclusion[]
     /** @default vertical */
@@ -5577,8 +5580,21 @@ export interface MetricsQuerySeries {
     histogramBounds?: number[]
 }
 
+/** `precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples. */
+export type MetricsQueryProvenanceMode = 'precomputed' | 'mixed' | 'raw'
+
+/** Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles. */
+export interface MetricsQueryProvenance {
+    mode: MetricsQueryProvenanceMode
+    /** Buckets before this time came from precomputed metrics. Absent when no clause read them. */
+    precomputedUntil?: string
+    /** Why clauses ran raw, one per clause. */
+    reasons?: string[]
+}
+
 export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
     results: MetricsQuerySeries[]
+    provenance?: MetricsQueryProvenance
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
@@ -5813,6 +5829,8 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
+    /** Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results. */
+    entry_span_count?: integer
     /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
     sessions?: integer
     users?: integer
@@ -9176,7 +9194,7 @@ export interface MarketingAnalyticsRecommendationsSource {
     searchTermKeywordTable?: string
     /** Google Ads search term table for Performance Max campaigns. */
     performanceMaxSearchTermTable?: string
-    /** Google Ads ad table, used to read the ad copy of each ad group. */
+    /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
     adTable?: string
     /** Google Ads daily campaign conversions split by conversion action. */
     campaignConversionActionTable?: string
@@ -9323,6 +9341,8 @@ export interface MarketingAnalyticsRecommendation {
     impact?: number | null
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
+    /** True when the monthly impact is under 1% of the ad account's monthly spend. */
+    minor?: boolean
     currency?: string | null
     /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
     steps?: MarketingAnalyticsRecommendationStep[]

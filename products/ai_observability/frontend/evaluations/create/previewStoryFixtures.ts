@@ -9,7 +9,7 @@ export const STORY_STEPS: PreviewStep[] = [
     { key: 'name', title: 'Evaluate', part: 'method', checks: ['name'] },
     { key: 'output', title: 'Returns', part: 'output', checks: ['result'] },
     { key: 'traffic', title: 'Runs on', part: 'triggers', checks: ['sampling'] },
-    { key: 'check', title: 'Check', part: 'model', checks: ['criteria', 'model'] },
+    { key: 'check', title: 'Score', part: 'model', checks: ['criteria', 'model'] },
     { key: 'reports', title: 'Reports', part: 'reports', checks: [] },
 ]
 

@@ -43,7 +43,7 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import (
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
-from products.replay_vision.backend.quota import compute_quota_snapshot, quota_state
+from products.replay_vision.backend.quota import BillingSyncPending, compute_quota_snapshot, quota_state
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -59,6 +59,7 @@ from products.replay_vision.backend.scanning import (
     run_inline_scan,
     scan_existing_scanner,
 )
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
@@ -702,6 +703,13 @@ def _unanswered_reused(scanner: ReplayScanner, results: list[dict[str, str]]) ->
     )
 
 
+def _billing_sync_pending(lead: str) -> tuple[str, dict[str, Any]]:
+    return (
+        f"{lead}: this organization's billing details are still loading. Try again in a minute.",
+        {"error": "billing_sync_pending"},
+    )
+
+
 def _no_recording_sentence(count: int) -> str:
     return (
         f"{count} recording(s) could not be found, so they were not scanned and cost nothing. A recording can "
@@ -899,18 +907,24 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             }
 
         if scanner is not None:
-            started, scanned = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
+            try:
+                started, scanned = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
+            except BillingSyncPending:
+                return _billing_sync_pending("Nothing started")
             if any(result["scan_outcome"] == "skipped_scanner_limit" for result in scanned):
                 record_scanner_limit_reached("max_tool")
         else:
-            scan = run_inline_scan(
-                team=self._team,
-                user=self._user,
-                session_ids=sessions,
-                scanner_type=inline_type,
-                scanner_config=inline_config,
-                model=DEFAULT_SCAN_MODEL,
-            )
+            try:
+                scan = run_inline_scan(
+                    team=self._team,
+                    user=self._user,
+                    session_ids=sessions,
+                    scanner_type=inline_type,
+                    scanner_config=inline_config,
+                    model=DEFAULT_SCAN_MODEL,
+                )
+            except BillingSyncPending:
+                return _billing_sync_pending("Nothing started")
             if scan.scanner is None:
                 return (
                     "Nothing started: this project's monthly Replay Vision credits are used up.",
@@ -1030,7 +1044,9 @@ class GetReplayVisionQuotaTool(ReplayVisionGatesMixin, MaxTool):
     def _read(self) -> tuple[str, dict[str, Any]]:
         snapshot = compute_quota_snapshot(self._team.organization_id)
         resets = snapshot.period_end.strftime("%b %-d")
-        if snapshot.credit_limit is None:
+        if snapshot.awaiting_billing_sync:
+            content = "This organization's billing details are still loading, so its credits aren't known yet."
+        elif snapshot.credit_limit is None:
             content = (
                 f"{snapshot.credits_used} credits used this period, which resets on {resets}. "
                 "This project has no monthly credit limit set."
@@ -1194,6 +1210,8 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
             return _observation_not_found(observation_id)
         try:
             outcome, _ = retry_observation(observation=observation, user=self._user)
+        except BillingSyncPending:
+            return _billing_sync_pending("Not retried")
         except QuotaLimitExceeded:
             return (
                 "Not retried: this project's monthly Replay Vision credits are used up.",
@@ -1309,7 +1327,7 @@ def _scanner_query_for(recordings_filters: MaxRecordingUniversalFilters | None) 
 
 def _has_recording_filter(scanner: ReplayScanner) -> bool:
     query = scanner.query if isinstance(scanner.query, dict) else {}
-    return any(query.get(key) for key in SCANNER_QUERY_FILTER_KEYS) or bool(scanner.experiment_scope())
+    return any(query.get(key) for key in SCANNER_QUERY_FILTER_KEYS) or experiment_id_of(scanner) is not None
 
 
 CREATE_SCANNER_TOOL_DESCRIPTION = """

@@ -23,6 +23,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     RECHECKED_TRIGGER_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
+    SANDBOX_EMAIL_ACTION_TYPE,
     HogFlow,
     exit_condition_that_runs,
 )
@@ -104,6 +105,33 @@ def trigger_has_audience(trigger: Optional[dict]) -> bool:
 def publish_confirm_value(*, hog_flow_id: UUID, draft_updated_at: Optional[datetime]) -> str:
     draft_stamp = draft_updated_at.isoformat() if draft_updated_at else ""
     return f"{hog_flow_id}:{draft_stamp}"
+
+
+def _enables_on_sandbox_sender(before_update: HogFlow, validated_data: dict, *, route_to_draft: bool) -> bool:
+    if before_update.status == HogFlow.State.ACTIVE or validated_data.get("status") != HogFlow.State.ACTIVE:
+        return False
+    # A staged write puts the submitted steps in the draft, so the stored steps are the ones that go live.
+    actions = before_update.actions if route_to_draft else validated_data.get("actions", before_update.actions)
+    return any(
+        isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+        for action in (actions if isinstance(actions, list) else [])
+    )
+
+
+def publish_moves_to_sandbox_sender(*, status: str, live_actions: Any, draft: Any) -> bool:
+    """Whether publishing the staged draft of an enabled workflow puts email steps on the PostHog test sender
+    that the live workflow does not already send from it."""
+    if status != "active" or not isinstance(draft, dict):
+        return False
+
+    def sandbox_ids(actions: Any) -> set[str]:
+        return {
+            str(action.get("id"))
+            for action in (actions if isinstance(actions, list) else [])
+            if isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+        }
+
+    return bool(sandbox_ids(draft.get("actions")) - sandbox_ids(live_actions))
 
 
 def _without_bytecode_contracts(node: Any) -> Any:
@@ -416,6 +444,7 @@ def update_workflow(
     keeps_live_sensitivity: bool = True,
     requested_exit_condition: Optional[str] = None,
     before_write: Optional[Callable[[], None]] = None,
+    sandbox_sender_warned: Optional[bool] = None,
 ) -> WorkflowWriteResult:
     # Optimistic concurrency: a client may send the `updated_at` it last loaded as `base_updated_at`.
     # If the stored row is strictly newer, another channel (a second UI tab, MCP, or the API) wrote in
@@ -473,6 +502,12 @@ def update_workflow(
             ):
                 guard_timestamp = before_update.draft_updated_at
         if base_stamp and guard_timestamp and guard_timestamp > base_stamp:
+            raise WorkflowStale()
+        # The caller checked the steps before it asked, and showed no test sender warning. Steps that
+        # moved onto the test sender since then must not go live behind that check.
+        if sandbox_sender_warned is False and _enables_on_sandbox_sender(
+            before_update, validated_data, route_to_draft=route_to_draft
+        ):
             raise WorkflowStale()
         if before_write is not None:
             before_write()
@@ -639,14 +674,23 @@ def publish_draft(
     hog_flow_id: UUID,
     previewed_value: str,
     validate: Callable[[WorkflowEditState, dict], dict],
+    sandbox_sender_warned: Optional[bool] = None,
 ) -> WorkflowWriteResult:
     """Promote the staged draft to the live config. `validate` receives the locked workflow and the draft
-    content, and returns the validated fields to write."""
+    content, and returns the validated fields to write. `sandbox_sender_warned` is False when the caller
+    showed no test sender warning, so a publish that would now move steps onto the test sender is refused.
+    None skips that check."""
     with transaction.atomic():
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=team_id)
         if not locked.draft:
             raise WorkflowHasNoDraft()
         if previewed_value != publish_confirm_value(hog_flow_id=locked.id, draft_updated_at=locked.draft_updated_at):
+            raise WorkflowStale()
+        # A live write since the preview can turn a publish that warned of nothing into one that moves steps
+        # onto the test sender, so the rule runs again on the locked row.
+        if sandbox_sender_warned is False and publish_moves_to_sandbox_sender(
+            status=locked.status, live_actions=locked.actions, draft=locked.draft
+        ):
             raise WorkflowStale()
 
         before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)

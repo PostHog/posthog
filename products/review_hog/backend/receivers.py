@@ -4,7 +4,7 @@ A `post_save` receiver on `tasks.TaskRun`, connected through the tasks facade ho
 review_hog, keeping every product edge in the existing direction). The trigger is the save that
 records a review target on the run's `output` — NOT run completion: on the tasks architecture a
 successful run deliberately never leaves `in_progress` (it stays followable and the PR follow-up
-loop babysits the PR; see `execute_sandbox/workflow.py::_maybe_record_terminal_status`), so a
+loop babysits the PR), so a
 completion-gated trigger would never fire. The review is gated by the **report's assignees**: the
 users the Inbox "For you" filter and its Slack notifications resolve from the report's latest
 `suggested_reviewers` artefact. The acting reviewer — whose `review_inbox_prs` gates the review

@@ -685,8 +685,9 @@ export function makeToolExecutorState(
         oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
-            isCliModeEnabled: vi.fn(() => false),
+            prefersFormattedText: vi.fn(() => false),
             isInlineExecUiHost: vi.fn(() => false),
+            drawsTimeSeriesCharts: vi.fn(() => false),
             isCursor: vi.fn(() => false),
             isClaudeChatHost: vi.fn(() => false),
             isAnthropicConnector: vi.fn(() => false),

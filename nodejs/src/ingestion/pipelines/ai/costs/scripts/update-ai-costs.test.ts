@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
-import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
+import { PROVIDER_ALIASES, normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
 import { openRouterCostsByModel } from '~/ingestion/pipelines/ai/costs/providers'
 import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
@@ -1638,6 +1638,21 @@ describe('writeOutputs()', () => {
         writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [], 0)
 
         expect(writes.some(([f]) => f.endsWith('canonical-providers.ts'))).toBe(true)
+    })
+
+    it('keeps alias targets in the union when the feed drops their route', () => {
+        // The feed omits a provider whenever its route goes quiet for one fetch.
+        // Dropping the key then fails typecheck in provider-matching.ts, so the
+        // union must hold the alias targets even with no cost row behind them.
+        process.env[DISCOUNT_SUMMARY_ENV] = summaryPath
+        const writes = captureWrites()
+
+        writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [], 0)
+
+        const [, body] = writes.find(([f]) => f.endsWith('canonical-providers.ts'))!
+        for (const target of Object.values(PROVIDER_ALIASES)) {
+            expect(body).toContain(`| '${target}'`)
+        }
     })
 
     it('does not throw when the summary write fails', () => {

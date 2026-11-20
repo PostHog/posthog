@@ -15,6 +15,11 @@ pub const WRITE_PATH_LATENCY_BUCKETS_MS: &[f64] = &[
     1000.0, 2000.0, 5000.0,
 ];
 
+pub const FLUSH_LATENCY_BUCKETS_MS: &[f64] = &[
+    5.0, 10.0, 20.0, 30.0, 40.0, 50.0, 75.0, 100.0, 125.0, 150.0, 200.0, 250.0, 300.0, 400.0,
+    500.0, 750.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0,
+];
+
 /// Millisecond buckets for partition warms: sub-second once consumer
 /// pools are warm, with enough headroom above to see a cold-pool
 /// regression rather than collapsing it into +Inf.

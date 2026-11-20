@@ -1,9 +1,11 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { settingsLogic } from 'scenes/settings/settingsLogic'
 
+import { ErrorTrackingAIFeatureEnumApi } from '~/generated/core/api.schemas'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
@@ -16,6 +18,11 @@ import { AIFeaturesSettings } from './AIFeaturesSettings'
 jest.mock('../../../generated/api', () => ({
     errorTrackingSettingsRetrieveSettingsRetrieve: jest.fn(),
     errorTrackingSettingsUpdateSettingsPartialUpdate: jest.fn(),
+}))
+
+jest.mock('posthog-js/dist/surveys-preview', () => ({
+    renderFeedbackWidgetPreview: jest.fn(),
+    renderSurveysPreview: jest.fn(),
 }))
 
 const mockRetrieveSettings = jest.mocked(errorTrackingSettingsRetrieveSettingsRetrieve)
@@ -84,5 +91,20 @@ describe('AIFeaturesSettings', () => {
         expect(toastError).toHaveBeenCalledTimes(1)
         expect(toastError.mock.calls[0][0]).toBe(toast)
         expect(toggle()?.getAttribute('aria-checked')).toBe('false')
+    })
+
+    test.each([
+        { features: [ErrorTrackingAIFeatureEnumApi.IssueSummaries], visible: true },
+        { features: [], visible: false },
+        { features: undefined, visible: false },
+    ])('the settings list the section for a team with AI features $features: $visible', ({ features, visible }) => {
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, available_error_tracking_ai_features: features })
+        const logic = settingsLogic({
+            logicKey: 'ai-features-visibility-test',
+            sectionId: 'environment-error-tracking-configuration',
+        })
+        logic.mount()
+
+        expect(logic.values.settings.some((setting) => setting.id === 'error-tracking-ai-features')).toBe(visible)
     })
 })

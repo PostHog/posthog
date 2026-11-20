@@ -657,7 +657,9 @@ class TestSpineInclusion(BaseTest):
             patch.object(dag, "labels_team", lambda: self.team),
             patch.object(dag, "hogql_rows", lambda *args, **kwargs: [(excluded[0],)]),
             patch.object(dag, "s3_client", lambda: None),
-            patch.object(dag, "write_parquet", lambda client, bucket, key, table: written.update(table=table)),
+            patch.object(
+                dag, "write_parquet", lambda client, bucket, key, table, **kwargs: written.update(table=table)
+            ),
             dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat()) as context,
         ):
             dag.inbox_report_state(context)
@@ -677,7 +679,9 @@ class TestSpineInclusion(BaseTest):
             patch.object(dag, "labels_team", lambda: self.team),
             patch.object(dag, "hogql_rows", lambda *args, **kwargs: []),
             patch.object(dag, "s3_client", lambda: None),
-            patch.object(dag, "write_parquet", lambda client, bucket, key, table: written.update(table=table)),
+            patch.object(
+                dag, "write_parquet", lambda client, bucket, key, table, **kwargs: written.update(table=table)
+            ),
             dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat()) as context,
         ):
             dag.inbox_report_state(context)

@@ -1,10 +1,13 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { FilterLogicalOperator } from '~/types'
 
+import { destroyTagRule, listTagRules, reorderTagRules } from './tagRuleRequests'
 import { ErrorTrackingRule, ErrorTrackingRuleNew, ErrorTrackingRuleType, ErrorTrackingRulesLogicProps } from './types'
 
 function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): ErrorTrackingRuleNew {
@@ -269,6 +272,9 @@ export const rulesLogic = kea<rulesLogicType>([
             [] as ErrorTrackingRule[],
             {
                 loadRules: async () => {
+                    if (props.ruleType === ErrorTrackingRuleType.Tag) {
+                        return await listTagRules()
+                    }
                     const { results: rules } = await api.errorTracking.rules(props.ruleType)
                     return rules
                 },
@@ -286,13 +292,27 @@ export const rulesLogic = kea<rulesLogicType>([
                     return newValues
                 },
                 deleteRule: async (id) => {
-                    if (id !== 'new') {
+                    if (id !== 'new' && props.ruleType === ErrorTrackingRuleType.Tag) {
+                        await destroyTagRule(id)
+                    } else if (id !== 'new') {
                         await api.errorTracking.deleteRule(props.ruleType, id)
                     }
                     const newValues = [...values.rules]
                     return newValues.filter((v) => v.id !== id)
                 },
                 deleteSelectedRules: async () => {
+                    if (props.ruleType === ErrorTrackingRuleType.Tag) {
+                        // A failed delete must not hide the deletes that succeeded, or a retry hits their 404s.
+                        // Cancel clears the selection while the requests run, so reconcile against a copy.
+                        const selectedIds = values.selectedRuleIds
+                        const results = await Promise.allSettled(selectedIds.map((id) => destroyTagRule(id)))
+                        const deletedIds = selectedIds.filter((_, index) => results[index].status === 'fulfilled')
+                        const failedCount = results.length - deletedIds.length
+                        if (failedCount > 0) {
+                            lemonToast.error(`Couldn't delete ${failedCount} of ${results.length} rules. Try again.`)
+                        }
+                        return values.rules.filter((rule) => !deletedIds.includes(rule.id))
+                    }
                     await Promise.all(
                         values.selectedRuleIds.map((id) =>
                             id === 'new' ? Promise.resolve() : api.errorTracking.deleteRule(props.ruleType, id)
@@ -303,7 +323,11 @@ export const rulesLogic = kea<rulesLogicType>([
                 finishReorderingRules: async () => {
                     const rules = values.localRules
                     const ruleOrders = Object.fromEntries(rules.map((r) => [r.id, r.order_key]))
-                    await api.errorTracking.reorderRules(props.ruleType, ruleOrders)
+                    if (props.ruleType === ErrorTrackingRuleType.Tag) {
+                        await reorderTagRules(ruleOrders)
+                    } else {
+                        await api.errorTracking.reorderRules(props.ruleType, ruleOrders)
+                    }
                     return rules
                 },
             },
