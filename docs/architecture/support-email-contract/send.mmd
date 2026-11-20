@@ -1,0 +1,18 @@
+sequenceDiagram
+  autonumber
+  actor A as Agent
+  participant O as Outbox
+  participant M as Messaging
+  participant C as CDP
+  participant S as SES
+  A->>O: reply comment
+  O->>O: outbox row in same txn
+  O->>O: lease, render, snapshot
+  O->>M: send_code_email(SUPPORT, key)
+  M->>C: queue send
+  C-->>M: 202 send_id
+  M-->>O: QueuedEmail(send_id)
+  O->>O: SENT, keep send_id
+  C->>S: SendEmail, thread headers
+  S-->>C: SES MessageId
+  C->>C: Q9 wire id for send_id

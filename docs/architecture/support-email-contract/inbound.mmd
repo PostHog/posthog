@@ -1,0 +1,19 @@
+sequenceDiagram
+  autonumber
+  actor U as Customer
+  participant S as SES
+  participant I as Intake
+  participant V as Conversations
+  participant M as Messaging
+  U->>S: mail to team-token@
+  S->>I: S3 object, signed SNS
+  I->>I: parse, route by recipient
+  I->>V: InboundEmail
+  V->>V: adapter, policy
+  V->>V: ingest_email, dedup
+  opt thread mapping misses
+    V->>M: match_sent_message_ids
+    M-->>V: send_id
+  end
+  V-->>I: RouteOutcome
+  I->>I: Q11 ack, drop S3 object

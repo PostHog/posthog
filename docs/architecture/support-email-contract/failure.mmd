@@ -1,0 +1,24 @@
+sequenceDiagram
+  autonumber
+  participant Conv as Outbox
+  participant Msg as Messaging facade
+  participant CDP as CDP worker
+  Conv->>Msg: send_code_email(key=outbox id)
+  Msg->>CDP: queue send
+  CDP->>CDP: queued, send_id A
+  CDP--xMsg: response lost (timeout)
+  Msg-->>Conv: DeliveryUnavailable
+  Conv->>Conv: keep PENDING, backoff, same key and snapshot
+  Note over Conv,CDP: minutes to 5 days later, sweeper re-drives
+  Conv->>Msg: send_code_email(same key, same payload)
+  Msg->>CDP: queue send
+  CDP-->>Msg: replayed, send_id A
+  Msg-->>Conv: QueuedEmail(A, replayed=True)
+  Conv->>Conv: SENT, no second email
+  alt sender domain lost SES verification
+    Msg-->>Conv: SenderNotVerified
+    Conv->>Conv: channel unverified, row FAILED, badge "failed"
+  else other refusal
+    Msg-->>Conv: TransactionalEmailError(code)
+    Conv->>Conv: row FAILED with code
+  end
