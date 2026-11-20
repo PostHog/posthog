@@ -416,12 +416,8 @@ jobs:
                         # Transitional: branches that predate the move still carry the
                         # resolver at tools/owners.
                         - 'tools/owners/**'
-                        # product:lint --all checks these generated files against the tree,
-                        # so a baseline-only edit must run it too. The crossings baseline is
-                        # also what product:lint reads to let a wiring location leave a
-                        # product's turbo.json inputs, so both edits must run the checks.
-                        - products/isolation_baseline.txt
-                        - products/model_crossing_uses_baseline.txt
+                        # hoglint's Isolated level reads each product's contract-check
+                        # inputs, so an inputs-only edit must run `hoglint compare`.
                         - 'products/*/turbo.json'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml

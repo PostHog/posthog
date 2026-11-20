@@ -2065,8 +2065,6 @@ test('files no vendor check reads keep their own lanes but not the vendor lane',
         ['docker-compose.base.yml', 'fe:core'],
         ['docker/clickhouse/config.d/default.xml', 'node:ingestion'],
         ['otel-collector-config.dev.yaml', 'py:core'],
-        // A ledger of imports between products, which a vendor cannot make.
-        ['products/model_crossing_uses_baseline.txt', 'py:product:warehouse_sources'],
         // Release, bot, and local-only files.
         ['.github/workflows/release-toolbar-extension.yml', 'deploy'],
         ['.github/workflows/renovate-dashboard-digest.yml', 'repo-automation'],
