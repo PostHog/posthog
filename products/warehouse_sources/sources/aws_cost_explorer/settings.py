@@ -319,9 +319,13 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 AWS_SESSION_ACTIONS = (
     "ce:GetCostAndUsage",
     "ce:GetCostAndUsageWithResources",
+    "ce:GetCostForecast",
     "ce:GetDimensionValues",
     "ce:GetReservationCoverage",
+    "ce:GetReservationPurchaseRecommendation",
     "ce:GetReservationUtilization",
+    "ce:GetRightsizingRecommendation",
     "ce:GetSavingsPlansCoverage",
     "ce:GetSavingsPlansUtilization",
+    "ce:GetSavingsPlansUtilizationDetails",
 )
