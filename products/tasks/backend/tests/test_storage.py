@@ -137,48 +137,61 @@ class TestAppendJsonlObject(SimpleTestCase):
         mock_append.assert_called_once_with("sessions/example.jsonl", b'{"type": "session"}', separator=b"\n")
 
 
-def _chunked_log(chunk_count: int) -> TaskRunLog:
-    return TaskRunLog(key="tasks/logs/team_1/task_1/run_1.jsonl", chunked=True, chunk_count=chunk_count)
+_LOG_KEY = "tasks/logs/team_1/task_1/run_1.jsonl"
+_LOG_PREFIX = "tasks/logs/team_1/task_1/run_1/"
+
+
+def _chunked_log(chunk_count: int, *, finished: bool = False) -> TaskRunLog:
+    return TaskRunLog(key=_LOG_KEY, chunked=True, chunk_count=chunk_count, finished=finished)
+
+
+def _line(index: int) -> bytes:
+    return json.dumps({"index": index}).encode() + b"\n"
 
 
 class TestChunkedRunLog(SimpleTestCase):
-    def _bucket(self, chunk_count: int, *, lose_first_response: bool = False) -> dict[str, MagicMock]:
-        stored = {index: (json.dumps({"index": index}).encode() + b"\n", {}) for index in range(chunk_count)}
+    def _bucket(
+        self, chunk_count: int, *, lose_first_response: bool = False
+    ) -> tuple[dict[str, MagicMock], dict[str, tuple[bytes, dict[str, str]]]]:
+        stored = {f"{_LOG_PREFIX}chunks/{index:010d}.jsonl": (_line(index), {}) for index in range(chunk_count)}
         responses_to_lose = [lose_first_response]
 
-        def index_of(key: str) -> int:
-            return int(key.rsplit("/", 1)[1].removesuffix(".jsonl"))
-
         def write_if_absent(key: str, content: bytes, *, metadata: dict[str, str]) -> bool:
-            if index_of(key) in stored:
+            if key in stored:
                 return False
-            stored[index_of(key)] = (content, metadata)
+            stored[key] = (content, metadata)
             if responses_to_lose.pop() if responses_to_lose else False:
                 return False
             return True
 
         def head_object_strict(key: str) -> dict | None:
-            if index_of(key) not in stored:
+            if key not in stored:
                 return None
-            content, metadata = stored[index_of(key)]
+            content, metadata = stored[key]
             return {"ContentLength": len(content), "Metadata": metadata}
 
         def read_bytes(key: str, missing_ok: bool) -> bytes | None:
             assert missing_ok
-            return stored[index_of(key)][0] if index_of(key) in stored else None
+            return stored[key][0] if key in stored else None
 
         def list_object_summaries(prefix: str) -> list[StoredObjectSummary]:
             return [
-                StoredObjectSummary(key=f"{prefix}{index:010d}.jsonl", etag=None, size=len(stored[index][0]))
-                for index in sorted(stored)
+                StoredObjectSummary(key=key, etag=None, size=len(stored[key][0]))
+                for key in sorted(stored)
+                if key.startswith(prefix)
             ]
 
-        return {
+        mocks = {
             "write_if_absent": MagicMock(side_effect=write_if_absent),
             "head_object_strict": MagicMock(side_effect=head_object_strict),
             "read_bytes": MagicMock(side_effect=read_bytes),
             "list_object_summaries": MagicMock(side_effect=list_object_summaries),
         }
+        return mocks, stored
+
+    def _append(self, entry_count: int) -> None:
+        for index in range(entry_count):
+            append_run_log_chunk(_chunked_log(index), [{"index": index}], lock_attempts=1, batch_id=None)
 
     @patch("products.tasks.backend.storage.object_storage.read_bytes", return_value=None)
     def test_read_fails_when_a_counted_chunk_is_missing(self, _mock_read: MagicMock) -> None:
@@ -187,7 +200,7 @@ class TestChunkedRunLog(SimpleTestCase):
 
     @patch("products.tasks.backend.storage.get_client")
     def test_append_lands_at_the_end_when_the_count_falls_behind(self, _mock_get_client: MagicMock) -> None:
-        bucket = self._bucket(100)
+        bucket, _ = self._bucket(100)
 
         with patch.multiple("products.tasks.backend.storage.object_storage", **bucket):
             chunk_count = append_run_log_chunk(_chunked_log(0), [{"type": "session"}], lock_attempts=1, batch_id=None)
@@ -196,7 +209,7 @@ class TestChunkedRunLog(SimpleTestCase):
         self.assertEqual(bucket["list_object_summaries"].call_count, 1)
 
     def test_version_checks_only_chunks_past_the_count(self) -> None:
-        bucket = self._bucket(7)
+        bucket, _ = self._bucket(7)
 
         with patch.multiple("products.tasks.backend.storage.object_storage", **bucket):
             version = read_run_log_version(_chunked_log(5))
@@ -206,7 +219,7 @@ class TestChunkedRunLog(SimpleTestCase):
 
     @patch("products.tasks.backend.storage.get_client")
     def test_append_keeps_a_write_whose_response_was_lost(self, _mock_get_client: MagicMock) -> None:
-        bucket = self._bucket(3, lose_first_response=True)
+        bucket, _ = self._bucket(3, lose_first_response=True)
 
         with patch.multiple("products.tasks.backend.storage.object_storage", **bucket):
             chunk_count = append_run_log_chunk(_chunked_log(3), [{"type": "session"}], lock_attempts=1, batch_id=None)
@@ -216,16 +229,60 @@ class TestChunkedRunLog(SimpleTestCase):
         self.assertEqual(content.count('"session"'), 1)
 
     def test_cache_reads_only_chunks_it_has_not_read(self) -> None:
-        bucket = self._bucket(3)
+        bucket, _ = self._bucket(3)
         cache = RunLogCache()
 
         with patch.multiple("products.tasks.backend.storage.object_storage", **bucket):
             first = cache.read(_chunked_log(3))
-            bucket["write_if_absent"](
-                "tasks/logs/team_1/task_1/run_1/chunks/0000000003.jsonl", b'{"index": 3}\n', metadata={}
-            )
+            bucket["write_if_absent"](f"{_LOG_PREFIX}chunks/0000000003.jsonl", _line(3), metadata={})
             bucket["read_bytes"].reset_mock()
             second = cache.read(_chunked_log(3))
 
-        self.assertEqual(second, first + '{"index": 3}\n')
+        self.assertEqual(second, first + _line(3).decode())
+        self.assertEqual(bucket["read_bytes"].call_count, 2)
+
+    @parameterized.expand(
+        [
+            ("every_fold_present", None, 5),
+            ("top_fold_missing", "folds/3/0000000000.jsonl", 9),
+        ]
+    )
+    @patch("products.tasks.backend.storage.FOLD_FANOUT", 4)
+    @patch("products.tasks.backend.storage.get_client")
+    def test_reads_use_the_folds_appends_write(
+        self, _name: str, removed_key: str | None, expected_reads: int, _mock_get_client: MagicMock
+    ) -> None:
+        bucket, stored = self._bucket(0)
+
+        with patch.multiple("products.tasks.backend.storage.object_storage", **bucket):
+            self._append(70)
+            if removed_key is not None:
+                del stored[f"{_LOG_PREFIX}{removed_key}"]
+            bucket["read_bytes"].reset_mock()
+            content = read_run_log(_chunked_log(70))
+
+        self.assertEqual(content, b"".join(_line(index) for index in range(70)).decode())
+        self.assertEqual(bucket["read_bytes"].call_count, expected_reads)
+
+    @patch("products.tasks.backend.storage.FOLD_FANOUT", 4)
+    @patch("products.tasks.backend.storage.FOLD_BYTES_MAX", 20)
+    @patch("products.tasks.backend.storage.get_client")
+    def test_append_does_not_fold_blocks_over_the_byte_limit(self, _mock_get_client: MagicMock) -> None:
+        bucket, stored = self._bucket(0)
+
+        with patch.multiple("products.tasks.backend.storage.object_storage", **bucket):
+            self._append(4)
+
+        self.assertEqual([key for key in stored if "/folds/" in key], [])
+
+    def test_finished_run_reads_its_seal_after_the_first_read(self) -> None:
+        bucket, _ = self._bucket(5)
+
+        with patch.multiple("products.tasks.backend.storage.object_storage", **bucket):
+            first = read_run_log(_chunked_log(5, finished=True))
+            bucket["read_bytes"].reset_mock()
+            second = read_run_log(_chunked_log(5, finished=True))
+
+        self.assertEqual(first, b"".join(_line(index) for index in range(5)).decode())
+        self.assertEqual(second, first)
         self.assertEqual(bucket["read_bytes"].call_count, 2)

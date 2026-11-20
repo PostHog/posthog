@@ -2761,7 +2761,7 @@ class TaskRun(models.Model):
         SINGLE = "single", "Single"
         CHUNKED = "chunked", "Chunked"
 
-    LOG_FIELDS = ("team_id", "task_id", "log_format", "log_chunk_count")
+    LOG_FIELDS = ("team_id", "task_id", "log_format", "log_chunk_count", "completed_at")
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -3273,6 +3273,7 @@ class TaskRun(models.Model):
             key=self.log_url,
             chunked=self.log_format == self.LogFormat.CHUNKED,
             chunk_count=self.log_chunk_count,
+            finished=self.completed_at is not None,
         )
 
     def get_task_s3_prefix(self) -> str:
