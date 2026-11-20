@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -3773,6 +3773,7 @@ async def test_stopped_run_finishes_cancelled_and_leaves_the_failure_streak(atea
 
     async def start(*args, before_task_dispatch=None, **kwargs):
         await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        update: dict[str, Any]
         if case == "cancel_requested_with_message":
             update = {"state": {"cancel_requested_at": "2026-11-17T12:00:00+00:00"}}
         else:
