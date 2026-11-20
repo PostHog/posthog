@@ -252,7 +252,7 @@ dev = [
     "faker==17.6.0",
     "fakeredis[lua]==2.34.1",
     "flameprof~=0.4",
-    "hoglint==0.2.3",
+    "hoglint==0.2.4",
     "hypothesis~=6.151.14",
     "pyinstrument~=5.1",
     # 16.6.1 and later write a retried failure to JUnit as an extra passing <testcase>, which reads as pass-on-retry.
