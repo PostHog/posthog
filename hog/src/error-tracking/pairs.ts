@@ -5,7 +5,7 @@ import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 
 import { isIgnored, type Artifact } from './discover'
-import { randomChunkId, releaseRequested, resolveJsRelease } from './js-flow'
+import { releaseRequested, resolveJsRelease } from './js-flow'
 import { isHermesBundlePath } from './kinds/hermes'
 import type { ReleaseMode, Skip } from './kinds/js'
 import type { Release } from './release'
@@ -87,9 +87,6 @@ export interface InjectedPairs {
     pairs: OwnedPair[]
 }
 
-const needsNewChunkId = (pair: PairState, releaseId: string | null): boolean =>
-    pair.mapReleaseId !== releaseId || pair.chunkId === null
-
 export async function injectPairs(
     ctx: Context,
     selection: Selection,
@@ -144,13 +141,11 @@ export async function injectPairs(
     let outcomes: InjectOutcome[]
     if (options.releaseMode === 'event') {
         outcomes = [
-            ...(await worker.inject(ids(js), 'event', releaseId)),
-            ...(await worker.inject(ids(hermes), 'event', null)),
+            ...(await worker.inject(ids(js), 'event', releaseId, ctx.runtime.now())),
+            ...(await worker.inject(ids(hermes), 'event', null, ctx.runtime.now())),
         ]
     } else {
-        const newChunkId = randomChunkId(ctx.runtime.now)
-        const newChunkIds = pairs.filter(({ pair }) => needsNewChunkId(pair, releaseId)).map(newChunkId)
-        outcomes = await worker.inject(ids(pairs), 'symbol-set', releaseId, newChunkIds)
+        outcomes = await worker.inject(ids(pairs), 'symbol-set', releaseId, ctx.runtime.now())
     }
     const byId = new Map(outcomes.map((outcome) => [outcome.pair.id, outcome]))
     for (const outcome of outcomes) {
