@@ -76,7 +76,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubInstallationUnavailableError, GitHubIntegration, GitHubIntegrationError
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request, is_sandbox_origin_request
@@ -325,6 +325,7 @@ from products.signals.backend.serializers import (
     AlertPatternPreviewRequestSerializer,
     AlertPatternPreviewResponseSerializer,
     CommitDiffResponseSerializer,
+    GitHubInstallationUnavailableErrorSerializer,
     GitHubRepositoryInaccessibleErrorSerializer,
     PersonalRankingQuerySerializer,
     PersonalRankingSerializer,
@@ -470,6 +471,21 @@ def github_repository_inaccessible_response(team_id: int, repository: str) -> Re
             }
         ).data,
         status=status.HTTP_404_NOT_FOUND,
+    )
+
+
+def github_installation_unavailable_response(team_id: int) -> Response:
+    return Response(
+        GitHubInstallationUnavailableErrorSerializer(
+            {
+                "code": "github_installation_unavailable",
+                "error": (
+                    "PostHog's GitHub connection is suspended or was uninstalled. A project admin must reconnect GitHub."
+                ),
+                "remediation_url": f"/project/{team_id}/settings/project-integrations",
+            }
+        ).data,
+        status=status.HTTP_403_FORBIDDEN,
     )
 
 
@@ -5882,7 +5898,11 @@ class SignalReportViewSet(
             ),
             403: OpenApiResponse(
                 response=PullRequestChecksPermissionErrorSerializer,
-                description="GitHub is connected without permission to read pull request checks.",
+                description=(
+                    "GitHub is connected without permission to read pull request checks (code "
+                    "`github_checks_permission_missing`), or the GitHub App installation is suspended or "
+                    "uninstalled (code `github_installation_unavailable`). Both carry a `remediation_url`."
+                ),
             ),
             502: OpenApiResponse(description="GitHub could not return the checks."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -5993,6 +6013,10 @@ class SignalReportViewSet(
                     "Report has no implementation PR, or no GitHub integration can access it "
                     "(code `github_repository_inaccessible`, with a `remediation_url`)."
                 )
+            ),
+            403: OpenApiResponse(
+                response=GitHubInstallationUnavailableErrorSerializer,
+                description="The GitHub App installation is suspended or uninstalled (code `github_installation_unavailable`).",
             ),
             502: OpenApiResponse(description="GitHub could not return the comments."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -6409,6 +6433,8 @@ class SignalReportViewSet(
             )
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
             logger.warning(f"signals pr {noun} fetch errored", repository=repository, pr_number=pr_number)
+            if github.installation_unavailable():
+                return github_installation_unavailable_response(self.team.id)
             return Response(
                 {"error": f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -6434,6 +6460,8 @@ class SignalReportViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
         if not result.get("success"):
+            if github.installation_unavailable():
+                return github_installation_unavailable_response(self.team.id)
             return Response(
                 {"error": result.get("error") or f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -6475,6 +6503,19 @@ class SignalReportViewSet(
             )
         except GitHubRateLimitError as e:
             return None, repository, pr_number, github_rate_limited_response(e)
+        except GitHubInstallationUnavailableError:
+            return None, repository, pr_number, github_installation_unavailable_response(self.team.id)
+        except GitHubIntegrationError:
+            logger.warning("signals pr github lookup errored", repository=repository, pr_number=pr_number)
+            return (
+                None,
+                repository,
+                pr_number,
+                Response(
+                    {"error": "GitHub could not return this pull request."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                ),
+            )
         except GitHubEgressBudgetExhausted:
             return (
                 None,
@@ -7943,6 +7984,10 @@ class SignalReportArtefactViewSet(
                     "(code `github_repository_inaccessible`, with a `remediation_url`)."
                 )
             ),
+            403: OpenApiResponse(
+                response=GitHubInstallationUnavailableErrorSerializer,
+                description="The GitHub App installation is suspended or uninstalled (code `github_installation_unavailable`).",
+            ),
             502: OpenApiResponse(description="GitHub could not produce the diff (branch not found, fetch failed)."),
         },
         summary="Fetch the diff for a commit artefact",
@@ -7988,6 +8033,14 @@ class SignalReportArtefactViewSet(
             )
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
+        except GitHubInstallationUnavailableError:
+            return github_installation_unavailable_response(self.team.id)
+        except GitHubIntegrationError:
+            logger.warning("signals diff github lookup errored", repository=repository, branch=branch)
+            return Response(
+                {"error": "GitHub could not produce the diff. Try again shortly."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         if github is None:
             return github_repository_inaccessible_response(self.team.id, str(repository))
         try:
