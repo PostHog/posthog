@@ -482,7 +482,7 @@ FROM (
                             toString(properties.$session_id) AS session,
                             distinct_id,
                             timestamp,
-                            substring(ifNull(toString(properties.$mcp_intent), ''), 1, {max_intent_chars}) AS intent,
+                            substringUTF8(ifNull(toString(properties.$mcp_intent), ''), 1, {max_intent_chars}) AS intent,
                             toString(properties.$mcp_tool_name) AS tool,
                             ifNull(toString(properties.$mcp_client_name), '') AS client_name,
                             ifNull(toString(properties.source), '') AS source,

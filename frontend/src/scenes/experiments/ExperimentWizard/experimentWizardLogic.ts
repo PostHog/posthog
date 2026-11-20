@@ -14,11 +14,7 @@ import {
     getWarehouseNativeMismatchError,
 } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
-import type {
-    ExperimentExposureCriteria,
-    ExperimentMetric,
-    ExperimentMetricUnion,
-} from '../../../queries/schema/schema-general'
+import type { ExperimentExposureCriteria, ExperimentMetric } from '../../../queries/schema/schema-general'
 import type { FeatureFlagFilters, MultivariateFlagVariant } from '../../../types'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import type { FeatureFlagKeyValidation } from '../ExperimentForm/variantsPanelLogic'
@@ -116,16 +112,16 @@ export interface experimentWizardLogicActions {
         variants?: MultivariateFlagVariant[]
     }) => {
         config: {
-            ensure_experience_continuity?: boolean | undefined
-            feature_flag_key?: string | undefined
-            rollout_percentage?: number | undefined
-            variants?: MultivariateFlagVariant[] | undefined
+            ensure_experience_continuity?: boolean
+            feature_flag_key?: string
+            rollout_percentage?: number
+            variants?: MultivariateFlagVariant[]
         }
     } // createExperimentLogic
     setSharedMetrics: (sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }) => {
         sharedMetrics: {
-            primary: ExperimentMetricUnion[]
-            secondary: ExperimentMetricUnion[]
+            primary: ExperimentMetric[]
+            secondary: ExperimentMetric[]
         }
     } // createExperimentLogic
     reportExperimentWizardExposureSourceSelected: (exposureSource: ExposureSource) => {

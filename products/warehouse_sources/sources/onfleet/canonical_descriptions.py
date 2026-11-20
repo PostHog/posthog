@@ -163,4 +163,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "delegateeIds": "Identifiers of organizations this organization delegates to.",
         },
     },
+    "task_templates": {
+        "description": "Custom task templates (called custom field groups in the API) that bundle task custom fields into reusable configurations for pickup, dropoff, or both. Built-in default templates have no identifier and are not synced.",
+        "docs_url": "https://docs.onfleet.com/reference/list-templates",
+        "columns": {
+            "id": "Unique identifier for the task template.",
+            "name": "The task template's name.",
+            "fields": "Keys of the custom fields included in the template.",
+            "contextSaveConditions": "Conditions on task properties (such as pickupTask) that decide when the template applies.",
+            "isDefault": "Whether the template is the organization's default template.",
+            "deletedAt": "Time the template was deleted, if it was deleted.",
+        },
+    },
 }

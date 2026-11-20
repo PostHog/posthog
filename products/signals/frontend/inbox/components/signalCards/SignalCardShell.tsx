@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { createContext, useContext } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -6,9 +7,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { ScoutLink } from 'lib/signals/ScoutLink'
-import { scoutDisplayName, signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
+import { scoutNameFromSlug, signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 
 interface SignalCardDisclosureState {
@@ -40,6 +42,7 @@ export function SignalCardHeader({
     label?: React.ReactNode
     disclosure?: SignalCardDisclosureState | null
 }): JSX.Element {
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const meta = getSourceProductMeta(signal.source_product)
     const Icon = meta?.Icon
 
@@ -48,7 +51,10 @@ export function SignalCardHeader({
         signal.source_product === 'signals_scout'
             ? (signal.extra as { skill_name?: unknown } | undefined)?.skill_name
             : undefined
-    const scoutName = typeof scoutSkillName === 'string' ? scoutDisplayName(scoutSkillName) : null
+    const scoutName =
+        typeof scoutSkillName === 'string'
+            ? (scoutNamesBySkill[scoutSkillName] ?? scoutNameFromSlug(scoutSkillName))
+            : null
     const sourceLine = scoutName ? `Scout · ${scoutName}` : signalCardSourceLine(signal)
 
     return (
@@ -66,7 +72,7 @@ export function SignalCardHeader({
                 <span className="truncate" title={sourceLine}>
                     {scoutName && typeof scoutSkillName === 'string' ? (
                         <>
-                            Scout · <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                            Scout · <ScoutLink skillName={scoutSkillName} name={scoutName} className="text-tertiary" />
                         </>
                     ) : (
                         sourceLine

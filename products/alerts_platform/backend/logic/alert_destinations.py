@@ -627,6 +627,59 @@ def restore_source_destination(
     return _stored(kept)
 
 
+def refresh_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool,
+    keeps_legacy_webhook_body: bool,
+) -> StoredAlertDestination | None:
+    """Rewrites the one row that copies `hog_function_ids` from their live settings, in the caller's
+    transaction, keeping the row's id, which Terraform and API callers hold. The row goes on copying
+    exactly these HogFunctions. None when no row or more than one row copies them, so the caller decides
+    which row stands for the destination. Raises `AlertDestinationValidationError` when the alert already
+    sends there through another destination."""
+    configuration_id = (
+        _configurations_by_public_id(team_id, public_id).select_for_update().values_list("id", flat=True).first()
+    )
+    if configuration_id is None:
+        return None
+    rows = list(
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, legacy_hog_function_ids__overlap=list(hog_function_ids))
+        .select_for_update()
+        .order_by("created_at", "id")[:2]
+    )
+    if len(rows) != 1:
+        return None
+    (kept,) = rows
+    refreshed = NewAlertDestination(
+        data=_own_fields(data),
+        event_kinds=tuple(event_kinds),
+        enabled=enabled,
+        legacy_hog_function_ids=tuple(hog_function_ids),
+        keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+    )
+    _validate(refreshed)
+    _refuse_duplicates(team_id, configuration_id, (refreshed,), hog_function_groups, except_id=kept.id)
+    kept.type = refreshed.data["type"]
+    kept.config = dict(refreshed.data)
+    kept.event_kinds = [kind.value for kind in refreshed.event_kinds]
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
+    kept.enabled = refreshed.enabled
+    kept.legacy_hog_function_ids = list(refreshed.legacy_hog_function_ids)
+    kept.keeps_legacy_webhook_body = refreshed.keeps_legacy_webhook_body
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
+    kept.consecutive_failures = 0
+    kept.disabled_reason = None
+    kept.save()
+    return _stored(kept)
+
+
 def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
     """Deletes every row that copies one of these HogFunctions, for HogFunctions deleted outside the alert's
     own routes. Without it the row would stop being skipped and keep sending to the deleted destination."""

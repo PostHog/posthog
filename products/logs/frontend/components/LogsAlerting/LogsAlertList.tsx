@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBell, IconEllipsis } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDialog,
-    LemonSwitch,
-    LemonTable,
-    LemonTableColumn,
-    LemonTableColumns,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTable, LemonTableColumn, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -19,36 +11,19 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
-import IconDiscord from 'public/services/discord.png'
-import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
-import IconPagerDuty from 'public/services/pagerduty.png'
-import IconSlack from 'public/services/slack.png'
-import IconWebhook from 'public/services/webhook.svg'
-
 import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
 import {
     AlertDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
-    LogsAlertConfigurationThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
+import { confirmDeleteLogsAlert } from './confirmDeleteLogsAlert'
+import { formatThreshold } from './formatLogsAlertThreshold'
+import { DESTINATION_TAGS } from './logsAlertDestinationTags'
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
 import { SNOOZE_DURATIONS } from './logsAlertUtils'
-
-const DESTINATION_TAGS = [
-    { type: AlertDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
-    { type: AlertDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
-    { type: AlertDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
-    { type: AlertDestinationTypeEnumApi.Discord, label: 'Discord', icon: IconDiscord },
-    { type: AlertDestinationTypeEnumApi.Pagerduty, label: 'PagerDuty', icon: IconPagerDuty },
-] as const
-
-function formatThreshold(alert: LogsAlertConfigurationApi): string {
-    const operator = alert.threshold_operator === LogsAlertConfigurationThresholdOperatorEnumApi.Below ? '<' : '>'
-    return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
-}
 
 export function LogsAlertDestinationTags({ types }: { types: readonly AlertDestinationTypeEnumApi[] }): JSX.Element {
     return (
@@ -231,20 +206,7 @@ export function LogsAlertList(): JSX.Element {
                         label: 'Delete',
                         status: 'danger',
                         'data-attr': 'logs-alert-row-delete',
-                        onClick: () => {
-                            LemonDialog.open({
-                                title: `Delete "${alert.name}"?`,
-                                description: 'This alert will be permanently deleted. This action cannot be undone.',
-                                primaryButton: {
-                                    children: 'Delete',
-                                    type: 'primary',
-                                    status: 'danger',
-                                    onClick: () => deleteAlert(alert.id),
-                                    'data-attr': 'logs-alert-delete-confirm',
-                                },
-                                secondaryButton: { children: 'Cancel' },
-                            })
-                        },
+                        onClick: () => confirmDeleteLogsAlert(alert, deleteAlert),
                     },
                 ]
 

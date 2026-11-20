@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { inboxReportDetailUrl, inboxTabRedirectPath } from './inboxReportUrls'
+import { inboxReportBackLabel, inboxReportDetailUrl, inboxTabRedirectPath } from './inboxReportUrls'
 
 describe('inbox report urls', () => {
     describe('inboxReportDetailUrl', () => {
@@ -12,6 +12,23 @@ describe('inbox report urls', () => {
             expect(inboxReportDetailUrl('r1', '/customers')).toBe(
                 `${urls.inboxReport('reports', 'r1')}?back=%2Fcustomers`
             )
+        })
+    })
+
+    describe('inboxReportBackLabel', () => {
+        it.each<[string, string]>([
+            [urls.inboxTriage(), 'Triage'],
+            [`${urls.inboxTriage()}?report=r1&at=2`, 'Triage'],
+            [urls.inbox('monitoring'), 'Monitoring'],
+            [urls.inbox('scouts'), 'Scouts'],
+            [urls.inboxScout('signals-scout-error-tracking'), 'Scout'],
+            [`${urls.inboxScout('signals-scout-error-tracking', 'finding-1')}?tab=runs`, 'Scout'],
+            [urls.inboxFindings(), 'Findings'],
+            [urls.inboxRuns(), 'Runs'],
+            [urls.inboxScratchpad(), 'Scratchpad'],
+            ['/customers', 'Back'],
+        ])('labels %s as %s', (backUrl, label) => {
+            expect(inboxReportBackLabel(backUrl)).toBe(label)
         })
     })
 

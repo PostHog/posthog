@@ -37,6 +37,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportProviderUnavailable,
     ImportStepBlocked,
 )
+from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services import resend_client
 from products.messaging.backend.services.suppression import remove_suppressions
@@ -249,6 +250,17 @@ class TestResendImport(BaseTest):
             runs.start_run(self.team.id, "resend", ["opt_outs", "contacts", "new_people"], API_KEY, self.user.id)
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
+    def test_contact_properties_run_last_so_a_long_scan_holds_up_no_other_step(self) -> None:
+        run = runs.start_run(
+            self.team.id,
+            "resend",
+            ["contact_properties", "domains", *OPT_OUT_STEPS, "contacts", "templates"],
+            API_KEY,
+            self.user.id,
+        )
+
+        assert run.steps == [*OPT_OUT_STEPS, "contacts", "templates", "domains", "contact_properties"]
 
     def test_contacts_wait_for_the_opt_outs_the_run_includes(self) -> None:
         self.resend.failures["/contacts"] = [(500, {})] * 10
@@ -564,11 +576,19 @@ class TestResendImport(BaseTest):
         assert ["no subject" in note for note in imported.subject_notes] == [True]
         assert ["no sender" in note for note in imported.sender_notes] == [True]
 
-    def test_a_template_without_a_display_name_uses_the_senders_name(self) -> None:
-        sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": "Acme team", "verified": True}))
+    @parameterized.expand(
+        [
+            ("plain", "Acme team", "Acme team"),
+            ("liquid_stays_text", "{{ variables.reset_token }}", literal_liquid("{{ variables.reset_token }}")),
+        ]
+    )
+    def test_a_template_without_a_display_name_uses_the_senders_name(
+        self, _name: str, stored: str, expected: str
+    ) -> None:
+        sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": stored, "verified": True}))
         template = {**FIXTURES["templates"][0], "from": "hello@example.com"}
 
-        assert resend._imported_email(template, {"hello@example.com": sender}).from_name == "Acme team"
+        assert resend._imported_email(template, {"hello@example.com": sender}).from_name == expected
 
     def test_a_segment_resend_no_longer_has_leaves_the_step_to_fill_in(self) -> None:
         self.resend.data = {**self.resend.data, "segments": []}
@@ -660,41 +680,80 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                 runs.run_step(self.team.id, run.id, step, attempt=1)
         run.refresh_from_db()
 
-        sent = [json.loads(rows) for rows in self.people.stored.values()]
-        assert all(person["fill_only"] for rows in sent for person in rows)
+        sent = [(event["distinct_id"], event["properties"]) for event in self.people.events]
         if defined:
             # The identity and $ names stay out, and a property with no value adds nothing.
-            assert sent[-1] == [
-                {
-                    "distinct_id": "user-hal",
-                    "properties": {"email": "happy@example.com", "plan": "pro", "seats": "3"},
-                    "fill_only": True,
-                }
+            assert sent == [
+                (
+                    "user-hal",
+                    {"$set_once": {"email": "happy@example.com", "plan": "pro", "seats": "3"}, "$geoip_disable": True},
+                )
             ]
             assert run.progress["contact_properties"]["counts"] == {"people": 1, "contacts": 4}
         else:
             assert run.progress["contact_properties"]["status"] == "completed"
             assert not any(re.fullmatch(r"/contacts/[^/]+", call) for call in self.resend.calls)
 
+    @parameterized.expand([("ended_long_ago",), ("run_deleted",)])
+    def test_the_hourly_sweep_deletes_contacts_any_ended_run_left_behind(self, state: str) -> None:
+        steps = [*OPT_OUT_STEPS, "contacts", "new_people"]
+        ended = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        for step in ended.steps:
+            runs.run_step(self.team.id, ended.id, step, attempt=1)
+        ended_runs = ProviderImportRun.objects.for_team(self.team.id).filter(id=ended.id)
+        if state == "ended_long_ago":
+            ended_runs.update(status="failed", finished_at=timezone.now() - timedelta(days=30))
+        else:
+            ended_runs.delete()
+        running = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        for step in running.steps:
+            runs.run_step(self.team.id, running.id, step, attempt=1)
+        assert {key.split("/")[2] for key in self.people.stored} == {str(ended.id), str(running.id)}
+
+        runs.close_stale_runs()
+
+        assert {key.split("/")[2] for key in self.people.stored} == {str(running.id)}
+
+    def test_a_run_whose_workflow_never_sent_its_contacts_fails_their_cohort_and_deletes_them(self) -> None:
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "new_people"], API_KEY, self.user.id)
+        for step in run.steps:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        ProviderImportRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            created_at=timezone.now() - runs.STALE_RUN_AGE * 2
+        )
+
+        # Storage fails during the first sweep, and the next hourly sweep deletes the contacts.
+        with patch.object(self.people.storage, "delete_objects", side_effect=ConnectionError("storage is down")):
+            assert runs.close_stale_runs() == 1
+        assert self.people.stored != {}
+        runs.close_stale_runs()
+
+        run.refresh_from_db()
+        [plan] = run.progress["contacts"]["people_imports"]
+        cohort = Cohort.objects.get(id=plan["cohort_id"])
+        assert (run.status, run.progress["contacts"]["status"]) == ("failed", "failed")
+        assert (cohort.is_calculating, cohort.errors_calculating) == (False, 1)
+        assert self.people.stored == {}
+
     @parameterized.expand(
         [
             (
                 "with_new_people",
                 [*OPT_OUT_STEPS, "contacts", "new_people", "automations"],
-                [("send Resend contacts", ["unsubscribed@example.com", "left-a-topic@example.com", "user-hal"])],
+                [("unsubscribed@example.com", False), ("left-a-topic@example.com", True), ("user-hal", True)],
                 # The people import only takes addresses Django validates, which leaves out Björk's.
                 {"people": 3, "new_people": 2, "skipped_new_people": 0, "dropped": 1},
             ),
             (
                 "matching_people_only",
                 [*OPT_OUT_STEPS, "contacts", "automations"],
-                [("send Resend contacts", ["user-hal"])],
+                [("user-hal", True)],
                 {"people": 1, "new_people": 0, "skipped_new_people": 2, "dropped": 1},
             ),
         ]
     )
     def test_contacts_become_people_once_and_fill_the_cohort_automations_use(
-        self, _name: str, steps: list[str], sent: list[tuple[str, list[str]]], counts: dict[str, int]
+        self, _name: str, steps: list[str], staged: list[tuple[str, bool]], counts: dict[str, int]
     ) -> None:
         _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
         flush_persons_and_events()
@@ -703,15 +762,16 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             for step in run.steps:
                 runs.run_step(self.team.id, run.id, step, attempt=1)
+        run.refresh_from_db()
+        # The workflow sends the stored list once the step completes. A contact who unsubscribed becomes a person but
+        # stays out of the cohort.
+        [plan] = run.progress["contacts"]["people_imports"]
+        people = self.people.people(plan)
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
-
-        assert self.people.imports == sent
-        assert self.people.properties["user-hal"] == {
-            "email": "happy@example.com",
-            "first_name": "Hal",
-            "last_name": "Happy",
-        }
+        assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
+        assert [(person["distinct_id"], person.get("member", True)) for person in people] == staged
+        assert people[-1]["properties"] == {"email": "happy@example.com", "first_name": "Hal", "last_name": "Happy"}
         assert run.progress["contacts"]["counts"] == counts
         segment_cohorts = Cohort.objects.filter(team_id=self.team.id, description="Imported from Resend segment seg-1.")
         assert segment_cohorts.count() == 1

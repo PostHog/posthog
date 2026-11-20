@@ -17,10 +17,10 @@ from django.urls import reverse
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from posthog.admin.console.organization_sign_in_panels import PLATFORM_FEATURES
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, Notice, Page, Row, Table
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_code_verifier
@@ -64,7 +64,7 @@ class UserOverviewPanel(Panel):
     record = "user"
     key = "overview"
     title = "Overview"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -100,7 +100,7 @@ class UserOrganizationsPanel(Panel):
     record = "user"
     key = "organizations"
     title = "Organizations"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -202,7 +202,7 @@ class UserSignInPanel(Panel):
     record = "user"
     key = "sign-in"
     title = "Sign-in"
-    owner = DEV_EXPERIENCE
+    owner = PLATFORM_FEATURES
     order = 30
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -480,7 +480,7 @@ class UserDeletionPanel(Panel):
     record = "user"
     key = "deletion"
     title = "Deletion"
-    owner = DEV_EXPERIENCE
+    owner = None
     operation_keys = frozenset({"delete"})
     order = 10
     danger = True

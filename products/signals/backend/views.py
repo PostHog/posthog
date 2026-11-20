@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from functools import cached_property, partial
-from typing import Any, Literal, cast
+from typing import Any, Literal, NoReturn, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -76,7 +76,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubInstallationUnavailableError, GitHubIntegration, GitHubIntegrationError
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request, is_sandbox_origin_request
@@ -209,6 +209,7 @@ from products.signals.backend.report_claims import (
 )
 from products.signals.backend.report_content_gates import (
     organization_inbox_cached_filters_enabled,
+    organization_inbox_card_links_enabled,
     organization_inbox_sort_cache_enabled,
     organization_report_monitoring_enabled,
 )
@@ -226,6 +227,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_link_summary import ReportLinkSummary, link_summaries
 from products.signals.backend.report_merge import (
     MAX_MERGE_REASON_LENGTH,
     MAX_MERGE_SOURCE_REPORTS,
@@ -323,6 +325,7 @@ from products.signals.backend.serializers import (
     AlertPatternPreviewRequestSerializer,
     AlertPatternPreviewResponseSerializer,
     CommitDiffResponseSerializer,
+    GitHubInstallationUnavailableErrorSerializer,
     GitHubRepositoryInaccessibleErrorSerializer,
     PersonalRankingQuerySerializer,
     PersonalRankingSerializer,
@@ -431,6 +434,7 @@ from products.signals.backend.throttles import (
     SourceFilterPreviewBurstThrottle,
     SourceFilterPreviewSustainedThrottle,
     UserReportCreateBurstThrottle,
+    report_task_run_throttled,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
 from products.signals.backend.trial.policy import TrialPolicy
@@ -467,6 +471,21 @@ def github_repository_inaccessible_response(team_id: int, repository: str) -> Re
             }
         ).data,
         status=status.HTTP_404_NOT_FOUND,
+    )
+
+
+def github_installation_unavailable_response(team_id: int) -> Response:
+    return Response(
+        GitHubInstallationUnavailableErrorSerializer(
+            {
+                "code": "github_installation_unavailable",
+                "error": (
+                    "PostHog's GitHub connection is suspended or was uninstalled. A project admin must reconnect GitHub."
+                ),
+                "remediation_url": f"/project/{team_id}/settings/project-integrations",
+            }
+        ).data,
+        status=status.HTTP_403_FORBIDDEN,
     )
 
 
@@ -2562,6 +2581,10 @@ class SignalReportViewSet(
         return organization_report_monitoring_enabled(self.organization.id)
 
     @cached_property
+    def _inbox_card_links_enabled(self) -> bool:
+        return organization_inbox_card_links_enabled(self.organization.id)
+
+    @cached_property
     def _inbox_cached_filters(self) -> bool:
         # Reads the cached report columns instead of the per-report authorship and PR-link
         # subqueries. Behind a flag until the daily reconcile shows no drift.
@@ -3457,6 +3480,11 @@ class SignalReportViewSet(
             return [UserReportCreateBurstThrottle()]
         return super().get_throttles()
 
+    def throttled(self, request: Request, wait: float) -> NoReturn:
+        if (error := report_task_run_throttled(request, wait)) is not None:
+            raise error
+        super().throttled(request, wait)
+
     def _user_report_create_enabled(self, user: User) -> bool:
         # Fails closed: a flag-service error must not open report filing to a member who is not opted in.
         try:
@@ -3990,6 +4018,18 @@ class SignalReportViewSet(
                     ),
                 )
                 monitoring_outcomes_map = monitoring_outcomes(reports, team_id=self.team_id)
+        link_summaries_map: dict[str, ReportLinkSummary] = {}
+        if self._inbox_card_links_enabled:
+            # The strips are decorative, so a failed read renders the rows without them.
+            with tracer.start_as_current_span("signals.reports.list.fetch_link_summaries"):
+                try:
+                    link_summaries_map = link_summaries(
+                        team_id=self.team_id,
+                        report_ids=report_ids,
+                        monitoring_enabled=self._report_monitoring_enabled,
+                    )
+                except Exception:
+                    logger.exception("signals.reports.list.link_summaries_failed", report_count=len(report_ids))
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -4001,6 +4041,7 @@ class SignalReportViewSet(
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "monitoring_summaries_map": monitoring_summaries_map,
             "monitoring_outcomes_map": monitoring_outcomes_map,
+            "link_summaries_map": link_summaries_map,
             "ranked_inbox_sort": self._ranked_inbox_sort,
             "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
@@ -5857,7 +5898,11 @@ class SignalReportViewSet(
             ),
             403: OpenApiResponse(
                 response=PullRequestChecksPermissionErrorSerializer,
-                description="GitHub is connected without permission to read pull request checks.",
+                description=(
+                    "GitHub is connected without permission to read pull request checks (code "
+                    "`github_checks_permission_missing`), or the GitHub App installation is suspended or "
+                    "uninstalled (code `github_installation_unavailable`). Both carry a `remediation_url`."
+                ),
             ),
             502: OpenApiResponse(description="GitHub could not return the checks."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -5968,6 +6013,10 @@ class SignalReportViewSet(
                     "Report has no implementation PR, or no GitHub integration can access it "
                     "(code `github_repository_inaccessible`, with a `remediation_url`)."
                 )
+            ),
+            403: OpenApiResponse(
+                response=GitHubInstallationUnavailableErrorSerializer,
+                description="The GitHub App installation is suspended or uninstalled (code `github_installation_unavailable`).",
             ),
             502: OpenApiResponse(description="GitHub could not return the comments."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -6384,6 +6433,8 @@ class SignalReportViewSet(
             )
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
             logger.warning(f"signals pr {noun} fetch errored", repository=repository, pr_number=pr_number)
+            if github.installation_unavailable():
+                return github_installation_unavailable_response(self.team.id)
             return Response(
                 {"error": f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -6409,6 +6460,8 @@ class SignalReportViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
         if not result.get("success"):
+            if github.installation_unavailable():
+                return github_installation_unavailable_response(self.team.id)
             return Response(
                 {"error": result.get("error") or f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -6450,6 +6503,19 @@ class SignalReportViewSet(
             )
         except GitHubRateLimitError as e:
             return None, repository, pr_number, github_rate_limited_response(e)
+        except GitHubInstallationUnavailableError:
+            return None, repository, pr_number, github_installation_unavailable_response(self.team.id)
+        except GitHubIntegrationError:
+            logger.warning("signals pr github lookup errored", repository=repository, pr_number=pr_number)
+            return (
+                None,
+                repository,
+                pr_number,
+                Response(
+                    {"error": "GitHub could not return this pull request."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                ),
+            )
         except GitHubEgressBudgetExhausted:
             return (
                 None,
@@ -7918,6 +7984,10 @@ class SignalReportArtefactViewSet(
                     "(code `github_repository_inaccessible`, with a `remediation_url`)."
                 )
             ),
+            403: OpenApiResponse(
+                response=GitHubInstallationUnavailableErrorSerializer,
+                description="The GitHub App installation is suspended or uninstalled (code `github_installation_unavailable`).",
+            ),
             502: OpenApiResponse(description="GitHub could not produce the diff (branch not found, fetch failed)."),
         },
         summary="Fetch the diff for a commit artefact",
@@ -7963,6 +8033,14 @@ class SignalReportArtefactViewSet(
             )
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
+        except GitHubInstallationUnavailableError:
+            return github_installation_unavailable_response(self.team.id)
+        except GitHubIntegrationError:
+            logger.warning("signals diff github lookup errored", repository=repository, branch=branch)
+            return Response(
+                {"error": "GitHub could not produce the diff. Try again shortly."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         if github is None:
             return github_repository_inaccessible_response(self.team.id, str(repository))
         try:

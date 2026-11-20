@@ -4,9 +4,12 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { githubInstallRequestsLogic } from 'lib/integrations/githubInstallRequestsLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { GitHubInstallRequestItemApi } from '~/generated/core/api.schemas'
+
+import { QuillGitHubInstallRequestsBanner } from './QuillGitHubInstallRequestsBanner'
 
 export function buildOrgOwnerMessage(installUrl: string): string {
     return `Can you approve the PostHog GitHub app for our organization? Open ${installUrl}, pick the organization, and approve the pending request.`
@@ -32,6 +35,7 @@ export function GitHubInstallRequestsBanner({
     const { pendingInstallRequests, approvedInstallRequests, installUrl, dismissingRequestIds } =
         useValues(githubInstallRequestsLogic)
     const { startPolling, stopPolling, dismissInstallRequest } = useActions(githubInstallRequestsLogic)
+    const quillSurface = useQuillSurface()
 
     useOnMountEffect(() => {
         startPolling()
@@ -40,6 +44,27 @@ export function GitHubInstallRequestsBanner({
 
     if (pendingInstallRequests.length === 0 && approvedInstallRequests.length === 0) {
         return null
+    }
+
+    const copyOrgOwnerMessage = (url: string): void =>
+        void copyToClipboard(buildOrgOwnerMessage(url), 'message for your org owner')
+
+    if (quillSurface) {
+        return (
+            <QuillGitHubInstallRequestsBanner
+                pendingInstallRequests={pendingInstallRequests}
+                approvedInstallRequests={approvedInstallRequests}
+                installUrl={installUrl}
+                orgOwnerMessage={installUrl ? buildOrgOwnerMessage(installUrl) : null}
+                dismissingRequestIds={dismissingRequestIds}
+                onDismiss={dismissInstallRequest}
+                onCopyOrgOwnerMessage={copyOrgOwnerMessage}
+                onFinishConnecting={onFinishConnecting}
+                finishConnectingUrl={finishConnectingUrl}
+                variant={variant}
+                connecting={connecting}
+            />
+        )
     }
 
     return (
@@ -111,12 +136,7 @@ export function GitHubInstallRequestsBanner({
                                     <LemonButton
                                         type="secondary"
                                         size="small"
-                                        onClick={() =>
-                                            void copyToClipboard(
-                                                buildOrgOwnerMessage(installUrl),
-                                                'message for your org owner'
-                                            )
-                                        }
+                                        onClick={() => copyOrgOwnerMessage(installUrl)}
                                     >
                                         Copy message for your org owner
                                     </LemonButton>
