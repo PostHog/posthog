@@ -569,7 +569,12 @@ jobs:
                   if [ "$TRUNK_MERGE" = "true" ]; then
                       narrow=false
                   fi
-                  # xargs re-parses the escape format, one path per line.
+                  # xargs re-parses the escape format, one path per line, and the format
+                  # escapes a newline in a name as a backslash plus a literal newline. One in
+                  # the list would split a path in two before the check below sees it.
+                  if [[ "$MARKDOWN_CHANGED" == *$'\n'* ]]; then
+                      narrow=false
+                  fi
                   while IFS= read -r path; do
                       [ -n "$path" ] || continue
                       case "$path" in
