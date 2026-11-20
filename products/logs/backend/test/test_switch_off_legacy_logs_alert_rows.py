@@ -3,7 +3,7 @@ from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
@@ -67,3 +67,7 @@ class TestSwitchOffLegacyLogsAlertRows(APIBaseTest):
         assert dict(LogsAlertConfiguration.objects.values_list("id", "updated_at")) == updated_at_before
 
         assert self._run("--apply").splitlines()[-1] == "logs: 1 teams, 4 platform-owned alerts, 0 rows switched off"
+
+    def test_a_batch_size_below_one_is_refused(self) -> None:
+        with self.assertRaises(CommandError):
+            self._run("--apply", "--batch-size", "-1")

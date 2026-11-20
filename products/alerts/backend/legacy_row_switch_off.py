@@ -11,6 +11,7 @@ def switch_off_rows(team_id: int, legacy_ids: Sequence[UUID], apply: bool) -> in
     rows = AlertConfiguration.objects.filter(
         team_id=team_id, id__in=legacy_ids, owner=PlatformAlertOwner.PLATFORM, enabled=True
     )
-    # A queryset update, not `save()`: saving fires the activity log signal, which would show every
-    # customer an alert disable they did not make.
+    # A queryset update, not `save()` or the state machine: saving fires the activity log signal, which
+    # would show every customer an alert disable they did not make, and the copy holds the state.
+    # nosemgrep: insight-alert-state-direct-mutation (the platform copy holds this alert's state)
     return rows.update(enabled=False) if apply else rows.count()
