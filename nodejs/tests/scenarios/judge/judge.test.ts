@@ -231,6 +231,7 @@ describe('judge', () => {
                 observed: 1,
                 violation: `${UNIT} email: the last of 1 attempts was answered 0`,
                 unitIds: [UNIT],
+                crossedBy: UNIT,
             },
         ],
     ])('at_least_once for a unit %s', async (_story, entry, act, expected) => {
@@ -356,6 +357,7 @@ describe('judge', () => {
                 observed: 2,
                 violation: `${UNIT} email: accepted 3 times; 2 duplicates against 1 job the janitor reset`,
                 unitIds: [UNIT],
+                crossedBy: UNIT,
             },
         ],
     ])('duplicate_sends for a unit %s', async (_story, act, janitorResets, gate, expected) => {
@@ -402,6 +404,7 @@ describe('judge', () => {
                 observed: 1,
                 violation: `${UNIT}: the intake answered 422 recipient_suppressed`,
                 unitIds: [UNIT],
+                crossedBy: UNIT,
             },
         ],
         [

@@ -70,7 +70,7 @@ const perSecond = (units: number, { startedAt, endedAt }: Pick<DrivenStep, 'star
 const shortfallOf = (step: DrivenStep, minOffered: number): string | undefined =>
     step.dueUnits === 0
         ? `the generator had no units to offer in the ${step.scale}x step`
-        : step.offeredUnits < minOffered * step.dueUnits
+        : step.offeredUnits / step.dueUnits < minOffered
           ? `the generator offered ${step.offeredUnits} of ${step.dueUnits} units in the ${step.scale}x step, under minOffered ${minOffered}`
           : undefined
 

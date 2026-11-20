@@ -599,6 +599,11 @@ describe('ramp', () => {
             },
         ],
         [
+            'a step offered exactly its minOffered share, which is no shortfall',
+            { minOffered: 0.14, steps: [driven(0), driven(1), { ...driven(2, 14), dueUnits: 100 }] },
+            { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
+        ],
+        [
             'every step held up to the last',
             {},
             { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
