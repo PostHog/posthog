@@ -6,24 +6,44 @@ from collections.abc import Collection, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
 
-from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
+from posthog.api.app_metrics2 import (
+    fetch_app_metric_daily_totals_by_team,
+    fetch_app_metric_totals_by_source,
+    fetch_app_metric_totals_by_team_and_source,
+)
 from posthog.integrations import CrossTeamFilter, IntegrationManager
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.workflows.backend.facade.contracts import (
+    COMPLAINT_METRIC,
     EMAIL_HEALTH_METRIC_NAMES,
+    HARD_BOUNCE_METRIC,
+    SENT_METRIC,
     EmailSendingAllowance,
+    EmailSendingAllowanceChange,
+    EmailSendingNextTier,
+    EmailSendingRecentRates,
     FlowEmailTotals,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.email_sending_attribution import fold_email_totals_by_flow
+from products.workflows.backend.services.email_sending_tier import TeamSendingHistory
+from products.workflows.backend.services.email_sending_tier_audit import EMAIL_SENDING_TIER_CHANGED_ACTIVITY
 from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
-from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
+from products.workflows.backend.utils.email_sending_tiers import (
+    get_email_sending_tier_limits,
+    max_email_sending_tier,
+    min_days_at_tier,
+    resolve_team_email_sending_tier,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -67,7 +87,7 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     keystroke while these two aggregations do not depend on the search.
     """
     # Entries are pickles: bump the version when EmailSendingAllowance changes module or shape.
-    cache_key = f"workflows_email_sending_allowance_v4_{team_id}"
+    cache_key = f"workflows_email_sending_allowance_v6_{team_id}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -83,9 +103,105 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
         emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
         enforced=resolved.enforced,
         rate_limited_max_batch_audience=rate_limited.limit if rate_limited else None,
+        next_tier=None if resolved.pinned else _next_tier(team_id, resolved.tier, now),
+        recent_rates=None if resolved.pinned else _recent_rates(team_id, now),
+        recent_changes=_recent_allowance_changes(team_id, now),
     )
     cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
     return allowance
+
+
+def _next_tier(team_id: int, tier: int, now: datetime) -> EmailSendingNextTier | None:
+    """Mirrors the use bar and time-at-tier checks in decide_tier, so the page shows what the next
+    daily run will look for. Rate checks are left out: the rest of the page already reports them."""
+    if tier >= max_email_sending_tier():
+        return None
+    tier_updated_at = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .values_list("email_sending_tier_updated_at", flat=True)
+        .first()
+    )
+    daily_target = int(get_email_sending_tier_limits(tier).per_day * settings.WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO)
+    window_start = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS)
+    daily = fetch_app_metric_daily_totals_by_team(
+        app_source="hog_flow",
+        name=["email_sent"],
+        after=max(tier_updated_at, window_start) if tier_updated_at else window_start,
+        team_ids=[team_id],
+    ).get(team_id, {})
+    # The day of the last tier change holds sends from before it, so it never counts.
+    anchor_day = tier_updated_at.strftime("%Y-%m-%d") if tier_updated_at else None
+    days_reached = sum(
+        1
+        for day, counts in daily.items()
+        if (anchor_day is None or day > anchor_day) and counts.get("email_sent", 0) >= daily_target
+    )
+    return EmailSendingNextTier(
+        emails_per_day=get_email_sending_tier_limits(tier + 1).per_day,
+        daily_target=daily_target,
+        days_required=settings.WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS,
+        days_reached=min(days_reached, settings.WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS),
+        not_before=tier_updated_at + timedelta(days=min_days_at_tier(tier)) if tier_updated_at else None,
+    )
+
+
+def _recent_rates(team_id: int, now: datetime) -> EmailSendingRecentRates:
+    window_days = settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS
+    totals = fetch_app_metric_totals_by_team_and_source(
+        app_source="hog_flow",
+        name=EMAIL_HEALTH_METRIC_NAMES,
+        after=now - timedelta(days=window_days),
+        team_ids=[team_id],
+    ).get(team_id, {})
+    history = TeamSendingHistory(
+        team_id=team_id,
+        sent=sum(counts.get(SENT_METRIC, 0) for counts in totals.values()),
+        hard_bounced=sum(counts.get(HARD_BOUNCE_METRIC, 0) for counts in totals.values()),
+        complained=sum(counts.get(COMPLAINT_METRIC, 0) for counts in totals.values()),
+        auto_paused=False,
+        daily_sends={},
+    )
+    return EmailSendingRecentRates(
+        window_days=window_days,
+        emails_sent=history.sent,
+        bounce_rate=history.hard_bounce_rate,
+        complaint_rate=history.complaint_rate,
+        max_bounce_rate=settings.WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE,
+        max_complaint_rate=settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE,
+        within_limits=history.rates_are_clean,
+    )
+
+
+RECENT_ALLOWANCE_CHANGES_DAYS = 90
+RECENT_ALLOWANCE_CHANGES_LIMIT = 5
+
+
+def _recent_allowance_changes(team_id: int, now: datetime) -> tuple[EmailSendingAllowanceChange, ...]:
+    rows = ActivityLog.objects.filter(
+        team_id=team_id,
+        scope="Team",
+        item_id=str(team_id),
+        activity=EMAIL_SENDING_TIER_CHANGED_ACTIVITY,
+        created_at__gte=now - timedelta(days=RECENT_ALLOWANCE_CHANGES_DAYS),
+    ).order_by("-created_at")[: RECENT_ALLOWANCE_CHANGES_LIMIT * 2]
+    changes: list[EmailSendingAllowanceChange] = []
+    for row in rows:
+        detail = row.detail or {}
+        # A row can record only a pin change, which moves no allowance.
+        tier_change = next(
+            (change for change in detail.get("changes") or [] if change.get("field") == "email_sending_tier"), None
+        )
+        if tier_change is None:
+            continue
+        changes.append(
+            EmailSendingAllowanceChange(
+                changed_at=row.created_at,
+                previous_emails_per_day=get_email_sending_tier_limits(int(tier_change["before"])).per_day,
+                emails_per_day=get_email_sending_tier_limits(int(tier_change["after"])).per_day,
+                reason=(detail.get("context") or {}).get("reason", ""),
+            )
+        )
+    return tuple(changes[:RECENT_ALLOWANCE_CHANGES_LIMIT])
 
 
 def _team_email_sends_since(team_id: int, after: datetime) -> int:

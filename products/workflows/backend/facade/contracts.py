@@ -422,6 +422,41 @@ class EmailSendingSuspensionChange:
 
 
 @frozen
+class EmailSendingNextTier:
+    """What a project needs to do for the daily check to move it up one tier."""
+
+    emails_per_day: int
+    daily_target: int
+    days_required: int
+    days_reached: int
+    # The tier check does not promote a project before this, however much it sends.
+    not_before: datetime | None
+
+
+@frozen
+class EmailSendingRecentRates:
+    """The short window the daily check demotes on, next to the limits it holds the rates to."""
+
+    window_days: int
+    emails_sent: int
+    bounce_rate: float
+    complaint_rate: float
+    max_bounce_rate: float
+    max_complaint_rate: float
+    # The daily check's verdict on these numbers, which also applies its minimum-volume rules.
+    within_limits: bool
+
+
+@frozen
+class EmailSendingAllowanceChange:
+    changed_at: datetime
+    previous_emails_per_day: int
+    emails_per_day: int
+    # The tier decision reason the change was logged with, or staff_set for a hand-set tier.
+    reason: str
+
+
+@frozen
 class EmailSendingAllowance:
     """A project's sending tier, what it allows, and how much of that it has used."""
 
@@ -433,6 +468,12 @@ class EmailSendingAllowance:
     enforced: bool
     # The largest batch a slow enough sending rate limit allows. None when no rate raises the cap.
     rate_limited_max_batch_audience: int | None = None
+    # None at the top tier and for a tier staff pinned, which the daily check never moves.
+    next_tier: EmailSendingNextTier | None = None
+    # None for a tier staff pinned, which the daily check never moves.
+    recent_rates: EmailSendingRecentRates | None = None
+    # Newest first.
+    recent_changes: tuple[EmailSendingAllowanceChange, ...] = ()
 
 
 class StaffPausedError(Exception):

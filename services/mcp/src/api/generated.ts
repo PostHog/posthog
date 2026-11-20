@@ -42563,6 +42563,53 @@ export namespace Schemas {
     } as const;
 
     /**
+     * What the project needs to do for the daily tier check to raise its allowance one step.
+     */
+    export interface EmailSendingNextTier {
+      /** How many emails the next tier allows per day. */
+      readonly emails_per_day: number;
+      /** Emails the project must send in a day for that day to count toward the next tier. */
+      readonly daily_target: number;
+      /** Separate days the project must reach daily_target on. */
+      readonly days_required: number;
+      /** Days since the last tier change the project reached daily_target on, up to days_required. */
+      readonly days_reached: number;
+      /**
+         * The earliest time the next tier can be granted. Null when the project has never changed tier.
+         * @nullable
+         */
+      readonly not_before: string | null;
+    }
+
+    /**
+     * Rates over the short window the daily tier check demotes on, with the limits it applies.
+     */
+    export interface EmailSendingRecentRates {
+      /** Days the rates cover. */
+      readonly window_days: number;
+      /** Workflow emails sent in the window. */
+      readonly emails_sent: number;
+      /** Hard bounces divided by emails sent, from 0 to 1. */
+      readonly bounce_rate: number;
+      /** Spam complaints divided by emails sent, from 0 to 1. */
+      readonly complaint_rate: number;
+      /** Bounce rate above which the allowance drops. */
+      readonly max_bounce_rate: number;
+      /** Spam complaint rate above which the allowance drops. */
+      readonly max_complaint_rate: number;
+      /** False when the daily check would lower the allowance on these rates. A window with too few emails to judge counts as within limits. */
+      readonly within_limits: boolean;
+    }
+
+    export interface EmailSendingAllowanceChange {
+      readonly changed_at: string;
+      readonly previous_emails_per_day: number;
+      readonly emails_per_day: number;
+      /** Why the allowance changed. One of: clean_and_used, trusted_account, inactive, rates_above_threshold, workflow_auto_paused, ses_reputation_high, ses_tenant_paused, staff_suspension, staff_set. */
+      readonly reason: string;
+    }
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -42583,6 +42630,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly rate_limited_max_batch_audience: number | null;
+      /** How to reach the next tier. Null at the top tier or when PostHog set the tier by hand. */
+      readonly next_tier: EmailSendingNextTier | null;
+      /** The rates the daily tier check demotes on. Null when PostHog set the tier by hand. */
+      readonly recent_rates: EmailSendingRecentRates | null;
+      /** Allowance changes from the last 90 days, newest first, at most 5. */
+      readonly recent_changes: readonly EmailSendingAllowanceChange[];
     }
 
     /**
