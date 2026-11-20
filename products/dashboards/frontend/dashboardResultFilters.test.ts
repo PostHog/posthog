@@ -132,6 +132,13 @@ describe('dashboard result population filters', () => {
             logic.actions.selectResult(selection)
             expect(router.values.currentLocation.hashParams.bi_filter).toBeUndefined()
             expect(logic.values.selection).toEqual(selection)
+            router.actions.push(
+                '/project/1/dashboard/1',
+                {},
+                { insight_filter: JSON.stringify({ ...selection, tileId: 99 }) }
+            )
+            expect(logic.values.selection).toBeNull()
+            logic.actions.selectResult(selection)
             router.actions.push('/project/1/dashboard/1')
             expect(logic.values.selection).toBeNull()
         } finally {

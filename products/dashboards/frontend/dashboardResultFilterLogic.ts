@@ -156,14 +156,13 @@ export const dashboardResultFilterLogic: LogicWrapper<dashboardResultFilterLogic
                 const selection = router.values.currentLocation.hashParams.bi_filter
                     ? null
                     : readDashboardResultFilter(router.values.currentLocation.hashParams.insight_filter)
-                if (!selection && values.selection) {
-                    actions.setSelection(null)
-                } else if (
+                const availableSelection =
                     selection?.dashboardId === props.dashboardId &&
-                    props.tiles?.some((tile) => tile.id === selection.tileId) &&
-                    !deepEqual(selection, values.selection)
-                ) {
-                    actions.setSelection(selection)
+                    props.tiles?.some((tile) => tile.id === selection.tileId)
+                        ? selection
+                        : null
+                if (!deepEqual(availableSelection, values.selection)) {
+                    actions.setSelection(availableSelection)
                 }
             },
         })),
