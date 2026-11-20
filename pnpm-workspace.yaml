@@ -128,7 +128,7 @@ overrides:
     '@tiptap/extension-underline': 3.20.6
 
 packageExtensions:
-    kea-forms@3.2.0:
+    kea-forms@3.3.0:
         dependencies:
             typescript: 5.9.3
 
@@ -207,7 +207,7 @@ catalog:
     # Kea ecosystem - state management
     kea: ^4.0.0-pre.6
     kea-disposables: ^1.0.0
-    kea-forms: ^3.2.0
+    kea-forms: ^3.3.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0
     kea-router: ^3.4.2
@@ -275,7 +275,29 @@ minimumReleaseAgeExclude:
     - bloommx@1.0.3
     - '@shadcn/react'
     - mermaid@11.15.0
-    - kea-typegen
+    - kea-typegen@4.1.0
+    - '@keajs/kea-typegen-aix-ppc64@4.1.0'
+    - '@keajs/kea-typegen-android-arm64@4.1.0'
+    - '@keajs/kea-typegen-darwin-arm64@4.1.0'
+    - '@keajs/kea-typegen-darwin-x64@4.1.0'
+    - '@keajs/kea-typegen-freebsd-arm64@4.1.0'
+    - '@keajs/kea-typegen-freebsd-x64@4.1.0'
+    - '@keajs/kea-typegen-linux-arm@4.1.0'
+    - '@keajs/kea-typegen-linux-arm64@4.1.0'
+    - '@keajs/kea-typegen-linux-loong64@4.1.0'
+    - '@keajs/kea-typegen-linux-mips64el@4.1.0'
+    - '@keajs/kea-typegen-linux-ppc64@4.1.0'
+    - '@keajs/kea-typegen-linux-riscv64@4.1.0'
+    - '@keajs/kea-typegen-linux-s390x@4.1.0'
+    - '@keajs/kea-typegen-linux-x64@4.1.0'
+    - '@keajs/kea-typegen-netbsd-arm64@4.1.0'
+    - '@keajs/kea-typegen-netbsd-x64@4.1.0'
+    - '@keajs/kea-typegen-openbsd-arm64@4.1.0'
+    - '@keajs/kea-typegen-openbsd-x64@4.1.0'
+    - '@keajs/kea-typegen-sunos-x64@4.1.0'
+    - '@keajs/kea-typegen-win32-arm64@4.1.0'
+    - '@keajs/kea-typegen-win32-x64@4.1.0'
+    - kea-forms@3.3.0
     - shiki
     - shadcn
     - '@shikijs/*'

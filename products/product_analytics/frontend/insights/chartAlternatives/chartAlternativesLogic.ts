@@ -55,7 +55,7 @@ const optionForDisplay = (
 export interface chartAlternativesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     canEditInsight: boolean // insightLogic
-    editingDisabledReason: null // insightLogic
+    editingDisabledReason: 'Discard overrides to edit the insight.' | null // insightLogic
     display: ChartDisplayType | null | undefined // insightVizDataLogic
     insightDataLoading: boolean // insightVizDataLogic
     isSingleSeriesOutput: boolean // insightVizDataLogic
@@ -165,7 +165,7 @@ export interface chartAlternativesLogicMeta {
         selectionDisabledReason: (
             canShowAlternatives: boolean,
             insightDataLoading: boolean,
-            editingDisabledReason: null
+            editingDisabledReason: 'Discard overrides to edit the insight.' | null
         ) => string | undefined
     }
 }
