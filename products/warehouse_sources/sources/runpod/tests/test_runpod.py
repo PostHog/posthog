@@ -181,6 +181,17 @@ class TestInventoryPagination:
         assert [r["id"] for r in result.rows] == ["p1", "p2"]
         assert [c.get("cursor") for c in calls] == [None, ["c2"]]
 
+    @parameterized.expand([("repeated", ["c1", "c1"]), ("cycle", ["c1", "c2", "c1"])])
+    def test_rejects_repeated_cursor(self, _name: str, cursors: list[str]) -> None:
+        responses = [
+            {"pods": [{"id": f"p{index}"}], "pagination": {"nextCursor": cursor, "hasNextPage": True}}
+            for index, cursor in enumerate(cursors)
+        ]
+        result, calls = _collect(responses, "pods")
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "RunPod API pagination returned a repeated cursor"
+        assert len(calls) == len(cursors)
+
 
 class TestSampleCapture:
     @parameterized.expand(

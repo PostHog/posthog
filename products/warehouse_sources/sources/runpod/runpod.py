@@ -254,6 +254,7 @@ def _iter_inventory_rows(
     config: RunPodEndpointConfig,
 ) -> Iterator[list[dict[str, Any]]]:
     cursor: Optional[str] = None
+    seen_cursors: set[str] = set()
     while True:
         url = _build_url(config.path, {"limit": INVENTORY_PAGE_SIZE, "cursor": cursor})
         data = _fetch_json(session, url, headers, logger)
@@ -268,6 +269,9 @@ def _iter_inventory_rows(
         cursor = pagination.get("nextCursor")
         if not pagination.get("hasNextPage") or not cursor:
             break
+        if cursor in seen_cursors:
+            raise ValueError("RunPod API pagination returned a repeated cursor")
+        seen_cursors.add(cursor)
 
 
 def get_rows(
