@@ -11,6 +11,7 @@ disagreement degrades ordinary runs to the Python gateway. Private trials fail c
 import time
 import random
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
@@ -567,13 +568,22 @@ def mint_workflow_classify_token(*, team_id: int, allowed_models: list[str]) -> 
             expires_in_seconds=_WORKFLOWS_CLASSIFY_TOKEN_TTL_SECONDS,
             raise_on_failure=True,
         )
+        # The worker schedules its next mint from the expiry, so a token without a readable one is unusable.
+        if grant is not None and not _is_aware_timestamp(grant.expires_at):
+            revoke_scoped_token(grant.token)
+            grant = None
     except ProcessTaskTransientError as error:
         raise GatewayTokenMintFailed(retryable=True) from error
     # The configuration was checked above, so a configuration error here is a failed revoke.
     except (GatewayTokenUnavailableError, GatewayNotConfiguredError) as error:
         raise GatewayTokenMintFailed(retryable=False) from error
-    if grant is None or grant.expires_at is None:
-        if grant is not None:
-            revoke_scoped_token(grant.token)
+    if grant is None:
         raise GatewayTokenMintFailed(retryable=False)
     return grant
+
+
+def _is_aware_timestamp(value: str | None) -> bool:
+    try:
+        return value is not None and datetime.fromisoformat(value).tzinfo is not None
+    except ValueError:
+        return False

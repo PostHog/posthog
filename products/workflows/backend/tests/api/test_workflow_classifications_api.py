@@ -208,24 +208,29 @@ class _FakeGateway:
     def __init__(self, mint_status: int = 201, echo_capture_mode: bool = True) -> None:
         self.mint_status = mint_status
         self.echo_capture_mode = echo_capture_mode
+        self.expires_at: str | None = _EXPIRES_AT
+        self.revoke_status = 200
         self.mints: list[dict[str, Any]] = []
         self.revoked: list[str] = []
 
     def post(self, url: str, *, json: dict[str, Any], headers: dict[str, str], **_kwargs: Any) -> Any:
         assert headers["Authorization"] == f"Bearer {_MINT_KEY}"
         if url == "https://gateway.example.com/v1/tokens/revoke":
+            if self.revoke_status != 200:
+                return _FakeResponse(self.revoke_status, {"error": "unavailable"})
             self.revoked.append(json["token"])
             return _FakeResponse(200, {"revoked": True})
         assert url == "https://gateway.example.com/v1/tokens"
         self.mints.append(json)
         if self.mint_status != 201:
             return _FakeResponse(self.mint_status, {"error": "refused"})
-        minted = {
+        minted: dict[str, Any] = {
             "token": f"phe_minted_{len(self.mints)}",
-            "expires_at": _EXPIRES_AT,
             "cap_usd": json["cap_usd"],
             "allowed_models": json.get("allowed_models"),
         }
+        if self.expires_at is not None:
+            minted["expires_at"] = self.expires_at
         if self.echo_capture_mode and "capture_mode" in json:
             minted["capture_mode"] = json["capture_mode"]
         return _FakeResponse(201, minted)
@@ -313,14 +318,38 @@ class TestWorkflowClassifyGatewayTokenAPI(APIBaseTest):
         assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
         assert self.gateway.mints == []
 
-    def test_revokes_a_token_the_gateway_minted_without_content_redaction(self) -> None:
-        self.gateway.echo_capture_mode = False
+    @parameterized.expand(
+        [
+            ("no_content_redaction", False, _EXPIRES_AT),
+            ("no_expiry", True, None),
+            ("unreadable_expiry", True, "in half an hour"),
+            ("expiry_without_timezone", True, "2026-11-20T12:30:00"),
+        ]
+    )
+    def test_revokes_a_token_the_worker_must_not_use(
+        self, _name: str, echo_capture_mode: bool, expires_at: str | None
+    ) -> None:
+        self.gateway.echo_capture_mode = echo_capture_mode
+        self.gateway.expires_at = expires_at
 
         response = self._post()
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
         assert "token" not in response.json()
         assert self.gateway.revoked == ["phe_minted_1"]
+
+    @parameterized.expand([("no_content_redaction", False, _EXPIRES_AT), ("no_expiry", True, None)])
+    def test_reports_a_gateway_failure_when_the_revoke_fails_too(
+        self, _name: str, echo_capture_mode: bool, expires_at: str | None
+    ) -> None:
+        self.gateway.echo_capture_mode = echo_capture_mode
+        self.gateway.expires_at = expires_at
+        self.gateway.revoke_status = 503
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert "token" not in response.json()
 
     @parameterized.expand(
         [
