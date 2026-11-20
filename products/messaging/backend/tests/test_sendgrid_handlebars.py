@@ -92,6 +92,18 @@ class TestSendGridHandlebars(SimpleTestCase):
 
         assert nodes[-1] == _Text(text=after)
 
+    @parameterized.expand(
+        [
+            ("braces_in_an_unescaped_value", "{{{ a}}b }}}"),
+            ("partial", "{{> partial}}"),
+            ("entity_in_a_value", "{{ a&quot;b }}"),
+            ("deep_groups_in_a_value", "{{eq " + "(a " * 60 + "b}}"),
+        ]
+    )
+    def test_an_output_outside_the_grammar_is_refused(self, _name: str, source: str) -> None:
+        with self.assertRaises(_Unconvertible):
+            _parse(source)
+
     def test_a_string_turns_only_an_escaped_quote_into_a_quote(self) -> None:
         quoted = _parse_expression('eq x "say \\"hi\\""').params[1]
 

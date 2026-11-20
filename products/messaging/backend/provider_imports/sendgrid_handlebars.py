@@ -259,6 +259,8 @@ def _parse_until(tags: list[_Tag], position: int, depth: int) -> _ParsedNodes:
         elif tag.kind == "liquid":
             nodes.append(_Liquid(liquid=tag.source))
         elif tag.kind == "output":
+            # An output follows the same grammar as a block, so a name that can't be written into Liquid is refused.
+            _parse_expression(tag.body.removeprefix("&").strip())
             nodes.append(_Output(source=tag.source, body=tag.body, raw=tag.raw))
         elif tag.kind == "open":
             block, position = _parse_block(tags, position, tag, depth)
