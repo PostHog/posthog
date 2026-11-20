@@ -365,17 +365,69 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            (
+                "three_sources",
+                "label",
+                "(SELECT 1 AS label) AS a CROSS JOIN (SELECT 2 AS label) AS b CROSS JOIN (SELECT 3 AS label) AS c",
+                "a.label, b.label, c.label",
+                "c.label",
+            ),
+            (
+                "quoted_names",
+                "`display name`",
+                "(SELECT 1 AS `display name`) AS `left side` CROSS JOIN (SELECT 2 AS `display name`) AS right_side",
+                "`left side`.`display name`, right_side.`display name`",
+                "`left side`.`display name`",
+            ),
+            (
+                "reserved_field",
+                "`null`",
+                "(SELECT 1 AS `null`) AS a CROSS JOIN (SELECT 2 AS `null`) AS b",
+                "`a`.`null`, `b`.`null`",
+                "`a`.`null`",
+            ),
+        ]
+    )
     @override_settings(DEBUG=False)
-    def test_metadata_marks_the_ambiguous_field_and_names_its_sources(self):
-        query = "SELECT label FROM (SELECT 1 AS label) AS a CROSS JOIN (SELECT 2 AS label) AS b"
+    def test_metadata_marks_the_ambiguous_field_and_names_its_sources(
+        self, _label: str, field: str, sources: str, alternatives: str, qualified: str
+    ):
+        query = f"SELECT {field} FROM {sources}"
         metadata = self._select(query)
 
         self.assertFalse(metadata.isValid)
         self.assertFalse(metadata.internalError)
         [error] = metadata.errors
-        self.assertEqual((error.start, error.end), (7, 12))
-        self.assertIn("a.label, b.label", error.message)
-        self.assertIn("Use a qualified field name", error.message)
+        self.assertEqual((error.start, error.end), (7, 7 + len(field)))
+        self.assertIn(f"({alternatives}). Use a qualified field name.", error.message)
+        self.assertTrue(self._select(f"SELECT {qualified} FROM {sources}").isValid)
+
+    @parameterized.expand(
+        [
+            (
+                "unnamed",
+                "(SELECT 1 AS x) CROSS JOIN (SELECT 2 AS x)",
+                "",
+            ),
+            (
+                "explicit_and_generated",
+                "(SELECT 1 AS x) AS __join_1 CROSS JOIN (SELECT 2 AS x) CROSS JOIN (SELECT 3 AS x) AS named",
+                " (__join_1.x, named.x)",
+            ),
+        ]
+    )
+    @override_settings(DEBUG=False)
+    def test_metadata_offers_only_user_written_aliases_for_ambiguous_unnamed_joins(
+        self, _label: str, sources: str, alternatives: str
+    ):
+        [error] = self._select(f"SELECT x FROM {sources}").errors
+        self.assertEqual(
+            error.message,
+            f"Ambiguous query. Found multiple sources for field: x{alternatives}. "
+            "Give unnamed sources an alias, then use a qualified field name.",
+        )
 
     @parameterized.expand(
         [

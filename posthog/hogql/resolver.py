@@ -2017,7 +2017,7 @@ class Resolver(CloningVisitor):
             index += 1
         alias = f"__using_join_{index}"
         self._synthetic_using_join_aliases.add(alias)
-        return alias
+        return scope.register_implicit_table_alias(alias)
 
     def _synthesize_join_alias(self, scope: ast.SelectQueryType, node: ast.JoinExpr) -> str:
         """Alias a joined sub-select because ClickHouse requires a name for it."""
@@ -2031,7 +2031,7 @@ class Resolver(CloningVisitor):
         index = 1
         while f"__join_{index}" in reserved_aliases:
             index += 1
-        return f"__join_{index}"
+        return scope.register_implicit_table_alias(f"__join_{index}")
 
     def _using_constraint_column_names(self, constraint: ast.JoinConstraint) -> list[str]:
         exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]

@@ -379,6 +379,14 @@ class SelectQueryType(Type):
     # whether this type is related to a lambda scope
     is_lambda_type: bool = False
 
+    implicit_table_aliases: set[str] | None = field(default=None, compare=False, repr=False)
+
+    def register_implicit_table_alias(self, alias: str) -> str:
+        if self.implicit_table_aliases is None:
+            self.implicit_table_aliases = set()
+        self.implicit_table_aliases.add(alias)
+        return alias
+
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
             if value == table_type:

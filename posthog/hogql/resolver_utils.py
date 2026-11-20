@@ -27,7 +27,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import AmbiguousFieldError, QueryError, ResolutionError, SyntaxError
-from posthog.hogql.escape_sql import escape_hogql_identifier, quote_hogql_identifier
+from posthog.hogql.escape_sql import backquote_clickhouse_identifier, escape_hogql_identifier, quote_hogql_identifier
 
 # Bounds the message for wide warehouse tables. A longer list stops helping the reader pick a column.
 MAX_LISTED_FIELD_NAMES = 30
@@ -40,14 +40,11 @@ def lookup_field_by_name(
 
     if isinstance(scope, ast.SelectSetQueryType):
         field: Optional[ast.Type] = None
-        field_sources: list[str] = []
-        for index, select_type in enumerate(scope.types, start=1):
+        for select_type in scope.types:
             new_field = lookup_field_by_name(select_type, name, context)
             if new_field:
                 if field:
-                    field_sources.append(_select_set_type_source_name(index))
-                    raise AmbiguousFieldError(name, field_sources)
-                field_sources.append(_select_set_type_source_name(index))
+                    raise AmbiguousFieldError(name, [], "Qualify the field in the SELECT that uses it.")
                 field = new_field
         return field
 
@@ -61,10 +58,17 @@ def lookup_field_by_name(
         tables_with_field = [table for _, table in named_tables] + anonymous_tables
 
         if len(tables_with_field) > 1:
-            field_sources = [
-                _table_source_name(table, context, alias=table_alias) for table_alias, table in named_tables
-            ] + [_anonymous_table_source_name(table, index) for index, table in enumerate(anonymous_tables, start=1)]
-            raise AmbiguousFieldError(name, field_sources)
+            source_aliases = [
+                alias
+                for alias, _ in named_tables
+                if not scope.implicit_table_aliases or alias not in scope.implicit_table_aliases
+            ]
+            hint = (
+                "Give unnamed sources an alias, then use a qualified field name."
+                if len(source_aliases) < len(tables_with_field)
+                else "Use a qualified field name."
+            )
+            raise AmbiguousFieldError(name, source_aliases, hint)
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name, context)
 
@@ -74,37 +78,17 @@ def lookup_field_by_name(
         return None
 
 
-def _table_source_name(table: ast.TableOrSelectType, context: HogQLContext, *, alias: str | None = None) -> str:
-    if alias:
-        return alias
+def qualified_field_suggestion(source: str, name: str) -> str:
+    from posthog.hogql.parser import parse_expr  # noqa: PLC0415 -- the parser imports the AST
 
-    if isinstance(
-        table,
-        ast.TableAliasType
-        | ast.ColumnAliasedTableType
-        | ast.SelectViewType
-        | ast.CTETableAliasType
-        | ast.SelectQueryAliasType,
-    ):
-        return table.alias
-    if isinstance(table, ast.CTETableType):
-        return table.name
-
-    if isinstance(table, ast.TableType | ast.LazyTableType):
-        try:
-            return table.resolve_database_table(context).to_printed_hogql()
-        except Exception:
-            return "source"
-
-    return "source"
-
-
-def _anonymous_table_source_name(_table: ast.SelectQueryType | ast.SelectSetQueryType, index: int) -> str:
-    return f"anonymous source {index}"
-
-
-def _select_set_type_source_name(index: int) -> str:
-    return f"query source {index}"
+    candidate = f"{quote_hogql_identifier(source)}.{quote_hogql_identifier(name)}"
+    try:
+        parsed = parse_expr(candidate)
+        if isinstance(parsed, ast.Field) and parsed.chain == [source, name]:
+            return candidate
+    except (QueryError, SyntaxError):
+        pass
+    return f"{backquote_clickhouse_identifier(source)}.{backquote_clickhouse_identifier(name)}"
 
 
 def _names_on_table_type(
