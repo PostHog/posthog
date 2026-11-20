@@ -3230,6 +3230,13 @@ def _do_edit_report(
     return result
 
 
+def _stored_report_text(team_id: int, report_id: str) -> tuple[str, str]:
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).values("title", "summary").first()
+    if report is None:
+        return "", ""
+    return report["title"] or "", report["summary"] or ""
+
+
 def _assert_edit_gates(team: Team, author: ReportAuthor, report_id: str, appended_evidence: int = 0) -> None:
     """The emit preflight gates, applied to an edit. Shared by the entrypoints (which must gate
     before spending the safety-judge LLM call) and `_do_edit_report` (so a future caller that skips
@@ -3463,11 +3470,18 @@ async def edit_report(
     built_reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
         team, suggested_reviewers, skill_name=author.skill_name
     )
+    stored_title, stored_summary = (
+        await database_sync_to_async(_stored_report_text, thread_sensitive=False)(team.id, report_id)
+        if built_prompts and (title is None or summary is None)
+        else ("", "")
+    )
     _raise_if_unsafe_edit(
         await judge_edited_report_content(
             team_id=team.id,
             title=title,
             summary=summary,
+            stored_title=stored_title,
+            stored_summary=stored_summary,
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),
@@ -3605,11 +3619,16 @@ def edit_report_sync(
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
     # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
     built_reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=author.skill_name)
+    stored_title, stored_summary = (
+        _stored_report_text(team.id, report_id) if built_prompts and (title is None or summary is None) else ("", "")
+    )
     _raise_if_unsafe_edit(
         async_to_sync(judge_edited_report_content)(
             team_id=team.id,
             title=title,
             summary=summary,
+            stored_title=stored_title,
+            stored_summary=stored_summary,
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),

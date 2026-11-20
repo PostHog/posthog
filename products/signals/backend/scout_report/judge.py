@@ -315,6 +315,8 @@ async def judge_edited_report_content(
     link_reasons: Sequence[str] = (),
     decision_explanations: Sequence[str] = (),
     tags: Sequence[str] = (),
+    stored_title: str = "",
+    stored_summary: str = "",
 ) -> SafetyJudgment:
     """Run the safety judge over the content an `edit_report` call supplies, before it is written.
 
@@ -330,12 +332,18 @@ async def judge_edited_report_content(
     """
     safety_input: list[SignalData] = []
     prompts_signal = suggested_prompts_signal(suggested_prompts)
-    if title is not None or summary is not None:
-        if prompts_signal is None:
-            safety_input.append(_report_content_signal(title or "", summary or ""))
-        else:
-            safety_input.append(report_with_prompts_signal(title or "", summary or "", prompts_signal))
-            prompts_signal = None
+    if prompts_signal is not None:
+        # A clicked prompt runs against the report text it is stored with, so a field this edit
+        # leaves alone is judged from the stored report (`stored_title` / `stored_summary`).
+        safety_input.append(
+            report_with_prompts_signal(
+                title if title is not None else stored_title,
+                summary if summary is not None else stored_summary,
+                prompts_signal,
+            )
+        )
+    elif title is not None or summary is not None:
+        safety_input.append(_report_content_signal(title or "", summary or ""))
     if note is not None:
         safety_input.append(_report_content_signal("Report work-log note", note))
     # Appended evidence is judged exactly as emitted evidence is: the descriptions are embedded and
@@ -347,10 +355,6 @@ async def judge_edited_report_content(
     metric_signal = _metric_signal(metrics)
     if metric_signal is not None:
         safety_input.append(metric_signal)
-    # An edit that sends prompts without a title or summary is judged without the stored report
-    # text, because this judge does not load the report.
-    if prompts_signal is not None:
-        safety_input.append(prompts_signal)
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
     if reasons_signal is not None:
         safety_input.append(reasons_signal)

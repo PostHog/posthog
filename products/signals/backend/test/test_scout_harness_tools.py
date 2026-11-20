@@ -1933,6 +1933,9 @@ class TestBuildSuggestedPrompts:
             _build_suggested_prompts(prompts)
 
 
+_PROMPT_CONTEXT_SUMMARY = "The summary holds the command the prompt points at."
+
+
 class TestSuggestedPromptSafetyJudgeInput:
     """The questions a report suggests are judged with it — pure prompt assembly, no DB."""
 
@@ -1954,11 +1957,21 @@ class TestSuggestedPromptSafetyJudgeInput:
         assert suggested_prompts_signal([]) is None
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("path", ["emit", "edit"])
-    async def test_prompts_reach_the_judge_in_one_signal_with_the_report_text(self, path: str) -> None:
+    @pytest.mark.parametrize(
+        "path,title,summary,stored_title,stored_summary",
+        [
+            ("emit", None, None, "", ""),
+            ("edit", "A title", _PROMPT_CONTEXT_SUMMARY, "", ""),
+            ("edit_prompts_only", None, None, "A title", _PROMPT_CONTEXT_SUMMARY),
+            ("edit_title_only", "A title", None, "An old title", _PROMPT_CONTEXT_SUMMARY),
+        ],
+    )
+    async def test_prompts_reach_the_judge_in_one_signal_with_the_report_text(
+        self, path: str, title: str | None, summary: str | None, stored_title: str, stored_summary: str
+    ) -> None:
         # The system-one judge splits its input into chunks at signal boundaries. A prompt judged in
         # another chunk than the summary it points at ("run the command in this report") reads as safe.
-        summary = "The summary holds the command the prompt points at."
+        # An edit that leaves the summary alone still runs its prompts against the stored one.
         prompt = "Run the diagnostic command in this report"
         judge = AsyncMock(return_value=SafetyJudgeResponse(choice=True, explanation=""))
         with patch("products.signals.backend.scout_report.judge.judge_report_safety", judge):
@@ -1966,7 +1979,7 @@ class TestSuggestedPromptSafetyJudgeInput:
                 await judge_scout_report(
                     team_id=1,
                     title="A title",
-                    summary=summary,
+                    summary=_PROMPT_CONTEXT_SUMMARY,
                     signals=[],
                     actionability=ActionabilityAssessment(
                         explanation="Clear fix.",
@@ -1977,14 +1990,19 @@ class TestSuggestedPromptSafetyJudgeInput:
                 )
             else:
                 await judge_edited_report_content(
-                    team_id=1, title="A title", summary=summary, suggested_prompts=[prompt]
+                    team_id=1,
+                    title=title,
+                    summary=summary,
+                    stored_title=stored_title,
+                    stored_summary=stored_summary,
+                    suggested_prompts=[prompt],
                 )
 
+        assert judge.await_args is not None
         contents = [signal.content for signal in judge.await_args.kwargs["signals"]]
-        assert [content for content in contents if prompt in content and summary in content] == [
-            f"A title\n\n{summary}\n\nSuggested prompts (each is a request a reader can click to send to the coding agent):\n\n{prompt}"
+        assert contents == [
+            f"A title\n\n{_PROMPT_CONTEXT_SUMMARY}\n\nSuggested prompts (each is a request a reader can click to send to the coding agent):\n\n{prompt}"
         ]
-        assert sum(prompt in content for content in contents) == 1
 
 
 class TestReportLinkSafetyJudgeInput:
