@@ -47,8 +47,8 @@ from products.signals.backend.anomaly_scores.read import (
     SeriesSummary,
     bucket_starts,
     chart_from,
+    chart_shares,
     latest_buckets,
-    prior_rate,
     rank_series,
     rollup,
     scored_days,
@@ -331,7 +331,15 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
     ]
     ranked = rank_series(
         in_range,
-        prior=prior_rate(readable),
+        chart_shares=chart_shares(
+            team,
+            date_to=filters.date_to,
+            series={
+                (summary.insight_id, summary.series_key): summary.interval
+                for summary in in_range
+                if summary.flagged_buckets
+            },
+        ),
         importance=_importance(team, {summary.insight_id for summary in in_range}, now),
         recent_first=filters.order == AnomalyOrder.RECENT,
         rate_first=filters.order == AnomalyOrder.RATE,
@@ -459,9 +467,7 @@ def insight_history(
         insight_ids=[insight.id],
         series_key=filters.series_key,
     )
-    # A series with only baseline rows was not scored in the range at all.
-    in_range = [summary for summary in summaries.series if summary.newest_bucket >= filters.date_from]
-    ranked = rank_series(in_range, prior=prior_rate(summaries.series), importance={})
+    ranked = rank_series(summaries.series, chart_shares={}, importance={})
     truncated = summaries.truncated or len(ranked) > MAX_INSIGHT_SERIES
     ranked = ranked[:MAX_INSIGHT_SERIES]
 
@@ -501,7 +507,7 @@ def insight_history(
             buckets = buckets[-per_series:]
         series.append(SeriesHistory(summary=summary, expected_buckets=len(starts), buckets=buckets))
 
-    newest = max(in_range, key=lambda summary: summary.newest_bucket, default=None)
+    newest = max(summaries.series, key=lambda summary: summary.newest_bucket, default=None)
     message = None
     if newest is None:
         message = off_message or "No bucket of this insight was scored in this range."
@@ -513,7 +519,7 @@ def insight_history(
         profile=newest.profile if newest else None,
         detector=newest.detector if newest else None,
         detector_version=newest.detector_version if newest else None,
-        rollup=rollup(in_range),
+        rollup=rollup(summaries.series),
         series=series,
         truncated=truncated,
         message=message,
