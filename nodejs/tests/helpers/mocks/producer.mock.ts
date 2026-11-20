@@ -49,5 +49,4 @@ export const mockProducer = require('~/common/kafka/producer')._producer as Kafk
 export const MockKafkaProducerWrapper = require('~/common/kafka/producer')
     .KafkaProducerWrapper as typeof KafkaProducerWrapper
 export const mockProducerObserver = new KafkaProducerObserver(mockProducer)
-// The node-rdkafka client the mocked wrapper sends to. Its calls are the records that cross the Kafka boundary.
 export const mockKafkaClient = require('~/common/kafka/producer')._kafkaClient as jest.Mocked<HighLevelProducer>

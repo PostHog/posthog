@@ -2040,7 +2040,7 @@ describe('EmailService', () => {
         }
         const trackingOff = (): void => {
             sesAccepts()
-            invocation.hogFunction.metadata = { tracking_enabled: false }
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
         }
         describe('attachments', () => {
             let bucket: BucketProxy
