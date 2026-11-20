@@ -21,7 +21,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
-from products.signals.backend.anomaly_scores.read import FlaggedPoint, SeriesSummary, prior_rate, rank_series, rollup
+from products.signals.backend.anomaly_scores.read import ChartShare, FlaggedPoint, SeriesSummary, rank_series, rollup
 from products.signals.backend.anomaly_scores.search import (
     MAX_INSIGHT_SERIES,
     SCORING_DISABLED_MESSAGE,
@@ -43,8 +43,6 @@ def _summary(
     *,
     scored: int,
     flagged: int,
-    baseline_scored: int = 0,
-    baseline_flagged: int = 0,
     last_flagged: datetime.datetime | None = None,
     interval: IntervalType = IntervalType.DAY,
     newest_bucket: datetime.datetime | None = None,
@@ -62,8 +60,6 @@ def _summary(
         newest_bucket=newest_bucket,
         scored_buckets=scored,
         flagged_buckets=flagged,
-        baseline_scored_buckets=baseline_scored,
-        baseline_flagged_buckets=baseline_flagged,
         scored_through=newest_bucket,
         flagged_points=(FlaggedPoint(bucket_start=last_flagged, value=1.0, score=0.99),) if last_flagged else (),
     )
@@ -72,30 +68,35 @@ def _summary(
 class TestAnomalyRanking(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "more_evidence_beats_one_lucky_bucket",
-                _summary("three_of_ten", scored=10, flagged=3),
-                _summary("one_of_one", scored=1, flagged=1),
-            ),
-            (
-                "quiet_baseline_beats_always_noisy",
-                _summary("quiet_before", scored=10, flagged=3, baseline_scored=30, baseline_flagged=0),
-                _summary("noisy_before", scored=10, flagged=3, baseline_scored=30, baseline_flagged=10),
-            ),
-            (
-                "real_jump_beats_unchanged_noisy",
-                _summary("jumped", scored=10, flagged=3, baseline_scored=30, baseline_flagged=0),
-                _summary("unchanged", scored=10, flagged=5, baseline_scored=10, baseline_flagged=5),
-            ),
+            ("rarely_flagged_beats_often_flagged", ("rare", 30, 1), ("noisy", 30, 10)),
+            ("a_share_beats_too_few_chart_buckets", ("known", 30, 9), ("young", 9, 1)),
+            ("a_share_beats_no_chart_share", ("known", 30, 9), ("missing", 0, 0)),
         ]
     )
-    def test_ranks_series_by_comparable_rates(
-        self, _name: str, expected_first: SeriesSummary, other: SeriesSummary
+    def test_unusual_order_puts_the_lowest_chart_share_first(
+        self, _name: str, expected_first: tuple[str, int, int], other: tuple[str, int, int]
     ) -> None:
-        series = [other, expected_first]
-        ranked = rank_series(series, prior=prior_rate(series), importance={})
+        series = [_summary(key, scored=10, flagged=1) for key, _, _ in (other, expected_first)]
+        shares = {
+            (1, key): ChartShare(scored_buckets=scored, flagged_buckets=flagged)
+            for key, scored, flagged in (other, expected_first)
+            if scored
+        }
 
-        assert [summary.series_key for summary in ranked] == [expected_first.series_key, other.series_key]
+        ranked = rank_series(series, chart_shares=shares, importance={})
+
+        assert [summary.series_key for summary in ranked] == [expected_first[0], other[0]]
+
+    def test_unusual_order_puts_series_flagged_in_the_range_first(self) -> None:
+        series = [_summary("quiet", scored=10, flagged=0), _summary("flagged", scored=10, flagged=1)]
+        shares = {
+            (1, "quiet"): ChartShare(scored_buckets=30, flagged_buckets=0),
+            (1, "flagged"): ChartShare(scored_buckets=30, flagged_buckets=20),
+        }
+
+        ranked = rank_series(series, chart_shares=shares, importance={})
+
+        assert [summary.series_key for summary in ranked] == ["flagged", "quiet"]
 
     @parameterized.expand(
         [("unusual", False, ["burst", "blip", "quiet"]), ("recent", True, ["blip", "burst", "quiet"])]
@@ -109,7 +110,7 @@ class TestAnomalyRanking(SimpleTestCase):
             _summary("burst", scored=10, flagged=4, last_flagged=_day(15)),
         ]
 
-        ranked = rank_series(series, prior=prior_rate(series), importance={}, recent_first=recent_first)
+        ranked = rank_series(series, chart_shares={}, importance={}, recent_first=recent_first)
 
         assert [summary.series_key for summary in ranked] == expected
 
@@ -169,7 +170,7 @@ class TestAnomalyRanking(SimpleTestCase):
                 ["hourly", "daily", "weekly"],
             ),
             (
-                "same_end_falls_back_to_lift",
+                "same_end_falls_back_to_flagged_buckets",
                 [
                     _summary("daily", scored=10, flagged=1, last_flagged=_day(22)),
                     _summary(
@@ -188,7 +189,7 @@ class TestAnomalyRanking(SimpleTestCase):
     def test_recent_order_sorts_by_when_the_newest_flag_ended(
         self, _name: str, series: list[SeriesSummary], expected: list[str]
     ) -> None:
-        ranked = rank_series(series, prior=prior_rate(series), importance={}, recent_first=True)
+        ranked = rank_series(series, chart_shares={}, importance={}, recent_first=True)
 
         assert [summary.series_key for summary in ranked] == expected
 
@@ -200,7 +201,7 @@ class TestAnomalyRanking(SimpleTestCase):
     ) -> None:
         series = [_summary("three_of_ten", scored=10, flagged=3), _summary("one_of_one", scored=1, flagged=1)]
 
-        ranked = rank_series(series, prior=prior_rate(series), importance={}, rate_first=rate_first)
+        ranked = rank_series(series, chart_shares={}, importance={}, rate_first=rate_first)
 
         assert [summary.series_key for summary in ranked] == expected
 
@@ -314,7 +315,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             "flagged_buckets": 1,
             "expected_buckets": 4,
         }
-        assert (row["anomaly_rate"], row["coverage"], row["baseline_rate"]) == (0.5, 0.5, None)
+        assert (row["anomaly_rate"], row["coverage"]) == (0.5, 0.5)
         assert row["last_flagged_bucket"] == row["first_flagged_bucket"] == "2026-10-22T00:00:00+00:00"
         assert row["flagged_points"] == [{"bucket_start": "2026-10-22T00:00:00+00:00", "value": 10.0, "score": 0.98}]
         assert "points" not in row
@@ -413,7 +414,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unusual", "unusual", ["burst", "steady", "blip"]),
+            ("unusual", "unusual", ["blip", "steady", "burst"]),
             ("recent", "recent", ["blip", "steady", "burst"]),
             ("rate", "rate", ["burst", "steady", "blip"]),
         ]
@@ -421,9 +422,10 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def test_search_pages_through_rows_in_the_requested_order(
         self, _name: str, order: str, expected: list[str]
     ) -> None:
-        flagged_days = {"burst": {15, 16, 17}, "steady": {19, 20}, "blip": {22}}
+        # Before the range but inside the daily chart window, burst also flagged often, so it sorts last as unusual.
+        flagged_days = {"burst": {1, 2, 3, 4, 5, 6, 7, 15, 16, 17}, "steady": {19, 20}, "blip": {22}}
         for series_key, days in flagged_days.items():
-            for day in range(15, 23):
+            for day in range(1, 23):
                 self._score(_day(day), score=0.5, flag=int(day in days), series_key=series_key)
 
         pages = [

@@ -67,7 +67,6 @@ function makeSeries(
             expected_buckets: inFlagWindow.length,
             coverage: 1,
             scored_through: points[points.length - 1].bucket_start,
-            baseline_rate: 0.04,
             dashboards: [{ id: 1, name: 'Growth' }],
             first_flagged_bucket: flagged[0]?.bucket_start ?? null,
             last_flagged_bucket: flagged.at(-1)?.bucket_start ?? null,
