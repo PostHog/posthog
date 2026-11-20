@@ -49,11 +49,12 @@ const scratchDir = (): ReturnType<typeof mkdtempDisposableSync> =>
 export function evidenceOf(aws: Aws, bucket: string) {
     return {
         name: bucket,
-        put: async (key: string, body: string | Buffer): Promise<unknown> => {
+        put: async (key: string, body: string | Buffer, createOnly = false): Promise<unknown> => {
             using scratch = scratchDir()
             const file = path.join(scratch.path, 'object')
             writeFileSync(file, body)
-            return await aws.call(['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file])
+            const args = ['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file]
+            return await aws.call(createOnly ? [...args, '--if-none-match', '*'] : args)
         },
         get: async (key: string): Promise<string> => {
             using scratch = scratchDir()
@@ -145,12 +146,18 @@ export async function lease(
         readerMinAcu: profile.readerAcu.min,
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
-    if ((await bucket.keys(keyOf(runId, ''))).length > 0) {
-        throw new LeaseError(`Run ${runId} already has objects under ${keyOf(runId, '')}, so it is not leased again.`)
-    }
     const body = JSON.stringify(manifest, null, 2)
+    if (given !== undefined) {
+        await bucket.put(keyOf(runId, 'manifest.json'), body, true).catch((error: unknown) => {
+            throw error instanceof AwsError && error.code === 'PreconditionFailed'
+                ? new LeaseError(`Run ${runId} already has a manifest, so it is not leased again.`)
+                : error
+        })
+    }
     try {
-        await bucket.put(keyOf(runId, 'manifest.json'), body)
+        if (given === undefined) {
+            await bucket.put(keyOf(runId, 'manifest.json'), body)
+        }
         await bucket.put(keyOf(runId, 'input/manifest.json'), body)
         for (const input of inputs) {
             await bucket.put(keyOf(runId, `input/${input.file}`), input.bytes)

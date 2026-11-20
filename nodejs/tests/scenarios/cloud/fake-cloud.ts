@@ -1108,6 +1108,13 @@ export class FakeCloud implements Aws {
                 return { Parameter: { Name: flags.get('name'), Value: value } }
             }
             case 's3api put-object':
+                if (flags.get('if-none-match') === '*' && this.objects.has(flags.get('key')!)) {
+                    throw serviceError(
+                        operation,
+                        'PreconditionFailed',
+                        'At least one of the pre-conditions you specified did not hold'
+                    )
+                }
                 this.objects.set(flags.get('key')!, readFileSync(flags.get('body')!, 'utf8'))
                 return { ETag: '"etag"' }
             case 's3api get-object': {
