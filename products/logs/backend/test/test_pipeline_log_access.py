@@ -146,6 +146,12 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("rename", True, {"name": "Renamed"}, 200),
+            (
+                "rename_from_edit_form",
+                True,
+                {"name": "Renamed", "filters": {"serviceNames": [_PIPELINE]}},
+                200,
+            ),
             ("snooze", True, {"snooze_until": "2099-01-01T00:00:00Z"}, 200),
             ("change_filters", True, {"filters": {"serviceNames": [_PIPELINE], "severityLevels": ["warn"]}}, 403),
             ("turn_on", False, {"enabled": True}, 403),
