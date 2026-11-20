@@ -4,6 +4,7 @@ from typing import Any
 
 import requests
 
+from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
 
@@ -42,6 +43,12 @@ _DRAFT_TOGGLE_NOTE_RE = re.compile(
 _BOT_USERNAME_RE = re.compile(r"^(?:project|group)_\d+_bot")
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _LOG_SECTION_RE = re.compile(r"section_(?:start|end):\d+:[^\r\n]*?\r")
+
+
+@frozen
+class _Feedback:
+    threads: list[dict[str, Any]]
+    comments: list[dict[str, Any]]
 
 
 def parse_merge_request_iid(url: str, hostname: str, project_path: str) -> int | None:
@@ -139,7 +146,7 @@ class GitLabMergeRequestClient:
         discussions, complete = self._gitlab.list_merge_request_discussions(
             self._project_id, self.iid, max_pages=MAX_DISCUSSION_PAGES
         )
-        threads, comments = self._feedback(discussions, author_login, web_url)
+        feedback = self._feedback(discussions, author_login, web_url)
         ci_status, failing_checks = self._pipeline(mr)
         merge_status = mr.get("detailed_merge_status")
         has_conflict = mr.get("has_conflicts") is True or merge_status == "conflict"
@@ -150,8 +157,8 @@ class GitLabMergeRequestClient:
             review_decision="CHANGES_REQUESTED" if merge_status == "requested_changes" else None,
             review_threads_complete=complete,
             failing_checks=failing_checks,
-            unresolved_threads=threads,
-            comments=comments,
+            unresolved_threads=feedback.threads,
+            comments=feedback.comments,
         )
         return raw
 
@@ -189,9 +196,7 @@ class GitLabMergeRequestClient:
             note.get("system") is True and _DRAFT_TOGGLE_NOTE_RE.search(str(note.get("body") or "")) for note in notes
         )
 
-    def _feedback(
-        self, discussions: list[dict[str, Any]], author_login: str | None, web_url: str
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def _feedback(self, discussions: list[dict[str, Any]], author_login: str | None, web_url: str) -> _Feedback:
         threads: list[dict[str, Any]] = []
         comments: list[dict[str, Any]] = []
         for discussion in discussions:
@@ -232,7 +237,7 @@ class GitLabMergeRequestClient:
         developers = self._developer_ids([item["_author_id"] for item in items if item.get("author") != author_login])
         for item in items:
             item["author_association"] = DEVELOPER_ASSOCIATION if item.pop("_author_id") in developers else None
-        return threads, comments
+        return _Feedback(threads=threads, comments=comments)
 
     def _developer_ids(self, author_ids: list[object]) -> set[int]:
         # The wake prompt trusts feedback by role, so an author past the lookup cap reads as untrusted.

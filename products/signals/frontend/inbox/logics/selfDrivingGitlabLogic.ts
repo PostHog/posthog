@@ -22,7 +22,7 @@ export interface selfDrivingGitlabLogicMeta {
 
 export type selfDrivingGitlabLogicType = MakeLogicType<
     selfDrivingGitlabLogicValues,
-    Record<string, never>,
+    {},
     Record<string, any>,
     selfDrivingGitlabLogicMeta
 >
