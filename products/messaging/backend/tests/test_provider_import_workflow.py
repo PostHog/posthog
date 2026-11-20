@@ -1,10 +1,12 @@
 import uuid
+import asyncio
 import logging
 from datetime import timedelta
 
 import pytest
 
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -41,13 +43,17 @@ async def test_a_failed_step_does_not_stop_later_steps_or_the_finish(caplog: pyt
     async def finish_run(inputs: ProviderImportRunInputs) -> None:
         finished_runs.append(inputs.run_id)
 
+    @activity.defn(name="messaging-provider-import.discard_staged_contacts")
+    async def discard(inputs: ProviderImportRunInputs) -> None:
+        pass
+
     run_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="provider-import-test",
             workflows=[ProviderImportWorkflow],
-            activities=[run_step, finish_run],
+            activities=[run_step, finish_run, discard],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(
@@ -60,6 +66,59 @@ async def test_a_failed_step_does_not_stop_later_steps_or_the_finish(caplog: pyt
 
     assert attempted_steps == ["categories", "suppressions"]
     assert finished_runs == [run_id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", ["completed", "failed", "cancelled"])
+async def test_the_run_deletes_its_stored_contacts_however_it_ends(ending: str) -> None:
+    run_id = str(uuid.uuid4())
+    stored: dict[str, str] = {}
+    step_started = asyncio.Event()
+
+    @activity.defn(name="messaging-provider-import.run_step")
+    async def run_step(inputs: ProviderImportStepInputs) -> ProviderImportStepResult:
+        stored[f"{inputs.run_id}/{inputs.step}"] = "[]"
+        step_started.set()
+        if ending == "cancelled":
+            await asyncio.Event().wait()
+        return ProviderImportStepResult(people_imports=[])
+
+    @activity.defn(name="messaging-provider-import.finish_run")
+    async def finish_run(inputs: ProviderImportRunInputs) -> None:
+        if ending == "failed":
+            raise ApplicationError("The database went away", non_retryable=True)
+
+    @activity.defn(name="messaging-provider-import.discard_staged_contacts")
+    async def discard(inputs: ProviderImportRunInputs) -> None:
+        for key in [key for key in stored if key.startswith(f"{inputs.run_id}/")]:
+            del stored[key]
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="provider-import-test",
+            workflows=[ProviderImportWorkflow],
+            activities=[run_step, finish_run, discard],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                ProviderImportWorkflow.run,
+                ProviderImportWorkflowInputs(team_id=1, run_id=run_id, steps=["contacts"]),
+                id=f"provider-import-test-{run_id}",
+                task_queue="provider-import-test",
+                execution_timeout=timedelta(minutes=5),
+            )
+            if ending == "cancelled":
+                await step_started.wait()
+                await handle.cancel()
+            if ending == "completed":
+                await handle.result()
+            else:
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+
+    assert step_started.is_set()
+    assert stored == {}
 
 
 @pytest.mark.asyncio
@@ -102,13 +161,17 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(fill_f
     async def finish_run(inputs: ProviderImportRunInputs) -> None:
         calls.append("finish")
 
+    @activity.defn(name="messaging-provider-import.discard_staged_contacts")
+    async def discard(inputs: ProviderImportRunInputs) -> None:
+        calls.append("discard")
+
     run_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="provider-import-test",
             workflows=[ProviderImportWorkflow, ProviderContactsImportWorkflow],
-            activities=[run_step, import_chunk, fill_cohort, fail_cohort, record, finish_run],
+            activities=[run_step, import_chunk, fill_cohort, fail_cohort, record, finish_run, discard],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(
@@ -120,7 +183,7 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(fill_f
             )
 
     ending = ["fail 7"] if fill_fails else ["fill 7"]
-    assert calls == ["contacts", "chunk 0", "chunk 1", *ending, "contact_properties", "finish"]
+    assert calls == ["contacts", "chunk 0", "chunk 1", *ending, "contact_properties", "finish", "discard"]
     assert recorded == [
         ContactsImportOutcome(
             people=6, found=4, removed=0 if fill_fails else 1, failed_lists=int(fill_fails), retried_chunks=1

@@ -6,6 +6,7 @@ Core reaches these through ``facade/temporal.py``.
 from typing import TYPE_CHECKING
 
 from products.messaging.backend.temporal.activities import (
+    discard_staged_contacts_activity,
     fail_contacts_cohort_activity,
     fill_contacts_cohort_activity,
     finish_provider_import_run_activity,
@@ -27,6 +28,7 @@ ACTIVITIES: list[ActivityDefinition] = [
     fill_contacts_cohort_activity,
     fail_contacts_cohort_activity,
     record_people_import_activity,
+    discard_staged_contacts_activity,
 ]
 
 __all__ = ["WORKFLOWS", "ACTIVITIES"]

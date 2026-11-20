@@ -19,6 +19,7 @@ from products.workflows.backend.services.provider_contacts import (
     import_contact_chunk,
     send_provider_contact_properties,
     stage_provider_contacts,
+    staged_contact_imports,
 )
 
 __all__ = [
@@ -35,5 +36,6 @@ __all__ = [
     "import_contact_chunk",
     "send_provider_contact_properties",
     "stage_provider_contacts",
+    "staged_contact_imports",
     "start_people_import",
 ]

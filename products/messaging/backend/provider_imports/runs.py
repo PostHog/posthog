@@ -14,6 +14,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from prometheus_client import Counter
+
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_team_action
 from posthog.models import Team
@@ -38,13 +40,21 @@ from products.messaging.backend.provider_imports.base import (
 from products.messaging.backend.provider_imports.registry import get_provider
 from products.messaging.backend.temporal.client import RUN_EXECUTION_TIMEOUT, start_provider_import_workflow
 from products.workflows.backend.facade.api import can_edit_workflows
-from products.workflows.backend.facade.people_import import discard_staged_contacts, fail_contacts_cohort
+from products.workflows.backend.facade.people_import import (
+    discard_staged_contacts,
+    fail_contacts_cohort,
+    staged_contact_imports,
+)
 
 logger = logging.getLogger(__name__)
 
+STAGED_CONTACTS_CLEANUP_FAILED = Counter(
+    "messaging_provider_import_staged_contacts_cleanup_failed_total",
+    "Times the hourly sweep couldn't delete the contacts a provider import stored.",
+)
+
 # A run still active after the workflow's execution timeout has no workflow left to finish it.
 STALE_RUN_AGE = RUN_EXECUTION_TIMEOUT + timedelta(hours=1)
-CLEANUP_RETRY_WINDOW = timedelta(days=2)
 MAX_STEP_WARNINGS = 50
 MAX_STEP_ITEMS = 200
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error interrupted this step."
@@ -234,18 +244,40 @@ def close_stale_runs() -> int:
     )
     for team_id, run_id in stale:
         _close_stale_run(team_id, run_id)
-    # A cleanup that failed while closing a run is tried again here every hour for a while.
-    ended = (
-        ProviderImportRun.objects.unscoped()
-        .filter(finished_at__gte=timezone.now() - CLEANUP_RETRY_WINDOW)
-        .values_list("team_id", "id")
-    )
-    for team_id, run_id in ended:
-        try:
-            discard_staged_contacts(team_id, str(run_id))
-        except Exception:
-            logger.exception("Failed to delete the contacts a provider import stored", extra={"run_id": str(run_id)})
+    _discard_contacts_of_ended_runs()
     return len(stale)
+
+
+def _discard_contacts_of_ended_runs() -> None:
+    # Every hour until the delete succeeds, whatever state the run is in or even when it no longer exists. Only a
+    # run that can still be importing keeps its contacts.
+    try:
+        staged = staged_contact_imports()
+    except Exception:
+        STAGED_CONTACTS_CLEANUP_FAILED.inc()
+        logger.exception("Failed to list the contacts provider imports stored")
+        return
+    run_ids = [run_id for _, run_id in staged if _is_uuid(run_id)]
+    active = {
+        (team_id, str(run_id))
+        for team_id, run_id in ProviderImportRun.objects.unscoped()
+        .filter(id__in=run_ids, status__in=ACTIVE_IMPORT_STATUSES)
+        .values_list("team_id", "id")
+    }
+    for team_id, run_id in staged - active:
+        try:
+            discard_staged_contacts(team_id, run_id)
+        except Exception:
+            STAGED_CONTACTS_CLEANUP_FAILED.inc()
+            logger.exception("Failed to delete the contacts a provider import stored", extra={"run_id": run_id})
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
 
 
 def list_runs(team_id: int, limit: int) -> list[ProviderImportRun]:

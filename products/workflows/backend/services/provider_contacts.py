@@ -288,5 +288,15 @@ def discard_staged_contacts(team_id: int, import_key: str) -> None:
         raise ContactsCleanupFailed(f"{len(failed)} stored parts weren't deleted.")
 
 
+def staged_contact_imports() -> set[tuple[int, str]]:
+    """The team and import run of every import that still has stored parts. Raises ObjectStorageError."""
+    found: set[tuple[int, str]] = set()
+    for key in object_storage.iter_keys(f"{_STORAGE_FOLDER}/"):
+        _, team, import_run, *_ = [*key.split("/"), "", ""]
+        if team.startswith("team-") and team[5:].isdigit() and import_run:
+            found.add((int(team[5:]), import_run))
+    return found
+
+
 def _chunk_key(storage_prefix: str, chunk: int) -> str:
     return f"{storage_prefix}/chunk-{chunk}.json"

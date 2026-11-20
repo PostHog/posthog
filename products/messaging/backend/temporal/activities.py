@@ -17,6 +17,7 @@ from products.messaging.backend.temporal.inputs import (
     RecordPeopleImportInputs,
 )
 from products.workflows.backend.facade.people_import import (
+    discard_staged_contacts,
     fail_contacts_cohort,
     fill_contacts_cohort,
     import_contact_chunk,
@@ -36,6 +37,12 @@ def run_provider_import_step_activity(inputs: ProviderImportStepInputs) -> Provi
 @asyncify
 def finish_provider_import_run_activity(inputs: ProviderImportRunInputs) -> None:
     finish_run(inputs.team_id, UUID(inputs.run_id))
+
+
+@activity.defn(name="messaging-provider-import.discard_staged_contacts")
+@asyncify
+def discard_staged_contacts_activity(inputs: ProviderImportRunInputs) -> None:
+    discard_staged_contacts(inputs.team_id, inputs.run_id)
 
 
 @activity.defn(name="messaging-provider-import.import_contact_chunk")

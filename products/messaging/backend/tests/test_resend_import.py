@@ -685,6 +685,26 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             assert run.progress["contact_properties"]["status"] == "completed"
             assert not any(re.fullmatch(r"/contacts/[^/]+", call) for call in self.resend.calls)
 
+    @parameterized.expand([("ended_long_ago",), ("run_deleted",)])
+    def test_the_hourly_sweep_deletes_contacts_any_ended_run_left_behind(self, state: str) -> None:
+        steps = [*OPT_OUT_STEPS, "contacts", "new_people"]
+        ended = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        for step in ended.steps:
+            runs.run_step(self.team.id, ended.id, step, attempt=1)
+        ended_runs = ProviderImportRun.objects.for_team(self.team.id).filter(id=ended.id)
+        if state == "ended_long_ago":
+            ended_runs.update(status="failed", finished_at=timezone.now() - timedelta(days=30))
+        else:
+            ended_runs.delete()
+        running = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        for step in running.steps:
+            runs.run_step(self.team.id, running.id, step, attempt=1)
+        assert {key.split("/")[2] for key in self.people.stored} == {str(ended.id), str(running.id)}
+
+        runs.close_stale_runs()
+
+        assert {key.split("/")[2] for key in self.people.stored} == {str(running.id)}
+
     def test_a_run_whose_workflow_never_sent_its_contacts_fails_their_cohort_and_deletes_them(self) -> None:
         run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "new_people"], API_KEY, self.user.id)
         for step in run.steps:
