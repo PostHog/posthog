@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 92 enabled ops
+ * PostHog API - MCP 95 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -252,6 +252,10 @@ export const signalsAnomaliesSearchRetrieveQueryIncludePointsDefault = false
 export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
 export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
 
+export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateDefault = 0.1
+export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMin = 0
+export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMax = 1
+
 export const signalsAnomaliesSearchRetrieveQueryOffsetDefault = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMin = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMax = 10000
@@ -297,6 +301,14 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
         .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
         .describe('The most rows to return.'),
+    max_anomaly_rate: zod
+        .number()
+        .min(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMin)
+        .max(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMax)
+        .default(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateDefault)
+        .describe(
+            'The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.'
+        ),
     offset: zod
         .number()
         .min(signalsAnomaliesSearchRetrieveQueryOffsetMin)
@@ -632,6 +644,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .optional()
         .describe(
             "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_open, ranking_action, ranking_fix. Defaults to '-is_suggested_reviewer,status,-updated_at'. Each ranking_<outcome> field sorts by the served ranking model's probability for that public outcome, with unscored reports last in either direction. Read inbox-ranking-outcomes-list for what each outcome means. The ranking fields need staff or the inbox model sort rollout: other users get a 400."
+        ),
+    plan: zod
+        .string()
+        .optional()
+        .describe(
+            'Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.'
         ),
     priority: zod
         .string()
@@ -1231,6 +1249,105 @@ export const SignalsReportsMergeCreateBody = () => zod.object({
         .optional()
         .describe(
             "Optional one-line explanation of why these reports are the same issue. Recorded on each source's 'duplicate of' link and on the note left on the survivor. Capped at 500 characters."
+        ),
+})
+
+/**
+ * Link an existing report to this report as a plan step, with `part_of`. A report becomes a plan when it gets its first step. The step goes last in plan order. When the step is already resolved or archived and every other step is too, the plan closes the same way a plan closes when its last step does.
+ * @summary Add a step to this plan
+ */
+export const SignalsReportsPlanStepsCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsPlanStepsCreateBodyDependsOnMax = 10
+
+export const signalsReportsPlanStepsCreateBodyReasonMax = 500
+
+export const SignalsReportsPlanStepsCreateBody = () => zod.object({
+    report_id: zod
+        .string()
+        .describe(
+            'Id of the report to add as a step of this plan. It must be a live report in this project that is not already a step of a plan. The report itself is unchanged.'
+        ),
+    depends_on: zod
+        .array(zod.string())
+        .max(signalsReportsPlanStepsCreateBodyDependsOnMax)
+        .optional()
+        .describe(
+            'Ids of steps already in this plan that the new step builds on. Omit when it builds on none. At most 10.'
+        ),
+    reason: zod
+        .string()
+        .max(signalsReportsPlanStepsCreateBodyReasonMax)
+        .optional()
+        .describe(
+            'Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.'
+        ),
+})
+
+/**
+ * Remove the step's `part_of` link to this plan, and every `depends_on` link between the step and the plan's other steps. The step report keeps its status, pull requests and claim. A note on the step and on the plan records the removal. When every step left is resolved or archived, the plan closes.
+ * @summary Remove a step from this plan
+ */
+export const SignalsReportsPlanStepsDestroyParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    step_id: zod.string().describe('Id of a report that is a step of this plan.'),
+})
+
+export const signalsReportsPlanStepsDestroyQueryReasonMax = 500
+
+export const SignalsReportsPlanStepsDestroyQueryParams = () => zod.object({
+    reason: zod
+        .string()
+        .max(signalsReportsPlanStepsDestroyQueryReasonMax)
+        .optional()
+        .describe(
+            'Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.'
+        ),
+})
+
+/**
+ * Replace the step's `depends_on` links to the other steps of this plan with the given set. The step's links to reports outside the plan are unchanged. A note on the step records removed links.
+ * @summary Replace what a plan step builds on
+ */
+export const SignalsReportsPlanStepsDependsOnUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    step_id: zod.string().describe('Id of a report that is a step of this plan.'),
+})
+
+export const signalsReportsPlanStepsDependsOnUpdateBodyDependsOnMax = 10
+
+export const signalsReportsPlanStepsDependsOnUpdateBodyReasonMax = 500
+
+export const SignalsReportsPlanStepsDependsOnUpdateBody = () => zod.object({
+    depends_on: zod
+        .array(zod.string())
+        .max(signalsReportsPlanStepsDependsOnUpdateBodyDependsOnMax)
+        .describe(
+            'Ids of the other steps of this plan that this step builds on, replacing the current set. Pass an empty list for a step that builds on none. At most 10.'
+        ),
+    reason: zod
+        .string()
+        .max(signalsReportsPlanStepsDependsOnUpdateBodyReasonMax)
+        .optional()
+        .describe(
+            'Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.'
         ),
 })
 

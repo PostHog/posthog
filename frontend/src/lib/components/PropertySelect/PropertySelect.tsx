@@ -7,11 +7,14 @@ import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button, Chip, ChipClose, Popover as QuillPopover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
+import { closesIntoLemonPopover } from 'lib/components/QuillSurface/closesIntoLemonPopover'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 export interface PropertySelectProps {
     addText: string
@@ -32,6 +35,7 @@ const SortableProperty = ({
     sortable?: boolean
 }): JSX.Element => {
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: name })
+    const quillSurface = useQuillSurface()
 
     return (
         <span
@@ -45,7 +49,14 @@ const SortableProperty = ({
                 transition,
             }}
         >
-            <LemonSnack onClose={() => onRemove(name)}>{name}</LemonSnack>
+            {quillSurface ? (
+                <Chip>
+                    {name}
+                    <ChipClose aria-label={`Remove ${name}`} onClick={() => onRemove(name)} />
+                </Chip>
+            ) : (
+                <LemonSnack onClose={() => onRemove(name)}>{name}</LemonSnack>
+            )}
         </span>
     )
 }
@@ -60,6 +71,7 @@ export const PropertySelect = ({
 }: PropertySelectProps): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 1 } }))
+    const quillSurface = useQuillSurface()
 
     const handleChange = (name: string): void => {
         onChange(Array.from(new Set(selectedProperties.concat([name]))))
@@ -67,6 +79,11 @@ export const PropertySelect = ({
 
     const handleRemove = (name: string): void => {
         onChange(selectedProperties.filter((p) => p !== name))
+    }
+
+    const addProperty = (value: TaxonomicFilterValue): void => {
+        handleChange(value as string)
+        setOpen(false)
     }
 
     const handleSort = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
@@ -111,32 +128,62 @@ export const PropertySelect = ({
                 </DndContext>
             )}
 
-            <div>
-                <Popover
-                    visible={open}
-                    onClickOutside={() => setOpen(false)}
-                    overlay={
-                        <TaxonomicFilter
-                            onChange={(_, value) => {
-                                handleChange(value as string)
-                                setOpen(false)
-                            }}
-                            taxonomicGroupTypes={[taxonomicFilterGroup]}
-                        />
-                    }
-                >
-                    <LemonButton
-                        onClick={() => setOpen(!open)}
-                        type="secondary"
-                        size="small"
-                        icon={<IconPlus />}
-                        sideIcon={null}
-                        disabledReason={disabledReason}
+            {quillSurface ? (
+                <div>
+                    <QuillPopover
+                        open={open}
+                        onOpenChange={(next, details) => {
+                            if (closesIntoLemonPopover(next, details)) {
+                                details.cancel()
+                                return
+                            }
+                            setOpen(next)
+                        }}
                     >
-                        {addText}
-                    </LemonButton>
-                </Popover>
-            </div>
+                        <PopoverTrigger
+                            render={
+                                <Button variant="outline" disabledReason={disabledReason || undefined}>
+                                    <IconPlus />
+                                    {addText}
+                                </Button>
+                            }
+                        />
+                        <PopoverContent align="start" className="w-auto p-0">
+                            {/* The filter is Lemon, so it keeps Lemon's colors inside the quill popover. */}
+                            <div data-not-quill>
+                                <TaxonomicFilter
+                                    onChange={(_, value) => addProperty(value)}
+                                    taxonomicGroupTypes={[taxonomicFilterGroup]}
+                                />
+                            </div>
+                        </PopoverContent>
+                    </QuillPopover>
+                </div>
+            ) : (
+                <div>
+                    <Popover
+                        visible={open}
+                        onClickOutside={() => setOpen(false)}
+                        overlay={
+                            <TaxonomicFilter
+                                onChange={(_, value) => addProperty(value)}
+                                taxonomicGroupTypes={[taxonomicFilterGroup]}
+                            />
+                        }
+                    >
+                        <LemonButton
+                            onClick={() => setOpen(!open)}
+                            type="secondary"
+                            size="small"
+                            icon={<IconPlus />}
+                            sideIcon={null}
+                            disabledReason={disabledReason}
+                        >
+                            {addText}
+                        </LemonButton>
+                    </Popover>
+                </div>
+            )}
         </div>
     )
 }

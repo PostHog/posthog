@@ -48,8 +48,7 @@ function startCdpApi(answer: Answer): Promise<{ url: string; received: object[];
 }
 
 const contextFor = (url: string, settled: string | undefined = undefined): OfferContext => ({
-    producer: { produce: () => Promise.reject(new Error('the transactional kind never produces')) },
-    eventsTopic: 'unused',
+    emit: () => Promise.reject(new Error('the transactional kind never emits')),
     cdpApi: { url, jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET) },
     sesFeedback: { settled: (unitId) => Promise.resolve(unitId === UNIT.unitId ? settled : 'another unit') },
 })

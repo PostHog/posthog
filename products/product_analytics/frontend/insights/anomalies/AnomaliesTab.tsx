@@ -5,10 +5,12 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils/strings'
 
 import { AnomaliesEmptyState } from './AnomaliesEmptyState'
 import { AnomaliesFilters } from './AnomaliesFilters'
-import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
+import { ANOMALY_RATE_FILTER_OFF, SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
 import { AnomalyInsightGroup } from './AnomalyInsightGroup'
 
 export function AnomaliesTab(): JSX.Element {
@@ -30,6 +32,7 @@ export function AnomaliesTab(): JSX.Element {
         toggleInsightExpanded,
         rateSeries,
         reportCreateAlertOpened,
+        setMaxAnomalyRate,
     } = useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
@@ -74,6 +77,14 @@ export function AnomaliesTab(): JSX.Element {
                             {`This project has ${anomalies.scored_days} of ${SCORED_HISTORY_READY_DAYS} days of scored history. Until it has ${SCORED_HISTORY_READY_DAYS}, flags are less reliable.`}
                         </LemonBanner>
                     )}
+                    {anomalies.series_capped && (
+                        <div data-attr="anomalies-tab-series-capped">
+                            <LemonBanner type="warning">
+                                This search found more series than it can read at once, so some anomalies may be
+                                missing. Narrow the date range or the filters to see them all.
+                            </LemonBanner>
+                        </div>
+                    )}
                     <div className="text-secondary text-sm" data-attr="anomalies-tab-coverage">
                         <span>
                             {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
@@ -82,6 +93,17 @@ export function AnomaliesTab(): JSX.Element {
                             <>
                                 <span> · Checked through </span>
                                 <TZLabel time={scoredThrough} />
+                            </>
+                        )}
+                        {anomalies.hidden_series > 0 && (
+                            <>
+                                <span>{` · ${pluralize(anomalies.hidden_series, 'noisy series', 'noisy series')} hidden. `}</span>
+                                <Link
+                                    onClick={() => setMaxAnomalyRate(ANOMALY_RATE_FILTER_OFF)}
+                                    data-attr="anomalies-tab-show-hidden"
+                                >
+                                    Show them
+                                </Link>
                             </>
                         )}
                     </div>

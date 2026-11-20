@@ -2,12 +2,20 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCard, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { mcpStoreLogic } from '../mcpStoreLogic'
 import { ServerIcon } from './icons'
+import { QuillInstalledServersList } from './QuillInstalledServersList'
 
 export function InstalledServersList(): JSX.Element | null {
     const { installations, filteredInstallations } = useValues(mcpStoreLogic)
     const { selectServer } = useActions(mcpStoreLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillInstalledServersList />
+    }
 
     if (installations.length === 0) {
         return null

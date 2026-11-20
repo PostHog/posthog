@@ -303,13 +303,14 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'chatgpt' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    chatgpt?: boolean
     saml?: boolean
     oidc?: boolean
 }
