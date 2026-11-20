@@ -1,4 +1,4 @@
-import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
@@ -99,6 +99,7 @@ import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scene
 import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { SettingScopeTag } from './components/SettingScopeTag'
+import { SettingStatusTag } from './components/SettingStatusTag'
 import {
     ActivityLogNotifications,
     ActivityLogOrgLevelSettings,
@@ -306,16 +307,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'js-snippet-version',
                 title: (
                     <>
-                        Snippet version{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Experimental
-                        </LemonTag>
+                        Snippet version <SettingStatusTag status="experimental" />
                     </>
                 ),
                 description: 'Pin the snippet to a specific version of posthog-js. Defaults to the latest v1 release.',
                 flag: ['JS_SNIPPET_VERSIONING'],
                 component: <JsSnippetVersionPin />,
-                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
+                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js', 'experimental'],
             },
         ],
     },
@@ -1683,9 +1681,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: (
                     <>
                         AI agent
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            Beta
-                        </LemonTag>
+                        <SettingStatusTag status="beta" />
                     </>
                 ),
                 description:

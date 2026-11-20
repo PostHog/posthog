@@ -1,7 +1,10 @@
 import { IconExternal } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { LemonBanner } from '@posthog/lemon-ui'
+import { Button, Item, ItemContent, ItemDescription } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -56,11 +59,52 @@ const getLinkUrl = (link: ValidationWarningLink): JSX.Element | null => {
     }
 }
 
+const getQuillLink = (link: ValidationWarningLink): JSX.Element | null => {
+    switch (link) {
+        case ValidationWarningLink.MarketingAnalyticsSettings:
+            return (
+                <>
+                    Check{' '}
+                    <Button
+                        variant="link"
+                        size="inline"
+                        nativeButton={false}
+                        render={<LinkPrimitive to={urls.settings('environment-marketing-analytics')} target="_blank" />}
+                    >
+                        marketing analytics settings
+                        <IconExternal />
+                    </Button>{' '}
+                    for more details.
+                </>
+            )
+        default:
+            return null
+    }
+}
+
 export function MarketingAnalyticsValidationWarningBanner({
     warnings,
 }: MarketingAnalyticsValidationWarningBannerProps): JSX.Element | null {
+    const quillSurface = useQuillSurface()
+
     if (!warnings || warnings.length === 0) {
         return null
+    }
+
+    if (quillSurface) {
+        return (
+            <div className="flex flex-col gap-2">
+                {warnings.map((warning, index) => (
+                    <Item key={index} tone="warning" size="sm">
+                        <ItemContent>
+                            <ItemDescription>
+                                {warning.message} {warning.link ? getQuillLink(warning.link) : null}
+                            </ItemDescription>
+                        </ItemContent>
+                    </Item>
+                ))}
+            </div>
+        )
     }
 
     return (
