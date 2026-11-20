@@ -12,12 +12,14 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CertificationStatus, MetricStatus, RelationshipStatus
 from products.data_catalog.backend.logic.metrics import metrics_for_team, metrics_visible_to_user
 from products.data_catalog.backend.logic.pending_review import (
@@ -26,7 +28,14 @@ from products.data_catalog.backend.logic.pending_review import (
     build_team_pending_review,
 )
 from products.data_catalog.backend.models import Metric, RelationshipProposal, TableCertification
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
 
 _PENDING_REVIEW = "products.data_catalog.backend.logic.pending_review"
 
@@ -288,6 +297,60 @@ class TestPendingReviewAPI(APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
+
+
+class TestCatalogAttentionAPI(APIBaseTest):
+    def _failing_model(self) -> None:
+        view = DataWarehouseSavedQuery.objects.create(team=self.team, name="orders", query={"kind": "HogQLQuery"})
+        dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.VIEW)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=view,
+            status=DataModelingJob.Status.FAILED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+
+    @parameterized.expand(
+        [
+            ("everything_readable", None, {"metrics": 1, "relationships": 1, "certifications": 1}, 1),
+            ("catalog_denied", "data_catalog", {"metrics": 0, "relationships": 0, "certifications": 0}, 1),
+            ("warehouse_denied", "warehouse_objects", {"metrics": 1, "relationships": 1, "certifications": 1}, 0),
+        ]
+    )
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_counts_each_part_the_caller_can_read(
+        self,
+        _name: str,
+        denied_resource: str | None,
+        pending_review: dict[str, int],
+        failing_models: int,
+        create_database: MagicMock,
+    ) -> None:
+        create_database.return_value = MagicMock(_denied_tables=set())
+        _metric(self.team, "proposed_one")
+        _relationship(self.team, "fp_proposed")
+        _certification(self.team, "proposed_view")
+        self._failing_model()
+        if denied_resource is not None:
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
+            self.organization.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(team=self.team, resource=denied_resource, access_level="none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/attention/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"pending_review": pending_review, "failing_models": failing_models}
+
+    def test_personal_api_key_cannot_read_it(self) -> None:
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw_key), scopes=["*"])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/data_catalog/attention/", HTTP_AUTHORIZATION=f"Bearer {raw_key}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
 class TestMetricAvailabilityAPI(APIBaseTest):

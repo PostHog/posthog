@@ -46,6 +46,7 @@ from ..facade import api
 from ..facade.enums import HOGQL_DEFINITION_KIND, INSIGHT_DEFINITION_KINDS, NODE_DEFINITION_KINDS
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 from .serializers import (
+    CatalogAttentionSerializer,
     CertificationCreateSerializer,
     CertificationSerializer,
     MetricApproveRequestSerializer,
@@ -723,3 +724,13 @@ class CatalogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def metric_availability(self, request: Request, **kwargs) -> Response:
         """Whether the project has any live metric. Skips the list's per-table access checks, which build the whole HogQL schema."""
         return Response(MetricAvailabilitySerializer({"has_metrics": api.metrics_for_team(self.team).exists()}).data)
+
+
+class CatalogAttentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "INTERNAL"
+
+    @action(detail=False, methods=["GET"], responses={200: CatalogAttentionSerializer})
+    def attention(self, request: Request, **kwargs) -> Response:
+        """The review and model counts of the catalog's navigation badge. Each part you can't read counts 0."""
+        attention = api.catalog_attention(self.team, cast(User, request.user), self.user_access_control)
+        return Response(CatalogAttentionSerializer(attention).data)

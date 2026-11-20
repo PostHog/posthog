@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.data_catalog.backend.presentation.views import (
+    CatalogAttentionViewSet,
     CatalogViewSet,
     CertificationViewSet,
     MetricViewSet,
@@ -30,3 +31,6 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(r"data_catalog", CatalogViewSet, "environment_data_catalog", ["team_id"])
+    routers.projects.register(
+        r"data_catalog", CatalogAttentionViewSet, "environment_data_catalog_attention", ["team_id"]
+    )

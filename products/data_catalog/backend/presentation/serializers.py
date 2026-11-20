@@ -747,3 +747,12 @@ class PendingReviewCountsSerializer(serializers.Serializer):
     metrics = serializers.IntegerField(help_text="Proposed metrics you can see that wait for approval.")
     relationships = serializers.IntegerField(help_text="Proposed joins that wait to be accepted or rejected.")
     certifications = serializers.IntegerField(help_text="Proposed certifications that wait for review.")
+
+
+class CatalogAttentionSerializer(serializers.Serializer):
+    pending_review = PendingReviewCountsSerializer(
+        help_text="Items that wait in each review queue. Every count is 0 without data catalog access."
+    )
+    failing_models = serializers.IntegerField(
+        help_text="Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access."
+    )
