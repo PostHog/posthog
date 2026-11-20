@@ -164,10 +164,18 @@ def _reports_pull_request(run: TaskRun, pr_urls: set[str]) -> bool:
 
 
 def _select_task_run_candidate(
-    runs: dict[UUID, TaskRun], matches: dict[_TaskRunMatchRank, set[UUID]], pr_url: str | None
+    runs: dict[UUID, TaskRun],
+    matches: dict[_TaskRunMatchRank, set[UUID]],
+    pr_url: str | None,
+    *,
+    task_id: UUID | None,
 ) -> tuple[TaskRun | None, str]:
     pr_urls = {url for url in (pr_url, canonical_github_pull_request_url(pr_url) if pr_url else None) if url}
+    # Checked before the task filter: when a run of another task reports the PR, a branch match of
+    # the filtered task alone does not show that this task opened the PR.
     any_run_reports_pr = any(_reports_pull_request(run, pr_urls) for run in runs.values())
+    if task_id is not None:
+        runs = {run_id: run for run_id, run in runs.items() if run.task_id == task_id}
     skipped_ambiguous_branch = False
     for rank in _TaskRunMatchRank:
         ranked_runs = [runs[run_id] for run_id in matches.get(rank, ()) if run_id in runs]
@@ -178,12 +186,13 @@ def _select_task_run_candidate(
             reporting_runs = [run for run in eligible_runs if _reports_pull_request(run, pr_urls)]
             if reporting_runs:
                 eligible_runs = reporting_runs
-            if rank == _TaskRunMatchRank.SIGNED_HEAD_BRANCH and (
-                len({run.task_id for run in eligible_runs}) > 1 or (not reporting_runs and any_run_reports_pr)
+            if (not reporting_runs and any_run_reports_pr) or (
+                rank == _TaskRunMatchRank.SIGNED_HEAD_BRANCH and len({run.task_id for run in eligible_runs}) > 1
             ):
                 # Any task can push a fix to another task's PR branch and report that PR, so neither
                 # a push nor a report from one of several tasks shows which task opened the PR. A
-                # wrong match links the PR to that task's reports, and a missed match does not.
+                # self-driving or wizard branch does not show it either when another run reports the
+                # PR. A wrong match links the PR to that task's reports, and a missed match does not.
                 logger.info(
                     "github_webhook_task_run_lookup_ambiguous",
                     pr_url=pr_url,
@@ -302,8 +311,6 @@ def _find_task_run_by_run_state(
         return None, "none"
 
     candidates = TaskRun.objects.filter(team_id__in=team_ids)
-    if task_id is not None:
-        candidates = candidates.filter(task_id=task_id)
     # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
     # leg below may return one. The exclusion belongs here rather than on each leg: a stale
     # ``verified_pr_urls`` claim, left on a ReviewHog run by an earlier wrong branch match, would
@@ -315,7 +322,7 @@ def _find_task_run_by_run_state(
         candidates = candidates.filter(_run_repository_filter(repository))
     candidate_ids = {candidate_id for candidate_ids in matches.values() for candidate_id in candidate_ids}
     runs = {run.id: run for run in candidates.filter(id__in=candidate_ids).select_related(*TASK_RUN_SELECT_RELATED)}
-    return _select_task_run_candidate(runs, matches, pr_url)
+    return _select_task_run_candidate(runs, matches, pr_url, task_id=task_id)
 
 
 def _capture_task_pr_event(payload: dict, task_run: TaskRun | None, event: GitHubWebhookAnalyticsEvent) -> None:
