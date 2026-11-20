@@ -149,7 +149,7 @@ fn printing_many_references_to_one_global_string_stops_at_the_heap_limit() {
 #[test]
 fn the_sql_printer_ends_on_a_join_that_joins_itself() {
     let context = ExecutionContext::with_defaults(program(
-        r#"["_H", 1, 32, "__hx_ast", 32, "JoinExpr", 32, "table", 32, "__hx_ast", 32, "Field", 32, "chain", 32, "t", 43, 1, 42, 2, 32, "next_join", 31, 42, 3, 36, 0, 32, "next_join", 36, 0, 46, 36, 0, 38, 35]"#,
+        r#"["_H", 1, 32, "__hx_ast", 32, "JoinExpr", 32, "table", 32, "t", 32, "next_join", 31, 42, 3, 36, 0, 32, "next_join", 36, 0, 46, 36, 0, 38, 35]"#,
     ))
     .with_raw_result();
     let mut vm = context.to_vm().unwrap();
