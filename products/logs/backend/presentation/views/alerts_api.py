@@ -978,6 +978,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             team_id=self.context["get_team"]().id, user=request.user if request is not None else None, filters=filters
         )
 
+    def _labels_change(self, attrs: dict) -> bool:
+        # Routing labels pick who gets the alert's notifications, as a destination does.
+        if self.instance is None or "labels" not in attrs:
+            return False
+        runtime = _platform_runtime_of([self.instance]).get(self.instance.id)
+        return (attrs["labels"] or {}) != ((runtime.labels if runtime is not None else None) or {})
+
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
 
@@ -995,6 +1002,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             self.instance is None
             or not self.instance.enabled
             or attrs.get("filters", self.instance.filters) != self.instance.filters
+            or self._labels_change(attrs)
         )
         if effective_enabled and starts_reading:
             self._require_pipeline_log_access(filters)
