@@ -286,6 +286,32 @@ class TestGatewayExecTools(APIBaseTest):
 
         assert [s["installation_id"] for s in servers] == [str(shared.id)]
 
+    @patch("products.mcp_store.backend.presentation.views.call_upstream_tool", return_value=_UPSTREAM_RESULT)
+    def test_a_teammates_shared_posthog_connection_is_not_listed_or_callable(self, mock_call):
+        other = self._create_user("shared-owner@posthog.com")
+        shared = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=other,
+            scope="shared",
+            gateway_server=self.server,
+            display_name="PostHog",
+            url="https://mcp.posthog.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "phx_" + "x" * 40},
+        )
+        self._tool(installation=shared)
+
+        assert self._available().json()["servers"] == []
+        refusal = self._call(installation_id=shared.id)
+        assert refusal.status_code == status.HTTP_403_FORBIDDEN
+        assert refusal.json()["reason"] == "disabled"
+        mock_call.assert_not_called()
+        assert list(MCPAuditEvent.objects.for_team(self.team.id).values_list("tool_name", "decision")) == [
+            ("create_issue", "blocked")
+        ]
+        shared.refresh_from_db()
+        assert shared.last_used_at is None
+
     def test_available_tools_keys_colliding_slugs_to_their_installation(self):
         # Numbering same-named connections by position would reshuffle when one goes
         # unavailable, so a tool name an agent read from `search` could later resolve to a

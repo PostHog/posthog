@@ -43,7 +43,7 @@ describe('ToolCallValue', () => {
         await waitFor(() =>
             expect({
                 open: container.querySelector('details')?.open ?? null,
-                body: container.querySelector('dl, pre') !== null,
+                body: container.querySelector('dl, pre, .react-json-view') !== null,
             }).toEqual(expected)
         )
     })

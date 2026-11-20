@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.gong.settings import GONG_ENDPOINTS, Gon
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     retry_with_deadline,
@@ -46,12 +47,6 @@ class GongResumeConfig:
     # them quickly), so on resume we restart the in-progress window from scratch and let
     # primary-key merge semantics dedupe any re-yielded rows.
     window_start: Optional[str] = None
-
-
-def _format_datetime(value: datetime) -> str:
-    """ISO-8601 with a `Z` suffix, which Gong accepts for `fromDateTime`/`toDateTime`."""
-    utc_value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-    return utc_value.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
 
 def _to_datetime(value: Any) -> Optional[datetime]:
@@ -126,8 +121,8 @@ def _extensive_body(
     """
     body: dict[str, Any] = {
         "filter": {
-            "fromDateTime": _format_datetime(window_start),
-            "toDateTime": _format_datetime(window_end),
+            "fromDateTime": format_datetime(window_start, "iso_z"),
+            "toDateTime": format_datetime(window_end, "iso_z"),
         },
         "contentSelector": config.extensive_content_selector,
     }
@@ -327,7 +322,7 @@ def _iter_windowed_rows(
             yield from _iter_call_rows(config, fetch_page, window_start, window_end)
 
         window_start = window_end
-        resumable_source_manager.save_state(GongResumeConfig(window_start=_format_datetime(window_start)))
+        resumable_source_manager.save_state(GongResumeConfig(window_start=format_datetime(window_start, "iso_z")))
         # Daily stats windows can all come back empty, and the pipeline checks for shutdown only when rows arrive.
         resumable_source_manager.safe_point()
 
@@ -350,8 +345,8 @@ def _iter_call_rows(
             ]
         else:
             params: dict[str, Any] = {
-                "fromDateTime": _format_datetime(window_start),
-                "toDateTime": _format_datetime(window_end),
+                "fromDateTime": format_datetime(window_start, "iso_z"),
+                "toDateTime": format_datetime(window_end, "iso_z"),
             }
             if cursor:
                 params["cursor"] = cursor
@@ -419,8 +414,8 @@ def _iter_transcript_rows(
 
     while True:
         params: dict[str, Any] = {
-            "fromDateTime": _format_datetime(window_start),
-            "toDateTime": _format_datetime(window_end),
+            "fromDateTime": format_datetime(window_start, "iso_z"),
+            "toDateTime": format_datetime(window_end, "iso_z"),
         }
         if cursor:
             params["cursor"] = cursor
@@ -473,8 +468,8 @@ def _iter_transcripts_for_calls(
     while True:
         body: dict[str, Any] = {
             "filter": {
-                "fromDateTime": _format_datetime(window_start),
-                "toDateTime": _format_datetime(window_end),
+                "fromDateTime": format_datetime(window_start, "iso_z"),
+                "toDateTime": format_datetime(window_end, "iso_z"),
                 "callIds": list(started_by_call_id),
             }
         }

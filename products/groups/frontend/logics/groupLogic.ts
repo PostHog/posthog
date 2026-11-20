@@ -10,7 +10,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
+import {
+    FLAG_CALLS_COLUMNS,
+    flagCallsListQuery,
+    flagCallsTableReachesPastRetention,
+} from 'scenes/feature-flags/flagCallsListQuery'
+import { flagCallsOnlyInFlagEvaluations } from 'scenes/feature-flags/flagEvaluationsTable'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -20,7 +27,17 @@ import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { isDataTableNode } from '~/queries/schema/node-guards'
 import { DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    ActivityScope,
+    Breadcrumb,
+    EventPropertyFilter,
+    Group,
+    GroupTypeIndex,
+    PropertyFilterType,
+    PropertyOperator,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
@@ -43,6 +60,15 @@ function reportGroupPropertyUpdated(
     })
 }
 
+function groupKeyFilter(groupTypeIndex: number, groupKey: string): EventPropertyFilter {
+    return {
+        key: `$group_${groupTypeIndex}`,
+        value: groupKey,
+        type: PropertyFilterType.Event,
+        operator: PropertyOperator.Exact,
+    }
+}
+
 function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
@@ -51,16 +77,16 @@ function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTabl
             kind: NodeKind.EventsQuery,
             select: defaultDataTableColumns(NodeKind.EventsQuery),
             after: '-24h',
-            fixedProperties: [
-                {
-                    key: `$group_${groupTypeIndex}`,
-                    value: groupKey,
-                    type: PropertyFilterType.Event,
-                    operator: PropertyOperator.Exact,
-                },
-            ],
+            fixedProperties: [groupKeyFilter(groupTypeIndex, groupKey)],
         },
     }
+}
+
+function getGroupFlagCallsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
+    return flagCallsListQuery({
+        select: FLAG_CALLS_COLUMNS,
+        fixedProperties: [groupKeyFilter(groupTypeIndex, groupKey)],
+    })
 }
 
 export type GroupLogicProps = {
@@ -89,6 +115,7 @@ export interface groupLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     backNavigation: GroupBackNavigation | null
     backTo: Breadcrumb
     breadcrumbs: Breadcrumb[]
@@ -104,6 +131,8 @@ export interface groupLogicValues {
     groupDataLoading: boolean
     groupEventsQuery: DataTableNode | null
     groupEventsQueryIsDirty: boolean
+    groupFlagCallsQuery: DataTableNode | null
+    groupFlagCallsReachPastRetention: boolean
     groupRevenueAnalyticsData: {
         lifetimeValue: number | null
         mrr: number | null
@@ -116,6 +145,7 @@ export interface groupLogicValues {
     groupTypeNamePlural: string
     hasRevenueData: boolean
     logicProps: GroupLogicProps
+    showFlagCallsTab: boolean
     sidePanelContext: SidePanelSceneContext | null
     todayRecent: TodayPeopleRecent | null
 }
@@ -178,6 +208,9 @@ export interface groupLogicActions {
     setGroupEventsQuery: (query: Node) => {
         query: Node<Record<string, any>>
     }
+    setGroupFlagCallsQuery: (query: DataTableNode) => {
+        query: DataTableNode
+    }
     setGroupTab: (groupTab: string | null) => {
         groupTab: string | null
     }
@@ -192,6 +225,11 @@ export interface groupLogicMeta {
             groupEventsQuery: DataTableNode | null,
             groupTypeIndex: number,
             groupKey: string
+        ) => boolean
+        showFlagCallsTab: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        groupFlagCallsReachPastRetention: (
+            currentTeam: TeamPublicType | TeamType | null,
+            groupFlagCallsQuery: DataTableNode | null
         ) => boolean
         groupTypeName: (
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
@@ -262,13 +300,21 @@ export const groupLogic = kea<groupLogicType>([
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],
-        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
+        values: [
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
     actions(() => ({
         setGroupData: (group: Group) => ({ group }),
         setGroupTab: (groupTab: string | null) => ({ groupTab }),
         setGroupEventsQuery: (query: Node) => ({ query }),
         resetGroupEventsQuery: true,
+        setGroupFlagCallsQuery: (query: DataTableNode) => ({ query }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
     })),
@@ -403,6 +449,12 @@ export const groupLogic = kea<groupLogicType>([
                 setGroupEventsQuery: (_, { query }) => (isDataTableNode(query) ? query : null),
             },
         ],
+        groupFlagCallsQuery: [
+            null as DataTableNode | null,
+            {
+                setGroupFlagCallsQuery: (_, { query }) => query,
+            },
+        ],
         groupData: [
             null as Group | null,
             {
@@ -421,6 +473,17 @@ export const groupLogic = kea<groupLogicType>([
                 }
                 return !objectsEqual(groupEventsQuery, getGroupEventsQuery(groupTypeIndex, groupKey))
             },
+        ],
+
+        showFlagCallsTab: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): boolean => flagCallsOnlyInFlagEvaluations(currentTeam),
+        ],
+
+        groupFlagCallsReachPastRetention: [
+            (s) => [s.currentTeam, s.groupFlagCallsQuery],
+            (currentTeam: TeamPublicType | TeamType | null, groupFlagCallsQuery: DataTableNode | null): boolean =>
+                flagCallsTableReachesPastRetention(currentTeam, groupFlagCallsQuery),
         ],
 
         groupTypeName: [
@@ -601,6 +664,7 @@ export const groupLogic = kea<groupLogicType>([
     afterMount(({ actions, props }) => {
         actions.loadGroup()
         actions.setGroupEventsQuery(getGroupEventsQuery(props.groupTypeIndex, props.groupKey))
+        actions.setGroupFlagCallsQuery(getGroupFlagCallsQuery(props.groupTypeIndex, props.groupKey))
         actions.loadGroupRevenueAnalyticsData()
     }),
 ])

@@ -20,7 +20,7 @@ class Command(BaseCommand):
         apply = options["apply"]
         conversions = convert_team(team_id, apply=apply)
         for conversion in conversions:
-            if conversion.outcome not in (GroupOutcome.CONVERTED, GroupOutcome.REPLACED_ROW):
+            if conversion.outcome not in (GroupOutcome.CONVERTED, GroupOutcome.KEPT_ROW, GroupOutcome.REPLACED_ROW):
                 hog_function_ids = ",".join(str(i) for i in conversion.hog_function_ids)
                 detail = f" detail={conversion.detail!r}" if conversion.detail else ""
                 self.stdout.write(
