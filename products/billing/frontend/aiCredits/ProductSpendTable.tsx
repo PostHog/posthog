@@ -41,7 +41,7 @@ export function ProductSpendTable({ spend, products }: ProductSpendTableProps): 
                 ),
         },
         {
-            title: 'Free',
+            title: 'Discount',
             key: 'free',
             align: 'right',
             tooltip: 'The list cost minus what your balance paid',

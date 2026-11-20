@@ -22,7 +22,9 @@ function balanceClassName(balanceUsd: number, thresholdUsd: number | null, everF
 
 function balanceNote(balanceUsd: number, runwayDays: number | null, pendingUsd: number, everFunded: boolean): string {
     const notes: string[] = []
-    if (balanceUsd <= 0) {
+    if (balanceUsd < 0) {
+        notes.push('Below zero. Your next invoice bills it')
+    } else if (balanceUsd === 0) {
         notes.push(everFunded ? 'Add funds to keep using AI' : 'Nothing added yet')
     } else if (runwayDays !== null) {
         notes.push(

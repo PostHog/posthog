@@ -1544,7 +1544,6 @@ GATEWAY_SPEND = {
     "products": [
         {
             "product": "self_driving",
-            "name": "Self-driving",
             "spend_usd": "219.200000",
             "free_usd": "10.000000",
         }
@@ -1842,6 +1841,18 @@ class TestAICreditsBillingAPI(APILicensedTest):
         assert mock_get.call_args.args[0] == f"http://gateway.example/internal/accounts/{self.organization.id}/spend"
         assert mock_get.call_args.kwargs["params"] == {"start": "2026-09-18", "end": "2026-10-18"}
         assert (response.json()["period_start"], response.json()["period_end"]) == ("2026-09-18", "2026-10-18")
+
+    @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
+    @patch("posthog.llm.gateway_internal_client.httpx.get")
+    def test_names_each_product_by_its_key_when_the_gateway_sends_no_name(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = httpx.Response(200, json=GATEWAY_SPEND, request=httpx.Request("GET", "http://gw"))
+
+        response = self.client.get("/api/billing/ai_credits/spend")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["product"], row["name"]) for row in response.json()["products"]] == [
+            ("self_driving", "self_driving")
+        ]
 
     @parameterized.expand(
         [

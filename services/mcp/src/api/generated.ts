@@ -1321,7 +1321,7 @@ export namespace Schemas {
          */
       target_usd: string | null;
       /**
-         * The most that automatic reloads charge in a billing period, in USD. Null means no limit.
+         * The most credit that automatic reloads buy in a billing period, in USD, before tax. Null means no limit.
          * @nullable
          * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
          */
@@ -1410,7 +1410,7 @@ export namespace Schemas {
          * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
          */
       total_usd: string;
-      /** Pending until the credit reaches the organization's AI balance.
+      /** Pending until billing sends the credit to the AI gateway.
        *
        * * `added` - Added
        * * `pending` - Pending */
@@ -1812,7 +1812,7 @@ export namespace Schemas {
 
     export interface AISpendResponse {
       /**
-         * The organization's AI balance now, in USD. Below zero after overage.
+         * The organization's AI balance now, in USD. Below zero after overage or a dispute.
          * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
          */
       balance_usd: string;
@@ -86710,7 +86710,7 @@ export namespace Schemas {
          */
       target_usd?: string | null;
       /**
-         * The most that automatic reloads charge in a billing period, in USD. At least $20.00. Pass null for no limit.
+         * The most credit that automatic reloads buy in a billing period, in USD, before tax. At least $20.00. Pass null for no limit.
          * @nullable
          * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
          */

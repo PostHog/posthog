@@ -755,7 +755,8 @@ class AIAutomaticReloadSettingsSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether automatic reload is on.")
     target_usd = _usd_field("The AI balance in USD that a reload brings the organization up to.", allow_null=True)
     monthly_reload_limit_usd = _usd_field(
-        "The most that automatic reloads charge in a billing period, in USD. Null means no limit.", allow_null=True
+        "The most credit that automatic reloads buy in a billing period, in USD, before tax. Null means no limit.",
+        allow_null=True,
     )
     disabled_reason = serializers.ChoiceField(
         choices=AIReloadDisabledReason.choices,
@@ -792,7 +793,7 @@ class AIAutomaticReloadRequestSerializer(BillingPaymentOrganizationSerializer):
         required=False,
     )
     monthly_reload_limit_usd = _usd_field(
-        f"The most that automatic reloads charge in a billing period, in USD. "
+        f"The most credit that automatic reloads buy in a billing period, in USD, before tax. "
         f"At least ${MINIMUM_AI_CREDIT_USD}. Pass null for no limit.",
         min_value=MINIMUM_AI_CREDIT_USD,
         max_value=MAXIMUM_AI_CREDIT_USD,
@@ -833,7 +834,7 @@ class AICreditHistoryEntrySerializer(serializers.Serializer):
     total_usd = _usd_field("The amount charged to the card, in USD.")
     status = serializers.ChoiceField(
         choices=AICreditHistoryStatus.choices,
-        help_text="Pending until the credit reaches the organization's AI balance.",
+        help_text="Pending until billing sends the credit to the AI gateway.",
     )
     receipt_url = serializers.URLField(allow_null=True, help_text="Stripe's receipt for the payment.")
     payment_id = serializers.CharField(
@@ -970,7 +971,7 @@ class AISpendDaySerializer(serializers.Serializer):
 
 
 class AISpendResponseSerializer(serializers.Serializer):
-    balance_usd = _spend_field("The organization's AI balance now, in USD. Below zero after overage.")
+    balance_usd = _spend_field("The organization's AI balance now, in USD. Below zero after overage or a dispute.")
     period_start = serializers.DateField(help_text="The first day of the billing period.")
     period_end = serializers.DateField(help_text="The day the next billing period starts.")
     spend_usd = _spend_field("Charged to the AI balance in the period, in USD.")
@@ -1664,7 +1665,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except AIGatewayInternalError as error:
             logger.warning("ai_spend_gateway_unavailable", organization_id=str(organization.id))
             raise AISpendUnavailable() from error
-        answer = AISpendResponseSerializer(data={**spend, "period_start": period.start, "period_end": period.end})
+        # The gateway names each product only by its key, so the tab shows the key until the gateway sends a name.
+        products = [{**row, "name": row.get("name") or row.get("product")} for row in spend.get("products") or []]
+        answer = AISpendResponseSerializer(
+            data={**spend, "products": products, "period_start": period.start, "period_end": period.end}
+        )
         if not answer.is_valid():
             logger.warning(
                 "ai_spend_gateway_answer_invalid", organization_id=str(organization.id), errors=answer.errors

@@ -118,7 +118,7 @@ export function cardShortLabel(card: AICreditCardApi): string {
  */
 export function automaticReloadConsent(card: AICreditCardApi, amounts: ReloadAmounts, chargeNowUsd?: string): string {
     const limit = amounts.monthlyReloadLimitUsd
-        ? `up to ${humanFriendlyCurrency(amounts.monthlyReloadLimitUsd)} each billing period`
+        ? `up to ${humanFriendlyCurrency(amounts.monthlyReloadLimitUsd)} of credit each billing period, plus tax`
         : 'with no limit each billing period'
     const now = chargeNowUsd ? ` ${humanFriendlyCurrency(chargeNowUsd)} now, and again` : ''
     return (
@@ -1167,7 +1167,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         },
         purchaseCompleted: ({ amountUsd, authenticated, paymentId }) => {
             posthog.capture('ai credits purchase completed', { amount_usd: amountUsd, authenticated })
-            lemonToast.success('Payment received. Your AI credits show as pending until they reach your balance.')
+            lemonToast.success('Payment received. Your AI credits show as pending until we add them to your balance.')
             actions.closeAddFundsModal()
             actions.startPollingHistory({
                 paymentId,

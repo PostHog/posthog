@@ -75,7 +75,7 @@ export const BillingAiCreditsSettingsAutomaticReloadPartialUpdateBody = /* @__PU
         .stringFormat('decimal', billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyMonthlyReloadLimitUsdRegExp)
         .nullish()
         .describe(
-            'The most that automatic reloads charge in a billing period, in USD. At least $20.00. Pass null for no limit.'
+            'The most credit that automatic reloads buy in a billing period, in USD, before tax. At least $20.00. Pass null for no limit.'
         ),
     consent_text: zod
         .string()
