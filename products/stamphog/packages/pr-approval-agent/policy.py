@@ -188,10 +188,14 @@ class OwnershipSource:
 class Attestation:
     """A CI check that may lift deny categories for the files it vouches for.
 
-    `check` and `app_id` pin the check run to its publisher App, because any workflow can post a
-    check run under any name as github-actions. `lifts` names the deny categories the check may
-    lift, `paths` the files it may lift them for, and `sibling_files` the companion filenames that are
-    lifted with a file beside them. `title`, when set, is a pattern for the PR titles the publisher
+    `check` names the check run, and exactly one of two keys says who may publish its result.
+    `app_id` pins the check run to its publisher App, because any workflow can post a check run under
+    any name as github-actions. `workflow` instead names a default-branch workflow file, with the
+    `job` that publishes and the `events` it may run on. That job signs its check run with a GitHub
+    Actions OIDC token, and the server passes a result whose token, job and code it verified to the
+    engine (`WORKFLOW_PROOF_KEY`, see the backend's `workflow_proofs.py`). `lifts` names the deny
+    categories the check may lift, `paths` the files it may lift them for, and `sibling_files` the
+    companion filenames that are lifted with a file beside them. `title`, when set, is a pattern for the PR titles the publisher
     posts a result for. A PR whose title does not match never waits for the check, because none is
     coming.
 
@@ -205,7 +209,6 @@ class Attestation:
 
     name: str
     check: str
-    app_id: int
     lifts: tuple[str, ...]
     paths: tuple[str, ...]
     sibling_files: tuple[str, ...] = ()
@@ -213,6 +216,10 @@ class Attestation:
     issuer: str = ""
     issuer_paths: tuple[str, ...] = ()
     title: str = ""
+    app_id: int | None = None
+    workflow: str = ""
+    job: str = ""
+    events: tuple[str, ...] = ()
 
     @property
     def pins_publisher(self) -> bool:
@@ -353,8 +360,23 @@ _OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations", "bot_authors"}
 # GitHub Actions. Any workflow's GITHUB_TOKEN posts check runs as this App, so a result from it
 # proves nothing about who produced it.
 _GITHUB_ACTIONS_APP_ID = 15368
-_ATTESTATION_REQUIRED_KEYS = {"name", "check", "app_id", "lifts", "paths"}
-_ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_files", "issuer", "title"}
+_ATTESTATION_REQUIRED_KEYS = {"name", "check", "lifts", "paths"}
+_ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {
+    "app_id",
+    "workflow",
+    "job",
+    "events",
+    "sibling_files",
+    "publisher_files",
+    "issuer",
+    "title",
+}
+# A workflow publisher counts only on events whose workflow file GitHub always reads from the default
+# branch, which includes a `pull_request_target` run for a PR into any other branch. A `pull_request`
+# run uses the workflow the PR's merge holds, and `push` and `workflow_dispatch` run whatever any
+# writer pushed or chose, so none of them proves which code ran.
+WORKFLOW_PUBLISHER_EVENTS = ("workflow_run", "pull_request_target")
+_WORKFLOW_PATH_RE = re.compile(r"\.github/workflows/[A-Za-z0-9._-]+\.ya?ml")
 # Limits for an issuer manifest, the same ones the publisher's own parser holds it to.
 ISSUER_MANIFEST_MAX_BYTES = 16 * 1024
 ISSUER_MANIFEST_MAX_PATHS = 32
@@ -458,6 +480,21 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
     return deny
 
 
+def _require_workflow_publisher(entry: Mapping[str, Any], context: str) -> None:
+    workflow = entry["workflow"]
+    _require(
+        isinstance(workflow, str) and _WORKFLOW_PATH_RE.fullmatch(workflow) is not None,
+        f"{context}.workflow: must be a file directly under .github/workflows/",
+    )
+    job = entry.get("job")
+    _require(isinstance(job, str) and bool(job), f"{context}.job: must name the publishing job")
+    for event in _parse_string_list(entry.get("events"), f"{context}.events", non_empty=True):
+        _require(
+            event in WORKFLOW_PUBLISHER_EVENTS,
+            f"{context}.events: {event!r} does not run the default branch's workflow; use {list(WORKFLOW_PUBLISHER_EVENTS)}",
+        )
+
+
 def compile_deny_pattern(p: str, *, for_paths: bool) -> re.Pattern[str]:
     r"""Compile a single deny pattern into a case-insensitive regex.
 
@@ -505,10 +542,21 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
         _require(
             isinstance(entry["check"], str) and bool(entry["check"]), f"{context}.check: must be a non-empty string"
         )
-        app_id = _require_positive_int(entry["app_id"], f"{context}.app_id")
         _require(
-            app_id != _GITHUB_ACTIONS_APP_ID, f"{context}.app_id: github-actions cannot attest, pin the publisher App"
+            ("app_id" in entry) != ("workflow" in entry), f"{context}: declares exactly one of app_id and workflow"
         )
+        app_id = None
+        workflow, job, events = "", "", ()
+        if "app_id" in entry:
+            _require(not ("job" in entry or "events" in entry), f"{context}: job and events go with workflow")
+            app_id = _require_positive_int(entry["app_id"], f"{context}.app_id")
+            _require(
+                app_id != _GITHUB_ACTIONS_APP_ID,
+                f"{context}.app_id: github-actions cannot attest, pin the publisher App",
+            )
+        else:
+            _require_workflow_publisher(entry, context)
+            workflow, job, events = entry["workflow"], entry["job"], tuple(entry["events"])
         lifts = _parse_string_list(entry["lifts"], f"{context}.lifts", non_empty=True)
         for category in lifts:
             _require(category in deny, f"{context}.lifts: unknown deny category {category!r}")
@@ -548,6 +596,9 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
                 name=name,
                 check=entry["check"],
                 app_id=app_id,
+                workflow=workflow,
+                job=job,
+                events=events,
                 lifts=lifts,
                 paths=paths,
                 sibling_files=siblings,

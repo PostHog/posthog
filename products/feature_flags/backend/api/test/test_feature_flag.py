@@ -7748,7 +7748,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # experiment_set should include both experiments
         response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
         assert response.status_code == 200
-        assert response.json()["experiment_set"] == [experiment_id, experiment2_id]
+        assert sorted(response.json()["experiment_set"]) == sorted([experiment_id, experiment2_id])
 
         # Delete the active experiments
         update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)

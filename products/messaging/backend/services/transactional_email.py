@@ -7,7 +7,7 @@ import time
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from email.utils import parseaddr
 from functools import cache
 from typing import Any, Literal, Protocol, TypeGuard
@@ -57,6 +57,7 @@ from products.messaging.backend.facade.contracts import (
     NamedSenderNotVerified,
     PresentAttachment,
     QueuedEmail,
+    QueuedEmailStatus,
     QuotaLimited,
     RecipientSuppressed,
     RecipientUnreachable,
@@ -270,7 +271,7 @@ BATCH_INVALID_RECIPIENT = (
 
 SANDBOX_SENDER_KIND = "email_sandbox"
 SANDBOX_SENDER_WARNING = (
-    "This email went out from the PostHog test sender, because this project has no verified sending domain. The "
+    "This email goes out from the PostHog test sender, because this project has no verified sending domain. The "
     "PostHog test sender only sends to members of your organization. Verify a sending domain to send to anyone from "
     "your own address."
 )
@@ -661,6 +662,7 @@ def send_transactional_email(
     distinct_id: str | None,
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
+    scheduled_at: datetime | None = None,
     timeout: float = 10,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key)
@@ -671,7 +673,7 @@ def send_transactional_email(
             hog_flow_id = _transactional_workflow_id(team.id, model)
         else:
             hog_flow_id = _transactional_workflow_id(team.id, template)
-    payload = _send_payload(to, distinct_id, message_data, idempotency_key)
+    payload = _send_payload(to, distinct_id, message_data, idempotency_key, scheduled_at=scheduled_at)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
 
@@ -682,12 +684,13 @@ def send_code_email(
     to: str,
     distinct_id: str | None,
     idempotency_key: str | None = None,
+    scheduled_at: datetime | None = None,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
         accepted_send, sandbox_warning = _accepted_send(team, email)
         hog_flow_id = _code_email_workflow_id(team.id, email.key, email.sensitive)
-    payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
+    payload = {**_send_payload(to, distinct_id, {}, idempotency_key, scheduled_at=scheduled_at), "send": accepted_send}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email, sandbox_warning=sandbox_warning)
 
 
@@ -768,7 +771,12 @@ def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str,
 
 
 def _send_payload(
-    to: str, distinct_id: str | None, message_data: dict[str, Any], idempotency_key: str | None
+    to: str,
+    distinct_id: str | None,
+    message_data: dict[str, Any],
+    idempotency_key: str | None,
+    *,
+    scheduled_at: datetime | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "to": to,
@@ -779,6 +787,8 @@ def _send_payload(
     if idempotency_key is not None:
         # The CDP service holds the key, because only it knows whether the email was queued.
         payload["idempotency_key"] = idempotency_key
+    if scheduled_at is not None:
+        payload["scheduled_at"] = scheduled_at.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     return payload
 
 
@@ -944,6 +954,7 @@ def _queue(
         attachment_bytes=_attachment_bytes(answer),
         warnings=(sandbox_warning,) if sandbox_warning and sent_from_sandbox else (),
         sent_from_sandbox=sent_from_sandbox or (sandbox_warning is not None and not replayed),
+        **_schedule(answer),
     )
 
 
@@ -1087,6 +1098,13 @@ def _recipient_result(
 def _pipeline_refusal(code: str, setup_url: Callable[[], str]) -> TransactionalEmailError:
     error_class, message = PIPELINE_REFUSALS[code]
     return error_class(message.format(setup_url=setup_url()) if "{setup_url}" in message else message)
+
+
+def _schedule(answer: dict[str, Any]) -> dict[str, Any]:
+    scheduled_at = answer.get("scheduled_at")
+    if not isinstance(scheduled_at, str) or not scheduled_at:
+        return {"status": QueuedEmailStatus.QUEUED, "scheduled_at": None}
+    return {"status": QueuedEmailStatus.SCHEDULED, "scheduled_at": scheduled_at}
 
 
 def _attachment_refusal(refusal_code: str | None, answer: dict[str, Any]) -> TransactionalEmailError | None:

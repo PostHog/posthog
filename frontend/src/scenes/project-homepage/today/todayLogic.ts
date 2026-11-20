@@ -68,12 +68,11 @@ export const RECENT_OBJECT_COUNT = 4
 const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
 
-// The personalized sort follows the Inbox's flag. Without a stored personal ranking the backend falls back to the
-// Recommended order.
-function todayReportListParams(personalSort: boolean): Record<string, string | undefined> {
+// Recommended serves the person's stored personal order when they have one.
+function todayReportListParams(): Record<string, string | undefined> {
     return {
         view: 'for_you',
-        sort: personalSort ? 'personal' : 'recommended',
+        sort: 'recommended',
         created_after: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     }
 }
@@ -97,6 +96,7 @@ export interface TodayReportOpenContext {
 export type TodayAskSource = 'walk_through' | 'report_page'
 
 export type TodayList = 'for_you' | 'recents'
+export type TodayJumpBackPinSource = 'picker' | 'card'
 
 export interface TodayReports {
     results: SignalReport[]
@@ -365,10 +365,12 @@ export interface todayLogicActions {
     }
     toggleJumpBackPin: (
         scope: string,
-        entry: FileSystemEntry
+        entry: FileSystemEntry,
+        source: TodayJumpBackPinSource
     ) => {
         entry: FileSystemEntry
         scope: string
+        source: TodayJumpBackPinSource
     }
     toggleReportRow: (
         rowKey: string,
@@ -507,7 +509,11 @@ export const todayLogic = kea<todayLogicType>([
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
         setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
-        toggleJumpBackPin: (scope: string, entry: FileSystemEntry) => ({ scope, entry }),
+        toggleJumpBackPin: (scope: string, entry: FileSystemEntry, source: TodayJumpBackPinSource) => ({
+            scope,
+            entry,
+            source,
+        }),
         jumpBackOpened: (entry: FileSystemEntry, position: number, frequent: boolean) => ({
             entry,
             position,
@@ -568,7 +574,7 @@ export const todayLogic = kea<todayLogicType>([
                     let response
                     try {
                         response = await signalsReportsList(String(values.currentProjectId), {
-                            ...todayReportListParams(!!values.featureFlags[FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]),
+                            ...todayReportListParams(),
                             limit: TOP_REPORT_COUNT,
                         })
                     } catch (error) {
@@ -598,7 +604,7 @@ export const todayLogic = kea<todayLogicType>([
                     const exclude = values.shownReportIds
                     const loaded = values.loadedMoreReports
                     const response = await signalsReportsList(String(values.currentProjectId), {
-                        ...todayReportListParams(!!values.featureFlags[FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]),
+                        ...todayReportListParams(),
                         limit: MORE_REPORTS_PAGE_SIZE,
                         offset: loaded.length,
                         exclude: exclude.length > 0 ? exclude : undefined,
@@ -943,10 +949,11 @@ export const todayLogic = kea<todayLogicType>([
         }
         return {
             loadCurrentTeamSuccess: () => actions.loadFrequentObjects(),
-            toggleJumpBackPin: ({ scope, entry }) => {
+            toggleJumpBackPin: ({ scope, entry, source }) => {
                 if (!values.useSampleData) {
                     posthog.capture('today jump back pin toggled', {
                         object_type: entry.type,
+                        source,
                         pinned: (values.jumpBackPins[scope] ?? []).some((pin) => objectKey(pin) === objectKey(entry)),
                         pin_count: (values.jumpBackPins[scope] ?? []).length,
                     })

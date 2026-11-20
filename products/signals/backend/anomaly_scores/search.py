@@ -46,6 +46,7 @@ from products.signals.backend.anomaly_scores.read import (
     SeriesPoint,
     SeriesSummary,
     bucket_starts,
+    chart_from,
     latest_buckets,
     prior_rate,
     rank_series,
@@ -115,7 +116,7 @@ class AnomalySearchFilters:
     offset: int = 0
     # Part of an insight name, matched ignoring case.
     search: str | None = None
-    # Adds the scored buckets of each series row, at the cost of one more query.
+    # Adds the scored buckets of each series row in the chart window of its interval, at the cost of one more query.
     include_points: bool = False
 
 
@@ -127,7 +128,7 @@ class SeriesRow:
     expected_buckets: int
     # Newest first.
     flagged_points: tuple[FlaggedPoint, ...]
-    # Oldest first. None when the request leaves points out.
+    # Oldest first, over the chart window of the interval, not the range. None when the request leaves points out.
     points: tuple[SeriesPoint, ...] | None = None
     # The dashboards the insight sits on that the user may view, oldest tile first.
     dashboards: tuple[DashboardRef, ...] = ()
@@ -162,6 +163,22 @@ class AnomalySearchResult:
     @property
     def scored_history_ready(self) -> bool:
         return self.scored_days >= SCORED_HISTORY_READY_DAYS
+
+
+@frozen
+class AnomalySeriesRef:
+    insight_id: int
+    series_key: str
+    interval: IntervalType
+
+
+@frozen
+class AnomalySeriesPoints:
+    series: AnomalySeriesRef
+    # The start of the chart window. The window ends now.
+    date_from: datetime.datetime
+    # Oldest first.
+    points: tuple[SeriesPoint, ...]
 
 
 @frozen
@@ -331,9 +348,8 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         points = (
             series_points(
                 team,
-                date_from=filters.date_from,
                 date_to=filters.date_to,
-                series=[(summary.insight_id, summary.series_key) for summary in page_series],
+                series={(summary.insight_id, summary.series_key): summary.interval for summary in page_series},
             )
             if filters.include_points
             else None
@@ -388,6 +404,22 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         if matched
         else _empty_message(off_message=off_message, watched=watched_count, scored_in_range=scored_in_range),
     )
+
+
+def chart_points(
+    team: Team, user: User, series: Sequence[AnomalySeriesRef], now: datetime.datetime
+) -> list[AnomalySeriesPoints]:
+    """The chart points of each requested series whose insight the user can read, in one query scoped to them."""
+    readable = {
+        insight.id
+        for insight in viewable_insights(team=team, user=user, insight_ids={ref.insight_id for ref in series})
+    }
+    by_key = {(ref.insight_id, ref.series_key): ref for ref in series if ref.insight_id in readable}
+    points = series_points(team, date_to=now, series={key: ref.interval for key, ref in by_key.items()})
+    return [
+        AnomalySeriesPoints(series=ref, date_from=chart_from(ref.interval, now), points=tuple(points[key]))
+        for key, ref in by_key.items()
+    ]
 
 
 def _series_buckets(
