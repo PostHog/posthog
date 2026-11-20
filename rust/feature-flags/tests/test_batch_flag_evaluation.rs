@@ -753,9 +753,8 @@ async fn test_person_with_no_distinct_ids_is_skipped() -> Result<()> {
     let mut conn = context.get_persons_connection().await?;
     sqlx::query(
         r#"INSERT INTO posthog_person
-           (created_at, properties, properties_last_updated_at, properties_last_operation,
-            team_id, is_user_id, is_identified, uuid, version)
-           VALUES ('2023-04-05', '{}', '{}', '{}', $1, NULL, true, $2, 0)"#,
+           (created_at, properties, team_id, is_user_id, is_identified, uuid, version)
+           VALUES ('2023-04-05', '{}', $1, NULL, true, $2, 0)"#,
     )
     .bind(team.id)
     .bind(orphan_uuid)

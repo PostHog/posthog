@@ -107,7 +107,7 @@ export function rankingSortScore(report: SignalReport, field: InboxRankingSortFi
 }
 
 /**
- * The comparator of the Recommended and Personalized sorts. The server gives each row a merge key that follows the ranker's
+ * The comparator of the Recommended sort. The server gives each row a merge key that follows the ranker's
  * order, so rows from several responses merge in one order. Rows with equal keys keep their input order.
  * A row without a key sorts last.
  */
