@@ -15,6 +15,7 @@ import { pluralize } from 'lib/utils/strings'
 import {
     ReplayPlatform,
     replayTriggersLogic,
+    TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS,
     TRIGGER_GROUPS_MIN_SDK_VERSION,
 } from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
@@ -22,7 +23,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
-export { TRIGGER_GROUPS_MIN_SDK_VERSION }
+export { TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS, TRIGGER_GROUPS_MIN_SDK_VERSION }
 
 /** Convert the stored sample-rate string (decimal 0–1) to a display percentage (0–100). */
 function toDisplaySampleRate(rate: string | null | undefined): number {
@@ -526,6 +527,17 @@ function RecordingExclusions(): JSX.Element {
     )
 }
 
+function MobileTriggerGroupsBanner(): JSX.Element {
+    const { ios, android, reactNative, flutter } = TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS
+    return (
+        <LemonBanner type="info">
+            Trigger groups apply to every platform, including web. Mobile SDKs use them from iOS {ios}, Android{' '}
+            {android}, React Native {reactNative}, and Flutter {flutter}. Older mobile SDKs keep using the legacy
+            settings below. Groups are shared across platforms, so editing one here also changes it on web.
+        </LemonBanner>
+    )
+}
+
 function SdkCompatibilityBanner(): JSX.Element {
     const {
         shouldMinimizeLegacyConditions,
@@ -607,6 +619,17 @@ export function ReplayTriggers(): JSX.Element {
 
     const isV2TriggersEnabled = featureFlags[FEATURE_FLAGS.REPLAY_TRIGGERS_V2]
 
+    const legacyMobileControls = (
+        <>
+            {currentTeam && <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />}
+            <IngestionControls.MatchTypeSelect lockedToAllReason="Mobile only supports trigger matching of type 'all'." />
+            <MobileEventTriggers />
+            <LinkedFlagSelector />
+            <MobileSampling />
+            <MobileMinimumDuration />
+        </>
+    )
+
     const tabs: LemonTab<'web' | 'mobile'>[] = [
         {
             key: 'web',
@@ -668,18 +691,29 @@ export function ReplayTriggers(): JSX.Element {
             label: 'Mobile',
             content: (
                 <div className="flex flex-col gap-y-2">
-                    <LemonBanner type="info">
-                        Trigger groups aren't available on mobile yet. Mobile recording uses the settings below, which
-                        are shared with web. Changing a setting here also changes it on web.
-                    </LemonBanner>
-                    {currentTeam && (
-                        <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
+                    {isV2TriggersEnabled ? (
+                        <>
+                            <MobileTriggerGroupsBanner />
+                            <TriggerGroupsEditor />
+                            <div className="mt-2">
+                                <LemonDivider className="mb-4" />
+                                <h3 className="text-base font-semibold mb-1">Legacy recording conditions</h3>
+                            </div>
+                            <LemonBanner type="warning">
+                                Used by mobile SDKs older than the versions above, and as the fallback when no trigger
+                                groups exist. Changing a setting here also changes it on web.
+                            </LemonBanner>
+                            {legacyMobileControls}
+                        </>
+                    ) : (
+                        <>
+                            <LemonBanner type="info">
+                                Trigger groups aren't available on mobile yet. Mobile recording uses the settings below,
+                                which are shared with web. Changing a setting here also changes it on web.
+                            </LemonBanner>
+                            {legacyMobileControls}
+                        </>
                     )}
-                    <IngestionControls.MatchTypeSelect lockedToAllReason="Mobile only supports trigger matching of type 'all'." />
-                    <MobileEventTriggers />
-                    <LinkedFlagSelector />
-                    <MobileSampling />
-                    <MobileMinimumDuration />
                 </div>
             ),
         },

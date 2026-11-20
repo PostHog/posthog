@@ -19,6 +19,14 @@ export type ReplayPlatform = 'web' | 'mobile'
 /** Minimum posthog-js version that understands V2 trigger groups. Older web SDKs fall back to legacy conditions. */
 export const TRIGGER_GROUPS_MIN_SDK_VERSION = '1.369.0'
 
+/** Minimum mobile SDK versions that understand trigger groups. Older mobile SDKs use the legacy settings. */
+export const TRIGGER_GROUPS_MIN_MOBILE_SDK_VERSIONS = {
+    ios: '3.99.0',
+    android: '3.78.0',
+    reactNative: 'TBD',
+    flutter: 'TBD',
+} as const
+
 /**
  * Share of recent web traffic that must be on outdated SDKs before we warn / keep the legacy UI prominent.
  * Below this we treat traffic as effectively all-new, so a long tail of stray old-version events doesn't
