@@ -7,6 +7,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import type { CaptureOptions } from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -175,6 +176,16 @@ describe('inboxSceneLogic routing', () => {
         mountLogic()
         router.actions.push(path)
         expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
+        expect(logic.values.activeTab).toBe(expectedTab)
+    })
+
+    it.each([
+        [true, 'monitoring'],
+        [false, 'reports'],
+    ])('the Monitoring tab URL with the Monitoring flag %s lands on %s', (enabled, expectedTab) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled })
+        mountLogic()
+        router.actions.push(urls.inbox('monitoring'))
         expect(logic.values.activeTab).toBe(expectedTab)
     })
 
