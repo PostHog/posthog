@@ -436,8 +436,8 @@ def reset_stuck_cohorts() -> None:
         gives_up = not supported_source or errors_after_reset > MAX_ERRORS_CALCULATING
         if gives_up:
             # Nothing will run this replace again, so its rows are deleted now if it never copied, or HogQL keeps
-            # counting them. Decided and done before the save below releases is_calculating: from then on a new
-            # claim can write rows at or after population_first_marker.
+            # counting them. Decided and done before the save below releases is_calculating and clears the
+            # population_marker that bounds the delete.
             _delete_failed_replace_attempt(
                 cohort,
                 log_prefix="reset_stuck_static_cohort",
@@ -1032,17 +1032,22 @@ def _check_population_ownership(cohort: Cohort, *, mode: str | None) -> bool | N
 def _delete_failed_replace_attempt(cohort: Cohort, *, log_prefix: str, replacing: bool) -> None:
     """Delete a failed replace run's ClickHouse rows when none of its attempts copied any into Postgres.
 
-    Called while the run fields are still stored and is_calculating is set, so neither a new claim nor the stuck
-    sweep can take the cohort and write rows at or after ``population_first_marker`` before the delete is submitted.
-    Earlier runs' rows sit below that marker and are never touched.
+    The delete covers ``population_first_marker`` to ``population_marker``, the run's first and latest markers.
+    Earlier runs' rows sit below that range. A newer run mints above every existing row, so its rows sit above the
+    range even if other code (a contact import) released is_calculating and a new claim wrote in the meantime.
+    Without a latest marker (a redispatched attempt that failed before minting) nothing is deleted: the rows are
+    kept, which is safe.
     """
     from products.cohorts.backend.models.util import delete_failed_replace_attempt_rows
 
     first_marker = cohort.population_first_marker
-    if not (replacing and not cohort.population_copy_started and first_marker is not None):
+    last_marker = cohort.population_marker
+    if not (replacing and not cohort.population_copy_started and first_marker is not None and last_marker is not None):
         return
     try:
-        delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, from_marker=first_marker)
+        delete_failed_replace_attempt_rows(
+            cohort.pk, team_id=cohort.team_id, from_marker=first_marker, to_marker=last_marker
+        )
     except Exception:
         logger.exception(
             f"{log_prefix}_failed_replace_cleanup_failed",

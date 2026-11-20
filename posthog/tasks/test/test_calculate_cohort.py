@@ -2569,10 +2569,16 @@ class TestCohortCalculationTasks(APIBaseTest):
             query=PERSONS_HOGQL_QUERY,
             pending_population_mode=CohortPopulationMode.REPLACE,
             population_marker=now - relativedelta(hours=2),
+            population_first_marker=now - relativedelta(hours=2),
             population_claimed_at=now - relativedelta(hours=6),
         )
         cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk, save_state=False)
         Cohort.objects.filter(pk=cohort.pk).update(created_at=now - relativedelta(hours=6))
+        attempt_uuid = uuid4()
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [(uuid4(), attempt_uuid, cohort.pk, self.team.pk, now - relativedelta(hours=2), REPLACE_ROW_OFFSET)],
+        )
 
         with patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay") as mock_delay:
             reset_stuck_cohorts()
@@ -2589,6 +2595,12 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(
             (cohort.is_calculating, cohort.pending_population_mode, history.error_code),
             (False, None, CohortErrorCode.REPLACE_DISABLED),
+        )
+        # The sweep cleared the marker and this attempt minted none, so the cleanup has no upper bound and keeps
+        # the earlier attempt's row rather than guess.
+        self.assertEqual(
+            sorted(_static_cohort_rows(self.team.pk, cohort.pk)),
+            sorted([(str(member.uuid), 0), (str(attempt_uuid), REPLACE_ROW_OFFSET)]),
         )
 
     def test_query_append_still_runs_when_replace_flag_is_off(self) -> None:
@@ -3053,6 +3065,48 @@ class TestCohortCalculationTasks(APIBaseTest):
             f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
             [(uuid4(), p2.uuid, cohort.pk, self.team.pk, new_marker, REPLACE_ROW_OFFSET)],
         )
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p2.uuid), REPLACE_ROW_OFFSET)])
+        self.assertIsNotNone(p1.id)
+
+    def test_failed_replace_cleanup_keeps_rows_a_newer_run_writes_after_its_marker(self) -> None:
+        # A contact import can release is_calculating without our run fields, so a new replace may claim, mint and
+        # write before this run's cleanup is submitted. Its marker is later than every row this run wrote.
+        run = uuid4().hex[:8]
+        p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        p2 = create_person(team=self.team, distinct_ids=[f"{run}-p2"], uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace cleanup upper bound",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        _claim_replace(cohort, claimed_at=start)
+
+        from products.cohorts.backend.models import util as cohort_util
+
+        real_delete = cohort_util.delete_failed_replace_attempt_rows
+
+        def newer_run_writes_then_delete(*args: Any, **kwargs: Any) -> None:
+            newer_marker = kwargs["to_marker"] + timedelta(seconds=10)
+            sync_execute(
+                f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+                [(uuid4(), p2.uuid, cohort.pk, self.team.pk, newer_marker, REPLACE_ROW_OFFSET)],
+            )
+            real_delete(*args, **kwargs)
+
+        with (
+            time_machine.travel(start + timedelta(seconds=10), tick=False),
+            patch(PG_SYNC_PATH, side_effect=RuntimeError("fatal before copy")),
+            patch(
+                "products.cohorts.backend.models.util.delete_failed_replace_attempt_rows",
+                side_effect=newer_run_writes_then_delete,
+            ),
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        # This run's p1 row is gone; the newer run's p2 row is not.
         self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p2.uuid), REPLACE_ROW_OFFSET)])
         self.assertIsNotNone(p1.id)
 
@@ -3613,10 +3667,13 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
-            # Nothing will run the replace again, so rows it never copied would stay counted.
-            ("before_copy_deletes_its_rows", False, [(0, "kept")]),
+            # Nothing will run the replace again, so rows it never copied would stay counted. A newer run's rows,
+            # stamped after this run's marker, are not this run's.
+            ("before_copy_deletes_its_rows", False, True, ["kept", "newer"]),
             # Postgres may hold some of its rows, so ClickHouse keeps them all.
-            ("after_copy_keeps_its_rows", True, [(0, "kept"), (REPLACE_ROW_OFFSET, "attempt")]),
+            ("after_copy_keeps_its_rows", True, True, ["kept", "attempt", "newer"]),
+            # Without a latest marker the delete has no upper bound, so it keeps the rows rather than guess.
+            ("without_a_marker_keeps_its_rows", False, False, ["kept", "attempt", "newer"]),
         ]
     )
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
@@ -3625,7 +3682,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         self,
         _name: str,
         copy_started: bool,
-        expected_rows: list[tuple[int, str]],
+        marker_set: bool,
+        expected_rows: list[str],
         mock_logger: MagicMock,
         mock_insert_cohort_from_query: MagicMock,
     ) -> None:
@@ -3645,25 +3703,23 @@ class TestCohortCalculationTasks(APIBaseTest):
                 "query": "SELECT person_id FROM cohort_people WHERE cohort_id = 123",
             },
             pending_population_mode=CohortPopulationMode.REPLACE,
-            population_marker=now - relativedelta(hours=2),
+            population_marker=now - relativedelta(hours=2) if marker_set else None,
             population_first_marker=now - relativedelta(hours=2),
             population_copy_started=copy_started,
         )
         # Set created_at to more than 1 hour ago
         Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
-        person_ids = {"kept": uuid4(), "attempt": uuid4()}
+        rows = {
+            "kept": (now - relativedelta(hours=3), 0),
+            "attempt": (now - relativedelta(hours=2), REPLACE_ROW_OFFSET),
+            "newer": (now - relativedelta(hours=1), REPLACE_ROW_OFFSET),
+        }
+        person_ids = {name: uuid4() for name in rows}
         sync_execute(
             f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
             [
-                (uuid4(), person_ids["kept"], stuck_static_cohort.pk, self.team.pk, now - relativedelta(hours=3), 0),
-                (
-                    uuid4(),
-                    person_ids["attempt"],
-                    stuck_static_cohort.pk,
-                    self.team.pk,
-                    now - relativedelta(hours=2),
-                    REPLACE_ROW_OFFSET,
-                ),
+                (uuid4(), person_ids[name], stuck_static_cohort.pk, self.team.pk, timestamp, offset)
+                for name, (timestamp, offset) in rows.items()
             ],
         )
 
@@ -3674,7 +3730,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_insert_cohort_from_query.delay.assert_not_called()
         self.assertEqual(
             sorted(_static_cohort_rows(self.team.pk, stuck_static_cohort.pk)),
-            sorted((str(person_ids[name]), offset) for offset, name in expected_rows),
+            sorted((str(person_ids[name]), rows[name][1]) for name in expected_rows),
         )
         # Nothing will run the replace now, so a later edit must not inherit it.
         self.assertEqual(
