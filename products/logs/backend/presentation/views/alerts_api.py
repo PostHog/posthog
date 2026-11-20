@@ -1005,10 +1005,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             if name in _TIMING_AND_NAME_FIELDS:
                 continue
             if name in _PLATFORM_RUNTIME_FIELDS:
-                # These live on the platform row, so compare the shapes a client sends and reads.
+                # These live on the platform row. Compare both as the API shows them, since a client can leave
+                # out a setting that has a default.
                 runtime = runtime or _platform_runtime_of([self.instance]).get(self.instance.id)
                 stored = self.fields[name].to_representation(getattr(runtime, name)) if runtime is not None else None
-                if (self.initial_data.get(name) or None) != (stored or None):
+                sent = self.fields[name].to_representation(value) if value is not None else None
+                if (sent or None) != (stored or None):
                     return True
             elif value != getattr(self.instance, name, None):
                 return True
