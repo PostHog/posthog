@@ -39,14 +39,8 @@ import {
 } from '~/types'
 
 import type { ViewportResolution } from '../../../../../common/replay-shared/src/index'
-import type {
-    AnnotationType,
-    CommentType,
-    PersonType,
-    RecordingEventType,
-    SessionRecordingSnapshotSource,
-} from '../../../types'
-import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
+import type { AnnotationType, CommentType, RecordingEventType, SessionRecordingSnapshotSource } from '../../../types'
+import { ExportedSessionRecordingFileV2, LoadedSessionRecordingFile } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { RecordingComment } from './inspector/playerInspectorLogic'
 import { sessionEventsDataLogic } from './sessionEventsDataLogic'
@@ -362,16 +356,8 @@ export interface sessionRecordingDataCoordinatorLogicActions {
         }
         sessionEventsData: RecordingEventType[] | null
     } // eventsLogic
-    loadRecordingFromFile: (recording: {
-        id: SessionRecordingType['id']
-        person: SessionRecordingType['person']
-        snapshots: RecordingSnapshot[]
-    }) => {
-        recording: {
-            id: string
-            person: PersonType | undefined
-            snapshots: RecordingSnapshot[]
-        }
+    loadRecordingFromFile: (recording: LoadedSessionRecordingFile) => {
+        recording: LoadedSessionRecordingFile
     } // metaLogic
     loadRecordingMeta: () => {
         value: true
