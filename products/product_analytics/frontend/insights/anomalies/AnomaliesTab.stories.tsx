@@ -93,6 +93,7 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
         insights: [],
         has_more: false,
         truncated: false,
+        series_capped: false,
         message: null,
         ...overrides,
     }
@@ -187,6 +188,28 @@ export const FlaggedSeries: Story = {
     decorators: [
         mswDecorator({
             get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES.map(({ row }) => row), has_more: true }) },
+            post: { [POINTS_URL]: pointsResponse() },
+        }),
+    ],
+}
+
+export const SeriesCapped: Story = {
+    parameters: {
+        testOptions: {
+            snapshotBrowsers: [],
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr="anomalies-tab-series-capped"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [SEARCH_URL]: searchResponse({
+                    series: FLAGGED_SERIES.map(({ row }) => row),
+                    truncated: true,
+                    series_capped: true,
+                }),
+            },
             post: { [POINTS_URL]: pointsResponse() },
         }),
     ],

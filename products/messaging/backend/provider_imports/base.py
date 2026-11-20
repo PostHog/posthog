@@ -98,6 +98,8 @@ class ImportContext:
     api_key: str | None = field(default=None, repr=False)
     # Every step the run imports, for a step whose work depends on another step being selected.
     steps: tuple[str, ...] = ()
+    # Names what the run stores, so a retried page overwrites what it stored before.
+    run_id: str = ""
     settings: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -116,6 +118,19 @@ class ImportItem:
 
 
 @frozen
+class PeopleImportPlan:
+    """A list of contacts a page stored, which the run's workflow sends part by part once the step completes."""
+
+    cohort_id: int
+    storage_prefix: str
+    chunks: int
+    # False for a list whose people another list of the same page sends, so it only sets its cohort.
+    send_events: bool
+    # Set by the runner. The workflow checks this person can still edit persons before each write.
+    created_by_id: int | None = None
+
+
+@frozen
 class SavedPage:
     # How many records the page added or changed in PostHog. Records that already match do not count.
     imported: int
@@ -124,6 +139,7 @@ class SavedPage:
     # Added to the step's totals, by the keys in the step's `count_labels`.
     counts: Mapping[str, int] = field(default_factory=dict)
     items: tuple[ImportItem, ...] = ()
+    people_imports: tuple[PeopleImportPlan, ...] = ()
 
 
 @frozen

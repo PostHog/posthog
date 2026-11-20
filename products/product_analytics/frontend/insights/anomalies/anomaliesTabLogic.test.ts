@@ -59,6 +59,7 @@ function searchPage(offset: number, limit: number): AnomalySearchResponseApi {
         insights: [],
         has_more: offset + limit < TOTAL_ROWS,
         truncated: false,
+        series_capped: false,
         message: null,
     }
 }

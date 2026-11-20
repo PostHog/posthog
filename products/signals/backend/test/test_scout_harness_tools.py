@@ -101,6 +101,7 @@ from products.signals.backend.scout_harness.tools.runs import (
 from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
+    has_live_entry_created_by,
     search_scratchpad_naming,
 )
 from products.signals.backend.scout_report.judge import (
@@ -769,6 +770,43 @@ class TestForget(BaseTest):
 
 
 class TestSearchScratchpad(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_entries", None, None, False, False),
+            ("sibling_entry", "signals-scout-errors", None, False, False),
+            ("other_team_entry", "signals-scout-dreaming", None, True, False),
+            ("expired_entry", "signals-scout-dreaming", timedelta(days=-1), False, False),
+            ("live_entry", "signals-scout-dreaming", None, False, True),
+            ("entry_expiring_later", "signals-scout-dreaming", timedelta(days=1), False, True),
+        ]
+    )
+    def test_has_live_entry_created_by_finds_one_writers_live_entry_in_one_query(
+        self,
+        _name: str,
+        creator: str | None,
+        expires_in: timedelta | None,
+        on_other_team: bool,
+        expected: bool,
+    ) -> None:
+        from posthog.models import Team
+
+        if creator is not None:
+            team = Team.objects.create(organization=self.organization, name="other") if on_other_team else self.team
+            remember(
+                team_id=team.id,
+                key="learned:area:checkout",
+                content="pattern",
+                run_id=str(_create_run(team, skill_name=creator).id),
+            )
+            if expires_in is not None:
+                SignalScratchpad.objects.filter(team=team).update(expires_at=timezone.now() + expires_in)
+
+        with CaptureQueriesContext(connection) as queries:
+            found = has_live_entry_created_by(team_id=self.team.id, skill_name="signals-scout-dreaming")
+
+        assert found is expected
+        assert len(queries.captured_queries) == 1
+
     @parameterized.expand([("full", False, None), ("keys", True, None), ("preview", False, 2)])
     def test_revisions_return_a_bounded_newest_first_history(
         self, _name: str, keys_only: bool, content_max_chars: int | None
