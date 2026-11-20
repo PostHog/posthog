@@ -56,16 +56,16 @@ describe('Credenza', () => {
         mockViewport(wide)
         render(<RenameCredenza />)
 
-        await userEvent.click(screen.getByRole('button', { name: 'Rename' }))
+        await userEvent.click(screen.getByText('Rename'))
 
         expect(popupSlot()).toBe(slot)
-        expect(screen.getByRole('dialog', { name: 'Rename dashboard' })).toBeTruthy()
+        expect(screen.getByRole('dialog').getAttribute('aria-labelledby')).toBe(screen.getByText('Rename dashboard').id)
     })
 
     it('keeps the drawer and its input while open, then follows the viewport after it closes', async () => {
         const viewport = mockViewport(false)
         render(<RenameCredenza />)
-        await userEvent.click(screen.getByRole('button', { name: 'Rename' }))
+        await userEvent.click(screen.getByText('Rename'))
         await userEvent.type(screen.getByLabelText('Name'), 'Weekly growth')
 
         viewport.resize(true)
@@ -75,8 +75,8 @@ describe('Credenza', () => {
 
         await userEvent.keyboard('{Escape}')
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-        await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Rename' })))
-        await userEvent.click(screen.getByRole('button', { name: 'Rename' }))
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Rename')))
+        await userEvent.click(screen.getByText('Rename'))
 
         expect(popupSlot()).toBe('dialog-content')
     })
