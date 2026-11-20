@@ -4,7 +4,7 @@
     "engine": "handlebars",
     "template": "[{{x}}][{{{x}}}][{{a.b.c}}]",
     "variables": {},
-    "liquid": "[{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}][{{ variables.x | raw }}][{{ variables.a.b.c | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
+    "liquid": "[{{ variables.x | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}][{{ variables.x | raw }}][{{ variables.a.b.c | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
     "expected": "[][][]"
   },
   {
@@ -18,7 +18,7 @@
       "z": 0,
       "no": false
     },
-    "liquid": "{{ variables.n | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.f | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.t | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.z | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.no | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.f | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.t | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.z | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.no | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "5 1.5 true 0 false"
   },
   {
@@ -29,7 +29,7 @@
       "naïve": "é",
       "name": "世界🌍"
     },
-    "liquid": "Grüße {{ variables.naïve | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} 你好 {{ variables.name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} 🎉",
+    "liquid": "Grüße {{ variables.naïve | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} 你好 {{ variables.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} 🎉",
     "expected": "Grüße é 你好 世界🌍 🎉"
   },
   {
@@ -39,7 +39,7 @@
     "variables": {
       "x": "X"
     },
-    "liquid": "{{ \"{%\" }} if x %}y{{ \"{%\" }} endif %} 100% off {{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ \"{%\" }}",
+    "liquid": "{{ \"{%\" }} if x %}y{{ \"{%\" }} endif %} 100% off {{ variables.x | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ \"{%\" }}",
     "expected": "{% if x %}y{% endif %} 100% off X {%"
   },
   {
@@ -50,7 +50,7 @@
       "user-name": "a",
       "user_name": "b"
     },
-    "liquid": "{{ variables.user-name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.user_name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
+    "liquid": "{{ variables.user-name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.user_name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}",
     "expected": "a b"
   },
   {
@@ -63,7 +63,7 @@
         "Email": "e@example.com"
       }
     },
-    "liquid": "<p>{{ variables.Name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.User.Email | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} {{ variables.Missing | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
+    "liquid": "<p>{% assign go_value1 = variables.Name | json | slice: 0 %}{% if go_value1 == \"[\" %}[{{ variables.Name | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.Name %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.Name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %} {% assign go_value2 = variables.User.Email | json | slice: 0 %}{% if go_value2 == \"[\" %}[{{ variables.User.Email | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value2 == \"{\" %}map[{% for pair in variables.User.Email %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.User.Email | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %} {% assign go_value3 = variables.Missing | json | slice: 0 %}{% if go_value3 == \"[\" %}[{{ variables.Missing | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value3 == \"{\" %}map[{% for pair in variables.Missing %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.Missing | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}</p>",
     "expected": "<p>N &amp; &lt;b&gt; e@example.com </p>"
   },
   {
@@ -73,7 +73,7 @@
     "variables": {
       "Grüße": "你好"
     },
-    "liquid": "{{ variables.Grüße | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} 🎉",
+    "liquid": "{% assign go_value1 = variables.Grüße | json | slice: 0 %}{% if go_value1 == \"[\" %}[{{ variables.Grüße | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.Grüße %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.Grüße | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %} 🎉",
     "expected": "你好 🎉"
   },
   {
@@ -84,7 +84,46 @@
       "prefix": "<a ",
       "x": "href=https://example.com"
     },
-    "liquid": "{{ variables.prefix | raw }}{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}>",
+    "liquid": "{{ variables.prefix | raw }}{{ variables.x | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}>",
     "expected": "<a href&#x3D;https://example.com>"
+  },
+  {
+    "name": "a handlebars list prints with commas",
+    "engine": "handlebars",
+    "template": "<p>{{x}}</p>",
+    "variables": {
+      "x": [
+        "red",
+        "blue"
+      ]
+    },
+    "liquid": "<p>{{ variables.x | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}</p>",
+    "expected": "<p>red,blue</p>"
+  },
+  {
+    "name": "a go list prints in brackets",
+    "engine": "go",
+    "template": "<p>{{.x}}</p>",
+    "variables": {
+      "x": [
+        "red",
+        "blue"
+      ]
+    },
+    "liquid": "<p>{% assign go_value1 = variables.x | json | slice: 0 %}{% if go_value1 == \"[\" %}[{{ variables.x | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.x %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}</p>",
+    "expected": "<p>[red blue]</p>"
+  },
+  {
+    "name": "a go map prints with its keys",
+    "engine": "go",
+    "template": "<p>{{.x}}</p>",
+    "variables": {
+      "x": {
+        "a": 1,
+        "b": 2
+      }
+    },
+    "liquid": "<p>{% assign go_value1 = variables.x | json | slice: 0 %}{% if go_value1 == \"[\" %}[{{ variables.x | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.x %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}</p>",
+    "expected": "<p>map[a:1 b:2]</p>"
   }
 ]

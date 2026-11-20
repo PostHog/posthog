@@ -1,7 +1,8 @@
 """Turns a Mailgun template version into PostHog's Liquid, and says what did not carry over.
 
 Mailgun renders versions with Handlebars or Go templates, then replaces `%recipient.x%` style variables. Only plain
-values convert: `{{name}}`, `{{{name}}}` and Go's `{{.Name}}`, in page text or a quoted attribute value. A template
+values convert: `{{name}}` and `{{{name}}}` in page text or a quoted attribute value, and Go's `{{.Name}}` in page
+text. A template
 with anything else, such as a condition, a loop, a helper or a comment, or a value somewhere its engine escapes
 differently, stays as plain text with a note, so a person rewrites it. See
 https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send-templates.
@@ -19,6 +20,8 @@ _MAX_NOTED_TAGS = 5
 # Liquid can't parse a longer template.
 _MAX_OUTPUT_CHARS = 5_000_000
 _OPENING = re.compile(r"\{[{%]")
+# Each converted value is about a hundred characters, so more than this can't fit what Liquid parses anyway.
+_MAX_VALUES = 40_000
 _TAG = re.compile(r"\{\{(?:(?!\{\{).){0,200}?\}\}\}?", re.DOTALL)
 _HANDLEBARS_VALUE = re.compile(r"\{\{(\{)?\s*([A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)*)\s*(\})?\}\}")
 _GO_VALUE = re.compile(r"\{\{\s*\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*\}\}")
@@ -32,25 +35,6 @@ _UNSUBSCRIBE_URLS = frozenset({"unsubscribe_url", "tag_unsubscribe_url", "mailin
 # Elements whose content isn't page text, so a value inside one is escaped some other way.
 _RAW_ELEMENTS = frozenset(
     {"script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext"}
-)
-# Attributes Go's html/template treats as URLs, besides any whose name holds src, uri or url.
-_GO_URL_ATTRIBUTES = frozenset(
-    {
-        "action",
-        "background",
-        "cite",
-        "codebase",
-        "data",
-        "formaction",
-        "href",
-        "icon",
-        "longdesc",
-        "manifest",
-        "poster",
-        "profile",
-        "usemap",
-        "xmlns",
-    }
 )
 # Syntax Handlebars can't parse, for a version whose engine field is blank.
 _GO_ONLY = re.compile(r"\{\{-?\s*(?:\.[A-Za-z_]|end\b|range\b|\$)")
@@ -185,8 +169,11 @@ class _Converter:
         self.tag_unsubscribe = False
         self.list_unsubscribe = False
         self.unsubscribe_email = False
+        self.value_count = 0
 
     def convert(self) -> ConvertedText:
+        if self.text.count("{{") + self.text.count("%") // 2 > _MAX_VALUES:
+            return ConvertedText(text=self._as_text(), has_tags=True, too_large=True)
         try:
             values = self._values()
             if self.is_html:
@@ -201,7 +188,8 @@ class _Converter:
             cursor = value.end
         _append(out, _literal(self.text[cursor:]))
         converted = "".join(out)
-        if len(converted) > _MAX_OUTPUT_CHARS:
+        # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
+        if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
             return ConvertedText(text=self._as_text(), has_tags=True, too_large=True)
         return ConvertedText(
             text=converted,
@@ -277,7 +265,20 @@ class _Converter:
         return self._value(f"variables.{name}")
 
     def _value(self, path: str) -> str:
-        return _escaped(path) if self.is_html else f"{{{{ {path} }}}}"
+        show = _escaped if self.is_html else (lambda shown: f"{{{{ {shown} }}}}")
+        if self.engine == "handlebars":
+            # Handlebars prints a list with commas between its items, and `join` leaves any other value as it is.
+            return show(f'{path} | join: ","')
+        # Go prints a list as [a b] and a map as map[key:value], so the value's JSON says which it is.
+        self.value_count += 1
+        kind = f"go_value{self.value_count}"
+        return (
+            f"{{% assign {kind} = {path} | json | slice: 0 %}}"
+            f'{{% if {kind} == "[" %}}[{show(f"{path} | join: ' '")}]'
+            f'{{% elsif {kind} == "{{" %}}map[{{% for pair in {path} %}}{{% unless forloop.first %}} {{% endunless %}}'
+            f"{show('pair[0]')}:{show('pair[1]')}{{% endfor %}}]"
+            f"{{% else %}}{show(path)}{{% endif %}}"
+        )
 
     def _check_contexts(self, values: list[_Value]) -> None:
         """Raises _Unsupported for a value anywhere but page text or a quoted attribute value its engine escapes the
@@ -285,6 +286,9 @@ class _Converter:
         tracker = _HtmlTracker(self.text)
         for value in values:
             where = tracker.advance(value.start)
+            # A script's end can hide inside a comment or a string in it, so nothing after one opens is trusted.
+            if tracker.script_opened:
+                raise _Unsupported(f"{value.source} after a script")
             if where == "text":
                 continue
             if where == "value" and not value.raw and self._plain_attribute(tracker.attribute):
@@ -295,9 +299,8 @@ class _Converter:
     def _plain_attribute(self, name: str) -> bool:
         if name.startswith("on") or name in ("style", "srcset"):
             return False
-        if self.engine == "handlebars":
-            return True
-        return ":" not in name and name not in _GO_URL_ATTRIBUTES and not any(p in name for p in ("src", "uri", "url"))
+        # Go escapes an attribute value by what the attribute holds, such as a link, and Liquid can't.
+        return self.engine == "handlebars"
 
     def _as_text(self) -> str:
         """The source as text, so its markup can't render, as nothing would where Mailgun's blocks were false."""
@@ -325,6 +328,7 @@ class _HtmlTracker:
         self.tag_name = ""
         self.closing = False
         self.raw_element = ""
+        self.script_opened = False
 
     def skip(self, position: int) -> None:
         self.position = position
@@ -389,6 +393,7 @@ class _HtmlTracker:
             opened_raw = not self.closing and self.tag_name in _RAW_ELEMENTS
             self.state = "raw" if opened_raw else "text"
             self.raw_element = self.tag_name if opened_raw else ""
+            self.script_opened = self.script_opened or (opened_raw and self.tag_name == "script")
             return
         if state == "tag_name":
             if character.isspace() or character == "/":
