@@ -209,6 +209,10 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     _, team, user = org_team_user
     integration = _install(team)
     link_user(user, user_scopes="search:read.public search:read.im users:read")
+    # The cached profile gives the models the person\'s name next to their token.
+    SlackUserProfileCache.objects.create(
+        integration_id=integration.id, slack_user_id=SLACK_USER_ID, display_name="Dana", refreshed_at=MONDAY
+    )
 
     with time_machine.travel(MONDAY, tick=False):
         assert find_and_send_work_focus(integration, SLACK_USER_ID) == "sent"
@@ -238,6 +242,12 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     assert ASKED_THE_APP not in written_from
     # Jev read the thread of each kept message, and the one whose thread says it is merged is finished work.
     assert RESOLVED_MESSAGE not in written_from
+    # Every model call knows whose digest it is, so the writer says "you" and the classifiers judge for them.
+    assert written_from.startswith(f"<person><@{SLACK_USER_ID}> (Dana)</person>\n")
+    assert all(
+        call.kwargs["state"]["person"] == {"slack_user_id": SLACK_USER_ID, "name": "Dana"}
+        for call in slack["ranker"].return_value.decide.call_args_list
+    )
     # A thread the app already replied in is dropped before Jev is asked about it.
     assert HANDLED_MESSAGE not in written_from
     assert all(

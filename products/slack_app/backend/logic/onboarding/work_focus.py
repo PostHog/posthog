@@ -52,7 +52,7 @@ from products.slack_app.backend.logic.onboarding.daily_summary import (
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, read_action_value
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
-from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
+from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
 from products.slack_app.backend.services.slack_user_oauth import (
     LinkedUserToken,
     linked_posthog_distinct_id,
@@ -100,7 +100,8 @@ RANK_MIN_PROBABILITY = 0.5
 RANK_TIMEOUT_SECONDS = 15.0
 MAX_CANDIDATES = 5
 RANK_INSTRUCTIONS = (
-    "`messages` holds Slack messages that a person wrote or that mention them. For the message this question names, "
+    "`person` is the person the digest is for. `messages` holds Slack messages that person wrote or that mention them. "
+    "For the message this question names, "
     "decide whether it describes work that PostHog could do for this person now: answer a product data question, "
     "investigate a bug or an error, or change code in a connected repository."
 )
@@ -113,7 +114,7 @@ RANK_FALSE = (
 THREAD_REPLIES_LIMIT = 20
 RESOLVE_MIN_PROBABILITY = 0.5
 RESOLVE_INSTRUCTIONS = (
-    "`threads` holds Slack threads in which a person asked for, reported or planned some work. For the thread this "
+    "`person` is the person the digest is for. `threads` holds Slack threads in which they asked for, reported or planned some work. For the thread this "
     "question names, decide whether that work is still open."
 )
 RESOLVE_TRUE = "Nobody answered, or the thread still asks for the work."
@@ -140,7 +141,9 @@ WRITE_INSTRUCTIONS = """You write a short, friendly direct message from PostHog 
 AI agent that answers questions from product data (analytics, session replay, errors, feature flags, experiments) and \
 opens pull requests in connected repositories. The numbered messages are recent Slack messages that the person wrote \
 or that mention them. The numbered threads, when given, are threads from the channels they are in that moved since \
-their last digest, and a thread marked "you are in this thread" is one they took part in.
+their last digest, and a thread marked "you are in this thread" is one they took part in. <person> names the \
+person the message goes to, with their Slack token and name. Write to them as "you" and never refer to them by \
+their token or their name.
 
 Return:
 - "intro": one short, warm sentence to the person, in the second person, that names what their recent work is \
@@ -155,7 +158,7 @@ ignore edited query parameters, and open a pull request with the fix." At most 5
 - "summary": at most 5 one-line items on what happened in the threads, the ones the person is in first, then the \
 most consequential. Each item has:
   - "text": one plain sentence of at most 110 characters that starts with who did it and says what was decided, \
-reported, launched or asked. Refer to people only with the `<@U…>` tokens exactly as they appear, which Slack \
+reported, launched or asked. When the person did it, start with "You". Refer to people only with the `<@U…>` tokens exactly as they appear, which Slack \
 shows as names. Do not name the channel; it is added after the sentence.
   - "source": the number of the thread the item comes from.
   Leave out a thread that is only chat or a status note, and a thread that already became a suggestion. Return an \
@@ -224,6 +227,19 @@ class _FoundMessage:
     thread_ts: str | None = None
     # The thread read in full, when the bot could read it and it holds more than the message.
     thread: str | None = None
+
+
+@frozen
+class _Person:
+    slack_user_id: str
+    name: str | None
+
+    def as_state(self) -> dict[str, str]:
+        return {"slack_user_id": self.slack_user_id, "name": self.name or ""}
+
+    @property
+    def line(self) -> str:
+        return f"<@{self.slack_user_id}>" + (f" ({self.name})" if self.name else "")
 
 
 @frozen
@@ -425,6 +441,7 @@ def _find(
     """The suggestions from the messages sent after ``after``, and the summary of ``threads``, or the outcome that
     stops the run. Threads alone are enough to write, so a quiet inbox still gets the news from its channels."""
     channel_types = [kind for kind, scope in _CHANNEL_TYPE_SCOPES.items() if scope in token.scopes]
+    person = _person(integration, slack_user_id)
     messages = _search_messages(integration, token.access_token, slack_user_id, channel_types, after=after, pages=pages)
     if messages is None:
         raise WorkFocusTransientError("search failed")
@@ -439,7 +456,11 @@ def _find(
     if len(messages) >= min_messages:
         try:
             candidates = _still_open(
-                integration, _rank(integration, messages, flow=flow), flow=flow, bot_user_id=bot_user_id
+                integration,
+                _rank(integration, messages, flow=flow, person=person),
+                flow=flow,
+                bot_user_id=bot_user_id,
+                person=person,
             )
         except Exception as error:
             logger.warning("slack_app_work_focus_rank_failed", exc_info=True)
@@ -447,7 +468,7 @@ def _find(
     if not candidates and not threads:
         return "not_enough_messages" if len(messages) < min_messages else "nothing_actionable"
     try:
-        focus = _write(integration, candidates, flow=flow, threads=threads or [])
+        focus = _write(integration, candidates, flow=flow, threads=threads or [], person=person)
     except Exception as error:
         logger.warning("slack_app_work_focus_model_failed", exc_info=True)
         raise WorkFocusTransientError("write failed") from error
@@ -510,6 +531,19 @@ def _onboarding_privacy_line(*, channels: bool) -> str:
     )
 
 
+def _person(integration: WorkspaceIntegration, slack_user_id: str) -> _Person:
+    """Who the digest is for, so the models can tell the person's own messages from everyone else's. The name comes
+    from the cached Slack profile; without one, the token alone still tells them apart."""
+    try:
+        user = get_slack_user_info(SlackIntegration(integration), integration, slack_user_id).get("user") or {}
+        profile = user.get("profile") or {} if isinstance(user, dict) else {}
+        name = str(profile.get("display_name") or profile.get("real_name") or "").strip() or None
+    except Exception:
+        logger.warning("slack_app_work_focus_person_failed", integration_id=integration.id, exc_info=True)
+        name = None
+    return _Person(slack_user_id=slack_user_id, name=name)
+
+
 def _thread_ts_in(permalink: object) -> str | None:
     if not isinstance(permalink, str):
         return None
@@ -523,6 +557,7 @@ def _still_open(
     *,
     flow: WorkFocusFlow,
     bot_user_id: str | None,
+    person: _Person,
 ) -> list[_FoundMessage]:
     """The candidates whose work the thread has not finished. A thread the app already replied in, or was tagged in,
     is handled. Jev reads the rest of the threads the bot can read; a thread the bot cannot read, or a message with
@@ -545,7 +580,7 @@ def _still_open(
         privacy_mode=True,
     )
     result = client.decide(
-        state={"threads": {key: read[index].thread for key, index in keys.items()}},
+        state={"person": person.as_state(), "threads": {key: read[index].thread for key, index in keys.items()}},
         questions={
             key: NoulQuestion(
                 instructions=f"{RESOLVE_INSTRUCTIONS} This question names `threads.{key}`.",
@@ -663,7 +698,7 @@ def _collect(found: dict[tuple[str, str], _FoundMessage], message: dict[str, Any
 
 
 def _rank(
-    integration: WorkspaceIntegration, messages: list[_FoundMessage], *, flow: WorkFocusFlow
+    integration: WorkspaceIntegration, messages: list[_FoundMessage], *, flow: WorkFocusFlow, person: _Person
 ) -> list[_FoundMessage]:
     """The messages most likely to hold work for PostHog, most likely first."""
     # No TypeSafe fallback: the messages are customer text, and TypeSafe is a third party.
@@ -680,7 +715,10 @@ def _rank(
         batch = messages[batch_start : batch_start + RANK_BATCH_SIZE]
         keys = [f"m{batch_start + offset}" for offset in range(len(batch))]
         result = client.decide(
-            state={"messages": {key: message.content for key, message in zip(keys, batch)}},
+            state={
+                "person": person.as_state(),
+                "messages": {key: message.content for key, message in zip(keys, batch)},
+            },
             questions={
                 key: NoulQuestion(
                     instructions=f"{RANK_INSTRUCTIONS} This question names `messages.{key}`.",
@@ -704,6 +742,7 @@ def _write(
     *,
     flow: WorkFocusFlow,
     threads: list[SummaryThread] | None = None,
+    person: _Person | None = None,
 ) -> WorkFocus:
     threads = threads or []
     client = build_ai_gateway_openai_client(
@@ -723,7 +762,8 @@ def _write(
         f"[{index}] in <#{thread.channel_id}>{' (you are in this thread)' if thread.involves_person else ''}:\n{thread.text}"
         for index, thread in enumerate(threads, start=1)
     )
-    content = f"<messages>\n{numbered}\n</messages>"
+    content = f"<person>{person.line}</person>\n" if person else ""
+    content += f"<messages>\n{numbered}\n</messages>"
     if threads:
         content += f"\n<threads>\n{numbered_threads}\n</threads>"
     response = client.chat.completions.create(

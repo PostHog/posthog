@@ -25,6 +25,7 @@ from posthog.models.integration import SlackIntegration
 from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.slack_app.backend.feature_flags import is_slack_app_daily_summary_enabled
+from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 from products.slack_app.backend.services.slack_user_oauth import linked_posthog_distinct_id
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
@@ -60,7 +61,10 @@ RANK_INSTRUCTIONS = (
     "For the message this question names, decide whether a teammate who missed the day would want to know about it."
 )
 RANK_TRUE = "It reports a decision, an incident, a launch, a blocker, or asks the team for input."
-RANK_FALSE = "It is chat, a greeting, a status note, an automated post, or a question one person already answered."
+RANK_FALSE = (
+    "It is chat, a greeting, a status note, an automated post, a request to PostHog's Slack app, or a question one "
+    "person already answered."
+)
 
 _MENTION = re.compile(r"<@(U[A-Z0-9]+)")
 
@@ -119,7 +123,8 @@ def summary_threads(integration: WorkspaceIntegration, slack_user_id: str, *, si
         logger.info("slack_app_daily_summary_skipped", reason="no_index_today", integration_id=integration.id)
         return []
     channels = _person_channels(slack, slack_user_id, private=private)
-    kept = pick_threads(index, slack_user_id, channels, since=since)
+    bot_user_id = get_cached_bot_user_id(slack, integration)
+    kept = pick_threads(index, slack_user_id, channels, since=since, bot_user_id=bot_user_id)
     if not kept:
         logger.info(
             "slack_app_daily_summary_skipped",
@@ -128,14 +133,20 @@ def summary_threads(integration: WorkspaceIntegration, slack_user_id: str, *, si
             person_channels=len(channels),
             indexed_roots=len(index),
         )
-    return [thread for root in kept if (thread := _read_thread(slack, root, slack_user_id)) is not None]
+    return [thread for root in kept if (thread := _read_thread(slack, root, slack_user_id, bot_user_id)) is not None]
 
 
-def pick_threads(roots: list[RootRef], slack_user_id: str, channels: set[str], *, since: datetime) -> list[RootRef]:
+def pick_threads(
+    roots: list[RootRef], slack_user_id: str, channels: set[str], *, since: datetime, bot_user_id: str | None = None
+) -> list[RootRef]:
     """The person's own threads that moved come first, newest first. The rest of their channels fill the remaining
-    places by Jev's score."""
+    places by Jev's score. A thread the app was tagged or replied in was already handled."""
     since_at = since.timestamp()
-    moved = [root for root in roots if root.channel_id in channels and root.moved_at >= since_at]
+    moved = [
+        root
+        for root in roots
+        if root.channel_id in channels and root.moved_at >= since_at and not _app_in(root, bot_user_id)
+    ]
     own = [
         root
         for root in moved
@@ -151,6 +162,12 @@ def pick_threads(roots: list[RootRef], slack_user_id: str, channels: set[str], *
     ]
     others.sort(key=lambda root: (root.score, root.moved_at), reverse=True)
     return (own + others)[:THREADS_PER_PERSON]
+
+
+def _app_in(root: RootRef, bot_user_id: str | None) -> bool:
+    return bool(bot_user_id) and (
+        root.author == bot_user_id or bot_user_id in root.reply_users or bot_user_id in root.mentions
+    )
 
 
 def _index_key(integration: WorkspaceIntegration) -> str:
@@ -302,14 +319,20 @@ def _person_channels(slack: SlackIntegration, slack_user_id: str, *, private: bo
     return channels
 
 
-def _read_thread(slack: SlackIntegration, root: RootRef, slack_user_id: str) -> SummaryThread | None:
+def _read_thread(
+    slack: SlackIntegration, root: RootRef, slack_user_id: str, bot_user_id: str | None = None
+) -> SummaryThread | None:
     try:
         response = slack.client.conversations_replies(channel=root.channel_id, ts=root.ts, limit=100)
         permalink = slack.client.chat_getPermalink(channel=root.channel_id, message_ts=root.ts).get("permalink")
     except (SlackApiError, SlackClientError, OSError):
         logger.warning("slack_app_daily_summary_thread_failed", channel=root.channel_id, exc_info=True)
         return None
-    messages = [m for m in response.get("messages") or [] if str(m.get("text") or "").strip() and not m.get("bot_id")]
+    raw = response.get("messages") or []
+    # The app answered in the thread, so it was a request to the app, which the person already got back.
+    if bot_user_id and any(m.get("user") == bot_user_id or f"<@{bot_user_id}" in str(m.get("text") or "") for m in raw):
+        return None
+    messages = [m for m in raw if str(m.get("text") or "").strip() and not m.get("bot_id")]
     if not messages:
         return None
     involved = (

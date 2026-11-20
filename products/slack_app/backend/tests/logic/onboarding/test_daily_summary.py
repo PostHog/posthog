@@ -49,9 +49,11 @@ def test_pick_threads_puts_the_persons_threads_first_then_the_best_scored() -> N
     launch = _root(AFTER + 3, score=0.7)
     not_my_channel = _root(AFTER + 4, channel="C9", score=0.95)
     old_news = _root(BEFORE - 40, score=0.95)
-    roots = [mine_moved, mine_quiet, replied, mentioned, incident, chatter, launch, not_my_channel, old_news]
+    # The person asked the app, which answered: handled, so not news.
+    asked_app = _root(AFTER + 5, author=SLACK_USER_ID, replies=1, latest=AFTER + 6, reply_users=("U_BOT",))
+    roots = [mine_moved, mine_quiet, replied, mentioned, incident, chatter, launch, not_my_channel, old_news, asked_app]
 
-    kept = pick_threads(roots, SLACK_USER_ID, {"C1"}, since=SINCE)
+    kept = pick_threads(roots, SLACK_USER_ID, {"C1"}, since=SINCE, bot_user_id="U_BOT")
 
     # The person's threads come newest first, then the rest of their channels by Jev's score. A quiet own root,
     # chatter, another channel and a thread that stopped moving before the last run are all left out.
