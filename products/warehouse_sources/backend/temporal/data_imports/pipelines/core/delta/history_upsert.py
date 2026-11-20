@@ -275,7 +275,6 @@ async def finalize(
         staged_rows += rows
         calls += 1
         for name in _SUMMED_STATS:
-            # A deltalite build before the webhook history stats lacks the newer counters.
             totals[name] += int(getattr(stats, name, 0))
 
     with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:

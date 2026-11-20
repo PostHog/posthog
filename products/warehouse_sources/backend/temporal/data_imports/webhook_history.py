@@ -63,7 +63,6 @@ WEBHOOK_EVENT_ORDER_RULES = EventOrder(order_columns=WEBHOOK_EVENT_ORDER, dedupe
 # The event id of a version seeded from a stored row that has none. Unique per key, so a second seed is a redelivery.
 SEED_EVENT_ID = "seed"
 _TIME_TYPE = pa.timestamp("us", tz="UTC")
-# The time half of `_ph_arrival`, as `webhook_s3._arrival_prefix` writes it.
 _ARRIVAL_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 _SEED_BATCH_ROWS = 50_000
 
@@ -103,7 +102,6 @@ def attach_webhook_history_lanes(
     naming = history_lane_naming(schema, source_response, destination_ids, history_only=history_only)
     primary_keys = resolve_primary_keys(schema, source_response) or []
     if HISTORY_TRACKED_SINCE_KEY not in schema.sync_type_config:
-        # Turned on since the last run. The first finalize seeds the history table from the main table.
         schema.sync_type_config = update_sync_type_config_keys(
             schema.id,
             schema.team_id,

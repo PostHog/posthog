@@ -1221,7 +1221,6 @@ class PipelineV3(Generic[ResumableData]):
                     *(self._resource.partition_keys or []),
                     # The loader deletes by this column, so a row without it could never be replaced.
                     *([self._resource.replace_scope.column] if self._resource.replace_scope else []),
-                    # Webhook history orders its versions and guards the main table by these.
                     *WEBHOOK_EVENT_COLUMNS,
                 ],
                 self._observed_columns,

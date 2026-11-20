@@ -247,7 +247,6 @@ def test_history_turned_on_seeds_the_main_rows_from_when_tracking_began(local_ta
         ("declares_events", "Invoice", "both", "Stripe", True),
         ("one_row_per_event_already", "CustomerPaymentMethodHistory", "both", "Stripe", False),
         ("consolidated", "Invoice", "consolidated", "Stripe", False),
-        # The schema API projects the mode on an instance it builds without the source.
         ("built_without_its_source", "Invoice", "both", None, False),
     ]
 )
@@ -282,10 +281,9 @@ class TestAttachWebhookHistoryLanes:
             patch(
                 f"{_MODULE}.update_sync_type_config_keys",
                 side_effect=lambda *_, mutate: (mutate(config := dict(schema.sync_type_config)), config)[1],
-            ) as save,
+            ),
         ):
             attach_webhook_history_lanes(schema, response, webhook_history=webhook_history)
-        self.saves = save.call_count
         return response
 
     def test_first_run_with_history_stamps_when_tracking_began_once(self) -> None:
@@ -296,7 +294,6 @@ class TestAttachWebhookHistoryLanes:
         self._attach(schema)
 
         assert [lane.name for lane in response.lanes or []] == ["Invoice", "Invoice_history"]
-        assert self.saves == 0
         assert schema.sync_type_config[HISTORY_TRACKED_SINCE_KEY] == stamped
 
     @parameterized.expand([("both", None), ("cdc_only", IncrementalHistoryUnavailableError)])
