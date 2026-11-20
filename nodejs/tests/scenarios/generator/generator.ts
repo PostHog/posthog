@@ -188,21 +188,20 @@ export async function drive(
         fromAt: number,
         until: AbortSignal,
         step: DrivenStep,
-        late: (now: number) => boolean
-    ): Promise<number> => {
-        let sent = 0
+        late: (now: number) => boolean,
+        sentAt: number[]
+    ): Promise<void> => {
         for (const { kind, atMs } of slots) {
             const waitMs = fromAt + atMs - Date.now()
             if (waitMs > 0) {
                 await untilAborted(elapse(waitMs), until)
             }
             if (until.aborted || late(Date.now())) {
-                return sent
+                return
             }
             offerUnit(kind, step)
-            sent += 1
+            sentAt.push(fromAt + atMs)
         }
-        return sent
     }
 
     const fixedSteps = card.drive.stopOnBreak === true
@@ -223,7 +222,8 @@ export async function drive(
         }
         const slots = schedules[index]
         const late = fixedSteps ? (now: number) => now >= step.endedAt : (now: number) => now > driveEnd
-        let sent = await offerSlots(slots, startedAt, halted, step, late)
+        const sentAt: number[] = []
+        await offerSlots(slots, startedAt, halted, step, late, sentAt)
         while (!halted.aborted && Date.now() < step.endedAt) {
             await pause(step.endedAt - Date.now(), halted)
         }
@@ -238,7 +238,7 @@ export async function drive(
             const until = AbortSignal.any([halted, verdict.signal])
             for (let cycle = 1; !until.aborted; cycle++) {
                 const cycleAt = startedAt + cycle * lastsMs
-                sent += await offerSlots(slots, cycleAt, until, step, (now) => now >= cycleAt + lastsMs)
+                await offerSlots(slots, cycleAt, until, step, (now) => now >= cycleAt + lastsMs, sentAt)
                 await pause(cycleAt + lastsMs - Date.now(), until)
             }
             step.endedAt = Date.now()
@@ -246,11 +246,11 @@ export async function drive(
         }
         const cycles = Math.max(1, Math.ceil((step.endedAt - startedAt) / lastsMs))
         step.dueUnits = Math.max(
-            sent,
+            sentAt.length,
             Array.from({ length: cycles }, (_, cycle) => startedAt + cycle * lastsMs).reduce(
-                (due, cycleAt) => due + slots.filter(({ atMs }) => cycleAt + atMs <= step.endedAt).length,
+                (due, cycleAt) => due + slots.filter(({ atMs }) => cycleAt + atMs < step.endedAt).length,
                 0
-            )
+            ) + sentAt.filter((at) => at === step.endedAt).length
         )
         if (halted.aborted || context.gate === undefined || index === planned.length - 1) {
             continue

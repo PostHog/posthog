@@ -280,6 +280,30 @@ describe('runner', () => {
         )
     })
 
+    it.each([
+        ['a negative', -1],
+        ['a text', '1'],
+    ])('refuses to start on a run manifest whose reader minimum is %s value', (_story, readerMinAcu) => {
+        const runId = '6b0c8f4e-2d1a-4c55-9a7e-1f3b5d7e9a2c'
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: '2026-01-05T16:00:00.000Z',
+                readerIdleMaxAcu: 2.5,
+                readerMinAcu,
+            })
+        )
+
+        expect(() =>
+            createRunner(environment, { ...processEnv, XDG_CACHE_HOME: cacheHome, SCENARIO_RUN_MANIFEST: manifest })
+        ).toThrow(`The run manifest at ${manifest} has no valid readerMinAcu, so it is not used.`)
+    })
+
     it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
         let onDisk: unknown
         api.onCapture = ({ properties }) => {
@@ -1509,6 +1533,34 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
+    const runOnHost = async (
+        cloud: FakeCloud,
+        loaded: LoadedCard
+    ): Promise<{ result: RunResult; stackName: string }> => {
+        const { manifest } = cloud.runCluster(randomUUID())
+        const manifestFile = path.join(cacheHome, 'manifest.json')
+        writeFileSync(manifestFile, JSON.stringify({ ...manifest, schedules: [] }))
+        const host = createEnvironment({
+            aws: cloud,
+            failover: {
+                identity: () => Promise.resolve({ instance: cloud.writerOf(manifest.stackName)!, inRecovery: false }),
+                pollMs: 50,
+                observeWithinMs: 2000,
+            },
+        })
+        const onHost: Environment = { ...environmentOf('all'), actuate: (action) => host.actuate(action) }
+        const result = await createRunner(
+            onHost,
+            { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
+            {
+                topologyWithinMs: 1000,
+                topologyEveryMs: 10,
+            }
+        ).run(loaded, NEVER_ABORTED)
+        results.push(result)
+        return { result, stackName: manifest.stackName }
+    }
+
     it('calls the failover card invalid before its promote when its valve refuses a malformed capacity read', async () => {
         const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
         pinClockAfterMinuteStart()
@@ -1518,26 +1570,8 @@ describe('runner through seed, drive and judge', () => {
             liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
             shortValuesOf: 'Maximum',
         })
-        const { manifest } = cloud.runCluster(randomUUID())
-        const manifestFile = path.join(cacheHome, 'manifest.json')
-        writeFileSync(manifestFile, JSON.stringify({ ...manifest, schedules: [] }))
-        const host = createEnvironment({
-            aws: cloud,
-            failover: {
-                identity: () => Promise.resolve({ instance: cloud.writerOf(manifest.stackName)!, inRecovery: false }),
-            },
-        })
-        const onHost: Environment = { ...environmentOf('all'), actuate: (action) => host.actuate(action) }
 
-        const result = await createRunner(
-            onHost,
-            { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
-            {
-                topologyWithinMs: 1000,
-                topologyEveryMs: 10,
-            }
-        ).run(shortSmoke([{ ...failover, at: '1s', for: '500ms' }]), NEVER_ABORTED)
-        results.push(result)
+        const { result, stackName } = await runOnHost(cloud, shortSmoke([{ ...failover, at: '1s', for: '500ms' }]))
 
         const refusal = expect.stringMatching(
             /^pg\.failover refused: .*-reader's capacity read has \d+ timestamps and \d+ values/
@@ -1549,8 +1583,44 @@ describe('runner through seed, drive and judge', () => {
         })
         expect(result.timeline[0]).not.toHaveProperty('intentAt')
         expect(cloud.promotions).toEqual([])
-        expect(cloud.writerOf(manifest.stackName)).toBe(`${manifest.stackName}-writer`)
+        expect(cloud.writerOf(stackName)).toBe(`${stackName}-writer`)
     }, 30_000)
+
+    it.each([
+        [
+            'ends the drive at once',
+            'AccessDenied',
+            true,
+            /^pg\.failover on cyclotron was not observed: the failover request was refused: .*\(AccessDenied\)/,
+        ],
+        [
+            'drives on',
+            'InternalFailure',
+            false,
+            /^pg\.failover on cyclotron was not observed: failover request ambiguous, not observed: .*\(InternalFailure\)/,
+        ],
+    ])(
+        '%s and calls the failover card invalid when AWS answers its failover request with %s',
+        async (_outcome, code, endsEarly, reason) => {
+            const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card
+                .valves
+            pinClockAfterMinuteStart()
+            const cloud = new FakeCloud({ now: () => new Date(), liveReaderAcu: { maxima: [1, 1, 1, 1, 1] } })
+            cloud.failWhen('failover-db-cluster', () => true, code)
+
+            const { result } = await runOnHost(
+                cloud,
+                shortSmoke([{ ...failover, at: '1s', for: '500ms' }], 'event_email', { driveFor: '10s' })
+            )
+
+            expect({
+                status: result.status,
+                statusReason: result.statusReason,
+                endedEarly: result.units!.offeredUnits < result.units!.targetUnits / 2,
+            }).toEqual({ status: 'invalid', statusReason: expect.stringMatching(reason), endedEarly: endsEarly })
+        },
+        60_000
+    )
 
     it.each<[string, true | undefined]>([
         ['the scale card', undefined],

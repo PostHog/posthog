@@ -95,6 +95,13 @@ You can find your API key in the [Scale dashboard](https://dashboard.scale.com/)
                     "Incremental sync filters on created_at, so it catches newly created batches but "
                     "not status changes to existing ones; use a full refresh to re-read batch status."
                 )
+            if endpoint == "audits":
+                return (
+                    "Reads the fixless audits of each completed task, one request per task, so a full "
+                    "sync of a large account takes a long time."
+                )
+            if endpoint == "batch_statuses":
+                return "Task counts by status for each batch, read with one request per batch."
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

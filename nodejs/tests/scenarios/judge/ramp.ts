@@ -4,7 +4,7 @@ import { pause } from '../duration'
 import type { DrivenStep, StepGate, StepWindow } from '../generator/generator'
 import { type Admission, admissionsOf } from '../runner/status'
 import { BarResult, WriterCpu, judgeStep, unsourced } from './bars'
-import { crossedByOf, refusalsOf } from './invariants'
+import { refusalsOf } from './invariants'
 import type { InvariantResult, JournalEntry } from './judge'
 import {
     type DriveWindow,
@@ -171,13 +171,18 @@ async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): P
     }
 }
 
+const offeredBefore = (entry: JournalEntry, kept: JournalEntry): boolean =>
+    entry.offeredAt - kept.offeredAt < 0 || (entry.offeredAt === kept.offeredAt && (entry.step ?? 0) < (kept.step ?? 0))
+
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
     const halt = new AbortController()
-    const refused: JournalEntry[] = []
+    const earliestRefused: JournalEntry[] = []
+    let refusedCount = 0
     const settled = new Map<number, readonly BarResult[]>()
     const gate = live.gates[REFUSED_AT_INTAKE] ?? 0
+    const crossingAt = Math.floor(gate)
     let stop: RampStop | undefined
     const judging: Promise<void>[] = []
 
@@ -199,20 +204,19 @@ export function watchRamp(live: LiveRamp, signal: AbortSignal): RampWatch {
             if (!live.judgesRefusals || refusalsOf([entry]).length === 0) {
                 return
             }
-            refused.push(entry)
-            if (
-                refused.length <= gate ||
-                (stop !== undefined && entry.step !== undefined && entry.step >= stop.index)
-            ) {
+            refusedCount += 1
+            const at = earliestRefused.findIndex((kept) => offeredBefore(entry, kept))
+            if (at === -1 && earliestRefused.length > crossingAt) {
                 return
             }
-            const crossedBy = crossedByOf(refused, refused, gate)
-            const index = refused.find(({ unitId }) => unitId === crossedBy)?.step
+            earliestRefused.splice(at === -1 ? earliestRefused.length : at, 0, entry)
+            earliestRefused.length = Math.min(earliestRefused.length, crossingAt + 1)
+            const index = earliestRefused[crossingAt]?.step
             if (index !== undefined) {
                 stopWith({
                     index,
                     end: 'broke',
-                    reason: `${REFUSED_AT_INTAKE} went over its gate of ${gate} with ${refused.length} refused`,
+                    reason: `${REFUSED_AT_INTAKE} went over its gate of ${gate} with ${refusedCount} refused`,
                 })
             }
         },

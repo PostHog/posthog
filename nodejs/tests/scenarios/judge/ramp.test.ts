@@ -354,6 +354,12 @@ describe('ramp', () => {
             [unit(2, 3, false), unit(1, 3, false)],
             1,
         ],
+        [
+            'the lower step whose refusals answered after two refusals in a higher step crossed the gate',
+            1,
+            [unit(2, 3, false), unit(2, 6, false), unit(1, 3, false), unit(0, 5, false)],
+            1,
+        ],
     ])('halts the drive at %s', (_story, gate, journal, index) => {
         const watch = watchRamp(live({ gates: { refused_at_intake: gate } }), NEVER)
 

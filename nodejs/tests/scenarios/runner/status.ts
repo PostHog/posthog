@@ -169,6 +169,9 @@ function interruptionWithoutValve(
     return undefined
 }
 
+export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
+    `${valve} on ${target} was not observed: ${error ?? 'no record'}`
+
 function withRamp(
     verdict: { status: Status; statusReason: string },
     ramp: Ramp
@@ -246,9 +249,7 @@ function unrampedStatusOf({
     }
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
-        ...timeline
-            .filter(({ observedAt }) => observedAt === undefined)
-            .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`),
+        ...timeline.filter(({ observedAt }) => observedAt === undefined).map(unobservedReasonOf),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),
