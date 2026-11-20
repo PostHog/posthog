@@ -30,7 +30,7 @@ export function SandboxSenderChoiceProvider({
 }): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     const logic = emailSenderControlLogic({ workflowLogicProps: logicProps, actionId })
-    const { action, showSandboxOption, sandboxStatus, pendingSwitch } = useValues(logic)
+    const { action, showSandboxOption, testSenderOnly, sandboxStatus, pendingSwitch } = useValues(logic)
     const { chooseSender, confirmSwitch, cancelSwitch } = useActions(logic)
 
     const selected = action?.type === 'email_sandbox'
@@ -38,8 +38,11 @@ export function SandboxSenderChoiceProvider({
         ? `${sandboxStatus.display_name} <${sandboxStatus.from_address}>`
         : null
     const choice = useMemo<SandboxSenderChoice | null>(
-        () => (showSandboxOption ? { selected, fromLine, onSelect: () => chooseSender('sandbox') } : null),
-        [showSandboxOption, selected, fromLine, chooseSender]
+        () =>
+            showSandboxOption
+                ? { selected, onlySender: testSenderOnly, fromLine, onSelect: () => chooseSender('sandbox') }
+                : null,
+        [showSandboxOption, selected, testSenderOnly, fromLine, chooseSender]
     )
 
     return (
