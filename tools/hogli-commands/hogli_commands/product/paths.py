@@ -19,7 +19,6 @@ TACH_TOML = REPO_ROOT / "tach.toml"
 FRONTEND_PACKAGE_JSON = REPO_ROOT / "frontend" / "package.json"
 DJANGO_SETTINGS = REPO_ROOT / "posthog" / "settings" / "web.py"
 DB_ROUTING_YAML = PRODUCTS_DIR / "db_routing.yaml"
-ISOLATION_BASELINE = PRODUCTS_DIR / "isolation_baseline.txt"
 
 
 def is_backend_product_dir(d: Path) -> bool:
@@ -35,8 +34,8 @@ def is_backend_product_dir(d: Path) -> bool:
     directories, so removing a product leaves its empty `backend/` behind in
     every existing worktree — `agent_platform` and `desktop_recordings` are both
     sitting there today. CI clones fresh and never sees them, so anything that
-    only runs in CI is unaffected, but the isolation baseline is generated
-    locally and committed, and would carry the ghosts into the repo.
+    only runs in CI is unaffected, but a local `product:lint --all` would fail
+    on them.
 
     Frontend-only products (no `backend/`) are skipped — they carry no
     Python that needs `__init__.py`, `apps.py`, `backend:test`, etc.

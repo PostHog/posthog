@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import click
 
-from .baseline import regenerate_baseline as do_regenerate_baseline
 from .lint import lint_all_products, lint_owners, lint_product
 from .maturity import generate_codegen_report, generate_detail, generate_report, score_all_products, score_product
 from .scaffold import bootstrap_product
@@ -63,18 +62,7 @@ def cmd_bootstrap(
 @click.command(name="product:lint", help="Check product structure for misplaced files")
 @click.argument("name", required=False)
 @click.option("--all", "lint_all", is_flag=True, help="Lint all products")
-@click.option(
-    "--regenerate-baseline",
-    is_flag=True,
-    help="Rewrite products/isolation_baseline.txt from the current tree (adding a line needs DevEx review)",
-)
-def cmd_lint(name: str | None, lint_all: bool, regenerate_baseline: bool) -> None:
-    if regenerate_baseline:
-        if name or lint_all:
-            raise click.UsageError("--regenerate-baseline takes no product name and does not combine with --all")
-        do_regenerate_baseline()
-        return
-
+def cmd_lint(name: str | None, lint_all: bool) -> None:
     if lint_all:
         lint_all_products()
         return
@@ -83,7 +71,7 @@ def cmd_lint(name: str | None, lint_all: bool, regenerate_baseline: bool) -> Non
         raise click.UsageError("Provide a product name or use --all")
 
     click.echo(f"Linting product '{name}'...\n")
-    issues = lint_product(name, verbose=True, detailed=True)
+    issues = lint_product(name, verbose=True)
     click.echo("")
 
     if not issues:

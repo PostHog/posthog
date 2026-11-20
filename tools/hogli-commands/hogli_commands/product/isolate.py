@@ -134,7 +134,6 @@ def strict_preflight(name: str) -> list[str]:
         backend_dir=product_dir / "backend",
         has_facade_contracts=True,
         structure=load_structure(),
-        detailed=False,
     )
     issues: list[str] = []
     for check in (RequiredRootFilesCheck(), MisplacedFilesCheck()):
