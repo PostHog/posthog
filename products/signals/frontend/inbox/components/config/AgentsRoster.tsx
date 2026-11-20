@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useState } from 'react'
 
-import { IconArrowUpRight, IconChevronDown, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
+import {
+    IconArrowUpRight,
+    IconChevronDown,
+    IconChevronRight,
+    IconFilter,
+    IconGear,
+    IconPlus,
+    IconRefresh,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -19,10 +27,12 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+import type { SourceFilterCatalogApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { issueFilterCount } from '../../errorTrackingIssueFilters'
 import { isExternalSignalSource } from '../../externalSignalSources'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
+import { SourceFilterCatalogState, sourceFilterCatalogLogic } from '../../logics/sourceFilterCatalogLogic'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
@@ -33,6 +43,7 @@ import {
     SignalSourceConfigStatus,
     SignalSourceType,
     linearTeamIdsFromConfig,
+    sourceFilterIsSet,
 } from '../../types'
 import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
@@ -41,6 +52,7 @@ import { DataSourceSetupModal } from './DataSourceSetupModal'
 import { ErrorTrackingIssueFiltersModal } from './ErrorTrackingIssueFiltersModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
+import { SourceFilterModal } from './SourceFilterModal'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
@@ -147,6 +159,17 @@ interface SourceFilters {
     summary: string
     changeLabel: string
     onChange: () => void
+    disabledReason?: string
+}
+
+/** Sources with a filter catalog: opens the expression filter editor. */
+interface SourceExpressionFilter {
+    catalogState: Exclude<SourceFilterCatalogState['status'], 'unavailable'>
+    isSet: boolean
+    /** Set when the editor also holds the source's own scope (Linear teams), which then has no separate button. */
+    summary?: string
+    onOpen: () => void
+    onRetry: () => void
     disabledReason?: string
 }
 
@@ -296,6 +319,7 @@ interface ExpansionProps {
     onEnableProduct: (product: SourceProductStatus) => void
     onToggleEntity: (entityId: string) => void
     filters?: SourceFilters
+    expressionFilter?: SourceExpressionFilter
     alertScope?: SourceAlertScope
     /** Only set while the source is on for a project the anomaly scoring rollout covers. */
     anomalyScoring?: SourceAnomalyScoring
@@ -368,6 +392,7 @@ function Expansion({
     onEnableProduct,
     onToggleEntity,
     filters,
+    expressionFilter,
     alertScope,
     anomalyScoring,
     onSteer,
@@ -388,7 +413,7 @@ function Expansion({
     const steeringIsSet = state.steeringConfigs.some(sourceSteeringIsSet)
     // `ProductDataStatus` renders nothing for an unavailable status, so the meta line would be empty.
     const hasProductLine = !!product && (productOff || product.dataStatus !== 'unavailable')
-    const hasMetaLine = hasProductLine || !!onSteer
+    const hasMetaLine = hasProductLine || !!onSteer || !!expressionFilter || !!filters
     const newEntityButton = agent.manageUrl ? (
         <LemonButton size="xsmall" type="secondary" to={agent.manageUrl} icon={<IconPlus />} targetBlank>
             New {agent.entityNounSingular}
@@ -433,17 +458,63 @@ function Expansion({
                             </div>
                         ) : product ? (
                             <ProductDataStatus agent={agent} status={product.dataStatus} onRetry={onRetryData} />
+                        ) : filters || expressionFilter?.summary ? (
+                            <span className="text-xs text-secondary">
+                                {filters?.summary ?? expressionFilter?.summary}
+                            </span>
                         ) : (
                             <span />
                         )}
                         <div className="flex flex-wrap items-center gap-2">
                             {docsLink}
+                            {filters && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    onClick={filters.onChange}
+                                    disabledReason={filters.disabledReason}
+                                    data-attr="signal-source-change-filters"
+                                >
+                                    {filters.changeLabel}
+                                </LemonButton>
+                            )}
+                            {expressionFilter &&
+                                (expressionFilter.catalogState === 'failed' ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconRefresh />}
+                                        onClick={expressionFilter.onRetry}
+                                        tooltip="Couldn't load the filter fields. A saved filter still applies. Click to try again."
+                                        data-attr="signal-source-filter-retry"
+                                    >
+                                        Retry filter
+                                    </LemonButton>
+                                ) : (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconFilter />}
+                                        onClick={expressionFilter.onOpen}
+                                        loading={expressionFilter.catalogState === 'loading'}
+                                        tooltip="Deterministically limit the signals that fire."
+                                        disabledReason={
+                                            expressionFilter.catalogState === 'loading'
+                                                ? 'Loading filter fields'
+                                                : expressionFilter.disabledReason
+                                        }
+                                        data-attr="signal-source-filter-open"
+                                    >
+                                        {expressionFilter.isSet ? 'Edit filter' : 'Set filter'}
+                                    </LemonButton>
+                                ))}
                             {onSteer && (
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
                                     icon={<IconGear />}
                                     onClick={onSteer}
+                                    tooltip="Focus on signals that matter."
                                     data-attr="signal-source-steering-open"
                                 >
                                     {steeringIsSet ? 'Edit guidance' : 'Add guidance'}
@@ -452,20 +523,8 @@ function Expansion({
                         </div>
                     </div>
                 )}
-                {filters && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-secondary">{filters.summary}</span>
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            onClick={filters.onChange}
-                            disabledReason={filters.disabledReason}
-                            data-attr="signal-source-change-filters"
-                        >
-                            {filters.changeLabel}
-                        </LemonButton>
-                    </div>
-                )}
+                {/* The product status holds the left of the button row, so the summary gets its own line. */}
+                {filters && product && <span className="text-xs text-secondary">{filters.summary}</span>}
                 {alertScope && (
                     <div className="flex flex-col gap-1.5 pt-1">
                         <span className="text-xs font-semibold text-default">Alerts that become signals</span>
@@ -606,6 +665,7 @@ interface AgentRowProps {
     onToggleEntity: (source: AgentRosterSource, entityId: string) => void
     onEnableProduct: (product: SourceProductStatus) => void
     filters?: SourceFilters
+    expressionFilter?: SourceExpressionFilter
     alertScope?: SourceAlertScope
     anomalyScoring?: SourceAnomalyScoring
     onSteer?: () => void
@@ -623,6 +683,7 @@ const AgentRow = memo(function AgentRow({
     onToggleEntity,
     onEnableProduct,
     filters,
+    expressionFilter,
     alertScope,
     anomalyScoring,
     onSteer,
@@ -748,6 +809,7 @@ const AgentRow = memo(function AgentRow({
                     onEnableProduct={onEnableProduct}
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     filters={filters}
+                    expressionFilter={expressionFilter}
                     alertScope={alertScope}
                     anomalyScoring={anomalyScoring}
                     onSteer={onSteer}
@@ -826,6 +888,13 @@ export function AgentsRoster(): JSX.Element {
     // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
     const [steeringTarget, setSteeringTarget] = useState<{ configs: SignalSourceConfig[]; label: string } | null>(null)
     const [issueFiltersConfigs, setIssueFiltersConfigs] = useState<SignalSourceConfig[] | null>(null)
+    const { catalogStateFor } = useValues(sourceFilterCatalogLogic)
+    const { loadFilterCatalogs } = useActions(sourceFilterCatalogLogic)
+    const [expressionFilterTarget, setExpressionFilterTarget] = useState<{
+        config: SignalSourceConfig
+        catalog: SourceFilterCatalogApi
+        label: string
+    } | null>(null)
 
     const scannerEntities = useMemo(
         (): RosterEntity[] =>
@@ -1088,13 +1157,43 @@ export function AgentsRoster(): JSX.Element {
             const steeringConfigs = agent.steerable ? persistedConfigs(state.steeringConfigs) : null
             const errorTrackingConfigs =
                 agent.source === 'error_tracking' ? persistedConfigs(state.steeringConfigs) : null
+            const filterConfig = isExternalSignalSource(agent.source) ? externalSourceStates[agent.source].config : null
+            // Optimistic `new_` rows have nothing to save a filter on until the reload lands.
+            const catalogState =
+                filterConfig && !filterConfig.id.startsWith('new_')
+                    ? catalogStateFor(filterConfig.source_product, filterConfig.source_type)
+                    : null
+            // The filter editor holds the Linear teams once its fields load, so the teams get no button of their own.
+            const teamsInEditor = agent.source === 'linear' && catalogState?.status === 'ready'
+            const expressionFilter: SourceExpressionFilter | undefined =
+                filterConfig && catalogState && catalogState.status !== 'unavailable'
+                    ? {
+                          catalogState: catalogState.status,
+                          isSet:
+                              sourceFilterIsSet(filterConfig.config) ||
+                              (teamsInEditor && linearTeamIdsFromConfig(filterConfig.config).length > 0),
+                          summary: teamsInEditor ? linearTeamsSummary(filterConfig) : undefined,
+                          onOpen: () =>
+                              catalogState.status === 'ready' &&
+                              setExpressionFilterTarget({
+                                  config: filterConfig,
+                                  catalog: catalogState.catalog,
+                                  label: agent.label,
+                              }),
+                          onRetry: loadFilterCatalogs,
+                          disabledReason: state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined,
+                      }
+                    : undefined
             const filters: SourceFilters | undefined = errorTrackingConfigs
                 ? errorTrackingSourceFilters(
                       errorTrackingConfigs,
                       () => setIssueFiltersConfigs(errorTrackingConfigs),
                       state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined
                   )
-                : agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
+                : agent.source === 'linear' &&
+                    !teamsInEditor &&
+                    linearIssuesConfig &&
+                    !linearIssuesConfig.id.startsWith('new_')
                   ? {
                         summary: linearTeamsSummary(linearIssuesConfig),
                         changeLabel: 'Change teams',
@@ -1122,6 +1221,7 @@ export function AgentsRoster(): JSX.Element {
                     onToggleEntity={handleToggleEntity}
                     onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
                     filters={filters}
+                    expressionFilter={expressionFilter}
                     alertScope={agent.source === 'analytics' ? alertScope : undefined}
                     anomalyScoring={agent.source === 'analytics' ? anomalyScoring : undefined}
                     onSteer={
@@ -1148,6 +1248,9 @@ export function AgentsRoster(): JSX.Element {
             loadProductDataEvents,
             alertScope,
             anomalyScoring,
+            externalSourceStates,
+            catalogStateFor,
+            loadFilterCatalogs,
         ]
     )
 
@@ -1213,6 +1316,15 @@ export function AgentsRoster(): JSX.Element {
                     key={issueFiltersConfigs.map((config) => config.id).join(',')}
                     sourceConfigs={issueFiltersConfigs}
                     onClose={() => setIssueFiltersConfigs(null)}
+                />
+            )}
+            {expressionFilterTarget && (
+                <SourceFilterModal
+                    key={expressionFilterTarget.config.id}
+                    sourceConfig={expressionFilterTarget.config}
+                    catalog={expressionFilterTarget.catalog}
+                    sourceLabel={expressionFilterTarget.label}
+                    onClose={() => setExpressionFilterTarget(null)}
                 />
             )}
             {steeringTarget && (

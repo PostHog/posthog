@@ -1,8 +1,9 @@
 import json
+from dataclasses import replace
 
 import pytest
 
-from attestations import ReviewedHead, lifted_files, pending_attestations, pending_check_names
+from attestations import WORKFLOW_PROOF_KEY, ReviewedHead, lifted_files, pending_attestations, pending_check_names
 from policy import Attestation
 
 _GITHUB_ACTIONS_APP_ID = 15368
@@ -25,9 +26,25 @@ _DEPENDENCY_PROOF = Attestation(
     paths=(r"(?:^|/)pnpm-lock\.yaml$", r"(?:^|/)package\.json$"),
     publisher_files=(".github/workflows/dependency-proof.yml",),
 )
+_ISSUED_PROOF = replace(
+    _DEPENDENCY_PROOF,
+    publisher_files=(),
+    issuer="tools/proof/issuer.yml",
+    issuer_paths=("tools/proof/", ".nvmrc"),
+)
+_UNUSABLE_ISSUER = replace(_ISSUED_PROOF, issuer_paths=())
+_WORKFLOW_RISK = replace(
+    _MIGRATION_RISK,
+    name="migration_risk_workflow",
+    app_id=None,
+    workflow=".github/workflows/migration-risk.yml",
+    job="Publish the Migration risk check",
+    events=("pull_request_target",),
+)
 _REVIEWED = ReviewedHead(pr_number=7, head_sha="a" * 40, merge_base_sha="b" * 40)
 _MIGRATION = "posthog/migrations/1125_x.py"
 _MAX_MIGRATION = "posthog/migrations/max_migration.txt"
+_TITLE = "chore(deps): update a lockfile"
 _LOCKFILE = "pnpm-lock.yaml"
 
 
@@ -63,7 +80,7 @@ def _proof_marker(**overrides: object) -> str:
         "pr": _REVIEWED.pr_number,
         "head_sha": _REVIEWED.head_sha,
         "merge_base": _REVIEWED.merge_base_sha,
-        "blobs": dict.fromkeys(_DEPENDENCY_PROOF.publisher_files, "c" * 40),
+        "blobs": dict.fromkeys([*_DEPENDENCY_PROOF.publisher_files, *_ISSUED_PROOF.issuer_paths], "c" * 40),
         **overrides,
     }
     return f"<!-- stamphog:v1 {json.dumps(payload)} -->"
@@ -150,30 +167,47 @@ def test_newest_completed_run_by_id_wins_over_older_and_in_flight() -> None:
     }
 
 
-def test_object_marker_lifts_every_declared_category_for_the_proven_files() -> None:
+@pytest.mark.parametrize("attestation", [_DEPENDENCY_PROOF, _ISSUED_PROOF], ids=["publisher-files", "issuer"])
+def test_object_marker_lifts_every_declared_category_for_the_proven_files(attestation: Attestation) -> None:
     files = [_LOCKFILE, "frontend/package.json", ".github/workflows/ci.yml"]
 
-    assert _lifted([_DEPENDENCY_PROOF], [_proof()], files) == {
+    assert _lifted([attestation], [_proof()], files) == {
         "deps_toolchain": {_LOCKFILE},
         "ci_workflows": {_LOCKFILE},
     }
 
 
 @pytest.mark.parametrize(
-    "proof",
+    ("attestation", "proof"),
     [
-        pytest.param(_proof(pr=8), id="other-pr"),
-        pytest.param(_proof(head_sha="d" * 40), id="other-head"),
-        pytest.param(_proof(merge_base="d" * 40), id="other-merge-base"),
-        pytest.param(_proof(pinned_blobs_current=False), id="publisher-changed"),
-        pytest.param(_proof(blobs={"pnpm-workspace.yaml": "c" * 40}), id="publisher-file-not-pinned"),
-        pytest.param(_proof(blobs=None), id="no-blobs"),
-        pytest.param(_check("Dependency proof", app_id=_PROVER_APP_ID, summary=_proof_marker()), id="unconfirmed"),
-        pytest.param(_check("Dependency proof", app_id=_PROVER_APP_ID, files=[_LOCKFILE]), id="list-marker"),
+        pytest.param(_DEPENDENCY_PROOF, _proof(pr=8), id="other-pr"),
+        pytest.param(_DEPENDENCY_PROOF, _proof(head_sha="d" * 40), id="other-head"),
+        pytest.param(_DEPENDENCY_PROOF, _proof(merge_base="d" * 40), id="other-merge-base"),
+        pytest.param(_DEPENDENCY_PROOF, _proof(pinned_blobs_current=False), id="publisher-changed"),
+        pytest.param(
+            _DEPENDENCY_PROOF, _proof(blobs={"pnpm-workspace.yaml": "c" * 40}), id="publisher-file-not-pinned"
+        ),
+        pytest.param(_DEPENDENCY_PROOF, _proof(blobs=None), id="no-blobs"),
+        pytest.param(
+            _DEPENDENCY_PROOF,
+            _check("Dependency proof", app_id=_PROVER_APP_ID, summary=_proof_marker()),
+            id="unconfirmed",
+        ),
+        pytest.param(
+            _DEPENDENCY_PROOF,
+            _check("Dependency proof", app_id=_PROVER_APP_ID, files=[_LOCKFILE]),
+            id="list-marker",
+        ),
+        pytest.param(_ISSUED_PROOF, _proof(pinned_blobs_current=False), id="issuer-directory-changed"),
+        pytest.param(_ISSUED_PROOF, _proof(blobs={"tools/proof": "c" * 40, ".nvmrc": "c" * 40}), id="issuer-dir-key"),
+        pytest.param(
+            _ISSUED_PROOF, _check("Dependency proof", app_id=_PROVER_APP_ID, files=[_LOCKFILE]), id="issuer-list"
+        ),
+        pytest.param(_UNUSABLE_ISSUER, _proof(), id="issuer-manifest-unusable"),
     ],
 )
-def test_object_marker_must_prove_this_review_and_a_current_publisher(proof: dict) -> None:
-    assert _lifted([_DEPENDENCY_PROOF], [proof], [_LOCKFILE]) == {}
+def test_object_marker_must_prove_this_review_and_a_current_publisher(attestation: Attestation, proof: dict) -> None:
+    assert _lifted([attestation], [proof], [_LOCKFILE]) == {}
 
 
 def test_object_marker_never_matches_an_unknown_merge_base() -> None:
@@ -201,12 +235,14 @@ def test_each_attestation_lifts_only_its_own_categories() -> None:
     ],
 )
 def test_pending_when_pr_touches_the_paths_and_no_completed_check(check_runs: list[dict]) -> None:
-    assert pending_attestations([_MIGRATION_RISK, _DEPENDENCY_PROOF], check_runs, [_MIGRATION]) == [_MIGRATION_RISK]
+    assert pending_attestations([_MIGRATION_RISK, _DEPENDENCY_PROOF], check_runs, [_MIGRATION], _TITLE) == [
+        _MIGRATION_RISK
+    ]
 
 
 @pytest.mark.parametrize("conclusion", ["success", "failure"])
 def test_not_pending_once_the_check_completed(conclusion: str) -> None:
-    assert pending_attestations([_MIGRATION_RISK], [_check(conclusion=conclusion)], [_MIGRATION]) == []
+    assert pending_attestations([_MIGRATION_RISK], [_check(conclusion=conclusion)], [_MIGRATION], _TITLE) == []
 
 
 @pytest.mark.parametrize(
@@ -218,8 +254,64 @@ def test_not_pending_once_the_check_completed(conclusion: str) -> None:
     ],
 )
 def test_not_pending_when_no_file_matches_the_paths(files: list[str]) -> None:
-    assert pending_attestations([_MIGRATION_RISK], [_check(status="in_progress", conclusion=None)], files) == []
+    assert pending_attestations([_MIGRATION_RISK], [_check(status="in_progress", conclusion=None)], files, _TITLE) == []
+
+
+@pytest.mark.parametrize(
+    "silent, title",
+    [
+        pytest.param(_UNUSABLE_ISSUER, _TITLE, id="unusable-issuer"),
+        # A revert proof posts a result only for a PR titled as a revert, so any other PR would wait forever.
+        pytest.param(replace(_ISSUED_PROOF, name="revert", title="^Revert "), _TITLE, id="title-not-covered"),
+    ],
+)
+def test_an_entry_whose_result_is_not_coming_is_never_pending(silent: Attestation, title: str) -> None:
+    assert pending_attestations([silent, _ISSUED_PROOF], [], [_LOCKFILE], title) == [_ISSUED_PROOF]
 
 
 def test_pending_check_names_backticks_each_check() -> None:
     assert pending_check_names([_MIGRATION_RISK, _DEPENDENCY_PROOF]) == "`Migration risk` and `Dependency proof`"
+
+
+def _workflow_result(**overrides: object) -> dict:
+    """A check run the server built from the workflow publisher's verified result."""
+    marker = _proof_marker(files=[_MIGRATION], blobs={})
+    return _check(
+        app_id=overrides.pop("app_id", None),
+        summary=overrides.pop("summary", marker),
+        pinned_blobs_current=overrides.pop("pinned_blobs_current", True),
+        **{WORKFLOW_PROOF_KEY: "migration_risk_workflow", **overrides},
+    )
+
+
+@pytest.mark.parametrize(
+    ("check_runs", "lifted"),
+    [
+        pytest.param([_workflow_result()], {"migrations": {_MIGRATION}}, id="verified-by-the-server"),
+        pytest.param(
+            [_check(app_id=_GITHUB_ACTIONS_APP_ID, summary=_proof_marker(files=[_MIGRATION], blobs={}))],
+            {},
+            id="same-name-not-verified",
+        ),
+        pytest.param([_workflow_result(**{WORKFLOW_PROOF_KEY: "another_entry"})], {}, id="verified-for-another-entry"),
+        pytest.param(
+            [_workflow_result(run_id=1), _workflow_result(conclusion="failure", run_id=2)],
+            {},
+            id="newer-verified-failure",
+        ),
+        pytest.param(
+            [_workflow_result(summary=f"<!-- stamphog:v1 {json.dumps([_MIGRATION])} -->")], {}, id="list-marker"
+        ),
+        pytest.param([_workflow_result(pinned_blobs_current=False)], {}, id="code-not-current"),
+    ],
+)
+def test_a_workflow_entry_trusts_only_the_run_the_server_verified(
+    check_runs: list[dict], lifted: dict[str, set[str]]
+) -> None:
+    assert _lifted([_WORKFLOW_RISK], check_runs, [_MIGRATION]) == lifted
+
+
+def test_a_workflow_entry_waits_for_the_verified_run_even_when_the_visible_check_finished() -> None:
+    visible = _check(files=[_MIGRATION], app_id=_GITHUB_ACTIONS_APP_ID)
+
+    assert pending_attestations([_WORKFLOW_RISK], [visible], [_MIGRATION], _TITLE) == [_WORKFLOW_RISK]

@@ -145,11 +145,13 @@ class TraceToolCallPart(Contract):
     kind: Literal["toolCall"]
     name: str = Field(description="The name of the called tool, or an empty string when the event has none.")
     args: Any = Field(
-        description="The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured."
+        description="The call's arguments, parsed from JSON text when they parse, with JSON text inside them parsed "
+        "too. Otherwise the text as captured."
     )
     result: Any | None = Field(
         description="The content of the tool message that answers this call, parsed from JSON text when no number "
-        "loses precision in a browser. Null when no tool message answers the call."
+        "loses precision in a browser, with JSON text inside it parsed the same way. Null when no tool message "
+        "answers the call."
     )
 
 
@@ -196,8 +198,8 @@ class TraceMessagesSide(Contract):
 class TraceJsonSide(Contract):
     kind: Literal["json"]
     value: Any = Field(
-        description="The side's value as captured, for a side that is not a conversation or that could not be "
-        "normalized."
+        description="The side's value for a side that is not a conversation, with JSON text in it parsed when no "
+        "number loses precision in a browser. The value as captured when the side could not be normalized."
     )
 
 
@@ -1035,6 +1037,7 @@ class EvalSuggestion:
     created_evaluation: UUID | None
     target_evaluation: UUID | None
     target_evaluation_name: str | None
+    fix_problem: str | None
     similar_evaluation: UUID | None
     similar_evaluation_name: str | None
     dismiss_reason: str | None

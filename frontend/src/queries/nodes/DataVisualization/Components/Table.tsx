@@ -362,7 +362,8 @@ export const Table = (props: TableProps): JSX.Element => {
                 sourceColumnName,
                 sourceColumnType,
                 cell.value,
-                isDarkModeOn
+                isDarkModeOn,
+                props.context?.dataTableCaptureQueryTelemetry !== false
             )
         }
 
@@ -500,7 +501,7 @@ export const Table = (props: TableProps): JSX.Element => {
                                 source: props.query.source,
                             },
                             undefined,
-                            undefined,
+                            { dataTableRenderPlainText: props.context?.dataTableRenderPlainText },
                             columnFormat
                         )}
                     </div>
@@ -552,7 +553,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 dataSource={tableRows}
                 columns={tableColumns}
                 pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
-                loading={responseLoading}
+                loading={responseLoading && !props.context?.externalLoadingIndicator}
                 useURLForSorting={false}
                 onSort={(newSorting) => {
                     if (newSorting) {
