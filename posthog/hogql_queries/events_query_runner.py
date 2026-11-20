@@ -189,8 +189,8 @@ QueryPropertyFilter = AnyPropertyFilterDiscriminated | PropertyGroupFilter | Pro
 
 
 # HogQL reads these properties from the properties JSON of every flag call in the date range. Each column holds the
-# same value. flag_key leads the table's sort key after team_id. The group columns are the stored keys, which the
-# events list also compares, so the group type mapping cutoff on the `$group_N` fields does not apply.
+# same value. flag_key leads the table's sort key after team_id. The group columns are the stored keys. The events
+# list compares the same stored keys, so the group type mapping cutoff on the `$group_N` fields does not apply.
 _FLAG_EVALUATIONS_PROPERTY_COLUMNS = {
     "$feature_flag": "flag_key",
     **{f"$group_{index}": f"_$group_{index}_raw" for index in range(GROUP_TYPES_LIMIT)},
