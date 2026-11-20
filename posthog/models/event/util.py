@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -23,6 +23,9 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_person_by_distinct_id
 from posthog.models.team import Team
 from posthog.settings import TEST
+
+if TYPE_CHECKING:
+    from posthog.models.group import Group
 
 ZERO_DATE = datetime(1970, 1, 1)
 CLICKHOUSE_JSON_MIN_INT = -(2**63)
@@ -170,6 +173,7 @@ def _resolve_person_for_bulk_event(team_id: int, distinct_id: str) -> Optional[P
 def bulk_create_events(
     events: list[dict[str, Any]],
     person_mapping: Optional[dict[str, Person]] = None,
+    group_mapping: Optional[dict[tuple[int, str], "Group"]] = None,
 ) -> None:
     """
     TEST ONLY
@@ -180,6 +184,9 @@ def bulk_create_events(
         "team": team,
         "timestamp": "2022-01-01T12:00:00"
     }])
+
+    ``group_mapping`` holds every group the events name, by group type index and key, so no event looks
+    up its groups one by one. A key outside the mapping has no group.
     """
     if not TEST:
         raise Exception("This function is only meant for setting up tests")
@@ -278,10 +285,13 @@ def bulk_create_events(
         for property_key, value in (event.get("properties") or {}).items():
             if property_key.startswith("$group_"):
                 group_type_index = property_key[-1]
-                try:
-                    group = get_group_by_key(team_id, int(group_type_index), value)
-                except Exception:
-                    group = None
+                if group_mapping is not None:
+                    group = group_mapping.get((int(group_type_index), value))
+                else:
+                    try:
+                        group = get_group_by_key(team_id, int(group_type_index), value)
+                    except Exception:
+                        group = None
                 if group is None:
                     continue
                 group_property_key = f"group{group_type_index}_properties"

@@ -229,7 +229,13 @@ import {
     searchParamsWithUrlFilters,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
-import { deferOffscreenTiles, isTelemetryInsight, dashboardV2Logic, telemetryTileLoadQueue } from './dashboardV2Logic'
+import {
+    deferOffscreenTiles,
+    isTelemetryInsight,
+    dashboardV2Logic,
+    refreshThroughBoardStream,
+    telemetryTileLoadQueue,
+} from './dashboardV2Logic'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
@@ -264,7 +270,8 @@ function reportDashboardTileRefreshed(
     requestTiming: ApiRequestTiming | undefined,
     loadTiming: TileLoadTiming,
     filterChange?: PendingFilterChange,
-    isAutomatic = false
+    isAutomatic = false,
+    eventProperties?: Record<string, unknown>
 ): void {
     const insight = tile.insight
     const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
@@ -275,6 +282,8 @@ function reportDashboardTileRefreshed(
         insight_id: insight?.id,
         insight_short_id: insight?.short_id,
         was_cached: servedFromCache,
+        // Auto-refresh ticks against loads and refreshes a person started
+        is_automatic: isAutomatic,
         // Mostly true, since a load only refreshes tiles whose cached result is stale
         was_cached_before_refresh: tile.is_cached,
         last_refreshed: insight?.last_refresh?.toString(),
@@ -295,6 +304,7 @@ function reportDashboardTileRefreshed(
                   all_insights_succeeded: filterChange.remainingInsightIds.size === 0,
               }
             : {}),
+        ...eventProperties,
     })
 }
 
@@ -330,6 +340,9 @@ interface InsightTileRefresh {
     telemetryQueue: TaskQueue
     tileLoads: TileLoads<TileLoadRefresh>
     dashboardV2Ui: boolean
+    eventProperties?: Record<string, unknown>
+    maxAttempts?: number
+    asyncFallback?: boolean
 }
 
 /** One queue for every insight and widget load, so a dashboard never sends more than the cap at the same time. */
@@ -390,6 +403,9 @@ async function refreshInsightTile(
         telemetryQueue,
         tileLoads,
         dashboardV2Ui,
+        eventProperties,
+        maxAttempts,
+        asyncFallback,
     }: InsightTileRefresh
 ): Promise<InsightTileRefreshOutcome> {
     const insight = tile.insight
@@ -418,7 +434,10 @@ async function refreshInsightTile(
                 },
                 filters,
                 variables,
-                tile.filters_overrides
+                tile.filters_overrides,
+                maxAttempts,
+                undefined,
+                asyncFallback
             )
         }, signal)
 
@@ -444,7 +463,8 @@ async function refreshInsightTile(
                 dashboardV2Ui,
             },
             undefined,
-            isAutomatic
+            isAutomatic,
+            eventProperties
         )
         return refreshedInsight.is_cached ? 'cached' : 'refreshed'
     } catch (e: any) {
@@ -6136,7 +6156,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const streamedTiles = new Set<number>()
+                const boardStream = values.dashboardV2Enabled
+                    ? await refreshThroughBoardStream(cache, sortedTilesToRefresh, tileRefresh, {
+                          placement: values.placement,
+                          report: reportDashboardTileRefreshed,
+                          settle: settleTile,
+                      })
+                    : null
+                if (boardStream?.aborted) {
+                    loadingHere.clear()
+                    return
+                }
+                boardStream?.settledTileIds.forEach((tileId) => streamedTiles.add(tileId))
                 if (
+                    !boardStream &&
                     values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
                     values.placement === DashboardPlacement.Dashboard &&
                     !isSharedView() &&
@@ -6276,7 +6309,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         queueWaitMs: 0,
                                         requestMs: Math.floor(performance.now() - startedAt),
                                         dashboardV2Ui: values.dashboardV2Enabled,
-                                    }
+                                    },
+                                    undefined,
+                                    !!isAutomatic
                                 )
                                 settleTile(tile, refreshedInsight.is_cached ? 'cached' : 'refreshed')
                             }
@@ -6327,9 +6362,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 }
 
+                const fallbackRefresh: InsightTileRefresh = boardStream
+                    ? { ...tileRefresh, ...boardStream.fallback }
+                    : tileRefresh
                 const fetchSyncInsightFunctions = sortedTilesToRefresh
                     .filter((tile) => !streamedTiles.has(tile.id))
-                    .map((tile) => async () => settleTile(tile, await refreshInsightTile(tile, tileRefresh)))
+                    .map((tile) => async () => settleTile(tile, await refreshInsightTile(tile, fallbackRefresh)))
 
                 await Promise.all(fetchSyncInsightFunctions.map((fetchInsight) => fetchInsight()))
                 breakpoint()
@@ -6367,6 +6405,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
+                    ...boardStream?.refreshEventProperties,
                     ...tileGroupProps,
                     ...(filterChangeIsCurrent
                         ? {
