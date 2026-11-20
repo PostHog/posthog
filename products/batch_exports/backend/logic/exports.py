@@ -49,6 +49,7 @@ from products.batch_exports.backend.facade.enums import (
 from products.batch_exports.backend.hogql_source import load_hogql_modifiers, validate_hogql_query_for_batch_export
 from products.batch_exports.backend.logic.runs import to_run_detail
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportSource
+from products.batch_exports.backend.saved_restrictions import remove_saved_restrictions
 
 # S3-family destinations that may authenticate via an Integration, mapped to
 # the linked integration's kind. Adding a future S3-family destination (e.g. a
@@ -629,18 +630,6 @@ def _remove_secret_fields(destination_type: str, config: dict[str, typing.Any]) 
     return target
 
 
-def _remove_stored_restrictions(schema: dict[str, typing.Any] | None) -> dict[str, typing.Any] | None:
-    """Return the schema without `restricted_properties`, for API responses.
-
-    A schema stores the property restrictions of the user who last saved it, so a native run can recompile its query
-    with the same restrictions. Without this, anyone who can read the export would see that user's restrictions. The
-    Temporal schedule keeps the full schema, because the worker needs the restrictions.
-    """
-    if schema is None:
-        return None
-    return {key: value for key, value in schema.items() if key != "restricted_properties"}
-
-
 def _to_configuration(batch_export: BatchExport, *, include_latest_runs: bool) -> contracts.BatchExportConfiguration:
     destination = batch_export.destination
     return contracts.BatchExportConfiguration(
@@ -668,7 +657,7 @@ def _to_configuration(batch_export: BatchExport, *, include_latest_runs: bool) -
         primary_key=tuple(batch_export.primary_key) if batch_export.primary_key is not None else None,
         version_key=tuple(batch_export.version_key) if batch_export.version_key is not None else None,
         incremental_mode=batch_export.incremental_mode,
-        schema=_remove_stored_restrictions(batch_export.schema),
+        schema=remove_saved_restrictions(batch_export.schema),
         filters=batch_export.filters,
         timezone=batch_export.timezone,
         offset_day=batch_export.offset_day,

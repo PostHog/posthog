@@ -9,10 +9,17 @@ included — not just where the API loads.
 
 import dataclasses
 
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
 from products.batch_exports.backend.models.batch_export import BatchExport
+from products.batch_exports.backend.saved_restrictions import remove_saved_restrictions
 
 
 @dataclasses.dataclass(frozen=True)
@@ -63,8 +70,25 @@ def handle_batch_export_change(
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=_redact_schema_changes(changes_between(scope, previous=before_update, current=after_update)),
             name=detail_name,
             context=context,
         ),
     )
+
+
+def _redact_schema_changes(changes: list[Change]) -> list[Change]:
+    redacted: list[Change] = []
+    for change in changes:
+        if change.field == "schema":
+            change = dataclasses.replace(
+                change, before=_redact_schema(change.before), after=_redact_schema(change.after)
+            )
+            if change.before == change.after:
+                continue
+        redacted.append(change)
+    return redacted
+
+
+def _redact_schema(schema: object) -> object:
+    return remove_saved_restrictions(schema) if isinstance(schema, dict) else schema
