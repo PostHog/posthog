@@ -2,10 +2,13 @@
 // a Mac with Xcode has. The worker reads the fat header and the UUIDs itself, so a dSYM uploads
 // from any machine with the bytes those tools give.
 
-use std::{ops::Range, path::Path};
+use std::{ops::Range, path::Path, sync::Arc};
 use symbolic::debuginfo::{Archive, FileFormat};
 
-use crate::native::{self, Binary, Format};
+use crate::{
+    native::{Binary, Format},
+    node,
+};
 
 const FAT_MAGIC: u32 = 0xcafe_babe;
 // symbolic does not read a fat file with 64-bit offsets, and `dwarfdump` and `lipo` do.
@@ -61,7 +64,7 @@ fn fat_slices(file: &[u8]) -> Option<Vec<Range<usize>>> {
 }
 
 pub fn slices(path: &Path) -> Result<Vec<Slice>, String> {
-    let file = native::map(path)?;
+    let file = Arc::new(node::read(path)?);
     let whole = std::iter::once(0..file.len()).collect();
     let ranges = fat_slices(&file).unwrap_or(whole);
 
