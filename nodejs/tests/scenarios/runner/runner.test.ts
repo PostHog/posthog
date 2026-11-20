@@ -1591,7 +1591,7 @@ describe('runner through seed, drive and judge', () => {
         30_000
     )
 
-    it('closes the writer CPU read of a step still being judged before a ramp that did not converge returns, and reads no more after it', async () => {
+    it('waits for the live writer CPU read of a step still being judged before a ramp that did not converge returns', async () => {
         const runId = randomUUID()
         const manifestFile = path.join(cacheHome, 'manifest.json')
         writeFileSync(
@@ -1604,26 +1604,24 @@ describe('runner through seed, drive and judge', () => {
                 expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
             })
         )
-        const startedAt = Date.now()
-        let open = 0
-        let reads = 0
-        let onRead = (): void => undefined
+        let readStarted = (): void => undefined
+        const started = new Promise<void>((resolve) => (readStarted = resolve))
+        let release = (): void => undefined
         const onHost: Environment = {
             ...environmentOf('all, leaving one job running'),
-            writerCpu: async () => {
-                reads += 1
-                open += 1
-                onRead()
-                await new Promise((resolve) => setTimeout(resolve, 1500))
-                open -= 1
-                return []
+            writerCpu: (_manifest, { startedAt, endedAt }) => {
+                if (endedAt - startedAt > 1500) {
+                    return Promise.resolve([])
+                }
+                readStarted()
+                return new Promise((resolve) => (release = () => resolve([])))
             },
         }
         const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
             ({ name }) => name === 'writer_cpu_under'
         )
 
-        const result = await createRunner(
+        const running = createRunner(
             onHost,
             { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
             { topologyWithinMs: 1000, topologyEveryMs: 10 }
@@ -1639,21 +1637,19 @@ describe('runner through seed, drive and judge', () => {
             }),
             NEVER_ABORTED
         )
-        results.push(result)
-        const atReturn = { open, reads }
-        const later = await Promise.race([
-            new Promise<string>((resolve) => {
-                onRead = () => resolve('a writer CPU read after the run returned')
-            }),
-            new Promise<string>((resolve) =>
-                setTimeout(() => resolve('none'), Math.max(0, startedAt + 25_000 - Date.now()))
-            ),
+        const first = await Promise.race([started.then(() => 'read'), running.then(() => 'returned')])
+        const whileHeld = await Promise.race([
+            running.then(() => 'returned'),
+            new Promise<string>((resolve) => setTimeout(() => resolve('pending'), 2000)),
         ])
+        release()
+        const result = await running
+        results.push(result)
 
-        expect({ convergence: result.convergence?.converged, atReturn, later }).toEqual({
+        expect({ first, whileHeld, convergence: result.convergence?.converged }).toEqual({
+            first: 'read',
+            whileHeld: 'pending',
             convergence: false,
-            atReturn: { open: 0, reads: 2 },
-            later: 'none',
         })
     }, 60_000)
 

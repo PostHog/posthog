@@ -42,7 +42,7 @@ export type BarResult = {
     breakingPoint?: BreakingPoint
 }
 
-type Window = { from: number; to: number; last: boolean }
+type Window = { from: number; to: number; last: boolean; idle?: boolean }
 
 type Reading =
     | { key?: string; value: number; passed: boolean; part: string }
@@ -165,7 +165,7 @@ const pickupP99Under: BarDefinition = {
     params: PickupParams,
     limit: (params) => PickupParams.parse(params).seconds,
     unit: 's',
-    read: ({ samples }, { from, to, last }, params) => {
+    read: ({ samples }, { from, to, last, idle }, params) => {
         const { seconds, queues } = PickupParams.parse(params)
         const until = last ? Math.max(to, ...samples.map(({ at }) => at)) : to
         const pickups = pickupsBetween(
@@ -180,7 +180,9 @@ const pickupP99Under: BarDefinition = {
             .map((queue) => {
                 const buckets = pickups.picked[queue] ?? {}
                 const { value, beyond } =
-                    (buckets['+Inf'] ?? 0) > 0 ? p99Of(buckets) : { value: (until - from) / 1000, beyond: false }
+                    (buckets['+Inf'] ?? 0) > 0
+                        ? p99Of(buckets)
+                        : { value: idle ? 0 : (until - from) / 1000, beyond: false }
                 return {
                     key: queue,
                     value,
@@ -249,8 +251,13 @@ function judgeStepOf(
     i: number,
     last: boolean
 ): StepVerdict {
-    const { scale } = evidence.steps[i]
+    const { scale, offeredUnits } = evidence.steps[i]
     const window = { ...windowOf(evidence, i), last }
+    const idle =
+        offeredUnits !== undefined &&
+        !evidence.journal.some(
+            ({ answer, offeredAt }) => answer.accepted && offeredAt >= window.from && offeredAt < window.to
+        )
     const point = (): StepPoint => ({ scale, at: iso(window.from), offeredPerSecond: offeredRateOf(evidence, i) })
     if (window.to <= window.from) {
         return { unjudged: `the drive ended before the ${scale}x step` }
@@ -259,7 +266,7 @@ function judgeStepOf(
     if (overloaded !== undefined) {
         return { unjudged: overloaded, harnessLimit: { scale, by: 'run_host' } }
     }
-    const reading = definition.read(evidence, window, params)
+    const reading = definition.read(evidence, { ...window, idle }, params)
     if ('unsourced' in reading) {
         return { unjudged: reading.unsourced }
     }
