@@ -1,8 +1,23 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
 
-import { WAREHOUSE_ITEMS, hrefPath, isWarehouseToolHref, warehouseItemForLocation } from './todayWarehouseItems'
+import {
+    WAREHOUSE_ITEMS,
+    hrefPath,
+    isWarehouseToolHref,
+    visibleWarehouseItems,
+    warehouseItemForLocation,
+} from './todayWarehouseItems'
 
 describe('todayWarehouseItems', () => {
+    test.each([
+        [{ [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true }, true],
+        [{ [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true }, true],
+        [{}, false],
+    ])('with flags %j, lists Data ops: %s', (featureFlags, listed) => {
+        expect(visibleWarehouseItems(featureFlags).some((item) => item.key === 'data_ops')).toBe(listed)
+    })
+
     test.each([
         ...DEFINITIONS_TABS.map((tab): [string, string | null] => [hrefPath(tab.url), 'definitions']),
         ['/sql', 'sql_editor'],

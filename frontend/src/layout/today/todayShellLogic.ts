@@ -410,6 +410,7 @@ export interface todayShellLogicMeta {
         sceneTabsInSidebar: (
             todayRailEnabled: boolean,
             routePane: TodayRailPane | null,
+            activePane: TodayRailPane,
             phoneLayout: boolean,
             mobileLayout: boolean,
             mobileSidebarOpen: boolean,
@@ -632,11 +633,21 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (todayRailEnabled: boolean, activePane: TodayRailPane): boolean =>
                 todayRailEnabled && activePane === 'people',
         ],
+        // Another pane picked on a warehouse page unmounts the warehouse sidebar, so the tabs stay in the page then.
         sceneTabsInSidebar: [
-            (s) => [s.todayRailEnabled, s.routePane, s.phoneLayout, s.mobileLayout, s.mobileSidebarOpen, s.sidebarOpen],
+            (s) => [
+                s.todayRailEnabled,
+                s.routePane,
+                s.activePane,
+                s.phoneLayout,
+                s.mobileLayout,
+                s.mobileSidebarOpen,
+                s.sidebarOpen,
+            ],
             (
                 todayRailEnabled: boolean,
                 routePane: TodayRailPane | null,
+                activePane: TodayRailPane,
                 phoneLayout: boolean,
                 mobileLayout: boolean,
                 mobileSidebarOpen: boolean,
@@ -644,6 +655,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
             ): boolean =>
                 todayRailEnabled &&
                 routePane === 'warehouse' &&
+                activePane === 'warehouse' &&
                 !phoneLayout &&
                 (mobileLayout ? mobileSidebarOpen : sidebarOpen),
         ],

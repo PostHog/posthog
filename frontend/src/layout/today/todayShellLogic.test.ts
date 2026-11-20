@@ -13,6 +13,7 @@ import { todaySceneTabsLogic } from './todaySceneTabsLogic'
 import {
     TODAY_RAIL_WIDTH,
     TODAY_SIDEBAR_MAX_WIDTH,
+    TodayRailPane,
     railPaneForPath,
     railPaneHref,
     todayShellLogic,
@@ -554,22 +555,29 @@ describe('todayShellLogic', () => {
         ['the layout is a phone', '/project/1/models', true, 390, true, false],
         ['the drawer is open on a narrow desktop', '/project/1/models', false, 900, true, true, true],
         ['the drawer is open on a phone', '/project/1/models', false, 390, true, false, true],
-    ])('sceneTabsInSidebar when %s', (_name, path, sidebarOpen, width, flagOn, expected, drawerOpen = false) => {
-        const originalWidth = window.innerWidth
-        Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
-        try {
-            setRailFlags({ rail: flagOn, warehouse: true })
-            const logic = todayShellLogic()
-            logic.mount()
-            logic.actions.setSidebarOpen(sidebarOpen)
-            router.actions.push(path)
-            // A location change closes the drawer, so open it after navigating.
-            logic.actions.setMobileSidebarOpen(drawerOpen)
-            expect(logic.values.sceneTabsInSidebar).toBe(expected)
-        } finally {
-            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        ['another pane is picked on a warehouse page', '/project/1/models', true, 1024, true, false, false, 'products'],
+    ])(
+        'sceneTabsInSidebar when %s',
+        (_name, path, sidebarOpen, width, flagOn, expected, drawerOpen = false, pickedPane = '') => {
+            const originalWidth = window.innerWidth
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+            try {
+                setRailFlags({ rail: flagOn, warehouse: true })
+                const logic = todayShellLogic()
+                logic.mount()
+                logic.actions.setSidebarOpen(sidebarOpen)
+                router.actions.push(path)
+                if (pickedPane) {
+                    logic.actions.pickPane(pickedPane as TodayRailPane)
+                }
+                // A location change closes the drawer, so open it after navigating.
+                logic.actions.setMobileSidebarOpen(drawerOpen)
+                expect(logic.values.sceneTabsInSidebar).toBe(expected)
+            } finally {
+                Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+            }
         }
-    })
+    )
 
     it('on phone widths, opens the warehouse page without a sheet, even with scene tabs mounted', () => {
         const originalWidth = window.innerWidth

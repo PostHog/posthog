@@ -22,24 +22,22 @@ export function SceneTabs<T extends string | number>(props: LemonTabsProps<T>): 
         }
     }, [inWarehouse]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    if (!sceneTabsInSidebar) {
-        return <LemonTabs {...props} />
-    }
-
-    const realTabs = props.tabs.filter(Boolean) as LemonTab<T>[]
+    // LemonTabs keeps the same position whether or not the bar is in the sidebar, so toggling the sidebar keeps the
+    // tab content mounted, with its state.
     return (
         <>
-            {tabsElement &&
+            {sceneTabsInSidebar &&
+                tabsElement &&
                 createPortal(
                     <TodaySceneTabsList
-                        tabs={realTabs}
+                        tabs={props.tabs.filter(Boolean) as LemonTab<T>[]}
                         activeKey={props.activeKey}
                         onChange={props.onChange}
                         dataAttr={props['data-attr']}
                     />,
                     tabsElement
                 )}
-            <LemonTabs {...props} barHidden />
+            <LemonTabs {...props} barHidden={sceneTabsInSidebar || props.barHidden} />
         </>
     )
 }

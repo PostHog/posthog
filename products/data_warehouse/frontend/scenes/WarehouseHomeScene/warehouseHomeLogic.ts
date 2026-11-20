@@ -122,7 +122,9 @@ export const warehouseHomeLogic = kea<warehouseHomeLogicType>([
         savedQueryCount: [
             null as number | null,
             {
-                loadSavedQueryCount: async () => (await warehouseSavedQueriesList(String(values.currentTeamId))).count,
+                // Only the total is needed, so skip the column definitions, which cost the most to serialize.
+                loadSavedQueryCount: async () =>
+                    (await warehouseSavedQueriesList(String(values.currentTeamId), { include_columns: false })).count,
             },
         ],
         healthIssues: [
