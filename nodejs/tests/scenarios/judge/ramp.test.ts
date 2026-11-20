@@ -297,6 +297,24 @@ describe('ramp', () => {
         })
     })
 
+    it('keeps the break a pending read finds at a lower step after a refusal in a later step halted the drive', async () => {
+        jest.setSystemTime(windowOf(0).endedAt)
+        let read: ((points: CpuPoint[]) => void) | undefined
+        const watch = watchRamp(live({ writerCpu: () => new Promise((resolve) => (read = resolve)) }), NEVER)
+
+        const verdict = watch.gate(windowOf(0), () => UNITS_PER_STEP[0])
+        await jest.advanceTimersByTimeAsync(SCRAPE_GAP_MS)
+        watch.record(unit(1, 3, false))
+        read!(cpuByMinute([90, 90]))
+        await verdict
+
+        expect(watch.stopped()).toMatchObject({
+            index: 0,
+            end: 'broke',
+            reason: 'writer_cpu_under broke at the 1x step',
+        })
+    })
+
     const STEPS_DRIVEN = [driven(0), driven(1), driven(2)]
     const JOURNAL = [unit(0, 3), unit(1, 7), unit(2, 3)]
     const held = (name = 'writer_cpu_under'): BarResult => ({ name, unit: '%', limit: 70, passed: true })
@@ -514,6 +532,48 @@ describe('ramp', () => {
                 },
                 reason: 'writer_cpu_under broke at the 5x step',
             },
+        ],
+        [
+            'a refusal that halted the drive early in its own step, which left that step short of its offers',
+            {
+                steps: [driven(0), driven(1), { ...driven(2, 10), endedAt: T + 4 * MINUTE + 5000, dueUnits: 25 }],
+                stop: { index: 2, end: 'broke', reason: 'refused_at_intake went over its gate of 0 with 1 refused' },
+                invariants: [failed('refused_at_intake', 'u-2-3')],
+                gates: { refused_at_intake: 0 },
+            },
+            {
+                end: 'broke',
+                sustainedScale: 2,
+                broke: {
+                    scale: 5,
+                    offeredPerSecond: 2,
+                    by: 'refused_at_intake',
+                    kind: 'gate',
+                    at: iso(T + 4 * MINUTE),
+                    part: null,
+                },
+                reason: 'refused_at_intake broke at the 5x step',
+            },
+        ],
+        [
+            'a refusal answered after its step ran its full length, which the generator offered short',
+            {
+                steps: [driven(0), driven(1), driven(2, 510)],
+                stop: { index: 2, end: 'broke', reason: 'refused_at_intake went over its gate of 0 with 1 refused' },
+                invariants: [failed('refused_at_intake', 'u-2-3')],
+                gates: { refused_at_intake: 0 },
+            },
+            {
+                end: 'harness_limit',
+                sustainedScale: 2,
+                broke: harnessAt(2, 'generator', 510),
+                reason: 'the generator offered 510 of 600 units in the 5x step, under minOffered 0.9',
+            },
+        ],
+        [
+            'a step offered exactly its minOffered share, which is no shortfall',
+            { minOffered: 0.14, steps: [driven(0), driven(1), { ...driven(2, 14), dueUnits: 100 }] },
+            { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' },
         ],
         [
             'every step held up to the last',
