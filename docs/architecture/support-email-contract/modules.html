@@ -1,0 +1,203 @@
+<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font-family:var(--font-sans,system-ui,-apple-system,"Segoe UI",sans-serif)}
+.panel{position:relative;background:#fff;color:#0f172a;border-radius:var(--radius,10px);padding:16px;font-size:12px}
+svg.wires{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;z-index:2}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.views{display:flex;gap:3px;background:#e2e8f0;border-radius:7px;padding:3px}
+.views button,.toggle{border:0;background:transparent;font:inherit;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:5px;color:#334155;cursor:pointer}
+.toggle{background:#e2e8f0}
+.views button[aria-pressed=true],.toggle[aria-pressed=true]{background:#0f172a;color:#fff}
+.row{display:flex;gap:14px;align-items:flex-start;position:relative;z-index:1}
+.mod{flex:1;border:2px solid #334155;border-radius:8px;background:#f8fafc;min-width:0}
+.mod.new{border-color:#16a34a;background:#f0fdf4}
+.mod.changed{border-color:#ca8a04;background:#fefce8}
+.mod.external{border-color:#2563eb;background:#eff6ff}
+.mod.follow{border:2px dashed #ea580c;background:#fff7ed}
+.seam{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:center;background:#0f172a;color:#fff;font-family:var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:10.5px;padding:5px 8px;border-radius:6px 6px 0 0;line-height:1.35}
+.mod.new .seam{background:#14532d}
+.mod.follow .seam{background:#7c2d12}
+.mod.external .seam{background:#1e3a8a}
+.seam .tag{background:#fff;color:#0f172a;border-radius:3px;padding:0 4px;font-family:var(--font-sans,system-ui,sans-serif);font-weight:700;font-size:9.5px}
+.fn.new::after{content:" +";color:#86efac;font-weight:700}
+.fn.changed{color:#fde047}
+.name{font-weight:700;font-size:13px;padding:6px 8px 2px}
+.name small{font-weight:500;color:#64748b;font-size:11px}
+.mod:not(:has(.chips)) .name{padding-bottom:8px}
+.used{display:inline-block;font-size:9.5px;font-weight:700;color:#b91c1c;background:#fee2e2;border-radius:3px;padding:0 4px;vertical-align:1px}
+.chips{padding:4px 8px 8px;display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid #94a3b8;background:#f1f5f9;border-radius:5px;padding:3px 7px;line-height:1.3}
+.chip.wide{flex-basis:100%;text-align:center}
+.chip.new{background:#dcfce7;border-color:#16a34a}
+.chip.changed{background:#fef9c3;border-color:#ca8a04}
+.chip.follow{border:2px dashed #ea580c}
+.chip.cycle,.rail .cycle{border:2px dashed #dc2626;background:#fef2f2;color:#b91c1c;font-weight:600}
+.cycle::before{content:"↺ "}
+.ask{outline:2px dashed #7c3aed;outline-offset:1px}
+.ask.fork{outline-style:dotted}
+.q,.f{display:inline-block;font-family:var(--font-sans,system-ui,sans-serif);font-size:9px;font-weight:700;color:#fff;border-radius:3px;padding:0 3px;margin-left:4px;vertical-align:1px}
+.q{background:#7c3aed}
+.f{background:#ea580c}
+.f::before{content:"follow-up"}
+.rail{position:relative;z-index:1;background:#1e293b;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rail b{color:#fff;font-size:12px}
+.rail .cycle{border-radius:4px;padding:1px 6px}
+.untouched{margin-top:18px;border-top:1px dashed #94a3b8;padding-top:10px}
+.untouched h4{margin:0 0 8px;font-size:12px;color:#334155}
+.untouched .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.mini{border:1.5px solid #94a3b8;border-radius:6px;background:#f8fafc;font-size:10.5px}
+.mini .seam{font-size:9.5px;padding:3px 6px;border-radius:4px 4px 0 0;background:#334155}
+.mini b{display:block;padding:4px 6px 0;font-size:11.5px}
+.mini p{margin:0;padding:2px 6px 5px;color:#475569}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:16px;padding-top:10px;border-top:1px solid #e2e8f0;font-size:11px;color:#334155;align-items:center}
+.legend .key{font-weight:700}
+.legend i{display:inline-block;width:22px;height:0;border-top:2px solid;vertical-align:middle;margin-right:4px}
+.legend .swatch{display:inline-block;padding:0 5px;margin-right:4px;border-radius:3px}
+.legend .seamkey{background:#0f172a;color:#fff;font-weight:600}
+.panel[data-view=today] .v-added{display:none}
+.panel[data-view=target] .v-removed{display:none}
+.panel:not([data-view=today]) .v-today{display:none}
+.panel[data-view=removed] .v-removed{color:#94a3b8;text-decoration:line-through}
+.panel[data-view=removed] .chip.v-removed{background:#f8fafc;border:1px dashed #94a3b8}
+.panel[data-view=removed] .v-removed :is(.q,.f,.used){text-decoration:none}
+.panel[data-view=today] .ask{outline:none}
+.panel[data-view=today] .q{display:none}
+.panel[data-untouched=off] .untouched{display:none}
+</style></head><body>
+<div class="panel" id="modules" data-view="target" data-untouched="off">
+<svg class="wires"></svg>
+<div class="controls"><div class="views" role="group" aria-label="View"><button data-view-to="target" aria-pressed="true">Target</button><button data-view-to="removed" aria-pressed="false">Target + what it removes</button><button data-view-to="today" aria-pressed="false">Today</button></div></div><div class="row"><div id="agent" class="mod external"><div class="name">Support agent <small>replies in the inbox</small></div></div><div id="customer" class="mod external"><div class="name">Customer mailbox <small>forwards to team-&lt;token&gt;@ and replies</small></div></div></div>
+<div style="height:56px"></div><div class="row"><div id="outbox" class="mod" style="flex:1.1"><div class="seam" id="outbox-seam"><span class="tag">seam</span><span class="fn">send_email_reply</span><span class="fn">flush_pending_email_replies</span></div><div class="name">Conversations outbox <small>tasks/email.py</small> <span class="used">4 used outside</span></div><div class="chips"><span id="ob-render" class="chip">render reply, pick recipients</span><span id="ob-port" class="chip v-added new ask wide">reply sender: Mailgun | Workflows, per channel<span class="q">Q7</span></span><span id="ob-mime" class="chip v-removed">MIME + own Message-ID</span></div></div><div id="intake" class="mod v-added new" style="flex:1.2"><div class="seam" id="intake-seam"><span class="tag">seam</span><span class="fn">register_mailbox_route</span><span class="fn">process_notification</span></div><div class="name">Workflows inbound intake <small>SES receipt rule, S3, SNS</small></div><div class="chips"><span id="i-route" class="chip">route by domain + local part</span><span id="i-parse" class="chip">bounded MIME parser</span><span id="i-s3" class="chip">S3 intake, kept until every route acks</span></div></div><div id="mgsend" class="mod v-removed" style="flex:0.9"><div class="seam" id="mgsend-seam"><span class="tag">seam</span><span class="fn">send_mime</span><span class="fn">add_domain</span><span class="fn">route deliveries</span></div><div class="name">Mailgun client + ingress <small>mailgun.py, ingress/mailgun</small> <span class="used">15 used outside</span></div><div class="chips"><span class="chip">domain registry, cleanup</span></div></div></div>
+<div style="height:56px"></div><div class="row"><div id="send" class="mod" style="flex:1.3"><div class="seam" id="send-seam"><span class="tag">seam</span><span class="fn changed">send_code_email</span><span class="fn">get_email_status</span><span class="fn v-added new ask">match_sent_message_ids<span class="q">Q3</span></span></div><div class="name">Messaging code send <small>messaging facade/transactional_email.py</small> <span class="used">40 used outside</span></div><div class="chips"><span id="s-fields" class="chip changed ask">CodeEmail + thread headers, stream<span class="q">Q2</span></span><span id="s-wire" class="chip v-added new">SES wire Message-ID per send</span><span id="s-cdp" class="chip changed">CDP worker, support config set</span></div></div><div id="ingest" class="mod" style="flex:1.4"><div class="seam" id="ingest-seam"><span class="tag">seam</span><span class="fn v-added new ask">ingest_email<span class="q">Q6</span></span><span class="fn v-removed">accept_mailgun_*_message</span><span class="fn">ingest_customer_email</span></div><div class="name">Conversations email ingest <small>mailgun_events.py, email_thread_ingestion.py</small> <span class="used">11 used outside</span></div><div class="chips"><span id="in-mg" class="chip changed">Mailgun fields to ParsedEmail</span><span id="in-ses" class="chip v-added new ask">InboundEmail to ParsedEmail<span class="q">Q5</span></span><span id="in-policy" class="chip">relay, DMARC, challenge, autoreply</span><span id="in-thread" class="chip">thread match, ticket ingest</span></div></div></div>
+<div style="height:56px"></div><div class="row"><div id="ses" class="mod external"><div class="name">AWS SES sending, regional <small>Virginia and Frankfurt, support config set</small></div></div></div><div class="legend"><span><b class="swatch seamkey">fn</b><span class="key">seam</span> a module's interface; parts sit below it</span><span><i style="border-color:#334155;border-top-style:solid"></i><span class="key">call</span> through a seam</span><span><i style="border-color:#15803d;border-top-style:solid"></i><span class="key">added</span> by this change, green</span><span><span class="swatch chip changed">part</span><span class="key">changed</span> by this change</span><span><i style="border-color:#94a3b8;border-top-style:dashed"></i><span class="key">removed</span> ✕ by this change, struck through</span><span><i style="border-color:#7c3aed;border-top-style:dashed"></i><span class="key">Qn</span> a suggestion, open in question n</span><span><span class="swatch mod external">&nbsp;</span><span class="key">external</span> an actor or external system</span><span><span class="used">n</span><span class="key">used outside</span> exports other modules use</span></div>
+</div>
+<script>const strokes = {
+  call: { color: "#334155", width: 1.7 },
+  bus: { color: "#475569", width: 1.5 },
+  leak: { color: "#dc2626", width: 2.2 },
+  added: { color: "#15803d", width: 2.2 },
+  changed: { color: "#ca8a04", width: 2.2 },
+  followUp: { color: "#ea580c", dash: "6 4", width: 2 },
+  ask: { color: "#7c3aed", dash: "6 4", width: 2 },
+  fork: { color: "#7c3aed", dash: "2 3", width: 2 },
+  removed: { color: "#94a3b8", dash: "4 4", width: 1.6, cross: true, strike: true },
+};
+
+function strokeOf(wire, view) {
+  if (wire.change === "removed" && view === "removed") return "removed";
+  if (wire.q && view !== "today") return wire.fork ? "fork" : "ask";
+  if (wire.followUp) return "followUp";
+  if (wire.kind === "leak") return "leak";
+  if (wire.change === "added" || wire.change === "changed") return wire.change;
+  return wire.kind ?? "call";
+}
+
+function shownIn(wire, view) {
+  if (wire.change === "added") return view !== "today";
+  if (wire.change === "removed") return view !== "target";
+  if (wire.change === "todayOnly") return view === "today";
+  return true;
+}
+
+function anchorOf(element, side, at, root) {
+  const box = element.getBoundingClientRect(), origin = root.getBoundingClientRect();
+  const x = box.left - origin.left, y = box.top - origin.top, along = at ?? 0.5;
+  if (side === "top") return { x: x + box.width * along, y, nx: 0, ny: -1 };
+  if (side === "bottom") return { x: x + box.width * along, y: y + box.height, nx: 0, ny: 1 };
+  if (side === "left") return { x, y: y + box.height * along, nx: -1, ny: 0 };
+  return { x: x + box.width, y: y + box.height * along, nx: 1, ny: 0 };
+}
+
+function svgElement(name, attributes) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+  return element;
+}
+
+function drawLabel(svg, point, text, stroke, align) {
+  const label = svgElement("text", { x: point.x, y: point.y, "text-anchor": align ?? "middle", "dominant-baseline": "middle", "font-size": "10", "font-weight": "600", fill: stroke.color });
+  if (stroke.strike) label.setAttribute("text-decoration", "line-through");
+  label.textContent = text;
+  svg.appendChild(label);
+  const box = label.getBBox();
+  svg.insertBefore(svgElement("rect", { x: box.x - 3, y: box.y - 1, width: box.width + 6, height: box.height + 2, rx: 3, fill: "#ffffff", opacity: "0.95" }), label);
+  return { text, box };
+}
+
+function drawCross(svg, at, name) {
+  const radius = 7.5;
+  svg.appendChild(svgElement("circle", { cx: at.x, cy: at.y, r: radius, fill: "#ffffff", stroke: "#64748b", "stroke-width": 1.5 }));
+  svg.appendChild(svgElement("path", { d: `M${at.x - 3.5},${at.y - 3.5}L${at.x + 3.5},${at.y + 3.5}M${at.x + 3.5},${at.y - 3.5}L${at.x - 3.5},${at.y + 3.5}`, stroke: "#475569", "stroke-width": 2 }));
+  return { text: `✕ on ${name}`, box: { x: at.x - radius, y: at.y - radius, width: radius * 2, height: radius * 2 } };
+}
+
+function apart(a, b) {
+  return a.x + a.width < b.x || b.x + b.width < a.x || a.y + a.height < b.y || b.y + b.height < a.y;
+}
+
+function textBoxes(root) {
+  const origin = root.getBoundingClientRect();
+  return [...root.querySelectorAll(".seam, .name, .chip, .rail")].filter((element) => element.getClientRects().length).map((element) => {
+    const box = element.getBoundingClientRect();
+    return { text: element.innerText.replace(/\s+/g, " ").trim().slice(0, 40), box: { x: box.left - origin.left, y: box.top - origin.top, width: box.width, height: box.height } };
+  });
+}
+
+function collisions(root, labels) {
+  const hits = [];
+  labels.forEach((a, i) => labels.slice(i + 1).forEach((b) => { if (!apart(a.box, b.box)) hits.push(`"${a.text}" overlaps "${b.text}"`); }));
+  const boxes = textBoxes(root);
+  for (const label of labels) for (const text of boxes) if (!apart(label.box, text.box)) hits.push(`"${label.text}" covers "${text.text}"`);
+  const page = root.getBoundingClientRect();
+  for (const { text, box } of labels) if (box.x < 0 || box.x + box.width > page.width) hits.push(`"${text}" runs off the page`);
+  return hits;
+}
+
+function drawWire(svg, root, wire, view) {
+  const from = root.querySelector(`[id="${wire.from}"]`), to = root.querySelector(`[id="${wire.to}"]`);
+  if (!from?.getClientRects().length || !to?.getClientRects().length) return;
+  const strokeName = strokeOf(wire, view), stroke = strokes[strokeName];
+  const a = anchorOf(from, wire.fromSide ?? "bottom", wire.fromAt, root), z = anchorOf(to, wire.toSide ?? "top", wire.toAt, root), bend = wire.bend ?? 40;
+  if (wire.straight === "from") z.x = a.x;
+  if (wire.straight === "to") a.x = z.x;
+  const c1 = { x: a.x + a.nx * bend, y: a.y + a.ny * bend }, c2 = { x: z.x + z.nx * bend, y: z.y + z.ny * bend };
+  const path = svgElement("path", { d: `M${a.x},${a.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${z.x},${z.y}`, fill: "none", stroke: stroke.color, "stroke-width": stroke.width, "marker-end": `url(#arrow-${strokeName})` });
+  if (stroke.dash) path.setAttribute("stroke-dasharray", stroke.dash);
+  svg.appendChild(path);
+  const pointAt = (t) => { const u = 1 - t; return { x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * z.x, y: u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * z.y }; };
+  const labelAt = wire.labelAt ?? 0.5, [dx, dy] = wire.labelOffset ?? [0, 0];
+  const marks = stroke.cross ? [drawCross(svg, pointAt(wire.crossAt ?? Math.min(labelAt + 0.25, 0.85)), wire.label ?? `${wire.from} → ${wire.to}`)] : [];
+  const text = [view !== "today" && wire.q, (view === "today" && wire.todayLabel) || wire.label].filter(Boolean).join(": ");
+  if (!text) return marks;
+  const at = pointAt(labelAt);
+  return [...marks, drawLabel(svg, { x: at.x + dx, y: at.y + dy }, text, stroke, wire.labelAlign)];
+}
+
+function drawWires(root, wires) {
+  const svg = root.querySelector("svg.wires"), box = root.getBoundingClientRect(), view = root.dataset.view;
+  svg.setAttribute("width", box.width);
+  svg.setAttribute("height", box.height);
+  svg.innerHTML = "<defs>" + Object.entries(strokes).map(([name, { color }]) => `<marker id="arrow-${name}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${color}"/></marker>`).join("") + "</defs>";
+  const labels = wires.filter((wire) => shownIn(wire, view)).flatMap((wire) => drawWire(svg, root, wire, view) ?? []);
+  root.dataset.collisions = JSON.stringify(collisions(root, labels));
+}
+
+function connect(root, wires) {
+  const redraw = () => drawWires(root, wires);
+  redraw();
+  new ResizeObserver(redraw).observe(root);
+  for (const button of root.querySelectorAll("[data-view-to]")) button.addEventListener("click", () => {
+    root.dataset.view = button.dataset.viewTo;
+    for (const other of root.querySelectorAll("[data-view-to]")) other.setAttribute("aria-pressed", String(other === button));
+    redraw();
+  });
+  const toggle = root.querySelector("[data-untouched-toggle]");
+  toggle?.addEventListener("click", () => {
+    const on = root.dataset.untouched !== "on";
+    root.dataset.untouched = on ? "on" : "off";
+    toggle.setAttribute("aria-pressed", String(on));
+    redraw();
+  });
+}
+
+connect(document.getElementById("modules"), [{"from":"agent","to":"outbox-seam","label":"reply"},{"from":"customer","to":"intake-seam","label":"MX, regional","change":"added","toAt":0.5},{"from":"customer","to":"mgsend-seam","label":"MX","change":"removed","toAt":0.5},{"from":"ob-port","to":"send-seam","label":"in-process","change":"added","q":"Q1","toAt":0.3},{"from":"ob-mime","to":"mgsend-seam","label":"","change":"removed","toAt":0.2,"fromSide":"top","fromAt":0.9,"crossAt":0.85,"bend":120},{"from":"ingest-seam","to":"send-seam","label":"match","change":"added","q":"Q3","fromSide":"left","toSide":"right","toAt":0.5,"labelOffset":[0,-22],"labelAlign":"middle","fromAt":0.5,"labelAt":0.5,"bend":10},{"from":"i-s3","to":"ingest-seam","label":"InboundEmail","change":"added","q":"Q5","toAt":0.3},{"from":"mgsend","to":"ingest-seam","label":"parsed fields","change":"removed","toAt":0.8},{"from":"s-cdp","to":"ses","label":"SendEmail"}]);
+</script>
+</body></html>

@@ -1,0 +1,255 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "agent",
+                    "name": "Support agent",
+                    "external": true,
+                    "seam": [],
+                    "note": "replies in the inbox"
+                },
+                {
+                    "id": "customer",
+                    "name": "Customer mailbox",
+                    "external": true,
+                    "seam": [],
+                    "note": "forwards to team-<token>@ and replies"
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "outbox",
+                    "name": "Conversations outbox",
+                    "note": "tasks/email.py",
+                    "used": 4,
+                    "flex": 1.1,
+                    "seam": ["send_email_reply", "flush_pending_email_replies"],
+                    "chips": [
+                        {
+                            "id": "ob-render",
+                            "text": "render reply, pick recipients"
+                        },
+                        {
+                            "id": "ob-port",
+                            "text": "reply sender: Mailgun | Workflows, per channel",
+                            "change": "added",
+                            "q": "Q7",
+                            "wide": true
+                        },
+                        {
+                            "id": "ob-mime",
+                            "text": "MIME + own Message-ID",
+                            "change": "removed"
+                        }
+                    ]
+                },
+                {
+                    "id": "intake",
+                    "name": "Workflows inbound intake",
+                    "note": "SES receipt rule, S3, SNS",
+                    "change": "added",
+                    "flex": 1.2,
+                    "seam": ["register_mailbox_route", "process_notification"],
+                    "chips": [
+                        {
+                            "id": "i-route",
+                            "text": "route by domain + local part"
+                        },
+                        {
+                            "id": "i-parse",
+                            "text": "bounded MIME parser"
+                        },
+                        {
+                            "id": "i-s3",
+                            "text": "S3 intake, kept until every route acks"
+                        }
+                    ]
+                },
+                {
+                    "id": "mgsend",
+                    "name": "Mailgun client + ingress",
+                    "note": "mailgun.py, ingress/mailgun",
+                    "used": 15,
+                    "change": "removed",
+                    "flex": 0.9,
+                    "seam": ["send_mime", "add_domain", "route deliveries"],
+                    "chips": [
+                        {
+                            "text": "domain registry, cleanup"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "send",
+                    "name": "Messaging code send",
+                    "note": "messaging facade/transactional_email.py",
+                    "used": 40,
+                    "flex": 1.3,
+                    "seam": [
+                        {
+                            "name": "send_code_email",
+                            "change": "changed"
+                        },
+                        "get_email_status",
+                        {
+                            "name": "match_sent_message_ids",
+                            "change": "added",
+                            "q": "Q3"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "s-fields",
+                            "text": "CodeEmail + thread headers, stream",
+                            "change": "changed",
+                            "q": "Q2"
+                        },
+                        {
+                            "id": "s-wire",
+                            "text": "SES wire Message-ID per send",
+                            "change": "added"
+                        },
+                        {
+                            "id": "s-cdp",
+                            "text": "CDP worker, support config set",
+                            "change": "changed"
+                        }
+                    ]
+                },
+                {
+                    "id": "ingest",
+                    "name": "Conversations email ingest",
+                    "note": "mailgun_events.py, email_thread_ingestion.py",
+                    "used": 11,
+                    "flex": 1.4,
+                    "seam": [
+                        {
+                            "name": "ingest_email",
+                            "change": "added",
+                            "q": "Q6"
+                        },
+                        {
+                            "name": "accept_mailgun_*_message",
+                            "change": "removed"
+                        },
+                        "ingest_customer_email"
+                    ],
+                    "chips": [
+                        {
+                            "id": "in-mg",
+                            "text": "Mailgun fields to ParsedEmail",
+                            "change": "changed"
+                        },
+                        {
+                            "id": "in-ses",
+                            "text": "InboundEmail to ParsedEmail",
+                            "change": "added",
+                            "q": "Q5"
+                        },
+                        {
+                            "id": "in-policy",
+                            "text": "relay, DMARC, challenge, autoreply"
+                        },
+                        {
+                            "id": "in-thread",
+                            "text": "thread match, ticket ingest"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "ses",
+                    "name": "AWS SES sending, regional",
+                    "external": true,
+                    "seam": [],
+                    "note": "Virginia and Frankfurt, support config set"
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "agent",
+            "to": "outbox-seam",
+            "label": "reply"
+        },
+        {
+            "from": "customer",
+            "to": "intake-seam",
+            "label": "MX, regional",
+            "change": "added",
+            "toAt": 0.5
+        },
+        {
+            "from": "customer",
+            "to": "mgsend-seam",
+            "label": "MX",
+            "change": "removed",
+            "toAt": 0.5
+        },
+        {
+            "from": "ob-port",
+            "to": "send-seam",
+            "label": "in-process",
+            "change": "added",
+            "q": "Q1",
+            "toAt": 0.3
+        },
+        {
+            "from": "ob-mime",
+            "to": "mgsend-seam",
+            "label": "",
+            "change": "removed",
+            "toAt": 0.2,
+            "fromSide": "top",
+            "fromAt": 0.9,
+            "crossAt": 0.85,
+            "bend": 120
+        },
+        {
+            "from": "ingest-seam",
+            "to": "send-seam",
+            "label": "match",
+            "change": "added",
+            "q": "Q3",
+            "fromSide": "left",
+            "toSide": "right",
+            "toAt": 0.5,
+            "labelOffset": [0, -22],
+            "labelAlign": "middle",
+            "fromAt": 0.5,
+            "labelAt": 0.5,
+            "bend": 10
+        },
+        {
+            "from": "i-s3",
+            "to": "ingest-seam",
+            "label": "InboundEmail",
+            "change": "added",
+            "q": "Q5",
+            "toAt": 0.3
+        },
+        {
+            "from": "mgsend",
+            "to": "ingest-seam",
+            "label": "parsed fields",
+            "change": "removed",
+            "toAt": 0.8
+        },
+        {
+            "from": "s-cdp",
+            "to": "ses",
+            "label": "SendEmail"
+        }
+    ]
+}
