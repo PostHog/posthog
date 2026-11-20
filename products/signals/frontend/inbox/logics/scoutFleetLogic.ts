@@ -27,6 +27,7 @@ import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import {
     signalsScoutChatTasksCreate,
+    signalsScoutChatTasksUsageLimitRetrieve,
     signalsScoutConfigDestroy,
     signalsScoutConfigList,
     signalsScoutConfigRun,
@@ -40,6 +41,7 @@ import {
 import type {
     FleetFindingsSummaryApi,
     PatchedSignalScoutConfigUpdateApi,
+    ScoutChatUsageLimitApi,
     ScoutMetadataApi,
     SignalScoutConfigApi,
     SignalsScoutConfigSyncSurface,
@@ -132,16 +134,36 @@ function scoutChatRefusalFromError(error: unknown, teamId: number): ScoutChatRef
         error.code === 'posthog_code_billing_limit_exceeded' ||
         error.data?.type === 'billing_limit'
     ) {
-        const message = error.data?.error || error.detail || "You've reached your PostHog Desktop usage limit."
-        const resetAt = error.data?.reset_at ? dayjs(error.data.reset_at) : null
-        const retryAt = resetAt?.isValid() && resetAt.isAfter(dayjs()) ? resetAt.valueOf() : null
-        return {
-            teamId,
-            reason: retryAt ? `${message} Try again after ${formatRetryAt(retryAt)}.` : message,
-            expiresAt: refusalExpiresAt(retryAt),
-        }
+        return usageLimitRefusal(
+            {
+                code: error.code ?? null,
+                error: error.data?.error || error.detail || null,
+                reset_at: error.data?.reset_at,
+            },
+            teamId
+        )
     }
     return null
+}
+
+/** The usage limit as the server reports it, either on a refused start or from the usage limit read. */
+function usageLimitRefusal(
+    limit: Pick<ScoutChatUsageLimitApi, 'code' | 'error'> & { reset_at?: string | null },
+    teamId: number
+): ScoutChatRefusal {
+    // The server message names PostHog Desktop, which reads oddly in the web app. A deactivated organization
+    // keeps the server message, because it tells the user to contact support.
+    const message =
+        limit.code === 'organization_deactivated' && limit.error
+            ? limit.error
+            : 'Your organization has reached its usage limit for scout chats.'
+    const resetAt = limit.reset_at ? dayjs(limit.reset_at) : null
+    const retryAt = resetAt?.isValid() && resetAt.isAfter(dayjs()) ? resetAt.valueOf() : null
+    return {
+        teamId,
+        reason: retryAt ? `${message} Try again after ${formatRetryAt(retryAt)}.` : message,
+        expiresAt: refusalExpiresAt(retryAt),
+    }
 }
 
 function refusalExpiresAt(retryAt: number | null): number {
@@ -504,6 +526,9 @@ export interface scoutFleetLogicActions {
         scoutConfigs: SignalScoutConfigApi[] | null
         payload?: void
     }
+    loadScoutChatUsageLimit: () => {
+        value: true
+    }
     loadScoutMetadata: () => any
     loadScoutMetadataFailure: (
         error: string,
@@ -818,6 +843,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
         setScoutChatRefusal: (refusal: ScoutChatRefusal | null) => ({ refusal }),
+        loadScoutChatUsageLimit: true,
         setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => ({ outcome }),
     }),
 
@@ -1862,6 +1888,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 cache.chatTaskStarting = false
             }
         },
+        loadScoutChatUsageLimit: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const limit = await signalsScoutChatTasksUsageLimitRetrieve(String(teamId))
+                if (limit.limited && !values.scoutChatRefusal) {
+                    actions.setScoutChatRefusal(usageLimitRefusal(limit, teamId))
+                }
+            } catch {
+                // The start endpoint still enforces the limit, so a failed read only means no early warning.
+            }
+        },
         setScoutChatRefusal: ({ refusal }) => {
             if (!refusal) {
                 cache.disposables.dispose('scoutChatRetry')
@@ -2010,6 +2050,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // A refusal read back from storage can be for another project, or can have expired while away.
                 const stillApplies = refusal.teamId === teamLogic.values.currentTeamId && refusal.expiresAt > Date.now()
                 actions.setScoutChatRefusal(stillApplies ? refusal : null)
+            }
+            // Without this read, an over-limit team sees enabled chat buttons until a click is refused.
+            if (!values.scoutChatRefusal) {
+                actions.loadScoutChatUsageLimit()
             }
             // Configs are cheap and the always-mounted setup widget needs them. The paginated
             // runs window is loaded + polled only while the fleet list is open (startRunsPolling).

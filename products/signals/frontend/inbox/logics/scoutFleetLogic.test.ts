@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     signalsScoutChatTasksCreate,
+    signalsScoutChatTasksUsageLimitRetrieve,
     signalsScoutConfigList,
     signalsScoutConfigRun,
     signalsScoutConfigSync,
@@ -31,6 +32,7 @@ import { ScoutRosterSort, scoutFleetLogic } from './scoutFleetLogic'
 jest.mock('posthog-js')
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutChatTasksCreate: jest.fn(),
+    signalsScoutChatTasksUsageLimitRetrieve: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigRun: jest.fn(),
@@ -47,6 +49,9 @@ jest.mock('products/skills/frontend/generated/api', () => ({
 
 const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.MockedFunction<
     typeof signalsScoutChatTasksCreate
+>
+const mockSignalsScoutChatTasksUsageLimitRetrieve = signalsScoutChatTasksUsageLimitRetrieve as jest.MockedFunction<
+    typeof signalsScoutChatTasksUsageLimitRetrieve
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
 const mockSignalsScoutConfigRun = signalsScoutConfigRun as jest.MockedFunction<typeof signalsScoutConfigRun>
@@ -153,6 +158,9 @@ describe('scoutFleetLogic', () => {
         localStorage.clear()
         initKeaTests()
         mockSignalsScoutChatTasksCreate.mockReset()
+        mockSignalsScoutChatTasksUsageLimitRetrieve
+            .mockReset()
+            .mockResolvedValue({ limited: false, code: null, error: null, reset_at: null })
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigRun.mockReset()
         mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
@@ -736,7 +744,7 @@ describe('scoutFleetLogic', () => {
                     reset_at: new Date(Date.now() + 3600 * 1000).toISOString(),
                 }),
             code: 'usage_limit_exceeded',
-            reason: /^You've reached your PostHog Desktop usage limit\. Try again after /,
+            reason: /^Your organization has reached its usage limit for scout chats\. Try again after /,
         },
     ])('disables every scout chat after $refusal refusal until its retry time', async ({ makeError, code, reason }) => {
         jest.useFakeTimers()
@@ -757,6 +765,34 @@ describe('scoutFleetLogic', () => {
             expect(mockSignalsScoutChatTasksCreate).toHaveBeenCalledTimes(1)
 
             await jest.advanceTimersByTimeAsync(3600 * 1000)
+            expect(logic.values.scoutChatDisabledReason).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('disables scout chats on mount when the team is already over its usage limit', async () => {
+        jest.useFakeTimers()
+        try {
+            mockSignalsScoutChatTasksUsageLimitRetrieve.mockResolvedValue({
+                limited: true,
+                code: 'usage_limit_exceeded',
+                error: "You've reached your PostHog Desktop usage limit.",
+                reset_at: new Date(Date.now() + 1800 * 1000).toISOString(),
+            })
+            logic.unmount()
+            logic = scoutFleetLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(logic.values.scoutChatDisabledReason).toMatch(
+                /^Your organization has reached its usage limit for scout chats\. Try again after /
+            )
+            logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
+
+            await jest.advanceTimersByTimeAsync(1800 * 1000)
             expect(logic.values.scoutChatDisabledReason).toBeNull()
         } finally {
             jest.useRealTimers()

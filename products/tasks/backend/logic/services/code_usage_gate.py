@@ -226,6 +226,20 @@ def _posthog_ai_access_required_response(request: Request, organization: "Organi
     )
 
 
+def usage_limit_error(team_id: int) -> dict[str, Any] | None:
+    """The 429 body `usage_limit_response` returns for this team, or None when it allows the run.
+
+    For a read that shows the limit before the user tries a run. It records no gate check, so the
+    gate metric still counts only the runs it guards.
+    """
+    if organization_deactivated(team_id):
+        return organization_deactivated_response().data
+    usage = get_posthog_code_usage(team_id)
+    if usage is None or not usage.is_rate_limited:
+        return None
+    return TaskRunErrorResponseSerializer(rate_limit_error_payload(usage)).data
+
+
 def usage_limit_response(user, team_id: int) -> Response | None:
     """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 

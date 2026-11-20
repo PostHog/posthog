@@ -8668,6 +8668,26 @@ export interface ScoutChatTaskApi {
     task_id: string
 }
 
+export interface ScoutChatUsageLimitApi {
+    /** True when the team is over its usage limit, so starting a scout chat returns a 429. */
+    limited: boolean
+    /**
+     * The error code a start returns while limited, for example `usage_limit_exceeded`. Null when not limited.
+     * @nullable
+     */
+    code: string | null
+    /**
+     * The error message a start returns while limited. Null when not limited.
+     * @nullable
+     */
+    error: string | null
+    /**
+     * ISO 8601 timestamp when the limit resets, when known. Null otherwise.
+     * @nullable
+     */
+    reset_at: string | null
+}
+
 /**
  * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable

@@ -63,6 +63,34 @@ class TestScoutChatTaskAPI(APIBaseTest):
         self.assertFalse(Task.objects.filter(origin_product=Task.OriginProduct.SIGNALS_CHAT).exists())
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "over_limit",
+                CodeUsageStatus(is_rate_limited=True, limit_type=None, reset_at="2026-06-09T00:00:00Z", is_pro=False),
+                {
+                    "limited": True,
+                    "code": "usage_limit_exceeded",
+                    "error": "You've reached your PostHog Desktop usage limit.",
+                    "reset_at": "2026-06-09T00:00:00Z",
+                },
+            ),
+            (
+                "under_limit",
+                CodeUsageStatus(is_rate_limited=False, limit_type=None, reset_at=None, is_pro=False),
+                {"limited": False, "code": None, "error": None, "reset_at": None},
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_usage_limit_reports_what_a_start_would_hit(self, _name, usage, expected, mock_gate):
+        mock_gate.return_value = usage
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/scout/chat_tasks/usage_limit/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), expected)
+
     @patch("products.signals.backend.scout_chat.SCOUT_CHAT_DAILY_ATTEMPT_CAP", 3)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_daily_attempt_cap_is_the_only_per_user_limit(self, _mock_workflow):

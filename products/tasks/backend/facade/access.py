@@ -15,6 +15,7 @@ from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.code_usage_gate import (
     code_access_required_response,
     compute_quota_limit_response,
+    usage_limit_error,
     usage_limit_response,
 )
 from products.tasks.backend.models import TaskRun
@@ -73,5 +74,6 @@ __all__ = [
     "has_loops_access",
     "is_sandbox_run_request",
     "may_read_task_run_context",
+    "usage_limit_error",
     "usage_limit_response",
 ]
