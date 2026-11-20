@@ -576,6 +576,7 @@ mod tests {
         #[case(Some("posthog-ruby2.0.0"), "posthog-ruby")]
         #[case(Some("posthog-php/3.0.0"), "posthog-php")]
         #[case(Some("posthog-laravel/0.1.0"), "posthog-laravel")]
+        #[case(Some("posthog-electron/0.1.0"), "posthog-electron")]
         #[case(Some("posthog-java/1.0.0"), "posthog-java")]
         #[case(Some("posthog-go/0.1.0"), "posthog-go")]
         #[case(Some("posthog-node/2.2.0"), "posthog-node")]

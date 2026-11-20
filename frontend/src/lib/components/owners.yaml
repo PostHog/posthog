@@ -13,6 +13,8 @@ rules:
       sensitive: true
     - match: '/ProductEmptyState/'
       owners: team-growth
+    - match: '/QuillMemberSelectMultiple.test.tsx'
+      owners: team-growth
     - match: '/ReverseProxyChecker/'
       owners: team-platform-features
     - match: '/RichContentEditor/'
@@ -90,6 +92,7 @@ rules:
           - '/Account/*.test.*'
           - '/ActivityLog/activityDescriptions/*.test.*'
           - '/NotificationsMenu/*.test.*'
+          - '/SocialLoginButton/*.test.*'
           - '/TimeSensitiveAuthentication/*.test.*'
       owners: team-platform-features
     - match:

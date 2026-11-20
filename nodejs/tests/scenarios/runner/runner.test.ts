@@ -70,7 +70,7 @@ import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-a
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { LIVE_FILE, LiveRecord } from './live'
-import { RunResult, Runner, createRunner } from './runner'
+import { RunResult, Runner, TargetRun, createRunner } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
@@ -274,10 +274,71 @@ describe('runner', () => {
         const result = await onHost.run(loaded, NEVER_ABORTED)
 
         expect(result).toMatchObject({ runId, evidenceDir: path.join(stateDir, runId) })
-        expect(api.captured.map(({ properties }) => properties.run_id)).toEqual([runId])
+        expect(api.captured.map(({ properties }) => [properties.run_id, properties.target])).toEqual([[runId, 'local']])
         await expect(onHost.run(loaded, NEVER_ABORTED)).rejects.toThrow(
             `This runner already ran run ${runId} from its run manifest; a run host runs one card per manifest.`
         )
+    })
+
+    it('runs the card on the target it is given rather than the local one', async () => {
+        const opened: string[] = []
+        const closed: TargetRun = {
+            truth: { head: () => Promise.resolve(0), after: (next) => Promise.resolve({ records: [], next }) },
+            fetchRetries: 0,
+            probe: { unfinishedJobs: () => Promise.resolve(0), runningJobs: () => Promise.resolve(0) },
+            groups: [],
+            connect: () => Promise.reject(new Error('the given target refused the connection')),
+            seed: () => Promise.reject(new Error('unreachable')),
+            probes: () => Promise.reject(new Error('unreachable')),
+            offers: () => Promise.reject(new Error('unreachable')),
+            writeLogTails: () => Promise.resolve(),
+            close: () => Promise.resolve(),
+        }
+        const given = createRunner(
+            environment,
+            { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL, ...api.credentials },
+            {
+                target: {
+                    name: 'local',
+                    open: (_loaded, runId) => {
+                        opened.push(runId)
+                        return closed
+                    },
+                },
+            }
+        )
+
+        const result = await given.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        expect(opened).toEqual([result.runId])
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: expect.stringContaining('the given target refused the connection'),
+        })
+    })
+
+    it.each([
+        ['a negative', -1],
+        ['a text', '1'],
+    ])('refuses to start on a run manifest whose reader minimum is %s value', (_story, readerMinAcu) => {
+        const runId = '6b0c8f4e-2d1a-4c55-9a7e-1f3b5d7e9a2c'
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: '2026-01-05T16:00:00.000Z',
+                readerIdleMaxAcu: 2.5,
+                readerMinAcu,
+            })
+        )
+
+        expect(() =>
+            createRunner(environment, { ...processEnv, XDG_CACHE_HOME: cacheHome, SCENARIO_RUN_MANIFEST: manifest })
+        ).toThrow(`The run manifest at ${manifest} has no valid readerMinAcu, so it is not used.`)
     })
 
     it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
@@ -880,7 +941,9 @@ describe('runner through seed, drive and judge', () => {
             load: loadTargets,
             backlog,
             ramp,
+            stopOnBreak,
             bars = [],
+            driveFor = '2s',
         }: {
             replicas?: Profile['replicas']
             parks?: number
@@ -889,7 +952,9 @@ describe('runner through seed, drive and judge', () => {
             load?: Profile['load']
             backlog?: Backlog
             ramp?: LoadedCard['card']['drive']['ramp']
+            stopOnBreak?: true
             bars?: Named[]
+            driveFor?: string
         } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
@@ -898,7 +963,14 @@ describe('runner through seed, drive and judge', () => {
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }], ramp },
+                drive: {
+                    ...SMOKE.card.drive,
+                    for: driveFor,
+                    minOffered: 0.5,
+                    traffic: [{ name: traffic }],
+                    ramp,
+                    stopOnBreak,
+                },
                 invariants,
                 measure: measures,
                 bars,
@@ -1498,15 +1570,10 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
-    it('calls the failover card invalid before its promote when its valve refuses a malformed capacity read', async () => {
-        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
-        pinClockAfterMinuteStart()
-        const cloud = new FakeCloud({
-            now: () => new Date(),
-            failover: { takesMs: 20 },
-            liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
-            shortValuesOf: 'Maximum',
-        })
+    const runOnHost = async (
+        cloud: FakeCloud,
+        loaded: LoadedCard
+    ): Promise<{ result: RunResult; stackName: string }> => {
         const { manifest } = cloud.runCluster(randomUUID())
         const manifestFile = path.join(cacheHome, 'manifest.json')
         writeFileSync(manifestFile, JSON.stringify({ ...manifest, schedules: [] }))
@@ -1514,10 +1581,11 @@ describe('runner through seed, drive and judge', () => {
             aws: cloud,
             failover: {
                 identity: () => Promise.resolve({ instance: cloud.writerOf(manifest.stackName)!, inRecovery: false }),
+                pollMs: 50,
+                observeWithinMs: 2000,
             },
         })
         const onHost: Environment = { ...environmentOf('all'), actuate: (action) => host.actuate(action) }
-
         const result = await createRunner(
             onHost,
             { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
@@ -1525,8 +1593,22 @@ describe('runner through seed, drive and judge', () => {
                 topologyWithinMs: 1000,
                 topologyEveryMs: 10,
             }
-        ).run(shortSmoke([{ ...failover, at: '1s', for: '500ms' }]), NEVER_ABORTED)
+        ).run(loaded, NEVER_ABORTED)
         results.push(result)
+        return { result, stackName: manifest.stackName }
+    }
+
+    it('calls the failover card invalid before its promote when its valve refuses a malformed capacity read', async () => {
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+        pinClockAfterMinuteStart()
+        const cloud = new FakeCloud({
+            now: () => new Date(),
+            failover: { takesMs: 20 },
+            liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
+            shortValuesOf: 'Average',
+        })
+
+        const { result, stackName } = await runOnHost(cloud, shortSmoke([{ ...failover, at: '1s', for: '500ms' }]))
 
         const refusal = expect.stringMatching(
             /^pg\.failover refused: .*-reader's capacity read has \d+ timestamps and \d+ values/
@@ -1538,26 +1620,220 @@ describe('runner through seed, drive and judge', () => {
         })
         expect(result.timeline[0]).not.toHaveProperty('intentAt')
         expect(cloud.promotions).toEqual([])
-        expect(cloud.writerOf(manifest.stackName)).toBe(`${manifest.stackName}-writer`)
+        expect(cloud.writerOf(stackName)).toBe(`${stackName}-writer`)
     }, 30_000)
 
-    it('calls the scale card invalid at its writer CPU bar on a host without a run manifest', async () => {
-        const { bars } = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card
+    it.each([
+        [
+            'ends the drive at once',
+            'AccessDenied',
+            true,
+            /^pg\.failover on cyclotron was not observed: the failover request was refused: .*\(AccessDenied\)/,
+        ],
+        [
+            'drives on',
+            'InternalFailure',
+            false,
+            /^pg\.failover on cyclotron was not observed: failover request ambiguous, not observed: .*\(InternalFailure\)/,
+        ],
+    ])(
+        '%s and calls the failover card invalid when AWS answers its failover request with %s',
+        async (_outcome, code, endsEarly, reason) => {
+            const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card
+                .valves
+            pinClockAfterMinuteStart()
+            const cloud = new FakeCloud({ now: () => new Date(), liveReaderAcu: { maxima: [1, 1, 1, 1, 1] } })
+            cloud.failWhen('failover-db-cluster', () => true, code)
+
+            const { result } = await runOnHost(
+                cloud,
+                shortSmoke([{ ...failover, at: '1s', for: '500ms' }], 'event_email', { driveFor: '10s' })
+            )
+
+            expect({
+                status: result.status,
+                statusReason: result.statusReason,
+                endedEarly: result.units!.offeredUnits < result.units!.targetUnits / 2,
+            }).toEqual({ status: 'invalid', statusReason: expect.stringMatching(reason), endedEarly: endsEarly })
+        },
+        60_000
+    )
+
+    it.each<[string, true | undefined]>([
+        ['the scale card', undefined],
+        ['a ramp that stops on a break', true],
+    ])(
+        'names the writer CPU bar as not judged for %s on a host without a run manifest',
+        async (_story, stopOnBreak) => {
+            const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
+                ({ name }) => name === 'writer_cpu_under'
+            )
+            const ramp = [
+                { scale: 1, for: '1s' },
+                { scale: 2, for: '1s' },
+            ]
+
+            const result = await run('all', [], undefined, { ramp, stopOnBreak, bars: writerCpu, driveFor: '2s' })
+
+            expect({
+                status: result.status,
+                statusReason: result.statusReason,
+                bars: result.bars,
+                steps: result.units?.steps.map(({ scale }) => scale),
+            }).toEqual({
+                status: 'invalid',
+                statusReason: 'writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+                bars: [
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        limit: 70,
+                        passed: false,
+                        unjudged: 'the local stack has no Aurora writer to read CPU from',
+                    },
+                ],
+                steps: [1, 2],
+            })
+        },
+        30_000
+    )
+
+    it('reports the verdict of a live writer CPU read still pending when a ramp that did not converge ends', async () => {
+        const runId = randomUUID()
+        const manifestFile = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifestFile,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            })
+        )
+        let readStarted = (): void => undefined
+        const started = new Promise<void>((resolve) => (readStarted = resolve))
+        let release = (): void => undefined
+        const onHost: Environment = {
+            ...environmentOf('all, leaving one job running'),
+            writerCpu: (_manifest, { startedAt, endedAt }) => {
+                if (endedAt - startedAt > 1500) {
+                    return Promise.resolve([])
+                }
+                readStarted()
+                return new Promise(
+                    (_resolve, reject) => (release = () => reject(new Error('CloudWatch throttled the read')))
+                )
+            },
+        }
+        const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
+            ({ name }) => name === 'writer_cpu_under'
+        )
+
+        const running = createRunner(
+            onHost,
+            { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
+            { topologyWithinMs: 1000, topologyEveryMs: 10 }
+        ).run(
+            shortSmoke([], undefined, {
+                ramp: [
+                    { scale: 1, for: '1s' },
+                    { scale: 2, for: '1s' },
+                ],
+                stopOnBreak: true,
+                bars: writerCpu,
+                driveFor: '2s',
+            }),
+            NEVER_ABORTED
+        )
+        await Promise.race([started, running])
+        release()
+        const result = await running
+        results.push(result)
+
+        expect({ convergence: result.convergence?.converged, ramp: result.ramp }).toEqual({
+            convergence: false,
+            ramp: expect.objectContaining({
+                end: 'harness_limit',
+                reason: expect.stringContaining('CloudWatch throttled the read'),
+            }),
+        })
+    }, 60_000)
+
+    it('ends a ramp that held every step but left a job unfinished with no sustained scale', async () => {
         const ramp = [
             { scale: 1, for: '1s' },
             { scale: 2, for: '1s' },
         ]
 
-        const result = await run('all', [], undefined, { ramp, bars })
-
-        expect(result.status).toBe('invalid')
-        expect(result.bars[0]).toEqual({
-            name: 'writer_cpu_under',
-            unit: '%',
-            limit: 70,
-            passed: false,
-            unjudged: 'no writer CPU reading off a run host in the 1x step',
+        const result = await run('all, leaving one job running', [], undefined, {
+            ramp,
+            stopOnBreak: true,
+            driveFor: '2s',
         })
+
+        expect({ status: result.status, statusReason: result.statusReason, ramp: result.ramp }).toEqual({
+            status: 'failed',
+            statusReason: 'not converged: 1 unfinished jobs, 0 units without a delivery record',
+            ramp: {
+                end: 'broke',
+                sustainedScale: null,
+                broke: {
+                    scale: null,
+                    offeredPerSecond: null,
+                    by: 'convergence',
+                    kind: 'invariant',
+                    at: null,
+                    part: null,
+                },
+                reason: 'the run did not converge, and no step can be blamed for it',
+            },
+        })
+    }, 30_000)
+
+    it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
+        const refusingIntake = http.createServer((_request, response) => {
+            response.writeHead(503).end()
+        })
+        await new Promise<void>((resolve) => refusingIntake.listen(0, '127.0.0.1', resolve))
+        try {
+            const result = await createRunner(
+                environmentOf('none', `http://127.0.0.1:${(refusingIntake.address() as AddressInfo).port}`),
+                env
+            ).run(
+                shortSmoke([], 'transactional_email', {
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '10s' },
+                    ],
+                    driveFor: '20s',
+                    stopOnBreak: true,
+                    load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            const [first, ...later] = result.units?.steps ?? []
+            const ranMs = first.endedAt - first.startedAt
+
+            expect({ ranUnderPlan: ranMs < 10_000, later, result }).toMatchObject({
+                ranUnderPlan: true,
+                later: [],
+                result: {
+                    status: 'invalid',
+                    ramp: {
+                        end: 'harness_limit',
+                        sustainedScale: null,
+                        broke: { scale: 1, kind: 'harness' },
+                        reason: `the load admission failed at the 1x step: the baseline was too short to measure: ${Number((ranMs / 1000).toFixed(1))}s, under the 30s minimum`,
+                    },
+                },
+            })
+        } finally {
+            refusingIntake.closeAllConnections()
+            await new Promise((resolve) => refusingIntake.close(resolve))
+        }
     }, 30_000)
 
     it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {

@@ -9,9 +9,9 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 

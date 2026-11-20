@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from posthog.test.base import NonAtomicBaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.db import connection
@@ -9,7 +9,11 @@ from django.db import connection
 import psycopg
 from psycopg import sql
 
-from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.models.transactional_email_key import (
+    TRANSACTIONAL_EMAIL_KEY_LOCK,
+    TransactionalEmailKey,
+)
 from products.messaging.backend.services import transactional_email
 from products.workflows.backend.facade.models import HogFlow
 
@@ -35,7 +39,7 @@ class TestTransactionalEmailKeyLock(NonAtomicBaseTest):
             with self._other_connection() as other:
                 row = other.execute(
                     "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))",
-                    [f"{transactional_email.TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"],
+                    [f"{TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"],
                 ).fetchone()
                 assert row is not None
                 lock_free_for_another_sender.append(row[0])
@@ -59,4 +63,22 @@ class TestTransactionalEmailKeyLock(NonAtomicBaseTest):
         assert list(
             TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).values_list("key", flat=True)
         ) == ["welcome"]
+        assert not HogFlow.objects.filter(team=self.team, name="receipt").exists()
+
+
+class TestTemplateMadeDuringAFirstSend(BaseTest):
+    def test_a_template_made_with_the_key_while_a_first_send_waited_keeps_the_key(self) -> None:
+        lock = transactional_email._lock_team_keys
+
+        def lock_then_an_import_makes_the_template(team_id: int) -> None:
+            lock(team_id)
+            MessageTemplate.objects.create(team_id=team_id, key="receipt", name="Imported", type="email", content={})
+
+        with (
+            patch.object(transactional_email, "_lock_team_keys", side_effect=lock_then_an_import_makes_the_template),
+            pytest.raises(transactional_email.TemplateNotTransactional),
+        ):
+            transactional_email._code_email_workflow_id(self.team.id, "receipt", sensitive=None)
+
+        assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(key="receipt").exists()
         assert not HogFlow.objects.filter(team=self.team, name="receipt").exists()

@@ -1,9 +1,13 @@
 """Workspace and person checks shared by the onboarding steps and the old installer DM."""
 
+import structlog
+
 from posthog.integrations import IntegrationManager
 from posthog.models import OrganizationMembership, Team
 from posthog.models.organization import Organization
 from posthog.models.user_integration import UserIntegration
+
+logger = structlog.get_logger(__name__)
 
 
 def has_team_github(team_id: int) -> bool:
@@ -62,3 +66,20 @@ def approve_ai_data_processing_for_team(team_id: int) -> bool:
     organization.is_ai_data_processing_approved = True
     organization.save(update_fields=["is_ai_data_processing_approved", "updated_at"])
     return True
+
+
+def out_of_ai_credits(team_id: int) -> bool:
+    """Nobody asked for a work focus, so a team without AI credits gets no run and no message about it."""
+    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the Slack import path
+        is_team_over_ai_credit_budget,
+    )
+
+    api_token = Team.objects.filter(id=team_id).values_list("api_token", flat=True).first()
+    if not api_token:
+        return False
+    try:
+        return is_team_over_ai_credit_budget(api_token)
+    except Exception:
+        # The quota cache reads Redis. An outage must not stop the runs of teams that have credits.
+        logger.warning("slack_app_daily_focus_ai_credit_check_failed", team_id=team_id, exc_info=True)
+        return False

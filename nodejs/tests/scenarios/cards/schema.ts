@@ -51,6 +51,7 @@ export const Card = z
                 traffic: z.array(Named).min(1),
                 minOffered: z.number().min(0).max(1).default(0.9),
                 ramp: z.array(RampStep).min(1).optional(),
+                stopOnBreak: z.literal(true).optional(),
             })
             .strict()
             .refine(
@@ -65,7 +66,15 @@ export const Card = z
                     message: 'each ramp step must scale higher than the one before',
                     path: ['ramp'],
                 }
-            ),
+            )
+            .refine(({ ramp, stopOnBreak }) => !stopOnBreak || (ramp ?? []).every((step) => durationMs(step.for) > 0), {
+                message: 'every step of a ramp that stops on a break must last longer than 0ms',
+                path: ['ramp'],
+            })
+            .refine(({ ramp, stopOnBreak }) => !stopOnBreak || (ramp?.length ?? 0) >= 2, {
+                message: 'stopOnBreak needs a ramp of at least two steps',
+                path: ['stopOnBreak'],
+            }),
         valves: z.array(ValveEntry).default([]),
         convergeWithin: Duration,
         invariants: z.array(Named).min(1),
@@ -74,6 +83,20 @@ export const Card = z
         gates: z.record(z.string(), z.number()).default({}),
     })
     .strict()
+    .refine(({ drive, valves }) => !drive.stopOnBreak || valves.length === 0, {
+        message: 'a stopOnBreak card schedules no valves, since its drive can stop before they are due',
+        path: ['valves'],
+    })
+    .superRefine(({ drive, bars }, context) => {
+        const twice = bars.find(({ name }, i) => bars.findIndex((bar) => bar.name === name) < i)
+        if (drive.stopOnBreak && twice) {
+            context.addIssue({
+                code: 'custom',
+                message: `declare each bar once on a stopOnBreak card; ${twice.name} is declared twice`,
+                path: ['bars'],
+            })
+        }
+    })
 export type Card = z.infer<typeof Card>
 
 export type Step = { scale: number; fromMs: number; toMs: number }

@@ -4,11 +4,11 @@ import { useEffect, useState } from 'react'
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { isMobile } from 'lib/utils/dom'
 import {
     allOperatorsMapping,

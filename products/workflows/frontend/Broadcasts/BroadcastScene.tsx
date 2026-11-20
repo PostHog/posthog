@@ -3,6 +3,7 @@ import { BindLogic, useValues } from 'kea'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { EmailPreviewScopeContext } from 'scenes/hog-functions/email-templater/preview/EmailPreviewScopeContext'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -13,7 +14,7 @@ import {
     NEW_BROADCAST_COMPOSER_OVERRIDE,
     buildNewBroadcastComposerContext,
 } from './broadcastAgentContext'
-import { broadcastPreviewLogic } from './broadcastPreviewLogic'
+import { broadcastPreviewLogic, broadcastPreviewScope } from './broadcastPreviewLogic'
 import { isBroadcastShaped, opensInWizard } from './broadcastsLogic'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
@@ -38,7 +39,9 @@ export function BroadcastScene({ id }: BroadcastWizardLogicProps): JSX.Element {
         <BindLogic logic={broadcastWizardLogic} props={logicProps}>
             <BindLogic logic={broadcastPreviewLogic} props={logicProps}>
                 <BindLogic logic={broadcastTestSendLogic} props={logicProps}>
-                    <BroadcastSceneContent id={logicProps.id} />
+                    <EmailPreviewScopeContext.Provider value={broadcastPreviewScope(logicProps.id)}>
+                        <BroadcastSceneContent id={logicProps.id} />
+                    </EmailPreviewScopeContext.Provider>
                 </BindLogic>
             </BindLogic>
         </BindLogic>

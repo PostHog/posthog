@@ -25,7 +25,6 @@ frontend/src/layout/panel-layout/DatabaseTree/SyncMoreNotice.tsx -> frontend/src
 frontend/src/layout/panel-layout/DatabaseTree/SyncMoreNotice.tsx -> products/data_warehouse/frontend/shared/components/SourceIcon.tsx
 frontend/src/layout/panel-layout/PanelLayout.tsx -> products/conversations/frontend/supportTicketCounterLogic.ts
 frontend/src/layout/panel-layout/ProjectTree/customIconRegistry.tsx -> products/conversations/frontend/components/SupportNavBadge/index.tsx
-frontend/src/layout/panel-layout/ProjectTree/menus/MenuItems.tsx -> frontend/src/scenes/settings/environment/GroupAnalyticsConfig.tsx
 frontend/src/layout/panel-layout/ProjectTree/menus/MenuItems.tsx -> frontend/src/scenes/settings/environment/groupAnalyticsConfigLogic.ts
 frontend/src/layout/panel-layout/ProjectTree/menus/MenuItems.tsx -> frontend/src/scenes/terminal/terminalDockLogic.ts
 frontend/src/layout/panel-layout/ProjectTree/menus/SessionReplayMenuItems.tsx -> frontend/src/scenes/session-recordings/collections/sessionRecordingCollectionsLogic.ts

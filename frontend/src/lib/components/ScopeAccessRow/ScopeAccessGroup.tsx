@@ -5,7 +5,9 @@ import { IconChevronRight, IconLock, IconWarning } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { type ScopePickerGroup, type ScopePickerRow, type ScopeAccessLevel, countScopeRowsByLevel } from 'lib/scopes'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
+import { QuillScopeAccessGroup } from './QuillScopeAccessGroup'
 import { ScopeAccessRow } from './ScopeAccessRow'
 import { ScopeRowsLevelControl } from './ScopeRowsLevelControl'
 
@@ -49,6 +51,22 @@ export function ScopeAccessGroup({
     const panelId = useId()
     const counts = countScopeRowsByLevel(rows)
     const groupSlug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <QuillScopeAccessGroup
+                group={group}
+                open={open}
+                onOpenChange={setOpen}
+                counts={counts}
+                groupSlug={groupSlug}
+                onChangeRow={onChangeRow}
+                onChangeGroup={onChangeGroup}
+                dataAttrPrefix={dataAttrPrefix}
+            />
+        )
+    }
 
     return (
         <div className="border-t border-border first:border-t-0 @container/scope-group">

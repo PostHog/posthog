@@ -95,15 +95,19 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
                 team_id=self.team.id, public_id=UUID(alert_id), destination_ids=[row.id], hog_function_ids=()
             )
 
+        rows_before = [r.id for r in self._rows(alert_id)]
+
         dry_run = self._run()
 
-        assert "dry_run" in dry_run
+        assert f"{{'{'kept_row' if has_row else 'converted'}': 1}}" in dry_run
         assert self._live(hog_function_ids) == 4
-        assert len(self._rows(alert_id)) == (1 if has_row else 0)
+        assert len(rows_before) == (1 if has_row else 0)
 
         self._run("--apply")
 
         (row,) = self._rows(alert_id)
+        if has_row:
+            assert [row.id] == rows_before
         assert sorted(map(str, row.legacy_hog_function_ids)) == sorted(hog_function_ids)
         assert set(row.event_kinds) == {
             AlertEventKind.FIRING,
