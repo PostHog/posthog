@@ -580,14 +580,14 @@ Note: Parsed the botocore service models for cloudwatch (2010-08-01) and logs (2
 
 ## Amazon Selling Partner — gaps
 
-Today (9): `inventory_summaries`, `order_items`, `orders`, `transactions`, `vendor_forecasts`, `vendor_inventory`, `vendor_net_pure_product_margin`, `vendor_real_time_sales`, `vendor_sales`
+Today (13): `fulfillment_orders`, `inbound_plans`, `inventory_summaries`, `order_items`, `orders`, `payouts`, `transactions`, `vendor_forecasts`, `vendor_inventory`, `vendor_net_pure_product_margin`, `vendor_purchase_orders`, `vendor_real_time_sales`, `vendor_sales`
 
 Diffed against: <https://github.com/amzn/selling-partner-api-models/tree/main/models>
 
-- [ ] `Vendor purchase orders (GET /vendor/orders/v1/purchaseOrders)` — vendor PO headers and line items; the vendor\_\* tables only carry report metrics, not the orders themselves (high)
-- [ ] `Payouts (GET /finances/transfers/2024-06-01/payouts)` — settled disbursements to the seller bank account, to reconcile against transactions (high)
-- [ ] `FBA inbound plans (GET /inbound/fba/2024-03-20/inboundPlans)` — shipments sent to Amazon fulfilment centers, with status and item counts (medium)
-- [ ] `Outbound fulfillment orders (GET /fulfillment/outbound/2026-07-04/orders)` — multi-channel fulfillment orders shipped by FBA outside Amazon sales (medium)
+- [x] `Vendor purchase orders (GET /vendor/orders/v1/purchaseOrders)` — vendor PO headers and line items; the vendor\_\* tables only carry report metrics, not the orders themselves (high) → `vendor_purchase_orders` (incremental on `purchaseOrderDate`, 7-day windows over the 6 months Amazon keeps)
+- [x] `Payouts (GET /finances/transfers/2024-06-01/payouts)` — settled disbursements to the seller bank account, to reconcile against transactions (high) → `payouts` (incremental on `creationDate`)
+- [x] `FBA inbound plans (GET /inbound/fba/2024-03-20/inboundPlans)` — shipments sent to Amazon fulfilment centers, with status and item counts (medium) → `inbound_plans` (full refresh; the listing has plan summaries, not item counts)
+- [x] `Outbound fulfillment orders (GET /fulfillment/outbound/2026-07-04/orders)` — multi-channel fulfillment orders shipped by FBA outside Amazon sales (medium) → `fulfillment_orders` (incremental on `statusUpdateTime`)
 - [ ] `Order metrics (GET /sales/v1/orderMetrics)` — Amazon-computed sales, units and average price by day or week, matching Seller Central (medium)
 - [ ] `Invoices (GET /finances/invoices/2026-06-25/invoices)` — invoice headers for fees and charges billed to the seller (medium)
 - [ ] `Replenishment offers (POST /replenishment/2022-11-07/offers/search)` — Subscribe and Save offers with their program settings (low)
