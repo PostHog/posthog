@@ -58,16 +58,6 @@ const rules: GuidanceRule[] = [
         ].join(' '),
     }),
     replayRule({
-        id: 'replay-empty-to-session-range',
-        recordingEnabled: true,
-        matches: (call) => lookupIn(call) === 'session_ids' && !hasArg(call, 'date_from'),
-        text: [
-            'This call passed `session_ids` without `date_from`, so it searched only the last 3 days.',
-            'The date range also applies to a lookup by session ID.',
-            'This result does not show whether older sessions have a recording.',
-        ].join(' '),
-    }),
-    replayRule({
         id: 'replay-empty-to-session-missing',
         recordingEnabled: true,
         matches: (call) => lookupIn(call) === 'session_ids' && hasArg(call, 'date_from'),

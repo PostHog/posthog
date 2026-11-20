@@ -94,6 +94,10 @@ class TestGetRows:
             ("contacts", "/object-query/contacts"),
             ("product_rate_plans", "/object-query/product-rate-plans"),
             ("product_rate_plan_charges", "/object-query/product-rate-plan-charges"),
+            ("rate_plans", "/object-query/rate-plans"),
+            ("rate_plan_charges", "/object-query/rate-plan-charges"),
+            ("invoice_items", "/object-query/invoice-items"),
+            ("order_line_items", "/object-query/order-line-items"),
         ],
     )
     def test_incremental_passes_updateddate_gt_filter(self, endpoint, path):

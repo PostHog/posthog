@@ -51,6 +51,11 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # database would. Self-healing: a slot frees the moment another backend connection closes,
     # which happens continuously under normal load.
     "sorry, too many clients already",
+    # The same connection-limit condition once only the superuser_reserved_connections slots are
+    # left: Postgres raises this instead of the "too many clients" message above when non-superuser
+    # slots are exhausted but a few reserved slots remain. Same self-healing shape, no SQLSTATE at
+    # connect time.
+    "remaining connection slots are reserved",
     # getaddrinfo EAI_AGAIN (errno -3): the resolver could not get an answer now, for example during
     # a short cluster DNS outage. It clears when DNS comes back, so a retry self-heals. EAI_NONAME
     # (errno -2, "Name or service not known") and EAI_NODATA (errno -5, "No address associated with

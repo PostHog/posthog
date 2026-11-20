@@ -11,6 +11,11 @@ class EvalSuggestionKind(models.TextChoices):
     FIX_PROMPT = "fix_prompt", "Fix a prompt"
 
 
+class EvalFixProblem(models.TextChoices):
+    NO_RUNS = "no_runs", "No runs"
+    ONE_OUTCOME = "one_outcome", "One outcome"
+
+
 class EvalSuggestionStatus(models.TextChoices):
     PROPOSED = "proposed", "Proposed"
     ACCEPTED = "accepted", "Accepted"

@@ -8,7 +8,7 @@ import { stashPendingAiPrompt } from '~/layout/ai/pendingAiPrompt'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 
 import type { ComposerPrefillRequest } from 'products/posthog_ai/frontend/api/runner'
-import type { NewSessionSuggestion } from 'products/tasks/frontend/spaces/newSessionSuggestionDefaults'
+import type { NewSessionSuggestion } from 'products/today/frontend/spaces/newSessionSuggestionDefaults'
 
 export const TODAY_HOME_PANEL_ID = 'today-home'
 

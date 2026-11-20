@@ -11,14 +11,19 @@ interface AccountViewTileEditorModalProps {
 
 export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorModalProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
-    const { tileEditor, tileSaving } = useValues(logic)
+    const { tileEditor, tileSaving, tileEditorConfigError, tileEditorConfigErrorLoading } = useValues(logic)
     const { closeTileEditor, saveTileEditor, setTileEditorName, setTileEditorConfig } = useActions(logic)
-    const ConfigEditor = tileEditor?.kind ? getAccountViewComponentByKind(tileEditor.kind)?.ConfigEditor : undefined
+    const definition = tileEditor?.kind ? getAccountViewComponentByKind(tileEditor.kind) : undefined
+    const ConfigEditor = definition?.ConfigEditor
     const saveDisabledReason = tileSaving
         ? 'Saving changes'
         : !tileEditor?.name.trim()
           ? 'Enter a tile name'
-          : undefined
+          : definition?.getConfigError && tileEditorConfigErrorLoading
+            ? 'Validating tile settings'
+            : definition?.getConfigError
+              ? (tileEditorConfigError ?? undefined)
+              : undefined
 
     return (
         <LemonModal
@@ -29,6 +34,7 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
                 }
             }}
             title="Edit tile"
+            width={definition?.configEditorWidth}
             footer={
                 <>
                     <LemonButton
@@ -57,7 +63,7 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
                     value={tileEditor?.name ?? ''}
                     disabled={tileSaving}
                     onChange={setTileEditorName}
-                    onPressEnter={tileSaving ? undefined : saveTileEditor}
+                    onPressEnter={tileSaving || saveDisabledReason ? undefined : saveTileEditor}
                     autoFocus
                     maxLength={400}
                     data-attr="account-view-tile-name"

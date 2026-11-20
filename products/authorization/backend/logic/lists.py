@@ -4,11 +4,7 @@ from typing import Any, cast
 
 from posthog.models import Organization, User
 
-from products.access_control.backend.facade.user_access_control import (
-    RESOURCE_FALLBACK_MAP,
-    UserAccessControl,
-    visible_teams_for_user,
-)
+from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP, UserAccessControl
 
 from ..facade.contracts import Context, ObjectIds, Resource, Subject
 from ..facade.enums import Action, ResourceType
@@ -100,14 +96,30 @@ def _list_projects(session: Session, resource: Resource, action: Action, subject
     if action != Action.VIEW:
         raise NotImplementedError("The current access rules list projects only for VIEW.")
     principal = _principal(session, subject)
+    if resource.organization_id is None:
+        # Without an organization, list the projects of every organization the user belongs to, in one lookup.
+        if not isinstance(principal, User):
+            return _NOTHING
+        team_ids = _user_permissions(session, principal).team_ids_visible_for_user
+        return ObjectIds(ids=frozenset(str(team_id) for team_id in team_ids), complete=True)
     access = _list_access(session, resource, principal)
     if access is None:
         return _NOTHING
     organization = Organization.objects.filter(pk=resource.organization_id).first()
     if organization is None:
         return _NOTHING
-    teams = visible_teams_for_user(organization, access, _user_permissions(session, cast(User, principal)))
-    return ObjectIds(ids=frozenset(str(team_id) for team_id in teams.values_list("pk", flat=True)), complete=True)
+    # The rows of `visible_teams_for_user`, which resolves membership for the projects of every
+    # organization the user is in. This resolves it only for the projects of this organization.
+    permissions = _user_permissions(session, cast(User, principal))
+    teams = access.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+    return ObjectIds(
+        ids=frozenset(
+            str(team.pk)
+            for team in teams.only("pk", "organization_id", "project_id")
+            if permissions.team(team).effective_membership_level is not None
+        ),
+        complete=True,
+    )
 
 
 def _list_access(session: Session, resource: Resource, principal: Any) -> UserAccessControl | None:
@@ -131,7 +143,10 @@ def _list_access(session: Session, resource: Resource, principal: Any) -> UserAc
 
 
 def _organization_access(session: Session, user: User, organization_id: str) -> UserAccessControl:
-    access = session.access.get(_principal_key(user))
+    key = _principal_key(user)
+    if (organization_access := session.organization_access.get((key, organization_id))) is not None:
+        return organization_access
+    access = session.access.get(key)
     # A project list reads the organization's rules, which an instance for any of its teams already holds.
     if access is not None and access.team is not None and str(access.team.organization_id) == organization_id:
         return access

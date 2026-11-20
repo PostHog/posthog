@@ -1,4 +1,4 @@
-"""Smoke test: call GLM-5.2 via Cloudflare Workers AI through the gateway's own
+"""Smoke test: call GLM-5.3 via Cloudflare Workers AI through the gateway's own
 CF anthropic-messages adapter — the exact code path a scout on the claude runtime
 uses (issue 28). Proves CF creds + routing + Anthropic<->OpenAI tool translation.
 
@@ -22,7 +22,7 @@ from llm_gateway.cloudflare import (
 )
 from llm_gateway.config import Settings
 
-GLM_MODEL = "@cf/zai-org/glm-5.2"
+GLM_MODEL = "@cf/zai-org/glm-5.3"
 
 
 async def main() -> None:

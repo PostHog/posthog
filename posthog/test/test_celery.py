@@ -49,6 +49,12 @@ class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
             on_worker_process_shutdown()
         client.metrics.flush.assert_called_once()
 
+    def test_flushes_background_capture_clients(self) -> None:
+        capture_client = MagicMock()
+        with patch.dict("posthog.ph_client._background_clients", {"EU": capture_client}, clear=True):
+            on_worker_process_shutdown()
+        capture_client.flush.assert_called_once()
+
     def test_hung_flush_does_not_stall_worker_recycling(self) -> None:
         release = threading.Event()
         flush_completed = threading.Event()

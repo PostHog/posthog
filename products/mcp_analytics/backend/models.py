@@ -152,3 +152,28 @@ class MCPCustomHarness(UUIDModel, TeamScopedRootMixin):
         constraints = [
             models.UniqueConstraint(fields=["team", "match_pattern"], name="unique_mcp_custom_harness_pattern"),
         ]
+
+
+class MCPAnalyticsWrapped(UUIDModel, TeamScopedRootMixin):
+    class Status(models.TextChoices):
+        READY = "ready", "Ready"
+        INELIGIBLE = "ineligible", "Ineligible"
+        FAILED = "failed", "Failed"
+
+    # A database constraint to posthog_team would lock that hot table when the table is created.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    year = models.PositiveSmallIntegerField()
+    status = models.CharField(max_length=16, choices=Status.choices)
+    schema_version = models.PositiveSmallIntegerField()
+    payload = models.JSONField(default=dict)
+    error_message = models.TextField(blank=True, default="")
+    generated_at = models.DateTimeField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_mcp_analytics_wrapped"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "year"], name="unique_mcp_analytics_wrapped_year"),
+        ]

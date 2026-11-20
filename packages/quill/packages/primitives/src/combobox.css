@@ -213,6 +213,16 @@
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 40%, transparent);
     }
 
+    .quill-combobox__chips[data-disabled] {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    /* The container stays the tooltip trigger, and no chip can take focus and be removed with Backspace. */
+    .quill-combobox__chips[data-disabled] * {
+        pointer-events: none;
+    }
+
     .quill-combobox__chips:has([data-slot='combobox-chip']) {
         padding-inline: 0.175rem;
     }

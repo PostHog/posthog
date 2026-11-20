@@ -125,7 +125,7 @@ export interface surveysLogicValues {
     teamSdkVersions: TeamSdkVersions // surveysSdkLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamLoading: boolean // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     breadcrumbs: Breadcrumb[]
     data: SurveyDataState
     dataLoading: boolean
@@ -231,11 +231,11 @@ export interface surveysLogicActions {
     ) => {
         source: SURVEY_CREATED_SOURCE
         toolOutput: {
-            error?: string | undefined
-            error_message?: string | undefined
-            survey_id?: string | undefined
-            survey_name?: string | undefined
-            survey_type?: string | undefined
+            error?: string
+            error_message?: string
+            survey_id?: string
+            survey_name?: string
+            survey_type?: string
         }
     }
     loadNextPage: () => {
@@ -421,11 +421,11 @@ export interface surveysLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         searchedSurveys: (data: SurveyDataState, searchTerm: string) => Survey[]
         surveysStylingAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         formBuilderEnabled: (enabledFlags: FeatureFlagsSet) => boolean
         globalSurveyAppearanceConfigAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         showSurveysDisabledBanner: (currentTeam: TeamPublicType | TeamType | null) => boolean
     }

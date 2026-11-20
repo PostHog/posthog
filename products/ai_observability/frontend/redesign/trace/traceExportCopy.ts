@@ -1,4 +1,5 @@
 import api, { ApiConfig } from 'lib/api'
+import { NetworkError, isBrowserNetworkFailure } from 'lib/api-error'
 
 import {
     aiObservabilityTracesExportsCreate,
@@ -16,9 +17,19 @@ export const COPY_TRACE_MAX_MEGABYTES = 5
 const COPY_TRACE_MAX_BYTES = COPY_TRACE_MAX_MEGABYTES * 1_000_000
 const FIRST_POLL_DELAY_MS = 500
 const MAX_POLL_DELAY_MS = 3000
+const NETWORK_RETRY_DELAY_MS = 1000
 const CLIPBOARD_TEXT_TYPE = 'text/plain'
 
 export class TraceExportFailedError extends Error {}
+
+/**
+ * A request that did not complete because the connection failed, not because of a fault in our code.
+ * The API client turns a rejected `fetch` into a `NetworkError`. A body stream that fails part way
+ * through is read here and not by the API client, so it keeps the raw browser error, such as WebKit's "Load failed".
+ */
+export function isNetworkFailure(error: unknown): boolean {
+    return error instanceof NetworkError || isBrowserNetworkFailure(error)
+}
 
 export class TraceTooLargeToCopyError extends Error {
     constructor(readonly traceExport: TraceExportApi) {
@@ -94,10 +105,23 @@ async function readCapped(
 
 /**
  * Writes a trace export and reads it back as text, giving up once it passes the copy cap.
+ * After a network failure it starts again one time with a new export.
  *
  * Throws `TraceExportFailedError` when the export fails and `TraceTooLargeToCopyError` past the cap.
  */
-export async function readTraceExportText({
+export async function readTraceExportText(params: ReadTraceExportTextParams): Promise<TraceExportText> {
+    try {
+        return await readTraceExportTextOnce(params)
+    } catch (error) {
+        if (params.signal.aborted || !isNetworkFailure(error)) {
+            throw error
+        }
+        await sleep(NETWORK_RETRY_DELAY_MS, params.signal)
+        return await readTraceExportTextOnce(params)
+    }
+}
+
+async function readTraceExportTextOnce({
     traceId,
     timestampHint,
     signal,

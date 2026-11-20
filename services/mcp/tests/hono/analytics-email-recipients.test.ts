@@ -31,6 +31,7 @@ function makeState(): ResolvedState {
         } as any,
         context: { stateManager: {} } as any,
         useSingleExec: true,
+        splitWrites: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
         oauthClientId: undefined,

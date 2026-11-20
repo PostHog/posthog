@@ -29,6 +29,7 @@ const RUNTIME_ROLE = 'credentials_runtime_export_test'
 
 const entry = (operation: string) => ({
     actor: { deployment: 'cdp-api', caller: 'tests', userId: 7, jti: 'jti-fake-0001', requestId: 'req-1' },
+    occurredAt: new Date(),
     operation,
     outcome: 'ok',
     ownerType: 'team',

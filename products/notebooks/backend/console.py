@@ -123,7 +123,7 @@ class NotebookMarkdownMigrationTool(ConsoleTool):
     key = "notebook-markdown-migration"
     title = "Markdown notebook migration"
     owner = DATA_TOOLS
-    group = "Data"
+    group = "Product data"
     description = "Converts rich notebooks to markdown notebooks in batches, after a preview."
 
     def page(self, request: HttpRequest) -> Page:

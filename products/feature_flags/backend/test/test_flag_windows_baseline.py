@@ -5,7 +5,12 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from posthog.test.persons import create_person
 
-from products.feature_flags.backend.flag_windows.baseline import BaselineHour, HourErrors, error_baseline
+from products.feature_flags.backend.flag_windows.baseline import (
+    BaselineHour,
+    HourErrors,
+    error_baseline,
+    errors_by_hour,
+)
 
 DAY = date(2026, 10, 1)
 MIDNIGHT = datetime(2026, 10, 1, tzinfo=UTC)
@@ -95,3 +100,22 @@ class TestErrorBaseline(ClickhouseTestMixin, BaseTest):
             0: _day(weeks=1, by_hour={0: (_errors(2, 1),)}),
             None: _day(weeks=1, by_hour={0: (_errors(4, 2),)}),
         }
+
+    def test_the_day_itself_counts_each_utc_hour_without_the_earlier_weeks_or_the_next_day(self) -> None:
+        # A day that starts at midnight in the team's timezone would read 04:00 to 04:00 UTC and count other events.
+        self.team.timezone = "America/New_York"
+        self.team.save()
+        self._send(
+            [
+                ("person-1", "$pageview", MIDNIGHT + timedelta(minutes=10), {}),
+                ("person-2", "$exception", MIDNIGHT + timedelta(minutes=20), {}),
+                ("person-1", "$pageview", MIDNIGHT + timedelta(hours=5, minutes=1), {}),
+                ("person-3", "$exception", MIDNIGHT - WEEK + timedelta(minutes=10), {}),
+                ("person-3", "$exception", MIDNIGHT + timedelta(hours=24, minutes=5), {}),
+            ]
+        )
+
+        errors = errors_by_hour(self.team, [None], DAY)
+
+        by_hour = {0: _errors(2, 1), 5: _errors(1, 0)}
+        assert errors == {None: [by_hour.get(hour, NONE) for hour in range(24)]}

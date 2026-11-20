@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Final, Literal
@@ -15,7 +14,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
 
 from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive, force_stream_usage
 from llm_gateway.anthropic_stream import repair_anthropic_stream
-from llm_gateway.config import Settings, _normalize_cost_key
+from llm_gateway.config import Settings
 
 # Modal endpoints are OpenAI-compatible vLLM servers; no native litellm provider.
 _MODAL_LITELLM_PREFIX = "openai/"
@@ -29,25 +28,18 @@ _MODAL_PLACEHOLDER_API_KEY = "modal-proxy-token-auth"
 class ModalModelConfig:
     served_model: str
     api_base_setting: Literal["modal_api_base", "modal_kimi_api_base"]
-    has_cloudflare_fallback: bool = False
 
 
 MODAL_MODELS: Final[dict[str, ModalModelConfig]] = {
-    "@cf/zai-org/glm-5.2": ModalModelConfig(
-        served_model="zai-org/GLM-5.2-FP8",
-        api_base_setting="modal_api_base",
-        has_cloudflare_fallback=True,
-    ),
+    "@cf/zai-org/glm-5.2": ModalModelConfig(served_model="zai-org/GLM-5.2-FP8", api_base_setting="modal_api_base"),
     "moonshotai/kimi-k3": ModalModelConfig(served_model="moonshotai/kimi-k3", api_base_setting="modal_kimi_api_base"),
 }
 
 MODAL_ALLOWED_MODELS: Final[frozenset[str]] = frozenset(MODAL_MODELS)
+# `@cf/` ids keep their Cloudflare-namespaced listing, so only the rest are listed as Modal models.
 MODAL_EXCLUSIVE_MODELS: Final[frozenset[str]] = frozenset(
-    model for model, config in MODAL_MODELS.items() if not config.has_cloudflare_fallback
+    model for model in MODAL_MODELS if not model.startswith("@cf/")
 )
-
-# Salted so the ramp bucket is independent of other user-hash rollouts.
-_TRAFFIC_BUCKET_SALT = "glm-modal-routing"
 
 
 def is_modal_served_model(model: str) -> bool:
@@ -100,33 +92,6 @@ def ensure_modal_model_allowed(model: str) -> None:
                 }
             },
         )
-
-
-def _traffic_bucket(user_key: str) -> float:
-    digest = hashlib.sha256(f"{_TRAFFIC_BUCKET_SALT}:{user_key}".encode()).digest()
-    return int.from_bytes(digest[:8], "big") / 2**64
-
-
-def modal_traffic_fraction(product: str, settings: Settings) -> float:
-    # Legacy product aliases (twig/array) must read their canonical product's fraction.
-    product = _normalize_cost_key(product)
-    # Image scans are server-side calls, but they must move between GLM backends with the Code
-    # runtime they protect so builds do not depend on a backend that Code has already rolled off.
-    if product == "custom_image_scans":
-        product = "posthog_code"
-    return settings.glm_modal_product_traffic_fractions.get(product, settings.glm_modal_traffic_fraction)
-
-
-def should_route_glm_to_modal(model: str, *, product: str, user_key: str, settings: Settings) -> bool:
-    """Env-fraction opt-in; bucketing is per user so a session sticks to one backend."""
-    if not is_modal_served_model(model) or not is_modal_configured(settings):
-        return False
-    fraction = modal_traffic_fraction(product, settings)
-    if fraction <= 0.0:
-        return False
-    if fraction >= 1.0:
-        return True
-    return _traffic_bucket(user_key) < fraction
 
 
 def _inject_modal_params(kwargs: dict[str, Any], api_base: str, modal_key: str, modal_secret: str) -> None:
