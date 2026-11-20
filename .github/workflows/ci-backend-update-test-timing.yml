@@ -81,9 +81,10 @@ jobs:
                   N="${BACKEND_RUNS_TO_AVERAGE:-5}"
                   [[ "$N" =~ ^[1-9][0-9]*$ ]] || N=5
 
-                  # Newest first: successful hourly runs on Depot CI that uploaded a full set of
-                  # timing artifacts (>=38), up to N.
-                  run_ids=$(python3 .github/scripts/depot_backend_runs.py find --trigger schedule \
+                  # Newest first: successful full-matrix scheduled runs on Depot CI that uploaded a
+                  # full set of timing artifacts (>=38), up to N. The core-only hourly runs carry no
+                  # Temporal or Products timing, which the steps below need from the primary.
+                  run_ids=$(python3 .github/scripts/depot_backend_runs.py find --trigger schedule --matrix full \
                       --prefix timing_data- --min-artifacts 38 --limit "$N" | cut -d' ' -f1)
 
                   primary=$(echo "$run_ids" | head -1)

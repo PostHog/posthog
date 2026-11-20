@@ -700,6 +700,9 @@ def test_dispatch_records_the_notification_thread_for_the_report(org_and_team, t
         thread_ts="1700000000.000100",
     ) == str(report.id)
 
+    assert report.slack_threads.get(thread_ts="1700000000.000100").target == target.split("|", 1)[0]
+    assert report.slack_threads.get(thread_ts="1700000000.000100").recipient_user_ids == [reviewer.id]
+
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(("min_priority", "expected_sent"), [(None, 1), ("P1", 0), ("P2", 1)])
@@ -971,6 +974,7 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
         return {"own@example.com": "U_OWN", "fallback@example.com": "U_FALLBACK"}.get(email.strip().lower())
 
     fake_client = MagicMock()
+    fake_client.chat_postMessage.return_value = {"ok": True, "ts": "1700000000.000100", "channel": "CSHARED"}
     capture_context = MagicMock()
     capture = capture_context.__enter__.return_value
     with (
@@ -989,6 +993,8 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
     body = fake_client.chat_postMessage.call_args.kwargs["blocks"][2]["elements"][0]["text"]
     assert "<@U_OWN>" in body and "<@U_FALLBACK>" in body
     assert capture.call_args.kwargs["properties"]["destination"] == "team"
+
+    assert report.slack_threads.get().recipient_user_ids == []
 
 
 @pytest.mark.django_db
@@ -1203,6 +1209,7 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
     mentions = {"shared1@example.com": "U_ONE", "shared2@example.com": "U_TWO"}
 
     fake_client = MagicMock()
+    fake_client.chat_postMessage.return_value = {"ok": True, "ts": "1700000000.000100", "channel": "C123"}
     with (
         patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
         patch(
@@ -1220,6 +1227,8 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
     # The single message still tags both reviewers that resolved to the channel.
     context_text = call_kwargs["blocks"][2]["elements"][0]["text"]
     assert "👤 Suggested owners: <@U_ONE> <@U_TWO>" in context_text
+
+    assert report.slack_threads.get().recipient_user_ids == [user1.id, user2.id]
 
 
 @pytest.mark.django_db

@@ -328,6 +328,9 @@ If you get `Configuration property "enable.ssl.certificate.verification" not sup
 **pyproject.toml parse warnings**
 When running `uv sync`, you may see a `Failed to parse` warning related to `pyproject.toml`. This is usually harmless – if you see the `Activate with:` line at the end, your environment was created successfully.
 
+**Still stuck?**
+PostHog employees can ask in #team-devex, or run `hogli devex:feedback -c bug "<what broke>"` so the team sees it.
+
 ## Option 2: Developing with Coder workspaces (PostHog employees only)
 
 If you work at PostHog and want a remote workspace instead of running the stack on your laptop, see the [internal Coder workspaces guide](https://github.com/PostHog/posthog/blob/master/docs/internal/coder-workspaces.md). We call a Coder workspace a devbox, and `hogli` manages it.

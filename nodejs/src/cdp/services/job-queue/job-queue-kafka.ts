@@ -35,13 +35,15 @@ export class CyclotronJobQueueKafka implements JobQueue {
         private kafkaClientRack: string | undefined,
         private config: Pick<
             CdpConfig,
-            'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA' | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
+            | 'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA'
+            | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
+            | 'CDP_SEALED_STATE_KEYS'
         > &
             Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
         private consumerBatchSize: number
     ) {
         this.sanitizer = createInvocationSanitizer(config)
-        this.stateOpener = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
+        this.stateOpener = new EncryptedFields(config.CDP_SEALED_STATE_KEYS)
     }
 
     /**

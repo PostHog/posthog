@@ -832,7 +832,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()["incremental_fields"][0]["field"]
 
-    def test_incremental_fields_withdraws_a_stored_pick_when_the_flag_turns_off(self):
+    def test_incremental_fields_withdraws_a_stored_pick_when_ai_consent_is_revoked(self):
         schema = self._orders_schema_without_cursor()
         recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
         with (
@@ -843,8 +843,9 @@ class TestExternalDataSchema(APIBaseTest):
         ):
             self._open_sync_form(schema)
             assert self._open_sync_form(schema) == "fecha_actualizacion"
-            with mock.patch(f"{recommender}.feature_enabled_or_false", return_value=False):
-                assert self._open_sync_form(schema) == "created_at"
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save()
+            assert self._open_sync_form(schema) == "created_at"
 
     @parameterized.expand(
         [
@@ -5585,6 +5586,45 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             {"name": "account_id", "data_type": "String", "is_nullable": False, "sensitivity": None}
         ]
         assert response.json()["source_column_metadata_available"] is False
+
+    @parameterized.expand(
+        [
+            ("stale_column_dropped", ["email", "total"], ["email", "total", "id"], 200, ["email", "id"]),
+            ("only_stale_column_left", ["total"], ["total"], 400, ["total"]),
+            ("new_unknown_column_rejected", ["total"], ["email", "nope"], 400, ["total"]),
+        ]
+    )
+    def test_enabled_columns_save_drops_stored_columns_the_source_lost(
+        self,
+        _name: str,
+        stored: list[str],
+        sent: list[str],
+        expected_status: int,
+        expected_enabled_columns: list[str],
+    ):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            enabled_columns=stored,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "integer", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": True},
+                    ]
+                }
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"enabled_columns": sent}
+        )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.enabled_columns == expected_enabled_columns
 
     def test_enabled_columns_rejected_without_source_metadata_for_source_projection(self):
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)

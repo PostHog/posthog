@@ -11,6 +11,7 @@ from unittest import mock
 
 from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import psycopg
@@ -27,7 +28,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags
 from posthog.errors import (
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
@@ -39,7 +40,11 @@ from posthog.errors import (
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
-from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
+from products.endpoints.backend.logic.execution import (
+    EndpointExecutionService,
+    _emit_endpoint_failure_signal,
+    access_method_stamps_execution,
+)
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -2971,3 +2976,12 @@ class TestEndpointFailureSignal(NonAtomicBaseTest):
             _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("boom"), materialized=False, version=1)
 
         self.assertGreaterEqual(mock_client.start_workflow.await_count, 1, "signal never reached the Temporal boundary")
+
+
+class TestAccessMethodStampsExecution(SimpleTestCase):
+    @parameterized.expand(
+        [(method.value, method, method != AccessMethod.SHARING_TOKEN) for method in AccessMethod]
+        + [("session", None, False)]
+    )
+    def test_every_automatable_credential_stamps(self, _name, access_method, expected):
+        assert access_method_stamps_execution(access_method) is expected

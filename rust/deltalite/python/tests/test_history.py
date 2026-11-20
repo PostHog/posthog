@@ -265,3 +265,435 @@ def test_calls_split_by_key_bucket_equal_one_call_when_source_keys_need_a_cast(t
         split.history_upsert(data.filter(pc.equal(buckets, bucket)), *args)
 
     assert read(split_uri) == read(whole_uri)
+
+
+# Late rows and redeliveries (`late_rows`, `dedupe_column`): webhook-shaped versions,
+# ordered by (ts, rank, arr), where `arr` is the arrival sequence and `eid` the event id.
+EVENT_TABLE_SCHEMA = pa.schema(
+    [
+        pa.field("id", pa.string()),
+        pa.field("ts", TS),
+        pa.field("rank", pa.int64()),
+        pa.field("arr", pa.int64()),
+        pa.field("eid", pa.string()),
+        pa.field("payload", pa.string()),
+        pa.field("valid_to", TS),
+        pa.field("p", pa.string(), nullable=False),
+    ]
+)
+EVENT_SOURCE_SCHEMA = pa.schema(
+    [
+        pa.field("id", pa.string()),
+        pa.field("ts", TS),
+        pa.field("rank", pa.int64()),
+        pa.field("arr", pa.int64()),
+        pa.field("eid", pa.string()),
+        pa.field("payload", pa.string()),
+        pa.field("seq", pa.int64()),
+    ]
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class Event:
+    id: str | None
+    ts: datetime
+    rank: int
+    arr: int
+    eid: str
+    payload: str
+    seq: int
+
+
+@dataclasses.dataclass(frozen=True)
+class Version:
+    p: str
+    id: str | None
+    ts: datetime
+    rank: int
+    arr: int
+    eid: str
+    valid_to: datetime | None
+    payload: str
+
+
+@dataclasses.dataclass(frozen=True)
+class LateCounts:
+    committed: bool
+    rows_deduped: int
+    rows_reread: int
+    rows_backwards: int
+    rows_late: int
+    rows_redelivered: int
+    versions_opened: int
+    versions_closed: int
+    versions_split: int
+    chain_rows_closed: int
+
+
+@dataclasses.dataclass(frozen=True)
+class Mode:
+    late_rows: str
+    dedupe: bool
+    order: tuple[str, ...]
+
+
+def _order_of(x: Event | Version, columns: tuple[str, ...]) -> tuple:
+    return tuple(getattr(x, c) for c in columns)
+
+
+def late_model_apply(rows: list[Version], source: list[Event], mode: Mode) -> tuple[list[Version], LateCounts]:
+    """Reference model of `history_upsert` with `late_rows` and `dedupe_column`."""
+    key = lambda x: x.id  # noqa: E731
+    order = lambda x: _order_of(x, mode.order)  # noqa: E731
+    counts = dict.fromkeys(
+        ["deduped", "reread", "backwards", "late", "redelivered", "opened", "closed", "split", "chained"], 0
+    )
+
+    by_key: dict[str | None, list[Event]] = {}
+    for s in source:
+        by_key.setdefault(key(s), []).append(s)
+    out = list(rows)
+    for k, events in by_key.items():
+        events = sorted(events, key=lambda s: (order(s), s.seq))
+        if mode.dedupe:
+            first: list[Event] = []
+            for s in events:
+                if any(f.eid == s.eid for f in first):
+                    counts["redelivered"] += 1
+                else:
+                    first.append(s)
+            events = first
+        else:
+            best: dict[tuple, Event] = {}
+            for s in events:
+                best[order(s)] = s  # sorted by seq, so the last wins
+            counts["deduped"] += len(events) - len(best)
+            events = sorted(best.values(), key=lambda s: (order(s), s.seq))
+
+        old = sorted(
+            (r for r in out if r.id == k),
+            key=lambda r: (order(r), r.valid_to is None, r.valid_to or r.ts),
+        )
+        if mode.dedupe:
+            held = {r.eid for r in old}
+            counts["redelivered"] += sum(s.eid in held for s in events)
+            events = [s for s in events if s.eid not in held]
+        else:
+            held_orders = {order(r) for r in old}
+            counts["reread"] += sum(order(s) in held_orders for s in events)
+            events = [s for s in events if order(s) not in held_orders]
+        open_row = next((r for r in reversed(old) if r.valid_to is None), None)
+        new: list[tuple[Event, bool]] = []
+        for s in events:
+            late = open_row is not None and order(s) < order(open_row)
+            if not late:
+                new.append((s, False))
+            elif mode.late_rows == "insert":
+                counts["late"] += 1
+                new.append((s, True))
+            else:
+                counts["backwards"] += 1
+        if not new:
+            continue
+
+        elems: list[tuple] = [(order(r), 0, i, r, False) for i, r in enumerate(old)]
+        elems += [(order(s), 1, i, s, late) for i, (s, late) in enumerate(new)]
+        elems.sort(key=lambda e: (e[0], e[1], e[2]))
+        for this, following in zip(elems, [*elems[1:], None]):
+            item, is_new, late = this[3], this[1] == 1, this[4]
+            if is_new:
+                to = following[3].ts if following else None
+                out.append(
+                    Version(
+                        month(to) if to else CURRENT, item.id, item.ts, item.rank, item.arr, item.eid, to, item.payload
+                    )
+                )
+                if following is None:
+                    counts["opened"] += 1
+                elif not late:
+                    counts["chained"] += 1
+            elif following is not None and following[1] == 1:
+                to = following[3].ts
+                if item.valid_to is None:
+                    counts["closed"] += 1
+                elif item.valid_to == to:
+                    continue
+                else:
+                    counts["split"] += 1
+                out.remove(item)
+                out.append(dataclasses.replace(item, valid_to=to, p=month(to)))
+    committed = counts["opened"] + counts["late"] > 0
+    return sorted(out, key=_version_order), LateCounts(
+        committed,
+        counts["deduped"],
+        counts["reread"],
+        counts["backwards"],
+        counts["late"],
+        counts["redelivered"],
+        counts["opened"],
+        counts["closed"],
+        counts["split"],
+        counts["chained"],
+    )
+
+
+def _version_order(r: Version) -> tuple:
+    return (r.p, r.id or "", r.id is None, r.ts, r.rank, r.arr, r.eid, r.valid_to or r.ts, r.payload)
+
+
+def read_versions(uri: str) -> list[Version]:
+    t = deltalake.DeltaTable(uri).to_pyarrow_table()
+    return sorted(
+        (
+            Version(d["p"], d["id"], d["ts"], d["rank"], d["arr"], d["eid"], d["valid_to"], d["payload"])
+            for d in t.to_pylist()
+        ),
+        key=_version_order,
+    )
+
+
+def event_source(rows: list[Event]) -> pa.Table:
+    return pa.Table.from_pylist([dataclasses.asdict(r) for r in rows], schema=EVENT_SOURCE_SCHEMA)
+
+
+def create_events(tmp_path: Path) -> str:
+    uri = str(tmp_path / "events")
+    deltalake.DeltaTable.create(uri, schema=EVENT_TABLE_SCHEMA, partition_by=["p"])
+    return uri
+
+
+def late_upsert(uri: str, rows: list[Event], mode: Mode, **kwargs) -> deltalite.HistoryUpsertStats:
+    return deltalite.DeltaLiteTable.open(uri).history_upsert(
+        event_source(rows),
+        ["id"],
+        list(mode.order),
+        "ts",
+        "valid_to",
+        "p",
+        CURRENT,
+        "seq",
+        late_rows=mode.late_rows,
+        dedupe_column="eid" if mode.dedupe else None,
+        **kwargs,
+    )
+
+
+def late_counts(stats: deltalite.HistoryUpsertStats) -> LateCounts:
+    return LateCounts(
+        stats.committed,
+        stats.rows_deduped,
+        stats.rows_reread,
+        stats.rows_backwards,
+        stats.rows_late,
+        stats.rows_redelivered,
+        stats.versions_opened,
+        stats.versions_closed,
+        stats.versions_split,
+        stats.chain_rows_closed,
+    )
+
+
+WEBHOOK = Mode("insert", True, ("ts", "rank", "arr"))
+MODES = {
+    "webhook": WEBHOOK,
+    "insert_dedupe_time_only": Mode("insert", True, ("ts",)),
+    "insert_without_dedupe": Mode("insert", False, ("ts",)),
+    "drop_with_dedupe": Mode("drop", True, ("ts", "rank", "arr")),
+}
+
+
+@pytest.mark.parametrize("mode_name", sorted(MODES))
+@pytest.mark.parametrize("seed", range(40))
+def test_late_rows_match_the_reference_model_over_random_calls(tmp_path, seed, mode_name):
+    mode = MODES[mode_name]
+    rng = random.Random(f"{mode_name}-{seed}")
+    uri = create_events(tmp_path)
+    keys = [rng.choice(["a", "b", "c", None]) for _ in range(rng.randint(1, 5))]
+    instants = rng.sample(INSTANTS, rng.randint(2, len(INSTANTS)))
+    small_files = rng.random() < 0.5
+    expected: list[Version] = []
+    delivered: list[Event] = []
+    arrival = 0
+    previous: list[Event] = []
+    for call in range(rng.randint(2, 6)):
+        if previous and rng.random() < 0.2:
+            source = previous  # a re-run of the same input
+        else:
+            source = []
+            for _ in range(rng.randint(0, 12)):
+                arrival += 1
+                if delivered and rng.random() < 0.25:
+                    again = rng.choice(delivered)
+                    source.append(dataclasses.replace(again, arr=arrival, seq=arrival))
+                else:
+                    source.append(
+                        Event(
+                            rng.choice(keys),
+                            rng.choice(instants),
+                            rng.randint(0, 2),
+                            arrival,
+                            f"e{arrival}",
+                            f"s{seed}-c{call}-{arrival}",
+                            arrival,
+                        )
+                    )
+            delivered.extend(source)
+        expected, counts = late_model_apply(expected, source, mode)
+        stats = late_upsert(
+            uri, source, mode, **({"target_file_size": 2048, "read_batch_size": 3} if small_files else {})
+        )
+        assert late_counts(stats) == counts, f"call {call}: {stats!r}"
+        assert read_versions(uri) == expected, f"call {call}"
+        if source is previous:
+            assert not stats.committed
+        previous = source
+
+
+def _event(id: str, ts: str, eid: str, *, arr: int, rank: int = 0) -> Event:
+    return Event(id, datetime.fromisoformat(ts).replace(tzinfo=UTC), rank, arr, eid, eid, arr)
+
+
+def _version(id: str, ts: str, to: str | None, eid: str, *, arr: int, rank: int = 0) -> Version:
+    start = datetime.fromisoformat(ts).replace(tzinfo=UTC)
+    end = datetime.fromisoformat(to).replace(tzinfo=UTC) if to else None
+    return Version(month(end) if end else CURRENT, id, start, rank, arr, eid, end, eid)
+
+
+def test_a_late_event_splits_the_version_that_covers_it_across_months(tmp_path):
+    uri = create_events(tmp_path)
+    late_upsert(uri, [_event("k", "2026-10-10", "e1", arr=1), _event("k", "2026-12-12", "e2", arr=2)], WEBHOOK)
+
+    stats = late_upsert(uri, [_event("k", "2026-11-11", "e3", arr=3)], WEBHOOK)
+
+    assert (stats.rows_late, stats.versions_split, stats.versions_opened) == (1, 1, 0)
+    assert read_versions(uri) == sorted(
+        [
+            _version("k", "2026-10-10", "2026-11-11", "e1", arr=1),
+            _version("k", "2026-11-11", "2026-12-12", "e3", arr=3),
+            _version("k", "2026-12-12", None, "e2", arr=2),
+        ],
+        key=_version_order,
+    )
+    assert not late_upsert(uri, [_event("k", "2026-11-11", "e3", arr=4)], WEBHOOK).committed
+
+
+def test_a_late_event_older_than_the_first_version_ends_at_it(tmp_path):
+    uri = create_events(tmp_path)
+    late_upsert(uri, [_event("k", "2026-10-10", "e1", arr=1)], WEBHOOK)
+
+    stats = late_upsert(uri, [_event("k", "2026-08-08", "e0", arr=2)], WEBHOOK)
+
+    assert (stats.rows_late, stats.versions_split) == (1, 0)
+    assert read_versions(uri) == sorted(
+        [_version("k", "2026-08-08", "2026-10-10", "e0", arr=2), _version("k", "2026-10-10", None, "e1", arr=1)],
+        key=_version_order,
+    )
+
+
+def test_two_events_at_one_instant_are_two_versions_and_the_earlier_arrival_is_zero_length(tmp_path):
+    uri = create_events(tmp_path)
+    late_upsert(uri, [_event("k", "2026-10-10", "e1", arr=1)], WEBHOOK)
+
+    stats = late_upsert(uri, [_event("k", "2026-10-10", "e2", arr=2)], WEBHOOK)
+
+    assert (stats.rows_reread, stats.versions_closed, stats.versions_opened) == (0, 1, 1)
+    assert read_versions(uri) == sorted(
+        [_version("k", "2026-10-10", "2026-10-10", "e1", arr=1), _version("k", "2026-10-10", None, "e2", arr=2)],
+        key=_version_order,
+    )
+
+
+def test_drop_mode_without_options_keeps_the_incremental_rules(tmp_path):
+    uri = create_events(tmp_path)
+    mode = Mode("drop", False, ("ts",))
+    late_upsert(uri, [_event("k", "2026-10-10", "e1", arr=1)], mode)
+
+    stats = late_upsert(uri, [_event("k", "2026-09-09", "e0", arr=2), _event("k", "2026-10-10", "e2", arr=3)], mode)
+
+    assert (stats.rows_backwards, stats.rows_reread, stats.committed) == (1, 1, False)
+
+
+def test_rejects_an_unknown_late_rows_value_and_a_null_event_id(tmp_path):
+    uri = create_events(tmp_path)
+    with pytest.raises(deltalite.DeltaLiteError, match="late_rows"):
+        late_upsert(uri, [_event("k", "2026-10-10", "e1", arr=1)], Mode("keep", True, ("ts",)))
+    data = event_source([_event("k", "2026-10-10", "e1", arr=1)]).set_column(4, "eid", pa.array([None], pa.string()))
+    with pytest.raises(deltalite.DeltaLiteError, match="dedupe"):
+        deltalite.DeltaLiteTable.open(uri).history_upsert(
+            data, ["id"], ["ts"], "ts", "valid_to", "p", CURRENT, "seq", late_rows="insert", dedupe_column="eid"
+        )
+
+
+MAIN_SCHEMA = pa.schema(
+    [
+        pa.field("id", pa.string()),
+        pa.field("ts", TS),
+        pa.field("rank", pa.int64()),
+        pa.field("arr", pa.int64()),
+        pa.field("payload", pa.string()),
+    ]
+)
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_the_upsert_order_guard_keeps_the_newest_row_per_key(tmp_path, seed):
+    rng = random.Random(f"guard-{seed}")
+    uri = str(tmp_path / "main")
+    deltalake.DeltaTable.create(uri, schema=MAIN_SCHEMA)
+    expected: dict[str | None, dict] = {}
+    nulls: list[dict] = []
+    arrival = 0
+    for call in range(rng.randint(2, 6)):
+        keys = rng.sample(["a", "b", "c", "d", "e", None], rng.randint(1, 6))
+        batch = []
+        for k in keys:
+            arrival += 1
+            batch.append(
+                {
+                    "id": k,
+                    "ts": rng.choice(INSTANTS[:4]),
+                    "rank": rng.randint(0, 1),
+                    "arr": arrival,
+                    "payload": f"c{call}-{k}",
+                }
+            )
+        if rng.random() < 0.3:
+            # A late redelivery: an older arrival of a row the table already holds.
+            held = [r for r in expected.values() if r["arr"] < arrival]
+            if held:
+                old = dict(rng.choice(held), payload="redelivered")
+                batch = [r for r in batch if r["id"] != old["id"]] + [old]
+        skipped = 0
+        for row in batch:
+            if row["id"] is None:
+                nulls.append(row)
+                continue
+            stored = expected.get(row["id"])
+            order = (row["ts"], row["rank"], row["arr"])
+            if stored is not None and order < (stored["ts"], stored["rank"], stored["arr"]):
+                skipped += 1
+            else:
+                expected[row["id"]] = row
+        stats = deltalite.DeltaLiteTable.open(uri).upsert(
+            pa.Table.from_pylist(batch, schema=MAIN_SCHEMA),
+            ["id"],
+            order_column=["ts", "rank", "arr"],
+            **({"target_file_size": 1024, "read_batch_size": 2} if seed % 2 else {}),
+        )
+        assert stats.rows_older_than_main == skipped, f"call {call}"
+        assert stats.rows_updated + stats.rows_inserted + skipped == len(batch)
+        got = sorted(deltalake.DeltaTable(uri).to_pyarrow_table().to_pylist(), key=lambda r: (r["id"] or "", r["arr"]))
+        want = sorted([*expected.values(), *nulls], key=lambda r: (r["id"] or "", r["arr"]))
+        assert got == want, f"call {call}"
+
+
+def test_the_upsert_order_guard_refuses_a_null_order_value_before_any_commit(tmp_path):
+    uri = str(tmp_path / "main")
+    strict = pa.schema([f.with_nullable(False) if f.name == "ts" else f for f in MAIN_SCHEMA])
+    deltalake.DeltaTable.create(uri, schema=strict)
+    data = pa.Table.from_pylist([{"id": "a", "ts": None, "rank": 0, "arr": 1, "payload": "x"}], schema=MAIN_SCHEMA)
+    table = deltalite.DeltaLiteTable.open(uri)
+    with pytest.raises(deltalite.DeltaLiteError, match="null"):
+        table.upsert(data, ["id"], order_column="ts")
+    assert deltalake.DeltaTable(uri).version() == 0, "no nullability relax commit"

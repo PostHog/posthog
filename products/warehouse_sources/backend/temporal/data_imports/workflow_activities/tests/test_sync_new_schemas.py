@@ -1,16 +1,27 @@
+import uuid
 import contextlib
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.db import OperationalError
+
+from parameterized import parameterized
 
 from posthog.credentials_service.errors import CredentialsServiceUnreachableError, SecretMissingError
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.models.external_data_schema import SchemaSyncResult
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    SchemaSyncResult,
+    persist_schema_metadata,
+    update_sync_type_config_keys,
+)
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import sql_schema_metadata
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import sync_new_schemas as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
@@ -377,3 +388,127 @@ def test_a_failed_metadata_write_leaves_discovery_successful(probe_error, merge_
 
     mocks["sync_old_schemas_with_new_schemas"].assert_called_once()
     assert mocks["objects"].get.return_value.merge_connection_metadata.call_count == expected_merge_calls
+
+
+_ORDERS_COLUMNS = [("id", "integer", False), ("total", "numeric", True)]
+
+
+class TestDiscoveryStoresColumnMetadata(BaseTest):
+    def _make_source(self, **kwargs) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+            **kwargs,
+        )
+
+    def _discover(self, source: ExternalDataSource, columns: list[tuple[str, str, bool]]) -> ExternalDataSchema:
+        source_impl = mock.MagicMock()
+        source_impl.in_use_oauth_slot.return_value = None
+        source_impl.get_server_metadata.return_value = {}
+        source_impl.get_schemas.return_value = [
+            SourceSchema(
+                name="orders",
+                supports_incremental=False,
+                supports_append=False,
+                columns=columns,
+                source_schema="public",
+                source_table_name="orders",
+                detected_primary_keys=["id"],
+            )
+        ]
+        with (
+            mock.patch.object(module, "close_old_connections"),
+            mock.patch.object(module.SourceRegistry, "get_source", return_value=source_impl),
+        ):
+            sync_new_schemas_activity(SyncNewSchemasActivityInputs(source_id=str(source.id), team_id=self.team.pk))
+        return ExternalDataSchema.objects.get(source=source, name="orders")
+
+    @parameterized.expand(
+        [
+            ("synced", {}, True),
+            ("synced_and_live_queryable", {"direct_query_enabled": True}, True),
+            ("direct", {"access_method": ExternalDataSource.AccessMethod.DIRECT}, False),
+        ]
+    )
+    def test_columns_are_stored_for_a_table_found_after_creation(
+        self, _name: str, source_kwargs: dict, expect_metadata: bool
+    ) -> None:
+        schema = self._discover(self._make_source(**source_kwargs), _ORDERS_COLUMNS)
+
+        config = schema.sync_type_config or {}
+        if not expect_metadata:
+            assert "schema_metadata" not in config
+            return
+        assert config["schema_metadata"]["columns"] == [
+            {"name": "id", "data_type": "integer", "is_nullable": False},
+            {"name": "total", "data_type": "numeric", "is_nullable": True},
+        ]
+        assert (config["schema_metadata"]["source_schema"], config["schema_metadata"]["source_table_name"]) == (
+            "public",
+            "orders",
+        )
+        assert config["primary_key_columns"] == ["id"]
+
+    @parameterized.expand(
+        [
+            ("unchanged_upstream", _ORDERS_COLUMNS, False),
+            ("column_added_upstream", [*_ORDERS_COLUMNS, ("note", "text", True)], True),
+        ]
+    )
+    def test_a_later_run_writes_only_when_columns_changed(
+        self, _name: str, later_columns: list[tuple[str, str, bool]], expect_write: bool
+    ) -> None:
+        source = self._make_source()
+        first = self._discover(source, _ORDERS_COLUMNS)
+
+        later = self._discover(source, later_columns)
+
+        assert (later.updated_at != first.updated_at) is expect_write
+        assert [c["name"] for c in later.sync_type_config["schema_metadata"]["columns"]] == [
+            c[0] for c in later_columns
+        ]
+
+    @parameterized.expand(
+        [
+            ("one_selected_column_dropped", {}, ["id", "total"], ["id"]),
+            ("last_selected_column_dropped", {}, ["total"], ["total"]),
+            (
+                "last_selected_column_dropped_incremental_field_survives",
+                {"sync_type": ExternalDataSchema.SyncType.INCREMENTAL},
+                ["total"],
+                [],
+            ),
+        ]
+    )
+    def test_a_dropped_column_leaves_the_selection(
+        self,
+        _name: str,
+        schema_fields: dict,
+        enabled_columns: list[str],
+        expected_enabled_columns: list[str],
+    ) -> None:
+        source = self._make_source()
+        schema_id = self._discover(source, _ORDERS_COLUMNS).id
+        ExternalDataSchema.objects.filter(id=schema_id).update(enabled_columns=enabled_columns, **schema_fields)
+        update_sync_type_config_keys(schema_id, self.team.pk, updates={"incremental_field": "id"})
+
+        schema = self._discover(source, [("id", "integer", False)])
+
+        assert schema.enabled_columns == expected_enabled_columns
+
+    def test_a_key_written_after_the_row_was_read_survives(self) -> None:
+        source = self._make_source()
+        schema = ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name="orders")
+        stale = ExternalDataSchema.objects.get(id=schema.id)
+        update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_position": "0/16B3748"})
+
+        persist_schema_metadata(stale, schema_metadata=sql_schema_metadata(_ORDERS_COLUMNS))
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_position"] == "0/16B3748"
+        assert schema.sync_type_config["schema_metadata"]["columns"][0]["name"] == "id"

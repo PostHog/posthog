@@ -105,6 +105,28 @@ class SubjectAccessControl(UserAccessControl):
         )
         return next((ac.access_level for ac in self._get_access_controls(filters) if self._is_subject_row(ac)), None)
 
+    def deciding_row(self, access: ResolvedAccess) -> Optional[_AccessControl]:
+        """The member or role row that decided `access`, or None when no such row did.
+
+        The walks report which kind of subject decided (`source_subject`) but not which row. The
+        deciding row is re-picked from the same cached pool: the highest row of that kind in the
+        scope the walk reported.
+        """
+        if access.source_subject not in ("role", "member"):
+            return None
+        if access.source in ("object", "parent_object"):
+            if access.source_resource_id is None:
+                return None
+            filters = self._access_controls_filters_for_object(access.source_resource, access.source_resource_id)
+        elif access.source in ("resource", "parent_resource"):
+            filters = self._access_controls_filters_for_resource(access.source_resource)
+        else:
+            return None
+        rows = [row for row in self._get_access_controls(filters) if self._row_subject(row) == access.source_subject]
+        if not rows:
+            return None
+        return self._highest_access_from_rows(access.source_resource, rows)
+
     def inherited_access_for_object(self, obj: Model) -> Optional[ResolvedAccess]:
         """The access the subject would have if their override on this object were removed — the
         inherited level the UI shows next to "No override".
@@ -144,6 +166,10 @@ class SubjectAccessControl(UserAccessControl):
             for ac in self._get_access_controls(self._access_controls_filters_for_object(resource, target.object_id))
             if not self._is_subject_row(ac)
         ]
+        if self._is_most_specific_access_control_enabled:
+            return self._most_specific_object_access_from_rows(
+                resource, rows, fallback_parent_id=target.fallback_parent_id
+            )
         return self._object_access_level_from_rows(resource, rows, fallback_parent_id=target.fallback_parent_id)
 
     def inherited_access_for_resource(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
@@ -293,7 +319,7 @@ class SubjectAccessControl(UserAccessControl):
     def is_organization_admin(self) -> bool:
         if _suspend_org_admin.get():
             return False
-        return bool(self._subject_member and self._subject_member.level >= OrganizationMembership.Level.ADMIN)
+        return bool(self._subject_member and self._subject_member.effective_level >= OrganizationMembership.Level.ADMIN)
 
 
 def seeded_member_subjects(team: Team, memberships: Sequence[OrganizationMembership]) -> Iterator[SubjectAccessControl]:
@@ -470,6 +496,6 @@ def restricted_visible_membership_ids(organization: Organization, user: User) ->
     membership = OrganizationMembership.objects.filter(organization=organization, user_id=user.id).first()
     if membership is None:
         return set()
-    if membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return None
     return get_project_scoped_visible_membership_ids(organization, membership)

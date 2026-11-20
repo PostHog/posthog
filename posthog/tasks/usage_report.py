@@ -1,6 +1,7 @@
 import os
 import gzip
 import json
+import time
 import uuid
 import base64
 import logging
@@ -44,6 +45,7 @@ from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.ph_client import ph_scoped_capture
+from posthog.redis import get_celery_broker_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.ai_observability_usage_report import LLM_PROMPT_FETCHED_EVENT
@@ -149,6 +151,8 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     # Written by self-driving anomaly scoring, not sent by the customer.
     "$anomaly_score",
     "$anomaly_score_shadow",
+    # Written by Replay Vision once per observation, which is already billed in vision credits.
+    "$recording_observed",
 ]
 
 
@@ -210,6 +214,44 @@ USAGE_REPORT_PARENT_TASK_KWARGS = {
     "acks_late": False,
     "reject_on_worker_lost": False,
 }
+
+# The parent publishes far faster than the workers consume, so it waits rather than parking the
+# whole run in the broker. The workers set the finish time either way.
+USAGE_REPORT_QUEUE_MAX_DEPTH = 20_000
+USAGE_REPORT_QUEUE_CHECK_INTERVAL = 1_000
+USAGE_REPORT_QUEUE_POLL_SECONDS = 5
+USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS = 600
+# Bounds the whole run, so slow workers can't hold back the billing sends in the same loop.
+USAGE_REPORT_QUEUE_MAX_TOTAL_WAIT_SECONDS = 2 * 60 * 60
+
+
+def _wait_for_usage_reports_queue(max_wait_seconds: float) -> bool:
+    """Wait until the usage_reports queue is at or below USAGE_REPORT_QUEUE_MAX_DEPTH.
+
+    Returns False if the depth can't be read or stays above the limit for max_wait_seconds.
+    The caller then stops waiting and publishes the rest of the run straight away, as it did
+    before pacing.
+    """
+    deadline = time.monotonic() + max_wait_seconds
+    while True:
+        try:
+            depth = get_celery_broker_client().llen(CeleryQueue.USAGE_REPORTS.value)
+        except Exception as err:
+            logger.warning("Could not read the usage_reports queue depth, no longer pacing", error=str(err))
+            return False
+
+        if depth <= USAGE_REPORT_QUEUE_MAX_DEPTH:
+            return True
+
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "usage_reports queue did not drain in time, no longer pacing",
+                depth=depth,
+                max_depth=USAGE_REPORT_QUEUE_MAX_DEPTH,
+            )
+            return False
+
+        time.sleep(USAGE_REPORT_QUEUE_POLL_SECONDS)
 
 
 # Mutable: `_add_team_report_to_org_reports` accumulates each team's counters into the org's
@@ -409,6 +451,8 @@ class UsageReportCounters:
     unreal_events_count_in_period: int
     roblox_events_count_in_period: int
     rust_events_count_in_period: int
+    rust_ffi_events_count_in_period: int
+    electron_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
 
@@ -1144,6 +1188,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-unreal", None, "unreal_events"),
         ("posthog-roblox", None, "roblox_events"),
         ("posthog-rs", None, "rust_events"),
+        ("posthog-rs-ffi", None, "rust_ffi_events"),
+        ("posthog-electron", None, "electron_events"),
     )
     tracked_libs = tuple(
         dict.fromkeys(
@@ -1233,6 +1279,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "unreal_events": {},
             "roblox_events": {},
             "rust_events": {},
+            "rust_ffi_events": {},
+            "electron_events": {},
         }
 
         # Process each result set
@@ -3366,6 +3414,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_unreal_events_count_in_period": all_metrics["unreal_events"],
         "teams_with_roblox_events_count_in_period": all_metrics["roblox_events"],
         "teams_with_rust_events_count_in_period": all_metrics["rust_events"],
+        "teams_with_rust_ffi_events_count_in_period": all_metrics["rust_ffi_events"],
+        "teams_with_electron_events_count_in_period": all_metrics["electron_events"],
         "teams_with_heatmap_count_in_period": get_teams_with_heatmap_count_in_period(period_start, period_end),
         "teams_with_zero_duration_recording_count_in_period": get_teams_with_zero_duration_recording_count_in_period(
             period_start, period_end
@@ -3775,6 +3825,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         unreal_events_count_in_period=all_data["teams_with_unreal_events_count_in_period"].get(team.id, 0),
         roblox_events_count_in_period=all_data["teams_with_roblox_events_count_in_period"].get(team.id, 0),
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
+        rust_ffi_events_count_in_period=all_data["teams_with_rust_ffi_events_count_in_period"].get(team.id, 0),
+        electron_events_count_in_period=all_data["teams_with_electron_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_ingested_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_overage_bytes_in_period=ai_overage_bytes_in_period,
@@ -4194,6 +4246,9 @@ def send_all_org_usage_reports(
 
     total_orgs = len(org_reports)
     total_orgs_sent = 0
+    capture_tasks_queued = 0
+    pace_capture_tasks = True
+    queue_wait_seconds = 0.0
 
     logger.info("Sending usage reports to billing")
     queue_time_start = datetime.now()
@@ -4223,12 +4278,23 @@ def send_all_org_usage_reports(
             # First capture the events to PostHog
             if not skip_capture_event:
                 try:
+                    if pace_capture_tasks and capture_tasks_queued % USAGE_REPORT_QUEUE_CHECK_INTERVAL == 0:
+                        wait_start = time.monotonic()
+                        pace_capture_tasks = _wait_for_usage_reports_queue(
+                            max_wait_seconds=min(
+                                USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS,
+                                USAGE_REPORT_QUEUE_MAX_TOTAL_WAIT_SECONDS - queue_wait_seconds,
+                            )
+                        )
+                        queue_wait_seconds += time.monotonic() - wait_start
+
                     at_date_str = at_date.isoformat() if at_date else None
                     capture_report.delay(
                         organization_id=organization_id,
                         full_report_dict=full_report_dict,
                         at_date=at_date_str,
                     )
+                    capture_tasks_queued += 1
                 except Exception as capture_err:
                     logger.exception(
                         f"Failed to capture report for organization {organization_id}",
@@ -4260,6 +4326,7 @@ def send_all_org_usage_reports(
             "total_orgs_sent": total_orgs_sent,
             "query_time": query_time_duration,
             "queue_time": queue_time_duration,
+            "queue_wait_time": queue_wait_seconds,
             "total_time": query_time_duration + queue_time_duration,
             "region": get_instance_region(),
             **filtering_properties,

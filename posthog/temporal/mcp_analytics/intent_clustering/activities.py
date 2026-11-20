@@ -31,7 +31,7 @@ from temporalio import activity
 
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.mcp_analytics.intent_clustering.metrics import record_clusters_generated, record_intents_analyzed
 from posthog.temporal.mcp_analytics.intent_clustering.models import (
@@ -116,7 +116,10 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 recurring = await database_sync_to_async(intent_clustering.fetch_recurring_intents)(
                     team, lookback_days=inputs.lookback_days
                 )
-                recurring_texts = {r.intent_text for r in recurring}
+                # The same automation step worded differently becomes one entry; the
+                # exclusion set still carries every wording.
+                recurring = await intent_clustering.merge_reworded_recurring(team, recurring)
+                recurring_texts = intent_clustering.recurring_exclusion_texts(recurring)
 
                 # Stratified sampling: bucket intent-bearing sessions per tool
                 # so every tool keeps a floor, instead of a uniform sample that
@@ -151,7 +154,10 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                     max_total_sessions=intent_clustering.MAX_CORPUS_SESSIONS,
                 )
 
-                call_rows = await database_sync_to_async(intent_clustering.fetch_session_calls)(
+                # The chunked fetches run on the thread pool: on the shared database
+                # thread, concurrent team activities on one worker queue every chunk
+                # behind each other and blow the compute budget.
+                call_rows = await database_sync_to_async_pool(intent_clustering.fetch_session_calls)(
                     team, session_ids, lookback_days=inputs.lookback_days
                 )
                 # Backstop for whitespace the SQL trim doesn't cover.
@@ -206,8 +212,11 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 # Corpus sessions, not sampled ones: the row cap can drop whole
                 # sessions after their ids were sampled, and those contribute no calls
                 # to any discovery numerator.
-                advertised_by_session = await database_sync_to_async(intent_clustering.fetch_advertised_tools)(
-                    team, list(calls_by_session), lookback_days=inputs.lookback_days
+                advertised_by_session = await database_sync_to_async_pool(intent_clustering.fetch_advertised_tools)(
+                    team,
+                    list(calls_by_session),
+                    lookback_days=inputs.lookback_days,
+                    keep_tools={call.tool for calls in calls_by_session.values() for call in calls},
                 )
                 # Bound the description aggregation and embedding fan-out to the tools
                 # that can appear in the snapshot; see top_corpus_tools for why.

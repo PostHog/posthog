@@ -97,7 +97,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
-from posthog.helpers.two_factor_session import missing_two_factor_step
+from posthog.helpers.two_factor_session import enforce_credential_two_factor, missing_two_factor_step
 from posthog.ip_restrictions import enforce_credential_ip_restrictions, enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
@@ -487,7 +487,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
             try:
                 organization_uuids = [uuid.UUID(org_id) for org_id in scoped_organization_ids]
                 for org_uuid in organization_uuids:
-                    if org_uuid not in org_memberships or not org_memberships[org_uuid].level:
+                    if org_uuid not in org_memberships or not org_memberships[org_uuid].effective_level:
                         raise serializers.ValidationError("Invalid organization specified or you do not have access.")
             except ValueError:
                 raise serializers.ValidationError("Invalid organization UUID provided in scoped_organizations.")
@@ -1793,6 +1793,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 enforce_credential_ip_restrictions(
                     request, credentials["scoped_organizations"], credentials["scoped_teams"]
                 )
+                enforce_credential_two_factor(request, credentials["scoped_organizations"], credentials["scoped_teams"])
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1825,6 +1826,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         enforce_credential_ip_restrictions(
                             request, credentials["scoped_organizations"], credentials["scoped_teams"]
                         )
+                        try:
+                            enforce_credential_two_factor(
+                                request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                            )
+                        except PermissionDenied:
+                            # This page load can't open the app's 2FA prompt. Show the consent screen:
+                            # its POST gets the same denial, and the app prompts on it.
+                            break
                         # Conservative fallback: check every org the impersonated user belongs to,
                         # not just the existing token's scope. Auto-approval during impersonation
                         # is a near-dead path (those tokens are short-lived, refresh-less, and
@@ -2047,6 +2056,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             enforce_credential_ip_restrictions(
                 request, credentials["scoped_organizations"], credentials["scoped_teams"]
             )
+            enforce_credential_two_factor(request, credentials["scoped_organizations"], credentials["scoped_teams"])
 
             if block := _impersonation_ai_processing_block(
                 request,
@@ -2677,7 +2687,9 @@ def _active_access_token_response(
     data: dict[str, Any] = {
         "active": True,
         "token_type": "access_token",
-        "scope": scope,
+        # A token stored before a scope rename holds the old name. The MCP server checks scopes
+        # from this field, so it gets the names `get_authenticator_scopes` checks against.
+        "scope": " ".join(translate_renamed_scopes(scope.split())),
         "is_impersonated": is_impersonated,
         # The MCP server reads this to choose between a 403 insufficient_scope challenge and a
         # tool error when a scope is missing.

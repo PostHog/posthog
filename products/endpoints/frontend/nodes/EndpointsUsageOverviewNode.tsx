@@ -3,42 +3,28 @@ import { useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
-import { humanFriendlyDuration } from 'lib/utils/durations'
-import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
     EndpointsUsageOverviewItem,
+    EndpointsUsageOverviewItemKey,
     EndpointsUsageOverviewQuery,
     EndpointsUsageOverviewQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { ENDPOINTS_USAGE_OVERVIEW_LABELS, formatEndpointsUsageOverviewValue } from './endpointsUsageOverviewFormat'
+import { QuillEndpointsUsageOverview } from './QuillEndpointsUsageOverview'
+
 const HEIGHT_CLASS = 'h-24'
 
-type MetricKey =
-    | 'total_requests'
-    | 'total_bytes_read'
-    | 'total_cpu_seconds'
-    | 'avg_query_duration_ms'
-    | 'p95_query_duration_ms'
-    | 'error_rate'
-    | 'materialized_requests'
-    | 'inline_requests'
+type MetricKey = EndpointsUsageOverviewItemKey
 
-const LABEL_FROM_KEY: Record<MetricKey, string> = {
-    total_requests: 'Total executions',
-    total_bytes_read: 'Total bytes read',
-    total_cpu_seconds: 'CPU seconds',
-    avg_query_duration_ms: 'Avg duration',
-    p95_query_duration_ms: 'P95 duration',
-    error_rate: 'Error rate',
-    materialized_requests: 'Materialized executions',
-    inline_requests: 'Direct executions',
-}
+const LABEL_FROM_KEY = ENDPOINTS_USAGE_OVERVIEW_LABELS
 
 const PRIMARY_METRICS: MetricKey[] = ['total_requests', 'total_bytes_read', 'total_cpu_seconds']
 const SECONDARY_METRICS: MetricKey[] = [
@@ -78,6 +64,11 @@ export function EndpointsUsageOverviewNode(props: {
 
     const { response, responseLoading } = useValues(logic)
     const queryResponse = response as EndpointsUsageOverviewQueryResponse | undefined
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillEndpointsUsageOverview results={queryResponse?.results} loading={responseLoading} />
+    }
 
     const responseByKey = (queryResponse?.results?.reduce(
         (acc, item) => {
@@ -131,7 +122,11 @@ const ItemCell = ({ item, isPrimary }: { item: Item; isPrimary: boolean }): JSX.
                 isPrimary ? 'text-2xl font-bold' : 'text-xl'
             )}
         >
-            {item.item ? formatItem(item.item) : <span className="text-muted text-sm">No data</span>}
+            {item.item ? (
+                formatEndpointsUsageOverviewValue(item.item.key, item.item.value)
+            ) : (
+                <span className="text-muted text-sm">No data</span>
+            )}
         </div>
     )
 
@@ -160,36 +155,4 @@ const ItemCell = ({ item, isPrimary }: { item: Item; isPrimary: boolean }): JSX.
             {changeIndicator}
         </div>
     )
-}
-
-const formatItem = (item: EndpointsUsageOverviewItem): string => {
-    const value = item.value
-
-    if (value === null || value === undefined) {
-        return '0'
-    }
-
-    switch (item.key) {
-        case 'total_requests':
-        case 'materialized_requests':
-        case 'inline_requests':
-            return humanFriendlyNumber(value)
-
-        case 'total_bytes_read':
-            return humanizeBytes(value)
-
-        case 'total_cpu_seconds':
-            return humanFriendlyDuration(value)
-
-        case 'avg_query_duration_ms':
-        case 'p95_query_duration_ms':
-            // Convert ms to seconds for humanFriendlyDuration
-            return humanFriendlyDuration(value / 1000)
-
-        case 'error_rate':
-            return `${(value * 100).toFixed(2)}%`
-
-        default:
-            return humanFriendlyNumber(value)
-    }
 }

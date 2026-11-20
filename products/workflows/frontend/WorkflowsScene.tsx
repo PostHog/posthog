@@ -23,6 +23,7 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
+import { EngagementEventsBanner } from './EngagementEventsBanner'
 import { MessagingSetup } from './MessagingSetup'
 import { MessagingTabActions } from './MessagingTabActions'
 import { isMessagingSetupTab } from './messagingTabs'
@@ -280,6 +281,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             />
             <CustomerioImportModal />
             <EmailSuspensionBanner />
+            <EngagementEventsBanner />
             <LemonTabs<WorkflowsTopTab>
                 activeKey={topTabFor(currentTab)}
                 tabs={[

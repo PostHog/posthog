@@ -3,6 +3,7 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from 'rea
 import { Linking, Platform, RefreshControl, ScrollView, type ScrollViewInstance, Text, View } from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
+import { useInternalUsersFilter } from '@/features/settings/internalUsersPreference'
 import type { NavChrome } from '@/features/tabs/navPinStore'
 import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
@@ -60,6 +61,7 @@ const LIVE_TAB_CONTENT_TOP = TABS_HEADER_BOTTOM + 4
 export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrome }): ReactElement {
     const styles = useStyles()
     const { access, scope, identity } = useViewsContext()
+    const internalUsersFilter = useInternalUsersFilter()
     const scrollTitle = useScrollTitle('Live')
     const back = useViewBack()
     const insets = useScreenInsets()
@@ -81,7 +83,16 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
     const webUrl = viewWebUrl(scope, '/web/live')
     let body: ReactElement
     if (allowed) {
-        body = <LiveBody key={identity} chrome={chrome} scope={scope} scrollTitle={scrollTitle} toasts={toasts} />
+        body = (
+            <LiveBody
+                key={`${identity}|${internalUsersFilter}`}
+                chrome={chrome}
+                scope={scope}
+                scrollTitle={scrollTitle}
+                toasts={toasts}
+                internalUsersFilter={internalUsersFilter}
+            />
+        )
     } else if (tab) {
         body = (
             <View
@@ -143,9 +154,10 @@ interface LiveBodyProps {
     scope: ProjectScope | null
     scrollTitle: ScrollTitleState
     toasts: Toasts
+    internalUsersFilter: boolean | undefined
 }
 
-function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactElement {
+function LiveBody({ chrome, scope, scrollTitle, toasts, internalUsersFilter }: LiveBodyProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -160,11 +172,15 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
             scroll.current?.scrollTo({ y: 0, animated: false })
         }
     }, [preference])
-    const feed = useLiveFeed((kind) => {
-        if (kind === 'refresh_failed') {
-            toasts.show("Couldn't update live data. Retrying…")
-        }
-    })
+    const feed = useLiveFeed(
+        (kind) => {
+            if (kind === 'refresh_failed') {
+                toasts.show("Couldn't update live data. Retrying…")
+            }
+        },
+        internalUsersFilter ?? false,
+        internalUsersFilter !== undefined
+    )
     const [breakdown, setBreakdown] = useState<LiveBreakdownKind>('devices')
     const [sheetOpen, setSheetOpen] = useState(false)
     const [sheetEvent, setSheetEvent] = useState<LiveEventRow | null>(null)
@@ -278,6 +294,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                         users={hasMobile}
                         mobileOnly={mobile}
                         webOnly={detectedAudience === 'web'}
+                        filterTestAccounts={internalUsersFilter}
                     />
                 )}
                 <LiveActivityCard activity={activity} audience={hasMobile ? (mixed ? 'mixed' : 'mobile') : 'web'} />
@@ -349,6 +366,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 <TabHeaderPublisher
                     tab="live"
                     status={feed.status === 'reconnecting' ? 'Reconnecting…' : null}
+                    scrollToTop={() => scroll.current?.scrollTo({ y: 0, animated: true })}
                     refreshing={feed.reading && feed.screenActive}
                     liveAudience
                 />

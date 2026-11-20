@@ -29,7 +29,10 @@ from products.alerts_platform.backend.delivery import (
     recipients,
     subscribers,
 )
-from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups, live_hog_function_ids
+from products.alerts_platform.backend.delivery.destinations import (
+    copies_of_live_hog_functions,
+    list_alert_destination_groups,
+)
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import (
     add_late_image as add_late_image_to_target,
@@ -74,7 +77,7 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.alerts_platform.backend.logic import delivery_holds
+from products.alerts_platform.backend.logic import delivery_holds, source_configs
 from products.alerts_platform.backend.logic.alert_destinations import (
     INCIDENT_DESTINATION_TYPES,
     enabled_alert_destinations,
@@ -572,8 +575,8 @@ def _split_by_path(
     a person built, and the source also emits every transition for it. That includes a function
     from a custom template or one with no `alert_id` filter, which no destination lookup lists, so
     the source emits without asking who listens, as its own stack did. No destination is on both
-    paths, so nothing is sent twice. Moving an existing alert's destinations onto the platform must
-    therefore disable the HogFunctions it copies, or each of them hears every transition as well.
+    paths, so nothing is sent twice. A row that copies a live HogFunction is skipped, so that
+    HogFunction alone sends.
     """
     if delivery_paths.emitter_for(request.source) is None:
         return announced, ()
@@ -742,17 +745,11 @@ def _platform_destinations(request: AlertDeliveryRequest, *, event_ids: Collecti
     groups for `event_ids`. Read once per delivery, after the check, so a destination removed in between
     is not sent to, and from one snapshot, so a destination that moves during the read is read once."""
     with _one_snapshot():
-        owner = (
-            PlatformAlertConfiguration.objects.for_team(request.team_id)
-            .filter(id=request.configuration_id)
-            .values_list("destinations_owner", flat=True)
-            .first()
-        )
-        owns_destinations = owner == PlatformAlertOwner.PLATFORM
+        owns_destinations = source_configs.keeps_platform_destinations(request.source)
         destinations = enabled_alert_destinations(
             team_id=request.team_id, configuration_id=UUID(request.configuration_id)
         )
-        copies = frozenset() if owns_destinations else _copies_of_live_hog_functions(request.team_id, destinations)
+        copies = _copies_of_live_hog_functions(request.team_id, destinations)
         groups_by_event_id = (
             {}
             if owns_destinations
@@ -835,14 +832,13 @@ def _is_subscriber_group(group: AlertDestinationGroup) -> bool:
 
 def _copies_of_live_hog_functions(team_id: int, destinations: tuple[StoredAlertDestination, ...]) -> frozenset[str]:
     """Read apart from the alert's destination lookup, which misses a HogFunction whose alert filter a
-    person removed, while that function still hears every emitted event. A disabled HogFunction
-    counts too: a person who disabled it did not ask its copy to send instead."""
-    copied = {
-        hog_function_id for destination in destinations for hog_function_id in destination.legacy_hog_function_ids
-    }
-    live = live_hog_function_ids(team_id=team_id, hog_function_ids=copied)
+    person removed, while that function still hears every emitted event."""
     return frozenset(
-        str(destination.id) for destination in destinations if live.intersection(destination.legacy_hog_function_ids)
+        str(destination_id)
+        for destination_id in copies_of_live_hog_functions(
+            team_id=team_id,
+            copied_by_row={destination.id: destination.legacy_hog_function_ids for destination in destinations},
+        )
     )
 
 
@@ -867,7 +863,11 @@ def _destinations(
     are left out. Both are decided from the rows this delivery read, so a backfill that lands in
     between cannot leave a subscriber out of both.
     """
-    rows = _platform_subscribers(event_id, platform_destinations)
+    rows = [
+        row
+        for row in _platform_subscribers(event_id, platform_destinations)
+        if row.id not in platform_destinations.copies
+    ]
     if platform_destinations.owns_destinations:
         return rows
     groups = platform_destinations.groups_by_event_id[event_id]
@@ -881,7 +881,7 @@ def _destinations(
             for group in groups
             if group.fully_enabled and not (platform_destinations.holds_subscribers and _is_subscriber_group(group))
         ),
-        *(row for row in rows if row.id not in platform_destinations.copies),
+        *rows,
     ]
 
 

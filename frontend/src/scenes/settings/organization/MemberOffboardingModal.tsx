@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { fullNameOrEmail } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
@@ -11,6 +12,8 @@ import { membersLogic } from '~/models/membersLogic'
 
 import { memberOffboardingLogic } from './memberOffboardingLogic'
 import { MemberOffboardingResourceSection } from './MemberOffboardingResourceSection'
+import { MemberOffboardingTransferModal } from './MemberOffboardingTransferModal'
+import { QuillMemberOffboardingModal } from './QuillMemberOffboardingModal'
 
 export function MemberOffboardingModal(): JSX.Element {
     const {
@@ -26,19 +29,30 @@ export function MemberOffboardingModal(): JSX.Element {
     const { close, loadResources, remove } = useActions(memberOffboardingLogic)
     const { scopedApiKeys, scopedApiKeysLoading } = useValues(membersLogic)
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const isSelf = member?.user.uuid === user?.uuid
     const disabledReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
     const hasResources = !resourcesLoading && !loadError && !!resources?.length
+    const title = isSelf
+        ? 'Leave organization?'
+        : `Remove ${member ? fullNameOrEmail(member.user) : 'member'} from organization?`
+
+    if (todayRailNav) {
+        return (
+            <QuillMemberOffboardingModal
+                title={title}
+                isSelf={isSelf}
+                disabledReason={disabledReason}
+                hasResources={hasResources}
+            />
+        )
+    }
 
     return (
         <LemonModal
             isOpen={!!member}
             onClose={disabledReason ? undefined : close}
-            title={
-                isSelf
-                    ? 'Leave organization?'
-                    : `Remove ${member ? fullNameOrEmail(member.user) : 'member'} from organization?`
-            }
+            title={title}
             width={hasResources ? 720 : 576}
             footer={
                 <>
@@ -83,6 +97,7 @@ export function MemberOffboardingModal(): JSX.Element {
                     )}
                 </div>
             ) : null}
+            <MemberOffboardingTransferModal />
             {!scopedApiKeysLoading && !!scopedApiKeys?.keys.length && (
                 <div className="mt-4">
                     <LemonBanner type="warning" className="mb-2">
