@@ -37,7 +37,6 @@ async function afterResponse(context: Context, _params: unknown, result: unknown
         return result
     }
     if ('published' in result) {
-        // The note says the workflow was published, so a preview never keeps it.
         return keepNoteOnlyWithWarning(result, result.published === true ? result.workflow : null)
     }
     const id = typeof result.id === 'string' && result.id !== '' ? result.id : null

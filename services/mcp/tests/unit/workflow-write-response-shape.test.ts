@@ -167,7 +167,7 @@ describe('workflow write response shape', () => {
                 { method: 'PATCH', path: `/api/projects/42/hog_flows/${id}/`, body: { status: 'active' } },
             ])
             if (relays) {
-                expect(result._agentNote).toContain('test_sender_live')
+                expect(result._agentNote).toContain("tell the user the test_sender_live warning's message")
             } else {
                 expect(result).not.toHaveProperty('_agentNote')
             }
@@ -222,7 +222,7 @@ describe('workflow write response shape', () => {
                 },
             ])
             if (relays) {
-                expect(result._agentNote).toContain('test_sender_live')
+                expect(result._agentNote).toContain("tell the user the test_sender_live warning's message")
             } else {
                 expect(result).not.toHaveProperty('_agentNote')
             }
