@@ -238,7 +238,7 @@ def render_scan_report(report: dict) -> str:
         lines.extend(f"- {issue}" for issue in report["strict_lint_preflight"])
     else:
         lines.append("- clean")
-    lines.append("\n## View modules (thin/thick signal = future ignore_imports entries)")
+    lines.append("\n## View modules (thin/thick signal = future presentation-uses-facade findings)")
     if report["view_modules"]:
         for view in report["view_modules"]:
             weight = "thin" if view["internal_imports"] <= 2 else "thick"
