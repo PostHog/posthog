@@ -159,6 +159,7 @@ def _rust_panic() -> BaseException:
     # pyo3 creates PanicException at runtime, so no module exports it. delta-rs panics on a
     # decimal buffer that is not 16-byte aligned, which gives a real one.
     zeros = pa.array([0, 0, 0], pa.int64()).buffers()[1]
+    assert zeros is not None
     misaligned = pa.Array.from_buffers(pa.decimal128(38, 0), 1, [None, zeros.slice(8, 16)])
     with tempfile.TemporaryDirectory() as table_path:
         try:

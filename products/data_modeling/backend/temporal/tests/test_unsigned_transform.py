@@ -7,7 +7,7 @@ than 128 bits reaches values nested in a list, a struct or a map, and where Delt
 refuse strings that are not valid UTF-8.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from decimal import Decimal
 from pathlib import Path
 
@@ -176,13 +176,11 @@ def test_a_value_too_large_for_delta_names_its_column(
 ) -> None:
     batch = pa.RecordBatch.from_arrays([column], names=["hash_id"])
 
-    with pytest.raises(error) as raised:
+    with pytest.raises(error, match='Column "hash_id"'):
         transform(batch)
 
-    assert raised.value.column == "hash_id"
 
-
-def _strings(values: list[bytes | None], *, large: bool = False) -> pa.Array:
+def _strings(values: Sequence[bytes | None], *, large: bool = False) -> pa.Array:
     if large:
         return pa.array(values, pa.large_binary()).view(pa.large_string())
     return pa.array(values, pa.binary()).view(pa.string())
@@ -213,8 +211,8 @@ REPLACED = ["ok", "caf\ufffd", None, "\ufffd\ufffd ok"]
             id="struct_field",
         ),
         pytest.param(
-            pa.MapArray.from_arrays(
-                pa.array([0, 1, 2], pa.int32()), _strings([b"k\xff", b"k"]), _strings([b"v", b"v\xc3"])
+            pa.array([[(b"k\xff", b"v")], [(b"k", b"v\xc3")]], pa.map_(pa.binary(), pa.binary())).view(
+                pa.map_(pa.string(), pa.string())
             ),
             [[("k\ufffd", "v")], [("k", "v\ufffd")]],
             id="map_key_and_value",

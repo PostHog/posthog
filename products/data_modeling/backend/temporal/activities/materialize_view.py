@@ -525,12 +525,9 @@ def _nullable_type(arrow_type: pa.DataType) -> pa.DataType:
         return pa.struct([_nullable_field(field) for field in arrow_type])
 
     if pa.types.is_map(arrow_type):
-        # Arrow requires map keys to be non-nullable, so only the key's own children are relaxed.
-        key_field = arrow_type.key_field
+        # A map built from types has a nullable value and a non-nullable key, which Arrow requires.
         return pa.map_(
-            key_field.with_type(_nullable_type(key_field.type)),
-            _nullable_field(arrow_type.item_field),
-            keys_sorted=arrow_type.keys_sorted,
+            _nullable_type(arrow_type.key_type), _nullable_type(arrow_type.item_type), arrow_type.keys_sorted
         )
 
     return arrow_type
@@ -584,9 +581,7 @@ def _delta_decimal_type(arrow_type: pa.DataType) -> pa.DataType:
 
     if pa.types.is_map(arrow_type):
         return pa.map_(
-            _delta_decimal_field(arrow_type.key_field),
-            _delta_decimal_field(arrow_type.item_field),
-            keys_sorted=arrow_type.keys_sorted,
+            _delta_decimal_type(arrow_type.key_type), _delta_decimal_type(arrow_type.item_type), arrow_type.keys_sorted
         )
 
     return arrow_type
@@ -646,7 +641,7 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
 UTF8_REPAIR_SLICE_ROWS = 65_536
 
 
-def _is_valid(array: pa.Array) -> bool:
+def _is_valid(array: pa.Array | pa.RecordBatch) -> bool:
     try:
         array.validate(full=True)
     except pa.ArrowInvalid:
@@ -681,26 +676,31 @@ def _utf8_repaired(array: pa.Array) -> pa.Array:
     # unsliced copy. This copy happens only for a column that holds invalid UTF-8.
     array = pa.concat_arrays([array])
     if pa.types.is_large_list(arrow_type):
+        large_list = typing.cast(pa.LargeListArray, array)
         return pa.LargeListArray.from_arrays(
-            array.offsets, _utf8_repaired(array.values), type=arrow_type, mask=array.is_null()
+            large_list.offsets, _utf8_repaired(large_list.values), type=arrow_type, mask=large_list.is_null()
         )
     if pa.types.is_list(arrow_type):
+        list_array = typing.cast(pa.ListArray, array)
         return pa.ListArray.from_arrays(
-            array.offsets, _utf8_repaired(array.values), type=arrow_type, mask=array.is_null()
+            list_array.offsets, _utf8_repaired(list_array.values), type=arrow_type, mask=list_array.is_null()
         )
     if pa.types.is_struct(arrow_type):
+        struct_array = typing.cast(pa.StructArray, array)
         return pa.StructArray.from_arrays(
-            [_utf8_repaired(array.field(index)) for index in range(arrow_type.num_fields)],
+            [_utf8_repaired(struct_array.field(index)) for index in range(arrow_type.num_fields)],
             fields=list(arrow_type),
-            mask=array.is_null(),
+            mask=struct_array.is_null(),
         )
     if pa.types.is_map(arrow_type):
-        return pa.MapArray.from_arrays(
-            array.offsets,
-            _utf8_repaired(array.keys),
-            _utf8_repaired(array.items),
+        map_array = typing.cast(pa.MapArray, array)
+        # The stubs accept a type only with an entries struct, a form pyarrow itself rejects.
+        return pa.MapArray.from_arrays(  # type: ignore[call-overload]
+            map_array.offsets,
+            _utf8_repaired(map_array.keys),
+            _utf8_repaired(map_array.items),
             type=arrow_type,
-            mask=array.is_null(),
+            mask=map_array.is_null(),
         )
     return array
 
