@@ -2296,18 +2296,24 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         destination.refresh_from_db()
         self.assertEqual(destination.deleted, (change == "delete") == (expected == status.HTTP_200_OK))
 
-    @parameterized.expand([("delete",), ("restore",)])
+    @parameterized.expand([("delete", False), ("restore", False), ("delete", True)])
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_restricted_member_cannot_delete_or_restore_a_transactional_template(
-        self, change: str, _flag: MagicMock
+        self, change: str, in_sibling_environment: bool, _flag: MagicMock
     ) -> None:
-        set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+        # A sibling environment's template is reachable from this environment's file browser.
+        owner = (
+            Team.objects.create(project=self.project, organization=self.organization, name="Env-2")
+            if in_sibling_environment
+            else self.team
+        )
+        set_member_property_access(team=owner, membership=self.organization_membership, access="restricted")
         template_id = create_message_template_for_test(
-            team_id=self.team.id, name="Receipt", content={}, deleted=change == "restore"
+            team_id=owner.id, name="Receipt", content={}, deleted=change == "restore"
         )
         if change == "delete":
             entry = FileSystem.objects.create(
-                team=self.team, path="Unfiled/Receipt", depth=2, type="message_template", ref=str(template_id)
+                team=owner, path="Unfiled/Receipt", depth=2, type="message_template", ref=str(template_id)
             )
             response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
         else:

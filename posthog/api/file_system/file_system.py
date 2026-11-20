@@ -1491,7 +1491,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 carriers.append(group[0])
                 objects_to_delete.append(FileObjectRef(team_id=team_id, type=file_type, ref=ref))
 
-        self._ensure_can_change_pipelines(entry.type for entry in objects_to_delete)
+        self._ensure_can_change_pipelines((entry.team_id, entry.type) for entry in objects_to_delete)
         # Every other type's object needs the same editor access as through its own API.
         other_objects = [
             (entry.type, entry.ref, entry.team_id)
@@ -1675,18 +1675,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except PermissionDenied:
             raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
 
-    def _ensure_can_change_pipelines(self, type_strings: Iterable[str]) -> None:
-        if any(t.startswith("hog_function/") or t in WORKFLOW_FILE_SYSTEM_TYPES for t in type_strings) and (
-            access_control_api.get_restricted_properties_with_group_type_index_for_team(
-                team_id=self.team.id, user=cast(User, self.request.user)
-            )
+    def _ensure_can_change_pipelines(self, targets: Iterable[tuple[int, str]]) -> None:
+        """Each target is (team_id, file type). A sibling environment's file is checked against its own rules."""
+        pipeline_teams = {
+            team_id for team_id, t in targets if t.startswith("hog_function/") or t in WORKFLOW_FILE_SYSTEM_TYPES
+        }
+        user = cast(User, self.request.user)
+        if any(
+            access_control_api.get_restricted_properties_with_group_type_index_for_team(team_id=team_id, user=user)
+            for team_id in sorted(pipeline_teams)
         ):
             raise PermissionDenied(CDPPropertyAccessPermission.message)
 
     def _ensure_can_restore(self, type_string: str, ref: str) -> None:
         """`undo_delete` takes a caller-supplied (type, ref) rather than a tree row, so neither
         the tree's visibility filter nor `get_object` has run by the time we get here."""
-        self._ensure_can_change_pipelines([type_string])
+        self._ensure_can_change_pipelines([(self.team.id, type_string)])
         instance = get_restorable_object(type_string, ref, team_id=self.team.id)
         user_access_control = self.user_access_control
         allowed = instance is not None and (
