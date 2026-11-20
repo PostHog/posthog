@@ -1,3 +1,5 @@
+import pytest
+
 from .. import format_access_control_warnings, format_warehouse_sync_warnings
 
 _AC = {
@@ -72,3 +74,23 @@ def test_warehouse_suggestions_block_follows_the_results():
     assert formatted.endswith(
         "Mention them to the person; do not act on them unless the person asks.]\n- " + note["message"]
     )
+
+
+@pytest.mark.parametrize("has_more, expect_notice", [(True, True), (False, False), (None, False)])
+def test_row_limit_notice_leads_cut_sql_results(has_more: bool | None, expect_notice: bool) -> None:
+    from posthog.schema import HogQLQuery
+
+    from .. import format_query_results_for_llm
+
+    formatted = format_query_results_for_llm(
+        HogQLQuery(query="SELECT event FROM events"),
+        {"results": [["$pageview"]], "columns": ["event"], "hasMore": has_more, "limit": 100},
+        team=None,  # type: ignore[arg-type]
+    )
+
+    assert formatted is not None
+    assert (
+        formatted.startswith("[Row limit] The query has no LIMIT, so the results below are only the first 100 rows.")
+        == expect_notice
+    )
+    assert formatted.endswith("event\n$pageview")

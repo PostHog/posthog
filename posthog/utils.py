@@ -740,6 +740,7 @@ def _build_template_context(
             "project_access_denied": getattr(request, "project_access_denied", None),
             "commit_sha": context["git_rev"],
             "livestream_host": settings.LIVESTREAM_HOST,
+            "uploaded_media_origin": settings.UPLOADED_MEDIA_PUBLIC_URL or None,
             **posthog_app_context,
         }
 

@@ -21,7 +21,7 @@ export const PROFILE = {
     },
     engineVersion: '16.4',
     writerClass: 'db.r8g.2xlarge',
-    readerAcu: { min: 1, max: 32 },
+    readerAcu: { min: 1, max: 32, idleMax: 2.5 },
     host: {
         class: 'm7i.8xlarge',
         imageParameter: '/test/ubuntu/ami-id',
@@ -52,4 +52,24 @@ export const PROFILE = {
         allowances: { storageGb: 73, transferGb: 10, s3Requests: 10_000, enhancedMonitoringEventBytes: 10_000 },
         reserve: { marginUsd: 10 },
     },
+}
+
+export function pinClockAfterMinuteStart(): void {
+    const now = Date.now()
+    jest.useFakeTimers({
+        doNotFake: [
+            'hrtime',
+            'nextTick',
+            'performance',
+            'queueMicrotask',
+            'setImmediate',
+            'clearImmediate',
+            'setInterval',
+            'clearInterval',
+            'setTimeout',
+            'clearTimeout',
+        ],
+        advanceTimers: true,
+        now: now - (now % 60_000) + 1000,
+    })
 }

@@ -175,11 +175,11 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Sort key from the list response's ranker, for the Recommended and Personalized sorts only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
     inbox_merge_key?: number | null
-    /** For the Personalized sort: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
+    /** For the personal order: the tier the user's personal ranking gave the report. Null when it did not rank the report. */
     personal_tier?: SignalReportListApi['personal_tier']
-    /** For the Personalized sort: why the personal ranking put the report where it is. Null when it did not rank the report. */
+    /** For the personal order: why the personal ranking put the report where it is. Null when it did not rank the report. */
     personal_reason?: SignalReportListApi['personal_reason']
 }
 
@@ -258,6 +258,32 @@ export const SOURCE_STEERING_MAX_LENGTH = 2000
 export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
 /** Error tracking source only: the issue filter, compiled by the server, saved on every error tracking row. */
 export const SOURCE_ISSUE_FILTERS_KEY = 'issue_filters'
+/**
+ * A boolean HogQL expression over the source's filter catalog fields. Written as a string, read
+ * back as `{expression, catalog_version}` once the server pins it to the catalog version.
+ */
+export const SOURCE_HOGQL_FILTER_KEY = 'hogql_filter'
+
+export interface SavedSourceFilter {
+    expression: string
+    catalogVersion: number | null
+}
+
+export function savedSourceFilter(config: Record<string, any> | null | undefined): SavedSourceFilter | null {
+    const raw = config?.[SOURCE_HOGQL_FILTER_KEY]
+    if (!raw || typeof raw !== 'object' || typeof raw.expression !== 'string') {
+        return null
+    }
+    return {
+        expression: raw.expression,
+        catalogVersion: typeof raw.catalog_version === 'number' ? raw.catalog_version : null,
+    }
+}
+
+/** A blank saved expression filters nothing, so it reads as no filter. */
+export function sourceFilterIsSet(config: Record<string, any> | null | undefined): boolean {
+    return !!savedSourceFilter(config)?.expression.trim()
+}
 
 // Anything that is not a list of ids reads as "every team", matching the backend's fallback.
 export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {

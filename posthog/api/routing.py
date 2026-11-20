@@ -931,11 +931,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        return UserPermissions(
+        permissions = UserPermissions(
             user=cast(User, self.request.user),
             team=self.team,
             organization_membership=self.user_access_control.organization_membership,
         )
+        if self._is_team_view or self._is_project_view:
+            # The SDK checks in this request read the same memberships, so they reuse this instance.
+            authorization.reuse_current_rules(self.user_access_control, permissions)
+        return permissions
 
     @cached_property
     def user_access_control(self) -> "UserAccessControl":

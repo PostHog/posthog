@@ -12,6 +12,30 @@ from products.replay_vision.backend.scope.base import ScopeSource
 from products.replay_vision.backend.scope.experiment import ExperimentScope, ExperimentScopeSettings
 from products.replay_vision.backend.scope.registry import SCOPES, SETTINGS
 
+# Every store a scanner or snapshot can name its experiment in, in the order `stored_scope` reads
+# them. Four readers outside this module ask the same question of a frozen `scanner_snapshot`, in
+# three different languages: a Python dict, a Django `Q`, and raw SQL. None can share a function, so
+# they share this list instead, and `test_scope.py` fails when a reader hardcodes a subset of it.
+#
+# `scope` leads because it is the store the others are migrating into. Leaving it out of a reader is
+# the mistake this constant exists to stop: a scope-only snapshot then names no experiment, and a
+# gate that treats "no experiment" as "unrestricted" hands its rows to a caller denied that
+# experiment.
+EXPERIMENT_ID_SNAPSHOT_STORES = ("scope", "experiment_targeting", "scanner_config")
+
+
+def snapshot_experiment_id(snapshot: dict[str, Any] | None) -> int | None:
+    """The experiment a frozen `scanner_snapshot` names, from whichever store holds it.
+
+    For readers that hold a snapshot dict rather than a `ScopeSource`. `scope_for` is the reader for
+    anything that needs the whole scope.
+    """
+    for store in EXPERIMENT_ID_SNAPSHOT_STORES:
+        experiment_id = ((snapshot or {}).get(store) or {}).get("experiment_id")
+        if experiment_id is not None:
+            return experiment_id
+    return None
+
 
 def stored_scope(source: ScopeSource, *, legacy_only: bool = False) -> dict[str, Any] | None:
     """The scope blob for this scanner or snapshot, read in migration order: the `scope` column

@@ -114,12 +114,19 @@ class ProjectBasicSerializer(serializers.ModelSerializer):
     Also used for nested serializers.
     """
 
+    logo_media_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the uploaded image shown as this project's logo. Null when the project has no logo.",
+    )
+
     class Meta:
         model = Project
         fields = (
             "id",
             "organization_id",
             "name",
+            "logo_media_id",
         )
         read_only_fields = fields
 
@@ -329,9 +336,9 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
     @cached_property
     def _membership_levels_by_org(self) -> dict[UUID, int]:
         return dict(
-            OrganizationMembership.objects.filter(user=self.context["request"].user).values_list(
-                "organization_id", "level"
-            )
+            OrganizationMembership.objects.with_effective_level()
+            .filter(user=self.context["request"].user)
+            .values_list("organization_id", "resolved_level")
         )
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")

@@ -249,12 +249,21 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
                 linkText: 'Campaigns',
             },
             {
-                text: 'Open Ads and filter by the status Disapproved or Eligible (limited). Hover the status of each ad to see which policy it breaks.',
+                text: 'Open Ads and search for each ad below. Fix the flagged text or the landing page, then save. Saving sends the ad to review again. A limited ad may need a certification from Google instead.',
                 url: 'https://ads.google.com/aw/ads',
                 linkText: 'Ads',
             },
             {
-                text: 'Edit the ad text or landing page so it follows the policy, then save. Saving sends the ad to review again.',
+                text: 'The ad "Acme alternative for teams" breaks the policy "Trademarks in ad text" (flagged text: "Acme").',
+                copyValue: 'Acme alternative for teams',
+            },
+            {
+                text: 'The ad "Product analytics pricing" breaks the policy "Destination mismatch".',
+                copyValue: 'Product analytics pricing',
+            },
+            {
+                text: 'The ad "Analytics for clinics" is limited by the policy "Healthcare and medicines".',
+                copyValue: 'Analytics for clinics',
             },
             {
                 text: 'If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.',

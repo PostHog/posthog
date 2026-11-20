@@ -21,6 +21,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.apm.backend.logic.health.contract import (
+    APDEX_THRESHOLD_MS,
     EndpointHealth,
     HealthRow,
     ServiceEdge,
@@ -45,7 +46,10 @@ NO_ENVIRONMENT = ""
 # attribute, so a bare-method span gets the template appended: "POST" becomes "POST /users/:id".
 HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 # Checked in order: http.route is the stable server attribute, url.template the newer generic one.
-ROUTE_ATTRIBUTES = ("http.route", "url.template")
+# A job with no server spans counts its root spans, and those are often an outgoing call named only by
+# its method, an HTTP request or a Redis command. Its target names it instead: "GET redis",
+# "POST profiles.internal". Hosts and database systems stay few, unlike raw URL paths.
+ROUTE_ATTRIBUTES = ("http.route", "url.template", "db.system", "server.address", "net.peer.name")
 
 ENVIRONMENT_ATTRIBUTES = (
     "deployment.environment.name",
@@ -89,6 +93,19 @@ def environment_where(environment: str | None) -> ast.Expr:
         "{env_expr} = {environment}",
         placeholders={"env_expr": environment_expr(), "environment": ast.Constant(value=environment)},
     )
+
+
+def _apdex_score() -> ast.Expr:
+    """1 for a satisfied request, 0.5 for a tolerating one, 0 for a frustrated or failed one."""
+    threshold_nano = APDEX_THRESHOLD_MS * 1_000_000
+    return parse_expr(
+        "multiIf(status_code = 2, 0, duration_nano <= {t}, 1, duration_nano <= {t4}, 0.5, 0)",
+        placeholders={"t": ast.Constant(value=threshold_nano), "t4": ast.Constant(value=4 * threshold_nano)},
+    )
+
+
+def _apdex(points: float | None, span_count: int) -> float | None:
+    return float(points) / span_count if points is not None and span_count else None
 
 
 def _route_attribute_read(key: str) -> ast.Expr:
@@ -167,7 +184,8 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str | N
             service_name,
             sum(if(entry_spans > 0, entry_spans, root_spans)) AS span_count,
             sum(if(entry_spans > 0, entry_errors, root_errors)) AS error_count,
-            arrayElement(quantilesMerge(0.95)(if(entry_spans > 0, entry_p95, root_p95)), 1) / 1e6 AS p95_ms
+            arrayElement(quantilesMerge(0.95)(if(entry_spans > 0, entry_p95, root_p95)), 1) / 1e6 AS p95_ms,
+            sum(if(entry_spans > 0, entry_apdex_points, root_apdex_points)) AS apdex_points
         FROM (
             SELECT
                 service_name,
@@ -175,9 +193,11 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str | N
                 countIf(kind IN (2, 5)) AS entry_spans,
                 countIf(kind IN (2, 5) AND status_code = 2) AS entry_errors,
                 quantilesStateIf(0.95)(duration_nano, kind IN (2, 5)) AS entry_p95,
+                sumIf({apdex_score}, kind IN (2, 5)) AS entry_apdex_points,
                 countIf(is_root_span) AS root_spans,
                 countIf(is_root_span AND status_code = 2) AS root_errors,
-                quantilesStateIf(0.95)(duration_nano, is_root_span) AS root_p95
+                quantilesStateIf(0.95)(duration_nano, is_root_span) AS root_p95,
+                sumIf({apdex_score}, is_root_span) AS root_apdex_points
             FROM posthog.trace_spans
             WHERE {where} AND {env_where}
             GROUP BY service_name, environment
@@ -192,6 +212,7 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str | N
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
             "limit": ast.Constant(value=SERVICES_LIMIT),
+            "apdex_score": _apdex_score(),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -215,13 +236,15 @@ def _endpoints_query(
             any(route) AS route,
             count() AS span_count,
             countIf(status_code = 2) AS error_count,
-            quantile(0.95)(duration_nano) / 1e6 AS p95_ms
+            quantile(0.95)(duration_nano) / 1e6 AS p95_ms,
+            sum(apdex_score) AS apdex_points
         FROM (
             SELECT
                 service_name,
                 name,
                 status_code,
                 duration_nano,
+                {apdex_score} AS apdex_score,
                 {endpoint} AS endpoint,
                 {route_attribute} AS route_attribute,
                 {route} AS route
@@ -244,25 +267,29 @@ def _endpoints_query(
                 else ast.Constant(value=True)
             ),
             "limit": ast.Constant(value=ENDPOINTS_LIMIT),
+            "apdex_score": _apdex_score(),
         },
     )
     assert isinstance(query, ast.SelectQuery)
     return query
 
 
-def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: str | None) -> ast.SelectQuery:
+def sampled_traces_query(
+    date_from: datetime, date_to: datetime, environment: str | None, trace_where: ast.Expr | None = None
+) -> ast.SelectQuery:
     # DISTINCT with LIMIT stops reading once it has enough trace IDs, where GROUP BY would first
     # aggregate every trace in the window.
     query = parse_select(
         """
         SELECT DISTINCT trace_id
         FROM posthog.trace_spans
-        WHERE {where} AND {env_where}
+        WHERE {where} AND {env_where} AND {trace_where}
         LIMIT {limit}
         """,
         placeholders={
             "where": window_where(date_from, date_to),
             "env_where": environment_where(environment),
+            "trace_where": trace_where or ast.Constant(value=True),
             "limit": ast.Constant(value=MAP_TRACE_LIMIT),
         },
     )
@@ -391,7 +418,7 @@ def list_services_health(
         if 0 <= bucket < SPARKLINE_POINTS:
             points[bucket] += span_count
     services = []
-    for service_name, span_count, error_count, p95_ms in rows:
+    for service_name, span_count, error_count, p95_ms, apdex_points in rows:
         if not span_count:
             continue
         health = HealthRow(
@@ -400,6 +427,7 @@ def list_services_health(
             p95_ms=float(p95_ms) if p95_ms is not None else None,
             span_count=int(span_count),
             error_count=int(error_count),
+            apdex=_apdex(apdex_points, span_count),
         )
         services.append(
             ServiceHealth(
@@ -431,9 +459,10 @@ def list_endpoints_health(
                 p95_ms=float(p95_ms) if p95_ms is not None else None,
                 span_count=int(span_count),
                 error_count=int(error_count),
+                apdex=_apdex(apdex_points, span_count),
             ),
         )
-        for service_name, endpoint, span_name, route_attribute, route, span_count, error_count, p95_ms in _run(
+        for service_name, endpoint, span_name, route_attribute, route, span_count, error_count, p95_ms, apdex_points in _run(
             team, _endpoints_query(date_from, date_to, environment, service)
         )
     ]
@@ -442,7 +471,7 @@ def list_endpoints_health(
 
 def get_service_map(*, team: Team, date_from: datetime, date_to: datetime, environment: str | None) -> ServiceMapResult:
     # The sample runs once, so the edges and the reported trace count describe the same traces.
-    trace_ids = [row[0] for row in _run(team, _sampled_traces_query(date_from, date_to, environment))]
+    trace_ids = [row[0] for row in _run(team, sampled_traces_query(date_from, date_to, environment))]
     if not trace_ids:
         return ServiceMapResult(edges=[], trace_count=0)
     edges = [

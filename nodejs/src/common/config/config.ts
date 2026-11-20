@@ -1,6 +1,7 @@
 import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
 import { getDefaultCdpConfig } from '~/cdp/config'
 import {
+    getDefaultKafkaMskCdpIntakeProducerEnvConfig,
     getDefaultKafkaWarehouseProducerEnvConfig,
     getDefaultKafkaWarpstreamCyclotronIntakeProducerEnvConfig,
     getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
@@ -30,6 +31,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCyclotronIntakeProducerEnvConfig(),
+        ...getDefaultKafkaMskCdpIntakeProducerEnvConfig(),
         ...getDefaultKafkaWarehouseProducerEnvConfig(),
     }
 }
