@@ -5,10 +5,12 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { MCPServerTemplateApi } from '../generated/api.schemas'
 import { mcpStoreLogic } from '../mcpStoreLogic'
 import { InstalledServersList } from './InstalledServersList'
+import { QuillMarketplaceBrowser } from './QuillMarketplaceBrowser'
 import { ServerCard } from './ServerCard'
 
 // "All" + the CATEGORY_CHOICES on MCPServerTemplate, in alphabetical order to
@@ -54,8 +56,19 @@ export function MarketplaceBrowser(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const grouped = groupByCategory(filteredServers)
+
+    if (todayRailNav) {
+        return (
+            <QuillMarketplaceBrowser
+                categoryOptions={CATEGORY_OPTIONS}
+                groups={grouped}
+                restrictedReason={restrictedReason}
+            />
+        )
+    }
 
     return (
         <div className="deprecated-space-y-4">

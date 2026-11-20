@@ -14,8 +14,7 @@ group is no longer listed.
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from datetime import timedelta
 from enum import StrEnum
 from uuid import UUID
@@ -97,10 +96,6 @@ def convert_team(team_id: int, *, apply: bool) -> tuple[GroupConversion, ...]:
         .values_list("id", flat=True)
     )
     return tuple(conversion for alert_id in alert_ids for conversion in _convert_alert(alert_id, apply=apply))
-
-
-def outcome_counts(conversions: Collection[GroupConversion]) -> Counter[str]:
-    return Counter(str(conversion.outcome) for conversion in conversions)
 
 
 def _convert_alert(alert_id: UUID, *, apply: bool) -> list[GroupConversion]:

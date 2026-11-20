@@ -124,10 +124,15 @@ const appliedWithin = (
 const exitedByValve = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
     exit.byValve ||
     (exit.code !== null &&
+        exit.code < 128 &&
         exit.signal === null &&
         timeline.some((entry) => {
-            const graceMs = VALVES.find(({ name }) => name === entry.valve)?.roleExitGraceMs
-            return graceMs !== undefined && appliedWithin(entry, exit.at, graceMs)
+            const valve = VALVES.find(({ name }) => name === entry.valve)
+            return (
+                valve?.roleExitGraceMs !== undefined &&
+                (valve.restarts?.includes(exit.role) ?? true) &&
+                appliedWithin(entry, exit.at, valve.roleExitGraceMs)
+            )
         }))
 
 function unexpectedExit(exit: RoleExit, timeline: ValveTimelineEntry[]): string {
@@ -172,6 +177,14 @@ function interruptionWithoutValve(
 export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
     `${valve} on ${target} was not observed: ${error ?? 'no record'}`
 
+export function statusOf(verdict: Verdict): { status: Status; statusReason: string; restarts: RoleExit[] } {
+    const { exits, timeline } = verdict
+    return {
+        ...judgedOf(verdict),
+        restarts: exits.filter((exit) => !exit.byValve && exitedByValve(exit, timeline)),
+    }
+}
+
 function withRamp(
     verdict: { status: Status; statusReason: string },
     ramp: Ramp
@@ -184,7 +197,7 @@ function withRamp(
         : { status: 'failed', statusReason: `the ramp broke: ${ramp.reason}` }
 }
 
-export function statusOf(verdict: Verdict): { status: Status; statusReason: string } {
+function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
     if (!verdict.ramp) {
         return unrampedStatusOf(verdict)
     }

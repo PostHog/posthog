@@ -11,12 +11,15 @@ import {
     lemonToast,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
 import { UserType } from '~/types'
+
+import { QuillTwoFactorSettings } from './QuillTwoFactorSettings'
 
 export function TwoFactorSettings(): JSX.Element {
     const {
@@ -38,10 +41,52 @@ export function TwoFactorSettings(): JSX.Element {
         toggleDisable2FAModal,
         toggleBackupCodesModal,
     } = useActions(twoFactorLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleSuccess = (): void => {
         updateUser({})
         loadMemberUpdates()
+    }
+
+    const confirmDisable2FA = (): void => {
+        disable2FA()
+        toggleDisable2FAModal(false)
+        handleSuccess()
+    }
+
+    const copyBackupCodes = (): void => {
+        if (generatingCodes) {
+            void copyToClipboard(generatingCodes.backup_codes.join('\n'), 'backup codes')
+        }
+    }
+
+    const togglePasskeysFor2FA = async (): Promise<void> => {
+        if (status?.has_passkeys) {
+            try {
+                await updateUser(
+                    {
+                        passkeys_enabled_for_2fa: !status.passkeys_enabled_for_2fa,
+                    } as Partial<UserType>,
+                    () => {
+                        // Reload 2FA status after successful update
+                        loadStatus()
+                    }
+                )
+            } catch (e: any) {
+                const { detail } = e as Record<string, any>
+                lemonToast.error(detail || 'Failed to update passkey 2FA setting')
+            }
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillTwoFactorSettings
+                onConfirmDisable2FA={confirmDisable2FA}
+                onCopyBackupCodes={copyBackupCodes}
+                onTogglePasskeysFor2FA={togglePasskeysFor2FA}
+            />
+        )
     }
 
     if (!status) {
@@ -70,15 +115,7 @@ export function TwoFactorSettings(): JSX.Element {
                     footer={
                         <>
                             <LemonButton onClick={() => toggleDisable2FAModal(false)}>Cancel</LemonButton>
-                            <LemonButton
-                                type="primary"
-                                status="danger"
-                                onClick={() => {
-                                    disable2FA()
-                                    toggleDisable2FAModal(false)
-                                    handleSuccess()
-                                }}
-                            >
+                            <LemonButton type="primary" status="danger" onClick={confirmDisable2FA}>
                                 Disable 2FA
                             </LemonButton>
                         </>
@@ -101,17 +138,12 @@ export function TwoFactorSettings(): JSX.Element {
                                     sign in if you lose access to your authentication device. You won't be able to see
                                     them again after you close this window.
                                 </p>
-                                <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
+                                <div className="ph-no-capture ph-replay-block bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
                                     <LemonButton
                                         icon={<IconCopy />}
                                         size="small"
                                         className="absolute top-4 right-4"
-                                        onClick={() => {
-                                            void copyToClipboard(
-                                                generatingCodes.backup_codes.join('\n'),
-                                                'backup codes'
-                                            )
-                                        }}
+                                        onClick={copyBackupCodes}
                                     >
                                         Copy
                                     </LemonButton>
@@ -252,24 +284,7 @@ export function TwoFactorSettings(): JSX.Element {
                                             ? 'Add a passkey in Passkeys settings to enable this method'
                                             : undefined
                                     }
-                                    onChange={async () => {
-                                        if (hasPasskeys) {
-                                            try {
-                                                await updateUser(
-                                                    {
-                                                        passkeys_enabled_for_2fa: !passkeysEnabled,
-                                                    } as Partial<UserType>,
-                                                    () => {
-                                                        // Reload 2FA status after successful update
-                                                        loadStatus()
-                                                    }
-                                                )
-                                            } catch (e: any) {
-                                                const { detail } = e as Record<string, any>
-                                                lemonToast.error(detail || 'Failed to update passkey 2FA setting')
-                                            }
-                                        }
-                                    }}
+                                    onChange={togglePasskeysFor2FA}
                                     tooltip={
                                         hasPasskeys
                                             ? passkeysEnabled

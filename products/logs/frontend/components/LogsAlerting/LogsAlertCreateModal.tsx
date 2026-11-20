@@ -11,12 +11,11 @@ import { platformAlertDestinationsLogic } from 'products/alerts_platform/fronten
 import { PlatformAlertCreateDestinationApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import { logsAlertDestinationsLogicProps } from './logsAlertDestinations'
+import { buildLogsAlertReviewItems, getLogsAlertCreateValidation } from './logsAlertEditorModel'
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic, LogsAlertFormType } from './logsAlertFormLogic'
-import { GROUP_BY_LABELS } from './logsAlertGrouping'
 import { LogsAlertNotifications } from './LogsAlertNotifications'
 import { LogsAlertSimulation } from './LogsAlertSimulation'
-import { hasAnyFilter } from './logsAlertUtils'
 
 interface LogsAlertCreateModalProps {
     isOpen: boolean
@@ -38,13 +37,8 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
     )
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
     const { pendingDestinations } = useValues(platformAlertDestinationsLogic(logsAlertDestinationsLogicProps()))
-    const hasLogFilter = hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
-    const nameError = alertForm.name.trim() ? undefined : 'Enter an alert name.'
-    const filterError = hasLogFilter
-        ? undefined
-        : 'Select at least one severity or service, or add an attribute filter.'
-    const configurationCannotAdvanceReason = nameError ?? filterError
-    const triggerCannotAdvanceReason = alertFormValidationErrors.maxInstances as string | undefined
+    const { nameError, filterError, configurationCannotAdvanceReason, triggerCannotAdvanceReason } =
+        getLogsAlertCreateValidation(alertForm, alertFormValidationErrors)
     const steps = buildLogsAlertWizardSteps({
         alertForm,
         pendingDestinations,
@@ -151,13 +145,6 @@ function LogsAlertReview({
     pendingDestinations: PlatformAlertCreateDestinationApi[]
     canGroup: boolean
 }): JSX.Element {
-    const severity = alertForm.severityLevels.length ? alertForm.severityLevels.join(', ') : 'all severities'
-    const services = alertForm.serviceNames.length ? alertForm.serviceNames.join(', ') : 'all services'
-    const attributeCount = alertForm.filterGroup.values.length
-    const notificationSummary = pendingDestinations.length
-        ? `${pendingDestinations.length} notification destination${pendingDestinations.length === 1 ? '' : 's'}`
-        : 'No notification destinations'
-
     return (
         <WizardReview
             notice={
@@ -167,38 +154,7 @@ function LogsAlertReview({
                     </LemonBanner>
                 ) : undefined
             }
-            items={[
-                { label: 'Name', value: alertForm.name },
-                { label: 'Severity', value: severity },
-                { label: 'Service', value: services },
-                {
-                    label: 'Attributes',
-                    value: attributeCount
-                        ? `${attributeCount} attribute filter${attributeCount === 1 ? '' : 's'}`
-                        : 'None',
-                },
-                {
-                    label: 'Fires when',
-                    value: `log count is ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in ${alertForm.windowMinutes} minutes`,
-                },
-                ...(canGroup
-                    ? [
-                          {
-                              label: 'Group by',
-                              value:
-                                  alertForm.groupBy === 'none'
-                                      ? GROUP_BY_LABELS.none
-                                      : `${GROUP_BY_LABELS[alertForm.groupBy]}, up to ${alertForm.maxInstances} groups`,
-                          },
-                      ]
-                    : []),
-                {
-                    label: 'Noise reduction',
-                    value: `${alertForm.datapointsToAlarm} of ${alertForm.evaluationPeriods} checks must match`,
-                },
-                { label: 'Notification cooldown', value: `${alertForm.cooldownMinutes} minutes` },
-                { label: 'Notifies', value: notificationSummary },
-            ]}
+            items={buildLogsAlertReviewItems(alertForm, pendingDestinations, canGroup)}
         />
     )
 }
