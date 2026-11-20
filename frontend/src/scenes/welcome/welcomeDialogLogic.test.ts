@@ -80,7 +80,7 @@ describe('welcomeDialogLogic', () => {
         ;(posthog.capture as jest.Mock).mockClear()
         useMocks({
             get: {
-                '/api/organizations/@current/welcome/current/': mockPayload,
+                '/api/organizations/:organization_id/welcome/current/': mockPayload,
             },
         })
         initKeaTests()

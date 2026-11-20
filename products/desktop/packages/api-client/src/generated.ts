@@ -9398,6 +9398,10 @@ export namespace Schemas {
         | "clickhouse"
         | "motherduck"
         | "trino";
+    /**
+     * * `issue_summaries` - Issue Summaries
+     */
+    export type ErrorTrackingAIFeatureEnum = "issue_summaries";
     export type ErrorTrackingExternalReferenceIntegrationResult = {
         /**
          * ID of the integration backing this external reference.
@@ -9518,6 +9522,7 @@ export namespace Schemas {
      * * `upstream_connection_error` - upstream_connection_error
      * * `upstream_timeout` - upstream_timeout
      * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_rate_limited` - upstream_rate_limited
      * * `upstream_request_rejected` - upstream_request_rejected
      * * `content_block_rejection` - content_block_rejection
      * * `turn_ended_without_response` - turn_ended_without_response
@@ -9537,6 +9542,7 @@ export namespace Schemas {
         | "upstream_connection_error"
         | "upstream_timeout"
         | "upstream_provider_failure"
+        | "upstream_rate_limited"
         | "upstream_request_rejected"
         | "content_block_rejection"
         | "turn_ended_without_response"
@@ -12861,6 +12867,22 @@ export namespace Schemas {
         ran_at: string;
     };
     /**
+     * * `test_sender_live` - Test sender live
+     */
+    export type HogFlowWarningCodeEnum = "test_sender_live";
+    export type HogFlowWarning = {
+        /**
+         * test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.
+         *
+         * * `test_sender_live` - Test sender live
+         */
+        code: HogFlowWarningCodeEnum & unknown;
+        /**
+         * What to tell the user, with the link that fixes it.
+         */
+        message: string;
+    };
+    /**
      * Mixin for serializers to add user access control fields
      */
     export type HogFlow = {
@@ -12970,6 +12992,10 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -13018,6 +13044,10 @@ export namespace Schemas {
          * Whether someone turned suggestions on for this workflow. Read on the list only.
          */
         suggestions_enabled: boolean | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     export type HogFlowRunRequest = Partial<{
         variables: Record<string, unknown>;
@@ -13143,6 +13173,10 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     export type HogQueryResponse = {
         bytecode?: (Array<unknown> | null) | undefined;
@@ -16682,6 +16716,7 @@ export namespace Schemas {
         email_sending_pause_requires_support: boolean;
         email_sending_resumed_at: string | null;
         last_run: HogFlowLastRun | null;
+        warnings: Array<HogFlowWarning>;
     }>;
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
@@ -17795,6 +17830,10 @@ export namespace Schemas {
          * Realtime cohorts as the request's user sees them in this project.
          */
         realtime_cohorts: TeamRealtimeCohorts & unknown;
+        /**
+         * Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none.
+         */
+        available_error_tracking_ai_features: Array<ErrorTrackingAIFeatureEnum>;
         /**
          * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
          */
@@ -19539,6 +19578,7 @@ export namespace Endpoints {
                 filters_override: string;
                 format: "json" | "txt";
                 include_dashboards: boolean;
+                omit_tile_results: boolean;
                 variables_override: string;
             }>;
             path: { id: number; project_id: string };

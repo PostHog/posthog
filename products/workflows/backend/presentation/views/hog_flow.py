@@ -249,6 +249,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowOriginProduct,
     HogFlowScheduleStatus,
     HogFlowState,
+    HogFlowWarningCode,
     RealtimeAudienceCohortState,
     WorkflowProposalStatus,
 )
@@ -3359,7 +3360,7 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "True while this workflow's email is paused because its spam complaint or hard bounce rate "
-            "crossed a threshold. Other workflows in the project keep sending."
+            "crossed a threshold."
         ),
     )
     email_sending_paused_at = serializers.DateTimeField(
@@ -3419,6 +3420,53 @@ class HogFlowLastRunSerializer(serializers.Serializer):
     )
 
 
+class HogFlowWarningSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=HogFlowWarningCode.choices,
+        read_only=True,
+        help_text=(
+            "test_sender_live: the workflow is enabled and at least one email step sends from the PostHog "
+            "test sender. Those steps reach only verified members of the organization."
+        ),
+    )
+    message = serializers.CharField(read_only=True, help_text="What to tell the user, with the link that fixes it.")
+
+
+def _live_test_sender_steps(hog_flow: Workflow) -> list[dict]:
+    if hog_flow.status != HogFlowState.ACTIVE or not isinstance(hog_flow.actions, list):
+        return []
+    return [
+        action
+        for action in hog_flow.actions
+        if isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+    ]
+
+
+def _test_sender_live_warning(team_id: int, steps: list[dict]) -> dict[str, str]:
+    setup_url = absolute_uri(f"/project/{team_id}/workflows/channels/email/new")
+    return {
+        "code": HogFlowWarningCode.TEST_SENDER_LIVE,
+        "message": (
+            "This live workflow has email steps on the PostHog test sender. They reach only verified members "
+            f"of your organization, and everyone else is skipped. To reach your users, {_test_sender_next_step(steps)}. "
+            f"If you don't have a verified sender yet, set up your sending domain: {setup_url}"
+        ),
+    }
+
+
+def _test_sender_next_step(steps: list[dict]) -> str:
+    # The sender switch refuses a step written in Hog, so those steps need a replacement instead.
+    hog_steps = sum(1 for step in steps if not written_in_liquid(step))
+    if hog_steps == 0:
+        return "switch those steps to a verified sender"
+    if hog_steps == len(steps):
+        return "replace each one with a new Liquid email step on a verified sender, as a step written in Hog can't switch senders"
+    return (
+        "switch the steps written in Liquid to a verified sender, and replace each step written in Hog "
+        "with a new Liquid email step on that sender"
+    )
+
+
 # Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
 _MAX_WORKFLOW_TAGS = 10
 
@@ -3467,6 +3515,12 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
         read_only=True,
         help_text="Tags for organizing workflows, for example by team or use case. Sorted by name.",
     )
+    warnings = serializers.SerializerMethodField(
+        help_text=(
+            "Problems with how the live workflow sends that the user must hear about. Empty when there are none. "
+            "Relay each message to the user."
+        )
+    )
 
     class Meta:
         # The fields each serializer returns, in this order. get_fields applies it.
@@ -3499,6 +3553,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
             "pending_suggestions",
             "suggestions_enabled",
             "tags",
+            "warnings",
         ]
         read_only_fields = fields
 
@@ -3528,6 +3583,11 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
     def get_suggestions_enabled(self, hog_flow: Workflow) -> bool | None:
         # A workflow with suggestions on but none waiting is still worth telling apart in the list.
         return getattr(hog_flow, "suggestions_enabled", None)
+
+    @extend_schema_field(HogFlowWarningSerializer(many=True))
+    def get_warnings(self, hog_flow: Workflow) -> list[dict[str, str]]:
+        steps = _live_test_sender_steps(hog_flow)
+        return [_test_sender_live_warning(hog_flow.team_id, steps)] if steps else []
 
     def validate(self, attrs: dict) -> dict:
         if isinstance(self.instance, WorkflowEditState):
@@ -3582,6 +3642,7 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
             "updated_at",
             "trigger",
             "user_access_level",
+            "warnings",
         ]
         read_only_fields = fields
 
@@ -3996,6 +4057,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_resumed_at",
             "last_run",
             "tags",
+            "warnings",
         ]
         read_only_fields = [
             "id",
@@ -4692,8 +4754,15 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
     return to_sandbox_action(action)
 
 
+class HogFlowTestConfigurationSerializer(HogFlowSerializer):
+    # Generated clients validate this override against its schema, and a response-only field there would
+    # make them reject an override that omits it.
+    class Meta(HogFlowSerializer.Meta):
+        fields = [name for name in HogFlowSerializer.Meta.fields if name != "warnings"]
+
+
 class HogFlowInvocationSerializer(serializers.Serializer):
-    configuration = HogFlowSerializer(
+    configuration = HogFlowTestConfigurationSerializer(
         write_only=True, required=False, help_text="Optional override; omit to use saved definition."
     )
     globals = serializers.DictField(

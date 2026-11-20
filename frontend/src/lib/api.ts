@@ -470,6 +470,10 @@ export class ApiConfig {
         return this._currentOrganizationId
     }
 
+    static hasCurrentOrganizationId(): boolean {
+        return !!this._currentOrganizationId
+    }
+
     static setCurrentOrganizationId(id: OrganizationType['id'] | null): void {
         this._currentOrganizationId = id
     }
@@ -567,11 +571,6 @@ export class ApiRequest {
     }
 
     // API-aware endpoint composition
-
-    // # Utils
-    public current(): ApiRequest {
-        return this.addPathComponent('@current')
-    }
 
     // # Organizations
     public organizations(): ApiRequest {
@@ -1058,7 +1057,7 @@ export class ApiRequest {
 
     // # Roles
     public roles(): ApiRequest {
-        return this.organizations().current().addPathComponent('roles')
+        return this.organizationsDetail().addPathComponent('roles')
     }
 
     public rolesDetail(roleId: RoleType['id']): ApiRequest {
@@ -1075,7 +1074,7 @@ export class ApiRequest {
 
     // # OrganizationMembers
     public organizationMembers(): ApiRequest {
-        return this.organizations().current().addPathComponent('members')
+        return this.organizationsDetail().addPathComponent('members')
     }
 
     public organizationMembersForAccount(): ApiRequest {
@@ -1633,7 +1632,7 @@ export class ApiRequest {
 
     // # Organization Integrations
     public organizationIntegrations(): ApiRequest {
-        return this.organizations().current().addPathComponent('integrations')
+        return this.organizationsDetail().addPathComponent('integrations')
     }
 
     public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
@@ -1878,7 +1877,7 @@ export class ApiRequest {
     }
 
     public addProductIntent(): ApiRequest {
-        return this.projects().current().addPathComponent('add_product_intent')
+        return this.projectsDetail().addPathComponent('add_product_intent')
     }
 
     // Max Core Memory
@@ -5039,6 +5038,8 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** Comma-separated report tag slugs. A report matches when it carries any of them. */
+            tags?: string
             /** true returns only the filtered total: `results` is empty and no rows are serialized. */
             count_only?: 'true' | 'false'
             /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */
@@ -6387,8 +6388,7 @@ const api = {
                 ...(scope !== undefined ? { scope } : {}),
             }
             return await new ApiRequest()
-                .projects()
-                .current()
+                .projectsDetail()
                 .withAction('settings_as_of')
                 .withQueryString(toParams(params, true))
                 .get()

@@ -7,7 +7,7 @@ from typing import Any, Optional
 import requests
 from requests import Request, Response
 
-from products.warehouse_sources.sources.clickup.settings import CLICKUP_ENDPOINTS
+from products.warehouse_sources.sources.clickup.settings import CLICKUP_ENDPOINTS, ClickUpEndpointConfig
 from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
     BasePaginator,
@@ -48,6 +48,9 @@ TIME_ENTRIES_HISTORY_FLOOR = datetime(2017, 1, 1, tzinfo=UTC)
 
 # Get Bulk Tasks' Time in Status accepts at most 100 task ids per request.
 TIME_IN_STATUS_BATCH_SIZE = 100
+
+# Get Task Comments returns at most 25 comments per request, newest first, and takes no page size.
+TASK_COMMENTS_PAGE_SIZE = 25
 
 # (connect, read) seconds. Left unset, a host that accepts the connection and then stalls holds
 # an import worker open with no bound. The client raises a timeout as retryable, so a stall
@@ -102,6 +105,17 @@ def _normalize_time_entry(entry: dict[str, Any]) -> dict[str, Any]:
         if date_field in entry:
             entry[date_field] = _ms_to_iso(entry[date_field])
     return entry
+
+
+def _normalize_comment(comment: dict[str, Any]) -> dict[str, Any]:
+    if "date" in comment:
+        comment["date"] = _ms_to_iso(comment["date"])
+    return comment
+
+
+def _stamp_space_id(row: dict[str, Any]) -> dict[str, Any]:
+    row["_space_id"] = str(row.pop("_spaces_id"))
+    return row
 
 
 def _to_epoch_ms(value: Any) -> Optional[int]:
@@ -267,22 +281,33 @@ def _tasks_resource(
 
 
 def _space_children_resource(
-    api_key: str, workspace_id: str, resource_path: str, data_key: str, team_id: int, job_id: str
+    api_key: str,
+    workspace_id: str,
+    resource_path: str,
+    data_key: str,
+    team_id: int,
+    job_id: str,
+    include_space_id: bool = False,
 ) -> Resource:
-    """Fan out over every space in the workspace and yield rows from a per-space resource."""
+    """Fan out over every space in the workspace and yield rows from a per-space resource.
+
+    With `include_space_id`, each row is stamped with the `_space_id` it came from, for resources
+    whose rows carry no space reference of their own.
+    """
+    child: EndpointResource = {
+        "name": data_key,
+        "endpoint": {
+            "path": f"/space/{{space_id}}/{resource_path}",
+            "params": {"space_id": {"type": "resolve", "resource": "spaces", "field": "id"}},
+            "data_selector": data_key,
+        },
+    }
+    if include_space_id:
+        child["include_from_parent"] = ["id"]
+        child["data_map"] = _stamp_space_id
     config: RESTAPIConfig = {
         "client": _client_config(api_key),
-        "resources": [
-            _flat_resource("spaces", f"/team/{workspace_id}/space", "spaces"),
-            {
-                "name": data_key,
-                "endpoint": {
-                    "path": f"/space/{{space_id}}/{resource_path}",
-                    "params": {"space_id": {"type": "resolve", "resource": "spaces", "field": "id"}},
-                    "data_selector": data_key,
-                },
-            },
-        ],
+        "resources": [_flat_resource("spaces", f"/team/{workspace_id}/space", "spaces"), child],
     }
     resources = {r.name: r for r in rest_api_resources(config, team_id, job_id, None)}
     return resources[data_key]
@@ -496,6 +521,77 @@ def _task_time_in_status_rows(
         yield _time_in_status_rows(client, batch)
 
 
+def _single_page_rows(client: RESTClient, path: str, data_key: str, hooks: Any, params: dict[str, Any]) -> list[Any]:
+    return [
+        row
+        for page in client.paginate(
+            path=path, params=params, paginator=SinglePagePaginator(), data_selector=data_key, hooks=hooks
+        )
+        for row in page
+    ]
+
+
+def _task_comment_pages(client: RESTClient, task_id: str, hooks: Any) -> Iterator[list[dict[str, Any]]]:
+    """Walk one task's comments, newest first.
+
+    The endpoint pages backwards from a reference comment: the next request passes the `date` and
+    `id` of the last comment of the current page as `start` and `start_id`. A short page is the
+    last one. A cursor that does not move also ends the walk, so a reference the API ignores can
+    never loop.
+    """
+    params: dict[str, Any] = {}
+    while True:
+        comments = _single_page_rows(client, f"/task/{task_id}/comment", "comments", hooks, params)
+        last = comments[-1] if comments else {}
+        next_params = {"start": last.get("date"), "start_id": last.get("id")}
+        if comments:
+            yield comments
+        if len(comments) < TASK_COMMENTS_PAGE_SIZE or None in next_params.values() or next_params == params:
+            return
+        params = next_params
+
+
+def _task_children_rows(
+    api_key: str,
+    workspace_id: str,
+    config: ClickUpEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ClickUpResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every task in the workspace and yield rows from a per-task resource.
+
+    The rows carry no task id of their own, so each is stamped with the task it came from for the
+    composite primary key. Most tasks have no comments or explicit members, so a run can make many
+    requests in a row that return nothing; a safe point after each of them lets a worker shutdown
+    hand the run on. Nothing is buffered across tasks and no cursor is staged.
+    """
+    client = _make_client(api_key)
+    data_key = config.data_key or ""
+    # A task deleted after the task walk listed it stops serving its sub-resources; skip it rather
+    # than fail the whole table.
+    hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name=data_key)
+
+    for task_id in _all_task_ids(api_key, workspace_id, team_id, job_id):
+        pages: Iterator[list[dict[str, Any]]]
+        if config.kind == "task_comments":
+            pages = (
+                [_normalize_comment(row) for row in comments]
+                for comments in _task_comment_pages(client, task_id, hooks)
+            )
+        else:
+            path = f"/task/{task_id}/{config.resource_path}"
+            pages = iter([_single_page_rows(client, path, data_key, hooks, {})])
+
+        yielded = False
+        for rows in pages:
+            if rows:
+                yielded = True
+                yield [{**row, "_task_id": task_id} for row in rows]
+        if not yielded:
+            resumable_source_manager.safe_point()
+
+
 def _list_children_rows(
     api_key: str, workspace_id: str, resource_path: str, data_key: str, team_id: int, job_id: str
 ) -> Iterator[list[dict[str, Any]]]:
@@ -578,7 +674,13 @@ def clickup_source(
         items = lambda: resource
     elif config.kind == "space_children":
         resource = _space_children_resource(
-            api_key, workspace_id, config.resource_path or "", config.data_key or "", team_id, job_id
+            api_key,
+            workspace_id,
+            config.resource_path or "",
+            config.data_key or "",
+            team_id,
+            job_id,
+            include_space_id="_space_id" in config.primary_keys,
         )
         items = lambda: resource
     elif config.kind == "lists":
@@ -598,6 +700,8 @@ def clickup_source(
         )
     elif config.kind == "task_time_in_status":
         items = lambda: _task_time_in_status_rows(api_key, workspace_id, team_id, job_id)
+    elif config.kind in ("task_children", "task_comments"):
+        items = lambda: _task_children_rows(api_key, workspace_id, config, team_id, job_id, resumable_source_manager)
     else:
         raise ValueError(f"Unknown ClickUp endpoint kind: {config.kind}")
 

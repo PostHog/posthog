@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
 from django.core.exceptions import PermissionDenied
-from django.db.models import Model, Q
+from django.db.models import Model
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -200,8 +200,19 @@ def _search_teams(query: str) -> list[Team]:
     by_token = list(teams.filter(api_token=query)[:1])
     if by_token:
         return by_token
-    matches = teams.filter(Q(name__icontains=query) | Q(organization__name__icontains=query))
-    return list(matches.order_by("-id")[:SEARCH_LIMIT])
+    # Team names and organization names are searched in two queries, so each one can use the trigram index on its
+    # own table. One query with an OR across the join cannot use either index and scans every team.
+    by_team_name = Team.objects.filter(name__icontains=query)
+    by_organization_name = Team.objects.filter(
+        organization_id__in=Organization.objects.filter(name__icontains=query).values("id")
+    )
+    team_ids = {
+        *by_team_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+        *by_organization_name.order_by("-id").values_list("id", flat=True)[:SEARCH_LIMIT],
+    }
+    newest_ids = sorted(team_ids, reverse=True)[:SEARCH_LIMIT]
+    found = teams.in_bulk(newest_ids)
+    return [found[team_id] for team_id in newest_ids if team_id in found]
 
 
 def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> str:
