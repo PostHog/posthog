@@ -88,7 +88,7 @@ export function LogsPatternMessageKeys(): JSX.Element {
                                 id={id}
                                 value={value}
                                 onChange={onChange}
-                                limit={10}
+                                limit={MAX_LOGS_PATTERN_MESSAGE_KEYS}
                                 placeholder="Add a message key"
                                 disabledReason={
                                     restrictedReason ||
@@ -97,7 +97,8 @@ export function LogsPatternMessageKeys(): JSX.Element {
                                 dataAttr="logs-pattern-message-keys-select"
                             />
                             <FieldDescription>
-                                Drag keys to change their priority. Clear all keys to disable message extraction.
+                                Drag keys to change their priority. Use a dot to read a nested key, for example
+                                fields.message. Clear all keys to disable message extraction.
                             </FieldDescription>
                             {keysError && <FieldError>{keysError}</FieldError>}
                         </Field>
