@@ -1,4 +1,5 @@
 # Prod data nodes read flag evaluations through the flags cluster. They do not store them.
+# The flags role composes this file too, so the read table names its cluster once.
 database "posthog" {
   patch_table "flag_evaluations" {
     engine "distributed" {

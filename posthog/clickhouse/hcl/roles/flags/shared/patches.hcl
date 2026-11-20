@@ -2,15 +2,6 @@
 # share a host, so the MV writes straight into the storage table and there is no
 # writable_flag_evaluations proxy. The consumer runs four threads under its own group.
 database "posthog" {
-  patch_table "flag_evaluations" {
-    engine "distributed" {
-      cluster_name    = "flags"
-      remote_database = "posthog"
-      remote_table    = "sharded_flag_evaluations"
-      sharding_key    = "sipHash64(distinct_id)"
-    }
-  }
-
   patch_table "sharded_flag_evaluations" {
     settings = {
       storage_policy = "s3_tiered"
