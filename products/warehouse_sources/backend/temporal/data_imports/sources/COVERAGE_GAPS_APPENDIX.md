@@ -588,10 +588,10 @@ Diffed against: <https://github.com/amzn/selling-partner-api-models/tree/main/mo
 - [x] `Payouts (GET /finances/transfers/2024-06-01/payouts)` — settled disbursements to the seller bank account, to reconcile against transactions (high) → `payouts` (incremental on `creationDate`)
 - [x] `FBA inbound plans (GET /inbound/fba/2024-03-20/inboundPlans)` — shipments sent to Amazon fulfilment centers, with status and item counts (medium) → `inbound_plans` (full refresh; the listing has plan summaries, not item counts)
 - [x] `Outbound fulfillment orders (GET /fulfillment/outbound/2026-07-04/orders)` — multi-channel fulfillment orders shipped by FBA outside Amazon sales (medium) → `fulfillment_orders` (incremental on `statusUpdateTime`)
-- [ ] `Order metrics (GET /sales/v1/orderMetrics)` — Amazon-computed sales, units and average price by day or week, matching Seller Central (medium)
-- [ ] `Invoices (GET /finances/invoices/2026-06-25/invoices)` — invoice headers for fees and charges billed to the seller (medium)
-- [ ] `Replenishment offers (POST /replenishment/2022-11-07/offers/search)` — Subscribe and Save offers with their program settings (low)
-- [ ] `Direct fulfillment purchase orders (GET /vendor/directFulfillment/orders/2021-12-28/purchaseOrders)` — vendor drop-ship orders, a separate flow from vendor purchase orders (low)
+- [x] `Order metrics (GET /sales/v1/orderMetrics)` — Amazon-computed sales, units and average price by day or week, matching Seller Central (medium) → `order_metrics` (one row per marketplace and UTC day, incremental on `startTime`, the last 2 years Amazon allows)
+- [x] `Invoices (GET /finances/invoices/2026-06-25/invoices)` — invoice headers for fees and charges billed to the seller (medium) → `invoices` (90-day issue-date windows over the last 2 years per marketplace, incremental on `lastUpdatedDate` with `invoicesModifiedAfter`)
+- [x] `Replenishment offers (POST /replenishment/2022-11-07/offers/search)` — Subscribe and Save offers with their program settings (low) → `replenishment_offers` (full refresh per marketplace, up to the 9,100 offers that offset paging reaches)
+- [ ] `Direct fulfillment purchase orders (GET /vendor/directFulfillment/orders/2021-12-28/purchaseOrders)` — vendor drop-ship orders, a separate flow from vendor purchase orders (low) Skipped: needs the restricted Direct-to-Consumer Shipping role, and every order carries the end customer's ship-to and bill-to address.
 - [ ] `Vendor shipments (GET /vendor/shipping/v1/shipments)` — vendor shipment details for open purchase orders (low)
 - [ ] `AWD inventory and inbound shipments (GET /awd/2024-05-09/inventory; GET /awd/2024-05-09/inboundShipments)` — Amazon Warehousing and Distribution stock and inbound flow, upstream of FBA inventory (low)
 
@@ -8764,7 +8764,7 @@ Note: Endpoint map in products/warehouse_sources/sources/langfuse/settings.py is
 
 Re-audited 2026-11-19 against: <https://cloud.langfuse.com/generated/api/openapi.yml>
 
-- [ ] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low)
+- [x] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low) — synced as `skills`, full refresh only: moving the production label between older versions does not change `latestVersionLastUpdatedAt`, so `fromUpdatedAt` would miss it
 
 Note (2026-11-19): Parsed the full OpenAPI file and diffed it against the synced tables. Everything else listable is already synced, skipped in the earlier audit, or under /unstable/ (dashboards, topics) and config-shaped. Skills lists with page, limit and fromUpdatedAt/toUpdatedAt filters, so incremental sync is possible.
 

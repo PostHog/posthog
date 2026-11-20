@@ -331,6 +331,15 @@ describe('publish', () => {
         expect(await store.read(unsaved)).toBeUndefined()
     })
 
+    it.each([
+        ['publish', ['publish', '--all', '--target', 'dev']],
+        ['seed-backlog', ['seed-backlog', '--profile', 'profiles/dev.yaml', '--target', 'dev']],
+    ])('refuses --target on %s, which only run reads', async (_command, argv) => {
+        expect(await main(argv, { XDG_CACHE_HOME: cacheHome, [STORE_URL]: UNREACHABLE_STORE })).toBe(EXIT_CODE.invalid)
+
+        expect(printed(stderr)).toMatch(/^Usage: /)
+    })
+
     it.each<[string, (home: string) => NodeJS.ProcessEnv, number, RegExp]>([
         ['no run store is set', (home) => ({ HOME: home }), EXIT_CODE.invalid, /Set SCENARIO_STORE_URL/],
         [

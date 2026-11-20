@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("cohorts", "0023_turn_on_realtime_for_processed_teams"),
+        ("cohorts", "0024_backfill_cohort_condition_type"),
     ]
 
     operations = [

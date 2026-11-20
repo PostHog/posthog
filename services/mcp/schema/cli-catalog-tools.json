@@ -40495,10 +40495,6 @@
                     "key": "live_events_columns"
                 },
                 {
-                    "param": "recording_domains",
-                    "key": "recording_domains"
-                },
-                {
                     "param": "inject_web_apps",
                     "key": "inject_web_apps"
                 },
