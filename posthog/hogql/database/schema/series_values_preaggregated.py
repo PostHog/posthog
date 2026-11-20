@@ -17,7 +17,7 @@ from posthog.clickhouse.preaggregation.series_values_preaggregated_sql import (
 
 class SeriesValuesPreaggregatedTable(Table):
     description: str = (
-        "Pre-aggregated insight series values, one finished value per series and time window,"
+        "Pre-aggregated insight series values, one finished value per series and time window, "
         "computed per precompute job and used internally by insight queries."
     )
     top_level_settings: HogQLQuerySettings | None = Field(
