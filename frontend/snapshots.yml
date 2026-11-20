@@ -2633,9 +2633,9 @@ snapshots:
     components-product-empty-state--metrics-needs-setup--light:
         hash: v1.k794b7964.6f14cd96f78c867d4ecc2cdadd51051dc703df0fa33ad038af8f08175107268e.lT15zdNPnkDbQImC3TrNXYSNbrUgXst5ea5uM7q259c
     components-product-empty-state--notebooks-needs-setup--dark:
-        hash: v1.k794b7964.4606e7d0cbe63b9477305d21edee5ffb26a1887fdc2761a3ece3c6cc7fc3c59f.OyLJAaFgyQhH5ZY8cjFS1Ek7qMUsQbzQqDkL2Khth_o
+        hash: v1.k794b7964.50882b00196667fbcf87130d1e4b7ffa1b0ea2f8f3e079c12df2d04eb7d4b5a0.CbZfU54_ZWDE2cJscwNBtVPK0YbnpFr9yXLBO59i3Dg
     components-product-empty-state--notebooks-needs-setup--light:
-        hash: v1.k794b7964.b7ccf0f82b0988b6be7d2e732dcf3fcb045e72fd2a461a28e541b6e39a4dd818.EKkYtqbz7OtBetleHEeTfNpjUArMnN5day7YqKflurI
+        hash: v1.k794b7964.1560ac92b194b0c45fd0c30a84393d25d17b6cc0e7a36c5ccab235ed616f26fa.qDZHkloPN6qcVdgdMenLhEcNSLNHJtLVOVEF1RBLf_4
     components-product-empty-state--product-analytics-needs-setup--dark:
         hash: v1.k794b7964.5b8eb5893d25a56a6f1bb11173bbf7e8ef6f66f1266fe9fedb1c2ea61921a98a.-LNHscQj7LhADSmsRW7bpBQ2V33WRpSfI_N4J6SR758
     components-product-empty-state--product-analytics-needs-setup--light:
@@ -15167,9 +15167,9 @@ snapshots:
     scenes-app-notebooks--notebook-not-found--light:
         hash: v1.k794b7964.f22f15db87b69cc7ebc8aef74e170320626997e7219e36bfdd6bc74ac2feec25._PnuneTSXvkT_YRO-WBWQNKNyXR5pYpzAsbcsuT5WMk
     scenes-app-notebooks--notebooks-list--dark:
-        hash: v1.k794b7964.8bf0fb21a5bd9f13d4458df4024d4d892b219580e63b8d3a4e936fa6b9166785.Hc0DkVlrO03OIq6je6QtTa1-TTne2R-w5NmFetnAKP8
+        hash: v1.k794b7964.b8c52e32ab6300cf8f276af8b47b883f57be77697768a1b4fe0f55aa7f8d1f4d.vIXFxCS5cvP75yXsW8DxSheX4CLYw7nwSl7F9r1kpcE
     scenes-app-notebooks--notebooks-list--light:
-        hash: v1.k794b7964.8b6cac3f7bce059901862b06d0cc4e5c6c68ab3f3515469c14357f0df9589587.Mlw_3D8hYAHYo8lU6eaOjO--x2l7sDSLlS8yh5BIAiw
+        hash: v1.k794b7964.ea4d71dd4b6011416396d30304f65d67b3c978a0a8d11fc331da27122ea90960.d7KZuxOHqjGvwh8pSJ5aJ1klOSvC59cFqltMtG4EoJw
     scenes-app-notebooks--numbered-list--dark:
         hash: v1.k794b7964.725b5ceea2aad039902bff3674956883341526c393ad405f1c2b9f7e5b1c4049.vSZqOCF8lZ2hsWW4Qcrnv2f5wHxq86JjmULqlBgFqJo
     scenes-app-notebooks--numbered-list--light:
