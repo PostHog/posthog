@@ -8,6 +8,8 @@ from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -250,7 +252,8 @@ class TestProjectTeamQuota(QuotaProjectionTestMixin):
             self.assertIsNone(project_team_quota(self.team))
         capture.assert_called_once()
 
-    def test_a_batch_stops_writing_once_redis_keeps_failing(self, mock_settings):
+    @parameterized.expand([("in_one_batch", 500), ("across_batches", 2)])
+    def test_a_projection_stops_writing_once_redis_keeps_failing(self, mock_settings, _name, batch_size):
         self._enable(mock_settings)
         for index in range(4):
             Team.objects.create(organization=self.organization, name=f"team {index}")
@@ -261,9 +264,35 @@ class TestProjectTeamQuota(QuotaProjectionTestMixin):
             attempted.append(team.id)
             raise ConnectionError("redis down")
 
-        with patch.object(hypercache, "set_cache_value_redis_only", side_effect=fail_write):
+        from posthog.storage import team_llm_gateway_quota_cache as module
+
+        with (
+            patch.object(module, "_BATCH_SIZE", batch_size),
+            patch.object(hypercache, "set_cache_value_redis_only", side_effect=fail_write),
+        ):
             self.assertEqual(project_org_quota(self.organization), 0)
         self.assertEqual(len(attempted), 3)
+
+    def test_a_stale_clear_is_rewritten_when_later_writes_keep_failing(self, mock_settings):
+        self._enable(mock_settings)
+        for index in range(3):
+            Team.objects.create(organization=self.organization, name=f"team {index}")
+        real_delete = hypercache.delete_cache_entry
+        cleared: list[Team] = []
+
+        def deactivate_then_fail(team: Team, kinds: list[str]) -> None:
+            cleared.append(team)
+            if len(cleared) > 1:
+                raise ConnectionError("redis down")
+            Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+            real_delete(team, kinds=kinds)
+
+        with patch.object(hypercache, "delete_cache_entry", side_effect=deactivate_then_fail):
+            project_org_quota(self.organization)
+
+        blob = get_team_quota_blob(cleared[0])
+        assert blob is not None
+        self.assertTrue(blob["org_deactivated"])
 
     def test_a_writer_that_read_stale_state_rewrites_the_current_state(self, mock_settings):
         # A writer read "limited", then the limit lifted and another writer deleted the blob before

@@ -175,14 +175,10 @@ def _derive_or_capture(teams: list[Team], now: datetime) -> dict[int, dict[str, 
 class _Projected(NamedTuple):
     written: int
     cleared: int
+    write_failures_in_a_row: int
 
 
-def _tally(written: Mapping[int, dict[str, Any] | None]) -> _Projected:
-    blobs = sum(1 for blob in written.values() if blob is not None)
-    return _Projected(blobs, len(written) - blobs)
-
-
-def _project_batch(teams: list[Team]) -> _Projected:
+def _project_batch(teams: list[Team], failures_in_a_row: int = 0) -> _Projected:
     """Writes each blob, then re-reads and rewrites what moved. Writers race, and each re-read
     follows every earlier write, so the last write carries current state. Failures are captured
     for the reconcile, never raised into billing. Counts the blobs left written and the clears
@@ -190,7 +186,6 @@ def _project_batch(teams: list[Team]) -> _Projected:
     by_id = {team.id: team for team in teams}
     written: dict[int, dict[str, Any] | None] = {}
     to_write = _derive_or_capture(teams, datetime.now(tz=UTC))
-    failures_in_a_row = 0
     for _ in range(_MAX_PROJECTION_WRITES):
         now = datetime.now(tz=UTC)
         for team_id, blob in to_write.items():
@@ -201,7 +196,7 @@ def _project_batch(teams: list[Team]) -> _Projected:
                 written.pop(team_id, None)
                 failures_in_a_row += 1
                 if failures_in_a_row >= _MAX_CONSECUTIVE_WRITE_FAILURES:
-                    return _tally(written)
+                    break
                 continue
             written[team_id] = blob
             failures_in_a_row = 0
@@ -216,16 +211,20 @@ def _project_batch(teams: list[Team]) -> _Projected:
     else:
         # State kept moving; the reconcile re-projects these teams within a tick.
         logger.warning("llm_gateway_quota: projection did not settle", team_ids=sorted(to_write))
-    return _tally(written)
+    blobs = sum(1 for blob in written.values() if blob is not None)
+    return _Projected(blobs, len(written) - blobs, failures_in_a_row)
 
 
 def _project_in_batches(queryset: QuerySet[Team]) -> _Projected:
-    written = cleared = 0
+    written = cleared = failures_in_a_row = 0
     for batch in batched(queryset.iterator(chunk_size=_BATCH_SIZE), _BATCH_SIZE, strict=False):
-        projected = _project_batch(list(batch))
+        projected = _project_batch(list(batch), failures_in_a_row)
         written += projected.written
         cleared += projected.cleared
-    return _Projected(written, cleared)
+        failures_in_a_row = projected.write_failures_in_a_row
+        if failures_in_a_row >= _MAX_CONSECUTIVE_WRITE_FAILURES:
+            break
+    return _Projected(written, cleared, failures_in_a_row)
 
 
 def _project_teams(queryset: QuerySet[Team]) -> _Projected:
