@@ -4,6 +4,7 @@ export type {
     WebAnalyticsHeatmapsEventsRequestSchema0,
     WebAnalyticsHeatmapsEventsRequestSchema12,
     WebAnalyticsHeatmapsEventsRequestSchema13,
+    WebAnalyticsHeatmapsEventsRequestSchema15,
     WebAnalyticsHeatmapsEventsInput,
     WebAnalyticsHeatmapsEventsResponseShape2,
     WebAnalyticsHeatmapsEventsOutput,

@@ -30,7 +30,7 @@ earlyAccessFeatures	5	@posthog/sdk/early-access-features
 emailTemplates	12	@posthog/sdk/email-templates
 endpoints	12	@posthog/sdk/endpoints
 engineeringAnalytics	12	@posthog/sdk/engineering-analytics
-errorTracking	31	@posthog/sdk/error-tracking
+errorTracking	35	@posthog/sdk/error-tracking
 errorTrackingAlerts	4	@posthog/sdk/error-tracking-alerts
 events	4	@posthog/sdk/events
 experiments	44	@posthog/sdk/experiments
@@ -52,7 +52,7 @@ messaging	17	@posthog/sdk/messaging
 metrics	6	@posthog/sdk/metrics
 notebooks	23	@posthog/sdk/notebooks
 persons	7	@posthog/sdk/persons
-platformFeatures	28	@posthog/sdk/platform-features
+platformFeatures	29	@posthog/sdk/platform-features
 posthogAi	2	@posthog/sdk/posthog-ai
 productAnalytics	18	@posthog/sdk/product-analytics
 proxyRecords	6	@posthog/sdk/proxy-records
@@ -79,5 +79,6 @@ warehouseSources	49	@posthog/sdk/warehouse-sources
 warehouseSuggestions	8	@posthog/sdk/warehouse-suggestions
 webAnalytics	17	@posthog/sdk/web-analytics
 wizard	2	@posthog/sdk/wizard
+workflowEmailLog	3	@posthog/sdk/workflow-email-log
 workflows	41	@posthog/sdk/workflows
 workspace	4	@posthog/sdk/workspace

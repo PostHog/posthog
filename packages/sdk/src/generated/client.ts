@@ -81,6 +81,7 @@ import type {
     WarehouseSuggestionsClient,
     WebAnalyticsClient,
     WizardClient,
+    WorkflowEmailLogClient,
     WorkflowsClient,
     WorkspaceClient,
 } from './api.js'
@@ -2491,6 +2492,22 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).errorTrackingSymbolSetsRetrieve(input, { ...options, signal })
                 ),
+            errorTrackingTagRulesCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).errorTrackingTagRulesCreate(input, { ...options, signal })
+                ),
+            errorTrackingTagRulesDelete: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).errorTrackingTagRulesDelete(input, { ...options, signal })
+                ),
+            errorTrackingTagRulesList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).errorTrackingTagRulesList(input, { ...options, signal })
+                ),
+            errorTrackingTagRulesUpdate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).errorTrackingTagRulesUpdate(input, { ...options, signal })
+                ),
             queryErrorTrackingIssue: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).queryErrorTrackingIssue(input, { ...options, signal })
@@ -3595,6 +3612,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
             commentThread: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).commentThread(input, { ...options, signal })
+                ),
+            organizationCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).organizationCreate(input, { ...options, signal })
                 ),
             organizationEnforce2faExecute: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
@@ -5647,6 +5668,26 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 ),
         })
     )
+    const workflowEmailLog = new LazyClient<WorkflowEmailLogClient>(
+        () =>
+            import('./workflow-email-log/client.js').then(({ createWorkflowEmailLogClient }) =>
+                createWorkflowEmailLogClient(runtime)
+            ),
+        (load) => ({
+            workflowsEmailActivity: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).workflowsEmailActivity(input, { ...options, signal })
+                ),
+            workflowsEmailGet: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).workflowsEmailGet(input, { ...options, signal })
+                ),
+            workflowsEmailsList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).workflowsEmailsList(input, { ...options, signal })
+                ),
+        })
+    )
     const workflows = new LazyClient<WorkflowsClient>(
         () => import('./workflows/client.js').then(({ createWorkflowsClient }) => createWorkflowsClient(runtime)),
         (load) => ({
@@ -6077,6 +6118,9 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
         },
         get wizard(): WizardClient {
             return wizard.client
+        },
+        get workflowEmailLog(): WorkflowEmailLogClient {
+            return workflowEmailLog.client
         },
         get workflows(): WorkflowsClient {
             return workflows.client

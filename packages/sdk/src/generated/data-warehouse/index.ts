@@ -130,6 +130,7 @@ export type {
     DataWarehouseViewRunRequestSchema1,
     DataWarehouseViewRunRequestSchema2,
     DataWarehouseViewRunInput,
+    DataWarehouseViewRunResponseShape2,
     DataWarehouseViewRunOutput,
     DataWarehouseViewRunHistoryInput,
     DataWarehouseViewRunHistoryOutput,

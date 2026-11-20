@@ -30,6 +30,10 @@ import type {
     ErrorTrackingErrorTrackingSymbolSetsDownloadRetrieveOutput,
     ErrorTrackingErrorTrackingSymbolSetsListOutput,
     ErrorTrackingErrorTrackingSymbolSetsRetrieveOutput,
+    ErrorTrackingErrorTrackingTagRulesCreateOutput,
+    ErrorTrackingErrorTrackingTagRulesDeleteOutput,
+    ErrorTrackingErrorTrackingTagRulesListOutput,
+    ErrorTrackingErrorTrackingTagRulesUpdateOutput,
     ErrorTrackingQueryErrorTrackingIssueOutput,
     ErrorTrackingQueryErrorTrackingIssueEventsOutput,
     ErrorTrackingQueryErrorTrackingIssuesListOutput,
@@ -201,6 +205,30 @@ export function createErrorTrackingClient(runtime: Runtime): ErrorTrackingClient
         errorTrackingSymbolSetsRetrieve: (input, options) =>
             runtime.executeTool<ErrorTrackingErrorTrackingSymbolSetsRetrieveOutput>(
                 'error-tracking-symbol-sets-retrieve',
+                input,
+                options
+            ),
+        errorTrackingTagRulesCreate: (input, options) =>
+            runtime.executeTool<ErrorTrackingErrorTrackingTagRulesCreateOutput>(
+                'error-tracking-tag-rules-create',
+                input,
+                options
+            ),
+        errorTrackingTagRulesDelete: (input, options) =>
+            runtime.executeTool<ErrorTrackingErrorTrackingTagRulesDeleteOutput>(
+                'error-tracking-tag-rules-delete',
+                input,
+                options
+            ),
+        errorTrackingTagRulesList: (input, options) =>
+            runtime.executeTool<ErrorTrackingErrorTrackingTagRulesListOutput>(
+                'error-tracking-tag-rules-list',
+                input,
+                options
+            ),
+        errorTrackingTagRulesUpdate: (input, options) =>
+            runtime.executeTool<ErrorTrackingErrorTrackingTagRulesUpdateOutput>(
+                'error-tracking-tag-rules-update',
                 input,
                 options
             ),

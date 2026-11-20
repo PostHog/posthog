@@ -2050,6 +2050,26 @@
         "method": "errorTracking.errorTrackingSymbolSetsRetrieve"
     },
     {
+        "toolName": "error-tracking-tag-rules-create",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingTagRulesCreate"
+    },
+    {
+        "toolName": "error-tracking-tag-rules-delete",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingTagRulesDelete"
+    },
+    {
+        "toolName": "error-tracking-tag-rules-list",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingTagRulesList"
+    },
+    {
+        "toolName": "error-tracking-tag-rules-update",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingTagRulesUpdate"
+    },
+    {
         "toolName": "event-definition-create",
         "status": "exported",
         "method": "events.eventDefinitionCreate"
@@ -4310,6 +4330,11 @@
         "method": "platformFeatures.orgMembersList"
     },
     {
+        "toolName": "organization-create",
+        "status": "exported",
+        "method": "platformFeatures.organizationCreate"
+    },
+    {
         "toolName": "organization-enforce-2fa-execute",
         "status": "exported",
         "method": "platformFeatures.organizationEnforce2faExecute"
@@ -6315,9 +6340,24 @@
         "method": "workflows.workflowsDiscardDraft"
     },
     {
+        "toolName": "workflows-email-activity",
+        "status": "exported",
+        "method": "workflowEmailLog.workflowsEmailActivity"
+    },
+    {
         "toolName": "workflows-email-drafts-create",
         "status": "exported",
         "method": "workflows.workflowsEmailDraftsCreate"
+    },
+    {
+        "toolName": "workflows-email-get",
+        "status": "exported",
+        "method": "workflowEmailLog.workflowsEmailGet"
+    },
+    {
+        "toolName": "workflows-emails-list",
+        "status": "exported",
+        "method": "workflowEmailLog.workflowsEmailsList"
     },
     {
         "toolName": "workflows-enable",

@@ -19,6 +19,7 @@ import type {
     PlatformFeaturesCommentsSendToSlackExecuteOutput,
     PlatformFeaturesCommentsSendToSlackPrepareOutput,
     PlatformFeaturesCommentThreadOutput,
+    PlatformFeaturesOrganizationCreateOutput,
     PlatformFeaturesOrganizationEnforce2faExecuteOutput,
     PlatformFeaturesOrganizationEnforce2faPrepareOutput,
     PlatformFeaturesOrganizationGetOutput,
@@ -99,6 +100,8 @@ export function createPlatformFeaturesClient(runtime: Runtime): PlatformFeatures
             ),
         commentThread: (input, options) =>
             runtime.executeTool<PlatformFeaturesCommentThreadOutput>('comment-thread', input, options),
+        organizationCreate: (input, options) =>
+            runtime.executeTool<PlatformFeaturesOrganizationCreateOutput>('organization-create', input, options),
         organizationEnforce2faExecute: (input, options) =>
             runtime.executeTool<PlatformFeaturesOrganizationEnforce2faExecuteOutput>(
                 'organization-enforce-2fa-execute',
