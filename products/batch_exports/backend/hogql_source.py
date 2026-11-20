@@ -149,7 +149,7 @@ def apply_hogql_batch_export_modifier_defaults(
     if resolved.convertToProjectTimezone is None and team_value is None:
         resolved.convertToProjectTimezone = False
     if resolved.useNewEventsSchema is None:
-        resolved.useNewEventsSchema = batch_exports_read_new_events_table()
+        resolved.useNewEventsSchema = batch_exports_read_new_events_table(team.pk)
     return resolved
 
 

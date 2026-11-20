@@ -666,10 +666,10 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        native_source = (
-            query_template in (EXPORT_TO_S3_FROM_EVENTS_BACKFILL, EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS)
-            and batch_exports_read_new_events_table()
-        )
+        native_source = query_template in (
+            EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
+            EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+        ) and batch_exports_read_new_events_table(team_id)
 
         # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
         # TODO: Temporary. Once `events_json_recent` serves the recent paths, choose the table once up front and

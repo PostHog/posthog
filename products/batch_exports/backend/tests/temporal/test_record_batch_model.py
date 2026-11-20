@@ -584,7 +584,7 @@ class TestHogQLQueryRecordBatchModel:
             "timeout_overflow_mode": "throw",
         }
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
     async def test_request_settings_unescape_dotted_keys_on_the_native_table(self, ateam: "Team", auser: User) -> None:
         # The printed query carries no SETTINGS clause, so the native read setting travels with the request.
         model = HogQLQueryRecordBatchModel(
@@ -736,7 +736,7 @@ class TestHogQLQueryRecordBatchModel:
             "WITH source AS (SELECT properties.secret_field AS secret, properties AS all_properties FROM events) "
             "SELECT secret, all_properties FROM source"
         )
-        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+        with override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_new_events_schema else 0):
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
             _, model, _, _, _, _ = resolve_batch_exports_model(
                 ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
@@ -791,7 +791,7 @@ class TestHogQLQueryRecordBatchModel:
 
 
 @pytest.mark.django_db
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 async def test_custom_export_recompilation_preserves_column_names(ateam):
     """A team on the new schema keeps its stored custom-schema fields, and only a native run recompiles them.
 
@@ -823,7 +823,7 @@ async def test_custom_export_recompilation_preserves_column_names(ateam):
 
 
 @pytest.mark.parametrize("interval_start_is_none", [False, True])
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 @pytest.mark.django_db
 async def test_custom_export_backfill_runs_without_legacy_events_tables(
     ateam, clickhouse_client, interval_start_is_none

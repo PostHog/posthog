@@ -249,7 +249,9 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     )
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+# The export reads events_json because of the rollout percentage. The test event writer copies events into events_json
+# only when CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on.
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.parametrize("has_mutations", [True, False])
 async def test_insert_into_http_activity_exports_person_properties_as_set_when_using_native_events(
     clickhouse_client, activity_environment, http_config, has_mutations

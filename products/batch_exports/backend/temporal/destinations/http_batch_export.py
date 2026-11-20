@@ -222,7 +222,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if not isinstance(model, BatchExportEventsModel):
             raise NotImplementedError("HTTP export only supports the events model")
 
-        use_native_schema = batch_exports_read_new_events_table()
+        use_native_schema = batch_exports_read_new_events_table(inputs.team_id)
 
         interval_start = await maybe_resume_from_heartbeat(inputs)
 

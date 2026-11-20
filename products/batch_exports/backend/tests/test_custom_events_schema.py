@@ -26,7 +26,7 @@ def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
 
 
 class TestSerializeEventsQuerySchema(BaseTest):
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
     def test_resaving_legacy_query_preserves_types_and_column_names(self):
         PropertyDefinition.objects.create(
             team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
@@ -149,7 +149,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
             ),
         ]
     )
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
     def test_native_query_keeps_property_type_casts(
         self, _name: str, recompile: bool, expected_expression: str, expected_values: dict[str, str]
     ):
@@ -169,7 +169,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
         assert values == expected_values
 
     @parameterized.expand([("unrestricted", False), ("restricted", True)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
     def test_saving_a_materialized_property_reads_it_from_properties(self, _name: str, restricted: bool):
         restrictions = (
             {RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
@@ -213,7 +213,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
             ),
         ]
     )
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
     def test_legacy_fields_drop_restricted_keys_from_a_selected_properties_object(
         self, _name: str, query: str, property_type: int, restricted: str, expected_dropped_keys: list[str]
     ):
@@ -236,7 +236,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
         )
         query = "SELECT properties.secret AS secret, properties.amount AS amount FROM events"
         with (
-            override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=new_schema),
+            override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if new_schema else 0),
             patch(
                 "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
                 return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
@@ -250,7 +250,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
         assert fields[0] == {"expression": "NULL", "alias": "secret"}
         assert "accurateCastOrNull(events.properties.amount, 'Float64')" in fields[1]["expression"], fields
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
     def test_native_recompile_masks_default_rules_for_a_schema_saved_without_restrictions(self):
         schema = serialize_events_query_schema(
             self.team.pk, self.user, prepare_query("SELECT properties AS props FROM events", self.team.pk)
@@ -272,7 +272,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
         assert "JSONDropKeysPool(" in fields[0]["expression"], fields
         assert any("secret" in value for key, value in values.items() if key.endswith("_sensitive")), values
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
     @patch("products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team")
     def test_new_schema_rejects_a_restricted_properties_object(self, get_restricted_properties):
         """When saving for the native table, a restricted user cannot save `SELECT properties`, because the native
@@ -287,7 +287,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
                 self.team.pk, self.user, prepare_query("SELECT properties FROM events", self.team.pk)
             )
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
     def test_native_recompile_rejects_a_restricted_properties_object_saved_for_the_legacy_tables(self):
         """A restricted user can save `SELECT properties` for the legacy tables, which mask the restricted keys, but
         the native table cannot select a restricted properties object. The run must then fail with a non-retryable
@@ -310,7 +310,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
             ("visible", "SELECT properties.`$feature/checkout` AS flag FROM events", "JSONExtractRaw("),
         ]
     )
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
     @patch("products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team")
     @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
     def test_native_export_hides_a_restricted_flag(
@@ -325,7 +325,7 @@ class TestSerializeEventsQuerySchema(BaseTest):
         expression = schema["fields"][0]["expression"]
         assert expression == expected if expected == "NULL" else expected in expression, expression
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
     @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
     def test_native_export_names_a_bare_flag_column(self, _use_new_events_schema):
 

@@ -246,7 +246,7 @@ def parse_events_hogql_query(
             user=user,
             enable_select_queries=True,
             restricted_properties=restricted_properties,
-            use_new_events_schema=batch_exports_read_new_events_table(),
+            use_new_events_schema=batch_exports_read_new_events_table(team_id),
             modifiers=HogQLQueryModifiers(
                 # A materialized column would replace `properties` in the prepared query, and the field check below
                 # only accepts the columns an export reads. The native events table has no materialized columns.
@@ -355,7 +355,7 @@ def serialize_events_query_schema(
         enable_select_queries=True,
         limit_top_select=False,
         restricted_properties=restricted_properties,
-        use_new_events_schema=batch_exports_read_new_events_table(),
+        use_new_events_schema=batch_exports_read_new_events_table(team_id),
         modifiers=HogQLQueryModifiers(
             materializationMode=MaterializationMode.DISABLED,
             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
