@@ -293,11 +293,11 @@ export interface AEOKeywordModifierApi {
 export interface AEOKeywordModifierReportApi {
     /** The 50 modifiers used by the most answers, most first. */
     modifiers: AEOKeywordModifierApi[]
-    /** Length of the window in days. */
+    /** Length of the window in days, from 'window_from' to 'window_to'. */
     days: number
     /** First day of the window, in the project's timezone. */
     window_from: string
-    /** Last day of the window (today), in the project's timezone. */
+    /** Last day of the window, in the project's timezone. */
     window_to: string
     /**
      * The keyword filter, normalized. Null when the report covers every answer.
@@ -374,11 +374,11 @@ export interface AEOKeywordReportRowApi {
 export interface AEOKeywordReportApi {
     /** One row per keyword in the project's list, by keyword, including keywords with no match. */
     keywords: AEOKeywordReportRowApi[]
-    /** Length of the window in days. */
+    /** Length of the window in days, from 'window_from' to 'window_to'. */
     days: number
     /** First day of the window, in the project's timezone. */
     window_from: string
-    /** Last day of the window (today), in the project's timezone. */
+    /** Last day of the window, in the project's timezone. */
     window_to: string
     /** Answered checks in the window. Answered checks are checks in the window where the engine answered; failed checks are left out. */
     answers: number
@@ -1052,7 +1052,7 @@ export const BrandedSegmentEnumApi = {
 } as const
 
 export interface AEOPromptSetOverviewApi {
-    /** Checks across the prompt set in the last 'days' days. */
+    /** Checks across the prompt set from 'window_from' to 'window_to'. */
     current: AEOPromptSetCountsApi
     /** The same counts for the 'days' days before 'window_from'. */
     previous: AEOPromptSetCountsApi
@@ -1070,7 +1070,7 @@ export interface AEOPromptSetOverviewApi {
     days: number
     /** First day of the current window, in the project's timezone. */
     window_from: string
-    /** Last day of the current window (today), in the project's timezone. */
+    /** Last day of the current window, in the project's timezone. */
     window_to: string
     /** Prompts that are on and not archived: the ones the next daily run takes. */
     prompts_tracked: number
@@ -1179,7 +1179,7 @@ export interface AEOPromptSetRankingsApi {
     days: number
     /** First day of the current window, in the project's timezone. */
     window_from: string
-    /** Last day of the current window (today), in the project's timezone. */
+    /** Last day of the current window, in the project's timezone. */
     window_to: string
     /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
      *
@@ -3172,11 +3172,17 @@ export type AeoKeywordsModifiersParams = {
      */
     branded?: AeoKeywordsModifiersBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-7d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -3216,11 +3222,17 @@ export type AeoKeywordsReportParams = {
      */
     branded?: AeoKeywordsReportBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-7d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -3255,11 +3267,17 @@ export type AeoPromptsListParams = {
      */
     branded?: boolean | null
     /**
-     * The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. Ignored unless needs_improvement is true.
      * @maxLength 64
@@ -3276,7 +3294,7 @@ export type AeoPromptsListParams = {
      */
     limit?: number
     /**
-     * Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out.
+     * Only list prompts that the engines answered from date_from to date_to without citing a target domain. Prompts with no answered check in that window are left out.
      */
     needs_improvement?: boolean
     /**
@@ -3332,11 +3350,17 @@ export type AeoPromptsCitationsParams = {
      */
     branded?: AeoPromptsCitationsBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * List the answers that cited a page on this domain or one of its subdomains, case ignored. Takes a host from the overview's top_domains (docs.example.com) or a domain from the rankings (example.com).
      * @minLength 1
@@ -3395,11 +3419,17 @@ export type AeoPromptsOverviewParams = {
      */
     branded?: AeoPromptsOverviewBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -3433,11 +3463,17 @@ export type AeoPromptsRankingsParams = {
      */
     branded?: AeoPromptsRankingsBranded
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number
+    date_from?: string | null
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64

@@ -7,12 +7,29 @@
             "enum": ["all", "branded", "non_branded"],
             "type": "string"
         },
-        "days": {
-            "default": 30,
-            "description": "Length of the window in days, ending today in the project's timezone. Default 30, at most 90.",
-            "maximum": 90,
-            "minimum": 1,
-            "type": "number"
+        "date_from": {
+            "anyOf": [
+                {
+                    "maxLength": 32,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days."
+        },
+        "date_to": {
+            "anyOf": [
+                {
+                    "maxLength": 32,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today."
         },
         "domain": {
             "description": "List the answers that cited a page on this domain or one of its subdomains, case ignored. Takes a host from the overview's top_domains (docs.example.com) or a domain from the rankings (example.com).",

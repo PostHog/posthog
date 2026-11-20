@@ -30,7 +30,7 @@ const rateCard = (
         value: value === null ? 'No answers' : percentage(value, 0),
         note:
             value === null
-                ? `No answers in the last ${days} days`
+                ? 'No answers in this date range'
                 : `${humanFriendlyNumber(current[count])} of ${pluralize(answered(current), 'answer')}`,
         delta:
             value === null || before === null
@@ -39,9 +39,9 @@ const rateCard = (
     }
 }
 
-const citedPromptsNote = (counts: AEOPromptSetCountsApi, days: number): string => {
+const citedPromptsNote = (counts: AEOPromptSetCountsApi): string => {
     if (counts.prompts === 0) {
-        return `None ran in the last ${days} days`
+        return 'None ran in this date range'
     }
     const cited =
         counts.prompts_cited === counts.prompts
@@ -49,7 +49,7 @@ const citedPromptsNote = (counts: AEOPromptSetCountsApi, days: number): string =
             : counts.prompts_cited === 0
               ? 'none of them'
               : `${counts.prompts_cited} of them`
-    return `${counts.prompts} ran in the last ${days} days, ${cited} cited`
+    return `${counts.prompts} ran in this date range, ${cited} cited`
 }
 
 const positionCard = ({ current, previous, days }: AEOPromptSetOverviewApi): KpiCardContent => {
@@ -58,9 +58,7 @@ const positionCard = ({ current, previous, days }: AEOPromptSetOverviewApi): Kpi
     return {
         value: value == null ? 'Not cited' : positionLabel(value),
         note:
-            value == null
-                ? `No cited answers in the last ${days} days`
-                : `Over ${pluralize(current.cited, 'cited answer')}`,
+            value == null ? 'No cited answers in this date range' : `Over ${pluralize(current.cited, 'cited answer')}`,
         delta:
             value == null || before == null
                 ? null
@@ -74,7 +72,7 @@ export const promptsOverviewKpis = (overview: AEOPromptSetOverviewApi): PromptsO
     return {
         promptsTracked: {
             value: humanFriendlyNumber(overview.prompts_tracked),
-            note: citedPromptsNote(current, days),
+            note: citedPromptsNote(current),
             delta: null,
         },
         checks: {

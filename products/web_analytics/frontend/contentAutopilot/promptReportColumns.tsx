@@ -7,7 +7,7 @@ import { percentage } from 'lib/utils/numbers'
 import type { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
-import { CITATIONS_MAX_DAYS, type CitationsLookup } from './contentAutopilotCitationsModalLogic'
+import { CITATIONS_MAX_DATE_FROM, type CitationsLookup } from './contentAutopilotCitationsModalLogic'
 import { PROMPT_CITATION_COLUMNS, PROMPT_SOURCE_COLUMNS } from './promptReportQueries'
 
 // Engine output is third-party text: only plain http(s) URLs become links.
@@ -21,7 +21,8 @@ const cellAt = (record: unknown, columns: readonly string[], name: string): unkn
 const lookupFor = (kind: CitationsLookup['kind'], value: string): CitationsLookup => ({
     kind,
     value,
-    days: CITATIONS_MAX_DAYS,
+    dateFrom: CITATIONS_MAX_DATE_FROM,
+    dateTo: null,
     branded: 'all',
 })
 

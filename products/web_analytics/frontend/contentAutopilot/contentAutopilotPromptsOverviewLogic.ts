@@ -53,11 +53,13 @@ export interface contentAutopilotPromptsOverviewLogicActions {
         brandedSegment: import('products/web_analytics/frontend/generated/api.schemas').BrandedSegmentEnumApi
         tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
-    setDays: (
-        days: 7 | 14 | 30 | 90,
+    setDates: (
+        dateFrom: string,
+        dateTo: string | null,
         tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
     ) => {
-        days: 7 | 14 | 30 | 90
+        dateFrom: string
+        dateTo: string | null
         tab: import('./aiVisibilityFilters').AiVisibilityFilterTab
     } // contentAutopilotFiltersLogic
     setEngine: (
@@ -160,7 +162,7 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
         values: [teamLogic, ['currentTeamIdStrict'], contentAutopilotFiltersLogic, ['filters']],
         actions: [
             contentAutopilotFiltersLogic,
-            ['setDays', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
+            ['setDates', 'setEngine', 'setTopic', 'setBrandedSegment', 'applyUrlFilters'],
             contentAutopilotPromptsLogic,
             ['setPromptActiveSuccess', 'addPromptsSuccess'],
             contentAutopilotPromptDetailLogic,
@@ -240,6 +242,7 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
                 overview
                     ? {
                           from: overview.window_from,
+                          to: overview.window_to,
                           brandNames: overview.brand_names,
                           branded: overview.branded,
                           engine: overview.engine,
@@ -288,7 +291,7 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
             actions.setWorkspaceTab('prompts')
             actions.openPromptDetail(promptId)
         },
-        setDays: () => actions.loadPromptSetOverview(),
+        setDates: () => actions.loadPromptSetOverview(),
         setEngine: () => actions.loadPromptSetOverview(),
         setTopic: () => actions.loadPromptSetOverview(),
         setBrandedSegment: () => actions.loadPromptSetOverview(),

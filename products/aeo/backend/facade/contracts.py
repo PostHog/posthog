@@ -75,8 +75,6 @@ class CheckFrequency(LabeledStrEnum):
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
-# The window the page opens on, and so the one the stored results are kept ready for.
-DEFAULT_STATS_DAYS = 30
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
 MAX_RANKED_DOMAINS = 20
@@ -327,7 +325,7 @@ class PromptSetSearch:
 
 @frozen
 class PromptSetOverview:
-    """How the whole prompt set did over the last `days` days, against the `days` days before."""
+    """How the whole prompt set did from `window_from` to `window_to`, against the `days` days before."""
 
     days: int
     window_from: dt.date
@@ -484,6 +482,21 @@ class BrandNotFoundError(Exception):
     pass
 
 
+# "-90d" counts today too, so the longest relative range has 91 days.
+MAX_WINDOW_DAYS = 91
+# The window the page opens on, and so the one the stored results are kept ready for.
+DEFAULT_DATE_FROM = "-30d"
+KEYWORD_DEFAULT_DATE_FROM = "-7d"
+
+
+class InvalidDateRangeError(Exception):
+    """`date_from` or `date_to` cannot be read, or the range is too long. The message is safe to show the user."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
 class BrandCreateError(Exception):
     """The brand cannot be added. The message is safe to show the user."""
 
@@ -628,8 +641,8 @@ class RankedPage:
 
 @frozen
 class PromptSetRankings:
-    """Brand visibility against competitors, and the domains and pages the engines cite, over the
-    last `days` days."""
+    """Brand visibility against competitors, and the domains and pages the engines cite, from
+    `window_from` to `window_to`."""
 
     days: int
     window_from: dt.date

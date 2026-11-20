@@ -20,12 +20,15 @@ const citedShare = (row: SearchRow): number => (row.answers ? row.cited / row.an
  *  prompts that ran it most. */
 export const ContentAutopilotPromptsSearchTable = ({
     rows,
-    days,
+    dateFrom,
+    dateTo,
     branded,
     onOpenPrompt,
 }: {
     rows: SearchRow[]
-    days: number
+    /** The window of the report, so a row opens the same answers the report counted. */
+    dateFrom: string
+    dateTo: string
     branded: BrandedSegmentEnumApi
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => {
@@ -35,7 +38,7 @@ export const ContentAutopilotPromptsSearchTable = ({
             key: 'query',
             render: (_, row) => (
                 <ContentAutopilotCitationsLink
-                    lookup={{ kind: 'search', value: row.query, days, branded }}
+                    lookup={{ kind: 'search', value: row.query, dateFrom, dateTo, branded }}
                     source="overview-searches"
                     className="block max-w-120 truncate font-semibold"
                     title={row.query}
@@ -101,7 +104,7 @@ export const ContentAutopilotPromptsSearchTable = ({
                     </div>
                 ),
             }}
-            emptyState={`No web searches in the last ${days} days. Only some engines report the searches they run.`}
+            emptyState="No web searches in this date range. Only some engines report the searches they run."
         />
     )
 }

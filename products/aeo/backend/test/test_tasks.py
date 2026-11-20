@@ -17,7 +17,6 @@ from posthog.redis import get_client
 
 from products.aeo.backend import keyword_suggestions
 from products.aeo.backend.facade.api import get_prompt_set_overview
-from products.aeo.backend.facade.contracts import DEFAULT_STATS_DAYS
 from products.aeo.backend.models import AEOCitationCheck
 from products.aeo.backend.tasks import tasks
 from products.aeo.backend.tasks.tasks import (
@@ -116,7 +115,7 @@ def test_refresh_fills_checks_from_before_the_stored_values_and_then_stores_the_
 
     assert AEOCitationCheck.objects.for_team(team.id).get(id=check_id).prompt_branded is True
     with CaptureQueriesContext(connection) as queries:
-        overview = get_prompt_set_overview(team.id, timezone_name=team.timezone, days=DEFAULT_STATS_DAYS)
+        overview = get_prompt_set_overview(team.id, timezone_name=team.timezone)
     assert overview.current.checks == 1
     assert [q["sql"] for q in queries.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
 

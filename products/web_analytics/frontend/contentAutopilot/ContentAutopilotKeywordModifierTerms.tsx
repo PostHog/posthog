@@ -15,12 +15,14 @@ import { engineLabel } from './utils'
 export const ContentAutopilotKeywordModifierTerms = ({
     modifiers,
     baselineCitedRate,
-    days,
+    dateFrom,
+    dateTo,
     branded,
 }: {
     modifiers: AEOKeywordModifierApi[]
     /** The window and branded split of the report, so a search opens the same answers the report counted. */
-    days: number
+    dateFrom: string
+    dateTo: string
     branded: BrandedSegmentEnumApi
     baselineCitedRate: number | null
 }): JSX.Element => (
@@ -83,7 +85,7 @@ export const ContentAutopilotKeywordModifierTerms = ({
                         {modifier.example_searches.map((search) => (
                             <li key={search} className="flex min-w-0 text-xs">
                                 <ContentAutopilotCitationsLink
-                                    lookup={{ kind: 'search', value: search, days, branded }}
+                                    lookup={{ kind: 'search', value: search, dateFrom, dateTo, branded }}
                                     source="keyword-modifier-searches"
                                     className="block truncate"
                                     title={search}

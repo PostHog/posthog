@@ -27,7 +27,7 @@ import { contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { ContentAutopilotRankingsSkeleton } from './ContentAutopilotRankingsSkeleton'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 import { visibilityChange } from './rankingsReport'
-import { brandedAnswersNote, filtersHeading, segmentPrompts } from './utils'
+import { brandedAnswersNote, filtersHeading, segmentPrompts, windowRange } from './utils'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
     xAxis: { interval: 'day' },
@@ -111,7 +111,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                 {header}
                 <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-rankings-segment-empty">
                     <h4 className="m-0">
-                        No answers to {segmentPrompts(rankings.branded)} in the last {rankings.days} days
+                        No answers to {segmentPrompts(rankings.branded)} {windowRange(rankings)}
                         {narrowed ? ' that match these filters' : ''}
                     </h4>
                     <p className="m-0 mt-1 text-muted">Choose other filters above to see the other answers.</p>
@@ -182,7 +182,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                         lookup={{
                                                             kind: 'domain',
                                                             value: brand.domain,
-                                                            days: rankings.days,
+                                                            dateFrom: rankings.window_from,
+                                                            dateTo: rankings.window_to,
                                                             branded: rankings.branded,
                                                         }}
                                                         source="rankings-brands"
@@ -271,7 +272,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                 lookup={{
                                                     kind: 'domain',
                                                     value: domain.domain,
-                                                    days: rankings.days,
+                                                    dateFrom: rankings.window_from,
+                                                    dateTo: rankings.window_to,
                                                     branded: rankings.branded,
                                                 }}
                                                 source="rankings-sites"
@@ -323,7 +325,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                     lookup={{
                                                         kind: 'url',
                                                         value: page.url,
-                                                        days: rankings.days,
+                                                        dateFrom: rankings.window_from,
+                                                        dateTo: rankings.window_to,
                                                         branded: rankings.branded,
                                                     }}
                                                     source="rankings-pages"
