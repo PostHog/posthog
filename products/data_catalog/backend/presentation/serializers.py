@@ -720,6 +720,10 @@ class UsageSnapshotSummarySerializer(serializers.Serializer):
 
 class UsageSnapshotSerializer(UsageSnapshotSummarySerializer):
     payload = UsageSnapshotPayloadSerializer(help_text="The scan result, one key per section.")
+    topics_hidden = serializers.BooleanField(
+        help_text="True when the scan grouped topics, but the payload leaves them out because the reader "
+        "is denied at least one table or view."
+    )
 
 
 class MetricUsageSerializer(serializers.Serializer):

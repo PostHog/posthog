@@ -1131,6 +1131,8 @@ export interface UsageSnapshotApi {
     created_at: string
     /** The scan result, one key per section. */
     payload: UsageSnapshotPayloadApi
+    /** True when the scan grouped topics, but the payload leaves them out because the reader is denied at least one table or view. */
+    topics_hidden: boolean
 }
 
 export type DataCatalogCertificationsListParams = {

@@ -21,6 +21,10 @@ import { SourceRow, buildSourceRows, describeTopicSessions } from './usageRows'
 const SCAN_POLL_INTERVAL_MS = 30000
 const MAX_POLL_BACKOFF_MS = 5 * 60 * 1000
 
+const NO_TOPICS_MESSAGE = 'No agent session analyzed data in this window.'
+const TOPICS_HIDDEN_MESSAGE =
+    "You can't view some tables in this project, so topics are hidden. Ask an admin for access to see them."
+
 /** The latest finished scan, `'none'` when no scan has finished, and null until the first load answers. */
 export type LatestScan = UsageSnapshotApi | 'none' | null
 
@@ -49,6 +53,7 @@ export interface usageLogicValues {
     sourceRows: SourceRow[]
     topicSessionsSummary: string | null
     topics: TopicClusterApi[]
+    topicsEmptyMessage: string
     usageUnavailable: boolean
 }
 
@@ -118,6 +123,7 @@ export interface usageLogicMeta {
             metricsLoadState: MetricsLoadState
         ) => SourceRow[]
         topics: (latest: LatestScan) => TopicClusterApi[]
+        topicsEmptyMessage: (latest: LatestScan) => string
         metricsById: (allMetrics: DataCatalogMetricApi[]) => Record<string, DataCatalogMetricApi>
         proposedRows: (latest: LatestScan) => ProposedRow[]
         topicSessionsSummary: (latest: LatestScan) => string | null
@@ -220,6 +226,11 @@ export const usageLogic = kea<usageLogicType>([
             (s) => [s.latest],
             (latest: LatestScan): TopicClusterApi[] =>
                 latest && latest !== 'none' ? (latest.payload.topics ?? []) : [],
+        ],
+        topicsEmptyMessage: [
+            (s) => [s.latest],
+            (latest: LatestScan): string =>
+                latest && latest !== 'none' && latest.topics_hidden ? TOPICS_HIDDEN_MESSAGE : NO_TOPICS_MESSAGE,
         ],
         metricsById: [
             (s) => [s.allMetrics],

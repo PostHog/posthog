@@ -128394,6 +128394,8 @@ export namespace Schemas {
       created_at: string;
       /** The scan result, one key per section. */
       payload: UsageSnapshotPayload;
+      /** True when the scan grouped topics, but the payload leaves them out because the reader is denied at least one table or view. */
+      topics_hidden: boolean;
     }
 
     export interface UsageSnapshotSummary {
