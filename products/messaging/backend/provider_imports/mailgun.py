@@ -792,6 +792,9 @@ def _read_version(client: MailgunClient, path: str, version: dict[str, Any], tar
     return detail or version
 
 
+_ENDS_IN_HASH = re.compile(r"-[0-9a-f]{10}$")
+
+
 def _template_key(target: _Target, name: str, version_tag: str | None) -> str:
     """Stable across imports, so a rerun finds what it made. Mailgun names repeat across domains and regions and can
     hold characters a key can't, so a name or domain that lost characters also carries a hash of the original."""
@@ -803,10 +806,10 @@ def _template_key(target: _Target, name: str, version_tag: str | None) -> str:
             *(["version", _hashed_key_part(version_tag)] if version_tag else []),
         ]
     )
-    if target.region == MailgunRegion.EU or target.owner or version_tag:
-        # Joined with dashes, a US template named eu-welcome and the EU welcome read the same, as do a template named
-        # receipt-version-v1 and version v1 of receipt, so a key with a region, subaccount or version ends in a hash of the
-        # whole identity. A domain already ends in a hash of itself.
+    if scope or version_tag or _ENDS_IN_HASH.search(key):
+        # Joined with dashes, a US template named eu-welcome and the EU welcome read the same, as do an account template
+        # named after a domain key and that domain's template. So every key but a plain account name ends in a hash of the
+        # whole identity, and a plain name that already ends like one gets one too.
         identity = json.dumps([target.region.value, target.owner, target.name, name, version_tag])
         key = f"{key}-{hashlib.sha256(identity.encode()).hexdigest()[:10]}"
     if len(key) <= TEMPLATE_KEY_MAX_LENGTH:

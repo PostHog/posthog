@@ -52,6 +52,15 @@ ALL_STEPS = [spec.key for spec in MailgunImportProvider.steps]
 CLIENT = "products.messaging.backend.services.mailgun_client"
 ACCOUNT_TEMPLATES = "/v4/templates"
 EU_WELCOME = _template_key(_Target(region=MailgunRegion.EU, owner="", name="", path=ACCOUNT_TEMPLATES), "welcome", None)
+
+
+def _domain_welcome(domain: str) -> str:
+    return _template_key(
+        _Target(region=MailgunRegion.US, owner="", name=domain, path=f"/v3/{domain}/templates"), "welcome", None
+    )
+
+
+DOMAIN_WELCOME = _domain_welcome("mg.example.com")
 WELCOME_V1 = _template_key(_Target(region=MailgunRegion.US, owner="", name="", path=ACCOUNT_TEMPLATES), "welcome", "v1")
 
 
@@ -238,14 +247,14 @@ class TestMailgunImport(BaseTest):
         run = self._run(["templates"])
 
         templates = {row.key: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
-        assert set(templates) >= {"welcome", "mg-example-com-5b21c8439f-welcome", EU_WELCOME}
+        assert set(templates) >= {"welcome", DOMAIN_WELCOME, EU_WELCOME}
         assert all(row.transactional_hog_flow_id is None for row in templates.values())
         assert templates["welcome"].content["email"]["subject"] == 'Welcome {{ variables.name | join: "," }}'
         assert templates["welcome"].content["email"]["replyTo"] == '{{ "{{" }}help}}@mg.example.com'
         # It has a condition, so it stays as text for a person to rewrite.
         assert templates["welcome"].content["email"]["html"].startswith("&lt;h1&gt;Hello")
         assert templates["welcome"].content["email"]["design"]["body"]["rows"]
-        assert templates["mg-example-com-5b21c8439f-welcome"].content["email"]["html"].startswith("&lt;p&gt;Hi")
+        assert templates[DOMAIN_WELCOME].content["email"]["html"].startswith("&lt;p&gt;Hi")
         assert "Hallo" in templates[EU_WELCOME].content["email"]["html"]
         assert not any("Old hello" in row.content["email"]["html"] for row in templates.values())
 
@@ -291,8 +300,8 @@ class TestMailgunImport(BaseTest):
         self._run(["templates"], region="us")
 
         html = {row.key: row.content["email"]["html"] for row in MessageTemplate.objects.filter(team_id=self.team.id)}
-        assert html["a-b-example-com-532e2dc4fb-welcome"] == "<p>From a.b.example.com</p>"
-        assert html["a-b-example-com-68d7a9476c-welcome"] == "<p>From a-b.example.com</p>"
+        assert html[_domain_welcome("a.b.example.com")] == "<p>From a.b.example.com</p>"
+        assert html[_domain_welcome("a-b.example.com")] == "<p>From a-b.example.com</p>"
 
     def test_every_request_is_a_documented_read_with_basic_auth(self) -> None:
         self._run(region="both")
@@ -558,16 +567,25 @@ class TestMailgunTemplateKeys(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("region", (MailgunRegion.US, "eu-welcome", None), (MailgunRegion.EU, "welcome", None)),
-            ("version", (MailgunRegion.US, "receipt-version-v1", None), (MailgunRegion.US, "receipt", "v1")),
+            ("region", (MailgunRegion.US, "", "eu-welcome", None), (MailgunRegion.EU, "", "welcome", None)),
+            ("version", (MailgunRegion.US, "", "receipt-version-v1", None), (MailgunRegion.US, "", "receipt", "v1")),
+            (
+                "domain",
+                (MailgunRegion.US, "", "{domain_key}", None),
+                (MailgunRegion.US, "mg.example.com", "welcome", None),
+            ),
         ]
     )
     def test_names_that_read_like_another_templates_scope_stay_apart(
         self, _name: str, first: tuple, second: tuple
     ) -> None:
         keys = [
-            _template_key(_Target(region=region, owner="", name="", path="/v4/templates"), name, version)
-            for region, name, version in (first, second)
+            _template_key(
+                _Target(region=region, owner="", name=domain, path="/v4/templates"),
+                name.format(domain_key=DOMAIN_WELCOME),
+                version,
+            )
+            for region, domain, name, version in (first, second)
         ]
 
         assert keys[0] != keys[1]
