@@ -18,9 +18,9 @@ import {
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { QuillCopyField } from 'scenes/settings/components/QuillCopyField'
 import { QuillSettingSwitch } from 'scenes/settings/components/QuillSettingSwitch'
 
-import { QuillCopyField } from './QuillCopyField'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function QuillConfigureSCIMModal({

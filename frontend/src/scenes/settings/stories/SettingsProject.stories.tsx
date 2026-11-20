@@ -73,6 +73,7 @@ export default meta
 // -- Project --
 
 export const SettingsProjectDetails: Story = { args: { sectionId: 'project-details' } }
+export const SettingsProjectDetailsQuill: Story = withTodayRailNav(SettingsProjectDetails)
 
 export const SettingsProjectCustomization: Story = { args: { sectionId: 'project-customization' } }
 
