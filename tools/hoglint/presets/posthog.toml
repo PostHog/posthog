@@ -963,6 +963,7 @@ covers     = [
   { cover = "edge.kind == 'import' and src.app_config == true and dst.package == src.package and ('function_local' not in edge.context or edge.app_setup == 'ready') and 'type_only' not in edge.context: surface", why = "the AppConfig module of the product imports this module at setup" },
   { cover = "edge.kind == 'loads' and edge.shape == 'admin' and dst.tier == 'product': dst", why = "the admin autodiscovery of Django imports this module" },
   { cover = "edge.kind == 'import' and edge.autodiscovered == 'admin' and dst.package == src.package and 'type_only' not in edge.context: surface", why = "the admin module of the product imports this module" },
+  { cover = "registry == 'temporal' and tier == 'product': registered", why = "core loads a declaration by name, and this file defines what it registers" },
 ]
 inputs     = { adapter = "turbo", task = "backend:contract-check" }
 identity   = "entity"
