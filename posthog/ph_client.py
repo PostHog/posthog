@@ -92,6 +92,8 @@ def self_hosted_capture_reaches_posthog() -> bool:
 _URL_SEPARATOR = r"(?:/|%2F)"
 _UUID = r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}"
 _URL_VALUE = r"[^/?#&%\s\"'<>\\]+"
+# Bounded, so a long text with many reset prefixes and no token takes linear time, not quadratic.
+_PARAMS_BEFORE_TOKEN = r"(?:[^#\s\"'<>]{0,256}?(?:&|%26))?"
 # Mirrors frontend/src/lib/utils/sensitiveUrlRedaction.ts. Password reset, two-factor reset and email
 # verification links carry a token after the user id. The id of an invite link is itself the secret.
 _SENSITIVE_URL_SEGMENTS = (
@@ -105,7 +107,7 @@ _SENSITIVE_URL_SEGMENTS = (
     (
         re.compile(
             rf"({_URL_SEPARATOR}(?:reset|reset_2fa){_URL_SEPARATOR}{_UUID}{_URL_SEPARATOR}?(?:\?|%3F)"
-            rf"(?:[^#\s\"'<>]*?(?:&|%26))?token(?:=|%3D)){_URL_VALUE}",
+            rf"{_PARAMS_BEFORE_TOKEN}token(?:=|%3D)){_URL_VALUE}",
             re.IGNORECASE,
         ),
         r"\1:token",

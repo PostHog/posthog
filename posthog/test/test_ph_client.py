@@ -1,3 +1,4 @@
+import time
 from copy import deepcopy
 from typing import Any
 
@@ -404,6 +405,16 @@ class TestSensitiveUrlRedaction(SimpleTestCase):
         }
 
         self.assertIs(redact_sensitive_url_segments(message), message)
+
+    def test_long_text_without_a_token_is_scanned_in_linear_time(self) -> None:
+        text = f"/reset/{USER_UUID}/?next=" * 20_000
+        message = {"event": "$exception", "properties": {"token": text}}
+
+        start = time.monotonic()
+        result = redact_sensitive_url_segments(message)
+
+        self.assertLess(time.monotonic() - start, 2)
+        self.assertIs(result, message)
 
     def test_request_context_is_redacted(self) -> None:
         client = posthoganalytics.Client(

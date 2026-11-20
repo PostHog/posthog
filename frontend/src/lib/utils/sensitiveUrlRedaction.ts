@@ -3,6 +3,8 @@ import type { BeforeSendFn, CaptureResult } from 'posthog-js'
 const SEPARATOR = '(?:/|%2F)'
 const UUID = '[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}'
 const VALUE = `[^/?#&%\\s"'<>\\\\]+`
+// Bounded, so a long text with many reset prefixes and no token takes linear time, not quadratic.
+const PARAMS_BEFORE_TOKEN = `(?:[^#\\s"'<>]{0,256}?(?:&|%26))?`
 // Password reset, two-factor reset and email verification links carry a token after the user id.
 // The id of an invite link is itself the secret: anyone who has it can accept the invite.
 const SENSITIVE_SEGMENTS: [RegExp, string][] = [
@@ -12,7 +14,7 @@ const SENSITIVE_SEGMENTS: [RegExp, string][] = [
     ],
     [
         new RegExp(
-            `(${SEPARATOR}(?:reset|reset_2fa)${SEPARATOR}${UUID}${SEPARATOR}?(?:\\?|%3F)(?:[^#\\s"'<>]*?(?:&|%26))?token(?:=|%3D))${VALUE}`,
+            `(${SEPARATOR}(?:reset|reset_2fa)${SEPARATOR}${UUID}${SEPARATOR}?(?:\\?|%3F)${PARAMS_BEFORE_TOKEN}token(?:=|%3D))${VALUE}`,
             'gi'
         ),
         '$1:token',

@@ -59,6 +59,14 @@ describe('redactSensitiveUrl', () => {
     ])('keeps %s', (text) => {
         expect(redactSensitiveUrl(text)).toBe(text)
     })
+
+    it('scans a long text without a token in linear time', () => {
+        const text = `/reset/${USER}/?next=`.repeat(20_000)
+
+        const start = performance.now()
+        expect(redactSensitiveUrl(text)).toBe(text)
+        expect(performance.now() - start).toBeLessThan(1000)
+    })
 })
 
 describe('redactSensitiveUrls', () => {
