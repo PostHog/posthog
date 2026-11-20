@@ -2,11 +2,16 @@ import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { defaultConfig } from '~/common/config/config'
+import { parseJSON } from '~/common/utils/json-parse'
+import { internalFetch } from '~/common/utils/request'
 
 import { registerAsyncFunction } from '../async-function-registry'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
+import { createAddLogFunction } from '../utils'
+import { fetchErrorDetail, getNextRetryTime, isTimeoutError } from '../utils/cdp-fetch'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { PosthogJwtAudience } from '../utils/jwt-utils'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
-import { callInternalApi } from './internal-api-call'
 
 let classifyJwt: ScopedServiceJwt | undefined
 const getClassifyJwt = (): ScopedServiceJwt =>
@@ -16,11 +21,14 @@ const getClassifyJwt = (): ScopedServiceJwt =>
     ))
 
 // Django gives the gateway 5 seconds (TIMEOUT_SECONDS in workflow_classifications.py) and returns a 503
-// on a gateway timeout, which this worker retries. The worker budget must be longer than that plus Django's
-// own work. That 5 seconds limits each network operation, not the whole call, so Django can still overrun
-// this budget. The worker does not retry its own timeout, because the gateway may still be answering the
-// first request and a retry would pay for the same classification again.
+// on a gateway timeout, which the classify queue retries. The worker budget must be longer than that plus
+// Django's own work. That 5 seconds limits each network operation, not the whole call, so Django can still
+// overrun this budget. The worker does not retry its own timeout, because the gateway may still be answering
+// the first request and a retry would pay for the same classification again.
 const CLASSIFY_TIMEOUT_MS = 7000
+
+// Django answers 503 when the model is busy or unreachable, and a proxy can answer 429 for it.
+const BUSY_STATUSES = [429, 503]
 
 // Match the limits of the classification endpoint (the request serializer in workflow_classifications.py),
 // so a mocked test run fails on the same inputs as a live run.
@@ -88,7 +96,7 @@ const parseClassifyPayload = (args: any[]): Record<string, unknown> => {
 }
 
 registerAsyncFunction('postHogClassify', {
-    execute: async (args, context, result) => {
+    execute: (args, context, result) => {
         const payload = parseClassifyPayload(args)
 
         const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
@@ -96,21 +104,7 @@ registerAsyncFunction('postHogClassify', {
             throw new Error('Classify with AI only runs inside a workflow')
         }
 
-        const jwt = getClassifyJwt()
-        if (!jwt.enabled) {
-            throw new Error(
-                'Classify with AI is not configured. Set WORKFLOW_CLASSIFY_JWT_SECRET on the worker and Django to matching keys.'
-            )
-        }
-        await callInternalApi(context, result, {
-            jwt,
-            path: `/api/projects/${context.invocation.teamId}/workflow_classifications/`,
-            method: 'POST',
-            entityClaims: { hog_flow_id: hogFlow.id },
-            body: JSON.stringify(payload),
-            timeoutMs: CLASSIFY_TIMEOUT_MS,
-            retryOnTimeout: false,
-        })
+        result.invocation.queueParameters = { type: 'classify', hogFlowId: hogFlow.id, payload }
     },
     mock: (args, logs) => {
         const payload = parseClassifyPayload(args)
@@ -130,3 +124,114 @@ registerAsyncFunction('postHogClassify', {
         }
     },
 })
+
+export interface ClassifyRetryPolicy {
+    maxAttempts: number
+    backoffBaseMs: number
+    backoffMaxMs: number
+}
+
+type DjangoAnswer = { status: number; body: unknown } | { error: Error }
+
+const askDjango = async (
+    invocation: CyclotronJobInvocationHogFunction,
+    internalApiBaseUrl: string,
+    params: { hogFlowId: string; payload: Record<string, unknown> }
+): Promise<DjangoAnswer> => {
+    const token = getClassifyJwt().mint({ hog_flow_id: params.hogFlowId, team_id: invocation.teamId })
+    try {
+        const response = await internalFetch(
+            `${internalApiBaseUrl}/api/projects/${invocation.teamId}/workflow_classifications/`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify(params.payload),
+                timeoutMs: CLASSIFY_TIMEOUT_MS,
+            }
+        )
+        const text = await response.text()
+        let body: unknown = text
+        try {
+            body = text ? parseJSON(text) : undefined
+        } catch {
+            // A body that is not JSON goes to the step as text.
+        }
+        return { status: response.status, body }
+    } catch (error) {
+        return { error: error as Error }
+    }
+}
+
+const isRetriable = (answer: DjangoAnswer): boolean =>
+    'error' in answer ? !isTimeoutError(answer.error) : BUSY_STATUSES.includes(answer.status)
+
+/**
+ * Makes the one call to the classification endpoint that a dequeue of the classify queue pays for. A busy answer
+ * puts the job back on its queue instead of retrying here, so the queue's rate limit counts every call. Any other
+ * answer goes onto the VM stack as `{status, body}`, which the template reads.
+ */
+export async function classifyOnce(
+    invocation: CyclotronJobInvocationHogFunction,
+    internalApiBaseUrl: string,
+    retryPolicy: ClassifyRetryPolicy
+): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+    const params = invocation.queueParameters
+    if (params?.type !== 'classify') {
+        throw new Error('Bad invocation')
+    }
+    const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { finished: false })
+    const addLog = createAddLogFunction(result.logs)
+
+    if (!getClassifyJwt().enabled) {
+        const message =
+            'Classify with AI is not configured. Set WORKFLOW_CLASSIFY_JWT_SECRET on the worker and Django to matching keys.'
+        addLog('error', message)
+        result.error = new Error(message)
+        result.finished = true
+        return result
+    }
+
+    const startedAt = performance.now()
+    const answer = await askDjango(invocation, internalApiBaseUrl, params)
+    result.invocation.state.timings.push({
+        kind: 'async_function',
+        duration_ms: Math.round(performance.now() - startedAt),
+    })
+    result.invocation.state.attempts++
+    const attempt = result.invocation.state.attempts
+    const failure =
+        'error' in answer
+            ? `Classify with AI failed on attempt ${attempt}. Error: ${fetchErrorDetail(answer.error)}.`
+            : `Classify with AI failed on attempt ${attempt} with status code ${answer.status}.`
+
+    if (isRetriable(answer) && attempt < retryPolicy.maxAttempts) {
+        addLog('info', `${failure} Retrying.`)
+        result.invocation.queueParameters = params
+        result.invocation.queueMetadata = invocation.queueMetadata
+        result.invocation.queuePriority = invocation.queuePriority
+        result.invocation.queueScheduledAt = getNextRetryTime(
+            retryPolicy.backoffBaseMs,
+            retryPolicy.backoffMaxMs,
+            attempt
+        )
+        return result
+    }
+
+    result.invocation.state.attempts = 0
+    const response =
+        'error' in answer
+            ? { status: 500, body: `${answer.error.name}: ${fetchErrorDetail(answer.error)}` }
+            : { status: answer.status, body: answer.body }
+    if (response.status >= 400) {
+        addLog('error', failure)
+    }
+    result.invocation.state.vmState?.stack.push(response)
+    result.metrics.push({
+        team_id: invocation.teamId,
+        app_source_id: invocation.parentRunId ?? invocation.functionId,
+        metric_kind: 'other',
+        metric_name: 'fetch',
+        count: 1,
+    })
+    return result
+}

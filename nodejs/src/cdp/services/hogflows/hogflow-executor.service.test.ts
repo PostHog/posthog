@@ -1,5 +1,6 @@
 // sort-imports-ignore
 import { SESv2Client, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+import jwt from 'jsonwebtoken'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
@@ -15,6 +16,7 @@ import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
 import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
+import { template as classifyTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-classify.template'
 import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
@@ -3685,6 +3687,151 @@ describe('Hogflow Executor', () => {
                 if (alsoFailsStep !== undefined) {
                     // The broadcast audience breakdown counts unsent people by step failures alone.
                     expect(emailStepMetrics.includes('failed')).toBe(alsoFailsStep)
+                }
+            }
+        )
+    })
+
+    describe('classify queue routing', () => {
+        const djangoAnswers = (...answers: (number | Error)[]): jest.MockedFunction<typeof internalFetch> => {
+            const stub = jest.mocked(internalFetch)
+            for (const answer of answers) {
+                if (typeof answer !== 'number') {
+                    stub.mockRejectedValueOnce(answer)
+                } else {
+                    stub.mockResolvedValueOnce({
+                        status: answer,
+                        text: () =>
+                            Promise.resolve(
+                                JSON.stringify(
+                                    answer === 200 ? { category: 'spam', confidence: 0.9 } : { detail: 'Busy' }
+                                )
+                            ),
+                    } as FetchResponse)
+                }
+            }
+            return stub
+        }
+
+        const classifyRun = async (): Promise<CyclotronJobInvocationHogFlow> => {
+            await insertHogFunctionTemplate(hub.postgres, classifyTemplate)
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        classify: {
+                            type: 'function',
+                            config: {
+                                template_id: classifyTemplate.id,
+                                inputs: {
+                                    question: { value: 'Is this ticket spam?' },
+                                    context: { value: { subject: 'Buy SEO' } },
+                                    categories: { value: { spam: 'Cold outreach', support: 'Asks for help' } },
+                                    model: { value: 'jev' },
+                                },
+                            },
+                            output_variable: { key: 'classification', result_path: null },
+                            on_error: 'abort',
+                        } as any,
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'classify', type: 'continue' },
+                        { from: 'classify', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+            const invocation = createExampleHogFlowInvocation(hogFlow)
+            invocation.queuePriority = 2
+            return invocation
+        }
+
+        afterEach(() => {
+            jest.mocked(internalFetch).mockReset()
+        })
+
+        it('moves the step to the classify queue, calls Django once there, and resumes the run with the answer', async () => {
+            const django = djangoAnswers(200)
+
+            const onHogflow = await executor.execute(await classifyRun())
+            expect(onHogflow.finished).toBe(false)
+            expect(onHogflow.invocation.queue).toBe('classify')
+            expect(django).not.toHaveBeenCalled()
+
+            const onClassify = await executor.execute(onHogflow.invocation)
+            expect(django).toHaveBeenCalledTimes(1)
+            const [url, request] = django.mock.calls[0]
+            expect(url).toMatch(new RegExp(`/api/projects/${team.id}/workflow_classifications/$`))
+            expect(parseJSON(request!.body!.toString())).toEqual({
+                question: 'Is this ticket spam?',
+                context: { subject: 'Buy SEO' },
+                categories: { spam: 'Cold outreach', support: 'Asks for help' },
+                model: 'jev',
+            })
+            // Must exceed Django's 5 second gateway timeout so the worker receives its 503 instead of aborting first.
+            expect(request!.timeoutMs).toBeGreaterThan(5000)
+            const token = (request!.headers as Record<string, string>).Authorization.replace('Bearer ', '')
+            // The literal pins the dev default shared with Django's WORKFLOW_CLASSIFY_JWT_SECRETS.
+            // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
+            const claims = jwt.verify(token, 'local-dev-workflow-classify-jwt', {
+                audience: 'posthog:workflows:classify',
+                algorithms: ['HS256'],
+            }) as jwt.JwtPayload
+            expect(claims).toMatchObject({ team_id: team.id, hog_flow_id: onHogflow.invocation.hogFlow.id })
+            expect(onClassify.finished).toBe(false)
+            expect(onClassify.invocation).toMatchObject({ queue: 'hogflow', queuePriority: 2 })
+
+            const resumed = await executor.execute(onClassify.invocation)
+            expect(resumed.error).toBeUndefined()
+            expect(resumed.finished).toBe(true)
+            expect(resumed.invocation.state.variables?.classification).toEqual({ category: 'spam', confidence: 0.9 })
+            expect(django).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            ['a 503', [503, 200], 2, undefined],
+            ['a 429', [429, 200], 2, undefined],
+            [
+                'a refused connection, which never reached Django',
+                [new Error('connect ECONNREFUSED'), 200],
+                2,
+                undefined,
+            ],
+            [
+                'a timeout, which may still be answering',
+                [new DOMException('The operation timed out.', 'TimeoutError')],
+                1,
+                /Could not classify \(500\)/,
+            ],
+            ['a 503 on the last attempt', [503, 503, 503], 3, /Could not classify \(503\)/],
+        ])(
+            'after %s, only the queue retries and each dequeue calls Django once',
+            async (_name, answers, expectedCalls, expectedError) => {
+                const django = djangoAnswers(...answers)
+
+                let result = await executor.execute(await classifyRun())
+                const callsPerDequeue: number[] = []
+                while (!result.finished && callsPerDequeue.length < 10) {
+                    const callsBefore = django.mock.calls.length
+                    result = await executor.execute(result.invocation)
+                    callsPerDequeue.push(django.mock.calls.length - callsBefore)
+                }
+
+                expect(django).toHaveBeenCalledTimes(expectedCalls)
+                expect(Math.max(...callsPerDequeue)).toBe(1)
+                if (expectedError) {
+                    expect(String(result.error)).toMatch(expectedError)
+                } else {
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.state.variables?.classification).toEqual({
+                        category: 'spam',
+                        confidence: 0.9,
+                    })
                 }
             }
         )

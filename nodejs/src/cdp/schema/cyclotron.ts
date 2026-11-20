@@ -202,6 +202,12 @@ export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.ob
     timeoutMs: z.number().optional(),
 })
 
+export const CyclotronInvocationQueueParametersClassifySchema = z.object({
+    type: z.literal('classify'),
+    hogFlowId: z.string(),
+    payload: z.record(z.string(), z.unknown()),
+})
+
 export type PushNotificationPayloadType = z.infer<typeof PushNotificationPayloadSchema>
 
 export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
@@ -219,7 +225,12 @@ export type CyclotronInvocationQueueParametersSendPushNotificationType = z.infer
     typeof CyclotronInvocationQueueParametersSendPushNotificationSchema
 >
 
+export type CyclotronInvocationQueueParametersClassifyType = z.infer<
+    typeof CyclotronInvocationQueueParametersClassifySchema
+>
+
 export type CyclotronInvocationQueueParametersType =
     | CyclotronInvocationQueueParametersFetchType
     | CyclotronInvocationQueueParametersEmailType
     | CyclotronInvocationQueueParametersSendPushNotificationType
+    | CyclotronInvocationQueueParametersClassifyType

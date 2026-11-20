@@ -8,6 +8,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
+import { classifyOnce } from '../async-functions/classify'
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -131,7 +132,7 @@ export class HogExecutorAsyncService {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             const queueParamsType = nextInvocation.queueParameters?.type
-            if (['fetch', 'sendPushNotification', 'email'].includes(queueParamsType ?? '')) {
+            if (['fetch', 'sendPushNotification', 'email', 'classify'].includes(queueParamsType ?? '')) {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
@@ -195,6 +196,22 @@ export class HogExecutorAsyncService {
                         }
                         // isTest is forwarded so a test send stays out of the email's engagement tracking.
                         result = await this.deps.emailService.executeSendEmail(nextInvocation, options?.isTest ?? false)
+                    }
+                } else if (queueParamsType === 'classify') {
+                    // The classify queue is rate limited, so a run only calls the model from there. A test
+                    // run executes in-process and never enqueues, so it calls inline.
+                    if (invocation.queue !== 'classify' && !options?.isTest) {
+                        result = this.routeClassifyToQueue(nextInvocation, invocation)
+                    } else {
+                        result = await classifyOnce(nextInvocation, this.config.internalApiBaseUrl, {
+                            maxAttempts: options?.isTest ? 1 : this.config.fetchRetries,
+                            backoffBaseMs: this.config.fetchBackoffBaseMs,
+                            backoffMaxMs: this.config.fetchBackoffMaxMs,
+                        })
+                        if (invocation.queue === 'classify' && !result.invocation.queueScheduledAt) {
+                            // The rest of the run goes back, so its other steps never spend the classify budget.
+                            this.returnFromClassifyQueue(result, invocation)
+                        }
                     }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
@@ -333,6 +350,45 @@ export class HogExecutorAsyncService {
         cdpEmailQueuedTotal.labels(priorityClass).inc()
 
         return result
+    }
+
+    /**
+     * Moves a classification to the rate-limited classify queue. The worker there makes the call and returns the
+     * run to the queue it came from. A run on the email queue came from its own origin queue first, so it goes
+     * back there instead.
+     */
+    private routeClassifyToQueue(
+        invocation: CyclotronJobInvocationHogFunction,
+        entryInvocation: CyclotronJobInvocationHogFunction
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        const leavesEmailQueue = entryInvocation.queue === 'email'
+        const originQueue = leavesEmailQueue
+            ? (entryInvocation.queueMetadata?.originQueue ?? 'hogflow')
+            : entryInvocation.queue
+        // Read from the entry invocation: an earlier step in this loop cloned the invocation with priority 0.
+        const originPriority = leavesEmailQueue
+            ? (entryInvocation.queueMetadata?.originPriority ?? entryInvocation.queuePriority)
+            : entryInvocation.queuePriority
+        return createInvocationResult<CyclotronJobInvocationHogFunction>(
+            invocation,
+            {
+                queue: 'classify',
+                queuePriority: originPriority,
+                queueParameters: invocation.queueParameters,
+                queueMetadata: { originQueue, originPriority },
+            },
+            { finished: false }
+        )
+    }
+
+    private returnFromClassifyQueue(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        entryInvocation: CyclotronJobInvocationHogFunction
+    ): void {
+        const { originQueue, originPriority } = entryInvocation.queueMetadata ?? {}
+        result.invocation.queue = originQueue ?? 'hogflow'
+        result.invocation.queuePriority = originPriority ?? 0
+        result.invocation.queueMetadata = undefined
     }
 
     private keepPushRetryInEmailQueueOrder(

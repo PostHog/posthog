@@ -24,6 +24,7 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as createTaskTemplate } from '~/cdp/templates/_destinations/posthog_tasks/posthog-create-task.template'
+import { template as classifyTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-classify.template'
 import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
 import { setupExpressApp } from '~/common/api/router'
 import {
@@ -59,6 +60,11 @@ import {
 import { hideHogFlowsFromReplica, insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpCyclotronWorkerBatchResolve } from './consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import {
+    CLASSIFY_GLOBAL_BUCKET_KEY,
+    CdpCyclotronWorkerClassify,
+    createClassifyJobQueue,
+} from './consumers/cdp-cyclotron-worker-classify.consumer'
 import { CdpCyclotronWorkerEmailSandbox } from './consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
@@ -4665,6 +4671,155 @@ describe('Workflows E2E (email queue)', () => {
  * loop, mocked Django endpoints, assert on the resulting cyclotron + Django
  * state. Mirrors how the system runs in prod — no manual dequeue plumbing.
  */
+// The classify queue is the only path a classification takes to the model, and its token bucket sets the pace.
+describe('Workflows E2E (classify queue)', () => {
+    jest.setTimeout(30000)
+
+    let eventsConsumer: CdpEventsConsumer
+    let hogflowWorker: CdpCyclotronWorkerHogFlow
+    let classifyWorker: CdpCyclotronWorkerClassify
+    let hub: Hub
+    let kafkaProducer: KafkaProducerWrapper
+    let team: Team
+    let cyclotronPool: Pool
+
+    beforeAll(() => {
+        cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
+    })
+
+    afterAll(async () => {
+        await cyclotronPool.end()
+    })
+
+    beforeEach(async () => {
+        MockKafkaProducerWrapper.create = jest.fn((...args) => {
+            return ActualKafkaProducerWrapper.create(...args)
+        })
+        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
+        await resetTestDatabase()
+        await cyclotronPool.query('DELETE FROM cyclotron_jobs')
+
+        hub = await createHub()
+        hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
+        hub.SES_RATE_LIMITER_VALKEY_HOST = hub.CDP_REDIS_HOST || '127.0.0.1'
+        if (hub.CDP_REDIS_PORT) {
+            hub.SES_RATE_LIMITER_VALKEY_PORT = hub.CDP_REDIS_PORT
+        }
+        hub.CDP_CLASSIFY_RATE_LIMIT_CAPACITY = 2
+        hub.CDP_CLASSIFY_RATE_LIMIT_REFILL_PER_SECOND = 2
+        hub.CDP_CLASSIFY_RATE_LIMIT_THROTTLED_POLL_DELAY_MS = 20
+
+        const limiterValkey = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        await deleteKeysWithPrefix(limiterValkey, CLASSIFY_GLOBAL_BUCKET_KEY)
+
+        kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        team = await getFirstTeam(hub.postgres)
+        await insertHogFunctionTemplate(hub.postgres, classifyTemplate)
+
+        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
+        const eventsProducerQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        eventsConsumer = new CdpEventsConsumer(hub, deps, { hogQueue: kafkaQueue, hogflowQueue: eventsProducerQueue })
+        await Promise.all([kafkaQueue.startAsProducer(), eventsProducerQueue.startAsProducer()])
+
+        hogflowWorker = new CdpCyclotronWorkerHogFlow(
+            hub,
+            deps,
+            new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        )
+        classifyWorker = new CdpCyclotronWorkerClassify(hub, deps, createClassifyJobQueue(hub))
+        await Promise.all([hogflowWorker.start(), classifyWorker.start()])
+    })
+
+    afterEach(async () => {
+        await Promise.all([
+            eventsConsumer?.stop() ?? Promise.resolve(),
+            hogflowWorker?.stop() ?? Promise.resolve(),
+            classifyWorker?.stop() ?? Promise.resolve(),
+        ])
+        await kafkaProducer.disconnect()
+        await closeHub(hub)
+        mockInternalFetch.mockReset()
+    })
+
+    it('calls Django no faster than the bucket refills plus its burst, and finishes every run', async () => {
+        const callTimes: number[] = []
+        mockInternalFetch.mockImplementation(() => {
+            callTimes.push(Date.now())
+            return Promise.resolve({
+                status: 200,
+                headers: {},
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(JSON.stringify({ category: 'spam', confidence: 0.9 })),
+            } as any)
+        })
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    classify: {
+                        type: 'function',
+                        config: {
+                            template_id: classifyTemplate.id,
+                            inputs: {
+                                question: { value: 'Is this ticket spam?' },
+                                context: { value: { subject: 'Buy SEO' } },
+                                categories: { value: { spam: 'Cold outreach', support: 'Asks for help' } },
+                                model: { value: 'jev' },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'classify', type: 'continue' },
+                    { from: 'classify', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const runs = 8
+        const events = Array.from({ length: runs }, () =>
+            createHogExecutionGlobals({
+                project: { id: team.id } as any,
+                event: { uuid: new UUIDT().toString(), event: '$pageview', properties: {} } as any,
+            })
+        )
+        const { backgroundTask } = await eventsConsumer.processBatch(events)
+        await backgroundTask
+
+        await waitForExpect(async () => {
+            const { rows } = await cyclotronPool.query('SELECT queue_name, status FROM cyclotron_jobs')
+            expect(rows).toHaveLength(runs)
+            expect(rows.every((row) => row.queue_name === 'hogflow' && row.status === 'completed')).toBe(true)
+        }, 20000)
+
+        expect(callTimes).toHaveLength(runs)
+        const callsInBusiestSecond = Math.max(
+            ...callTimes.map((start) => callTimes.filter((time) => time >= start && time < start + 1000).length)
+        )
+        expect(callsInBusiestSecond).toBeLessThanOrEqual(
+            hub.CDP_CLASSIFY_RATE_LIMIT_CAPACITY + hub.CDP_CLASSIFY_RATE_LIMIT_REFILL_PER_SECOND
+        )
+    })
+})
+
 describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     jest.setTimeout(60000)
 
