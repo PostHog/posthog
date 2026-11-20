@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid'
 
 import { ApiError, NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { retryWithBackoff, withTimeout } from 'lib/utils/async'
+import { PromiseTimeoutError, retryWithBackoff, withTimeout } from 'lib/utils/async'
 
 import {
     usersIntegrationsCodexDestroy,
@@ -103,12 +103,24 @@ export type personalCodexIntegrationLogicType = MakeLogicType<
     personalCodexIntegrationLogicActions
 >
 
-const loginRetryOptions = {
-    maxAttempts: 5,
-    initialDelayMs: 2000,
-    backoffMultiplier: 2,
-    shouldRetry: (error: unknown) =>
-        error instanceof NetworkError || (error instanceof ApiError && (error.status ?? 0) >= 500),
+function retryLoginRead<T>(request: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return retryWithBackoff(
+        () =>
+            withTimeout(
+                (timeoutSignal) => request(signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal),
+                10000
+            ),
+        {
+            maxAttempts: 5,
+            initialDelayMs: 2000,
+            backoffMultiplier: 2,
+            shouldRetry: (error: unknown) =>
+                error instanceof PromiseTimeoutError ||
+                error instanceof NetworkError ||
+                (error instanceof ApiError && (error.status ?? 0) >= 500),
+            signal,
+        }
+    )
 }
 
 export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicType>([
@@ -244,9 +256,9 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
             cache.pollingLoginId = loginId
             const signal = cache.loginAbortController?.signal
             try {
-                const login = await retryWithBackoff(
-                    () => usersIntegrationsCodexLoginRetrieve('@me', loginId, { signal }),
-                    { ...loginRetryOptions, signal }
+                const login = await retryLoginRead(
+                    (signal) => usersIntegrationsCodexLoginRetrieve('@me', loginId, { signal }),
+                    signal
                 )
                 if (signal?.aborted || cache.disposables.isDisposed || values.login?.login_id !== loginId) {
                     return
@@ -277,9 +289,9 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
             const controller = new AbortController()
             cache.disposables.add(() => () => controller.abort(), 'codexLogin', { pauseOnPageHidden: false })
             try {
-                const integration = await retryWithBackoff(
-                    () => usersIntegrationsCodexRetrieve('@me', { signal: controller.signal }),
-                    { ...loginRetryOptions, signal: controller.signal }
+                const integration = await retryLoginRead(
+                    (signal) => usersIntegrationsCodexRetrieve('@me', { signal }),
+                    controller.signal
                 )
                 breakpoint()
                 if (controller.signal.aborted || cache.disposables.isDisposed || values.login?.login_id !== loginId) {

@@ -2081,6 +2081,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             ("poll_429",),
             ("cancel_during_exchange",),
             ("access_unavailable",),
+            ("access_revoked_during_exchange",),
         ]
     )
     def test_device_login_lifecycle(self, outcome):
@@ -2114,6 +2115,8 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                     else self._openai_response(403, {})
                 )
             if "data" in kwargs:
+                if outcome == "access_revoked_during_exchange":
+                    self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
                 if outcome == "cancel_during_exchange":
                     self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
                 assert kwargs["data"] == {
@@ -2199,6 +2202,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 "poll_429": "connected",
                 "cancel_during_exchange": "canceled",
                 "access_unavailable": "connected",
+                "access_revoked_during_exchange": "failed",
             }[outcome]
         )
         assert "private-" not in json.dumps(result)

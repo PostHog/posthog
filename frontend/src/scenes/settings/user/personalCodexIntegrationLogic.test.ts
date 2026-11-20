@@ -18,12 +18,36 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe('personalCodexIntegrationLogic', () => {
+    const originalAny = Object.getOwnPropertyDescriptor(AbortSignal, 'any')
     let logic: ReturnType<typeof personalCodexIntegrationLogic.build>
     let loginId: string
     let loginStatus: string
     let pendingStart: ReturnType<typeof deferred<void>> | null
     let canceled: string[]
     let submittedFields: string[]
+
+    beforeAll(() => {
+        Object.defineProperty(AbortSignal, 'any', {
+            configurable: true,
+            value: (signals: AbortSignal[]) => {
+                const controller = new AbortController()
+                for (const signal of signals) {
+                    if (signal.aborted) {
+                        controller.abort()
+                    }
+                    signal.addEventListener('abort', () => controller.abort(), { once: true })
+                }
+                return controller.signal
+            },
+        })
+    })
+    afterAll(() => {
+        if (originalAny) {
+            Object.defineProperty(AbortSignal, 'any', originalAny)
+        } else {
+            delete (AbortSignal as Partial<typeof AbortSignal>).any
+        }
+    })
 
     beforeEach(() => {
         loginStatus = 'pending'
@@ -145,27 +169,49 @@ describe('personalCodexIntegrationLogic', () => {
         expect(logic.values.connectError).toBeNull()
     })
 
-    it.each(['login', 'account'])('recovers from a temporary %s failure on the same login attempt', async (read) => {
+    it.each([
+        ['login', false],
+        ['account', false],
+        ['login', true],
+        ['account', true],
+    ])('recovers from a temporary %s failure or timeout: %s', async (read, stall) => {
         await expectLogic(logic, () => logic.actions.openConnectModal('settings')).toFinishAllListeners()
         const originalLoginId = loginId
+        const pending = deferred<void>()
         let requests = 0
         loginStatus = 'connected'
         useMocks({
             get: {
                 [read === 'login'
                     ? '/api/users/@me/integrations/codex/login/:id/'
-                    : '/api/users/@me/integrations/codex/']: () =>
-                    ++requests === 1
-                        ? [503, {}]
-                        : [
-                              200,
-                              read === 'login'
-                                  ? { login_id: loginId, status: 'connected', user_code: null }
-                                  : CONNECTED,
-                          ],
+                    : '/api/users/@me/integrations/codex/']: async () => {
+                    if (++requests === 1) {
+                        if (stall) {
+                            await pending.promise
+                        }
+                        return [503, {}]
+                    }
+                    return [
+                        200,
+                        read === 'login' ? { login_id: loginId, status: 'connected', user_code: null } : CONNECTED,
+                    ]
+                },
             },
         })
-        await expectLogic(logic, () => logic.actions.pollDeviceLogin()).toFinishAllListeners()
+        if (stall) {
+            jest.useFakeTimers()
+            logic.actions.pollDeviceLogin()
+            try {
+                await jest.advanceTimersByTimeAsync(13000)
+                expect(logic.values.codexIntegration).toEqual(CONNECTED)
+            } finally {
+                pending.resolve()
+                jest.useRealTimers()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+        } else {
+            await expectLogic(logic, () => logic.actions.pollDeviceLogin()).toFinishAllListeners()
+        }
         expect(loginId).toBe(originalLoginId)
         expect(logic.values.codexIntegration).toEqual(CONNECTED)
         expect(logic.values.connectModalOpener).toBeNull()

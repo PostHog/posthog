@@ -176,6 +176,8 @@ def check_login_access(user: User, login: DeviceLogin) -> bool:
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, soft_time_limit=55, time_limit=60)
 @skip_team_scope_audit
 def complete_codex_login(user_id: int, login_id: str) -> None:
+    from posthog.api.user_integration_codex import ensure_codex_connect_enabled
+
     try:
         login = claim_login(user_id, login_id)
         if login is None:
@@ -235,8 +237,9 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
             CodexUserIntegration._lock_user(user_id)
             if get_login(user_id, login_id)["status"] != "pending":
                 return
-            user = User.objects.get(id=user_id, is_active=True)
             CodexUserIntegration.connect(user_id, tokens, source="device_login", device_login_id=login_id)
+            user = User.objects.get(id=user_id, is_active=True)
+            ensure_codex_connect_enabled(user)
             if time.time() >= login["expires_at"]:
                 raise TimeoutError("Device login expired")
             transaction.on_commit(lambda: update_login(user_id, login_id, "connected"))
