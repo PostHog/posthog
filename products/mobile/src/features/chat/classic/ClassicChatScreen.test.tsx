@@ -27,7 +27,7 @@ jest.mock('../ChatHeader', () => {
         ChatHeader: ({ onBack, onNewChat }: { onBack: () => void; onNewChat: () => void }) => (
             <View>
                 <Button title="Back" onPress={onBack} />
-                <Button title="New chat" onPress={onNewChat} />
+                <Button title="New chat" onPress={onNewChat} testID="chat-new" />
             </View>
         ),
     }
@@ -136,7 +136,7 @@ test('disables the send control during dictation and only sends the editable dra
     view.rerender(formScreen())
     await act(async () => fireEvent.press(screen.getByTestId('chat-send')))
     expect(chat.send).toHaveBeenCalledWith('Explain signups', expect.any(Function))
-    fireEvent.press(screen.getByRole('button', { name: 'New chat' }))
+    fireEvent.press(screen.getByTestId('chat-new'))
     expect(dictation.cancel).toHaveBeenCalled()
 })
 
