@@ -107,6 +107,11 @@ class DeletionTarget:
     # a named property that the table keeps survives the rewrite. A property removal refuses while a
     # target without it holds rows the request names.
     accepts_property_rewrite: bool = False
+    # True where the table has native JSON properties and also keeps typed columns derived from them,
+    # such as flag_key on the flag evaluations JSON table. Property removal resets those columns in the
+    # copy, because a JSON drop leaves the derived value in place. A table with the legacy schema always
+    # has them discovered, so only a native-JSON table needs this set.
+    has_typed_property_columns: bool = False
     # Whether the person-overrides squash rewrites person_id here. A merge moves a distinct_id to
     # another person, and a later deletion names only the survivor, so a table the squash skips
     # keeps its rows on the absorbed person and no sweep ever matches them (#93035).
@@ -148,6 +153,10 @@ class DeletionTarget:
     @property
     def uses_new_events_schema(self) -> bool:
         return self.hogql_schema is HogQLSchema.NATIVE_JSON
+
+    @property
+    def discovers_typed_property_columns(self) -> bool:
+        return not self.uses_new_events_schema or self.has_typed_property_columns
 
     def may_hold_any_of(self, events: Sequence[str]) -> bool:
         """Whether this table could hold rows for any of ``events``, empty meaning every event.

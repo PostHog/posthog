@@ -1276,15 +1276,20 @@ def _shard_predicate(
     the same ``inserted_at < marker`` bound, so they cannot drift. Drift either deletes rows the copy
     does not hold or leaves originals behind.
     """
-    # Materialized columns only exist on the legacy table; the JSON table reads properties
-    # through JSON subcolumns.
+    # The events JSON table reads properties through JSON subcolumns and has no typed columns to reset.
     mat_cols: list[tuple[str, bool]] = []
     person_mat_cols: list[tuple[str, bool]] = []
-    if not target.uses_new_events_schema:
+    if target.discovers_typed_property_columns:
         if deletion_request.properties:
-            mat_cols = _get_affected_mat_columns(
-                client, target.read_table, deletion_request.properties, table_column="properties", log=log
+            # A native JSON table also derives columns from temporary_properties, and a request names
+            # those properties the same way.
+            source_columns = (
+                ("properties", "temporary_properties") if target.uses_new_events_schema else ("properties",)
             )
+            for table_column in source_columns:
+                mat_cols += _get_affected_mat_columns(
+                    client, target.read_table, deletion_request.properties, table_column=table_column, log=log
+                )
         if deletion_request.person_properties:
             person_mat_cols = _get_affected_mat_columns(
                 client, target.read_table, deletion_request.person_properties, table_column="person_properties", log=log
