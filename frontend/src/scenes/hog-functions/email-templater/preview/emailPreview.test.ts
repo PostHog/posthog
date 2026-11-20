@@ -83,6 +83,7 @@ describe('renderEmailPreview', () => {
     it.each([
         ['an unclosed tag', "{{ 'a<' | strip_html }} {{ '<b>bold</b>' | strip_html }}", 'a&lt; bold'],
         ['a list, joined as Liquid joins it', '{{ person.properties.seats | strip_html }}', 'ab'],
+        ['text whose lowercase form is longer', "{{ 'İ<style>x</style>tail' | strip_html }}", 'İtail'],
         [
             'a script, style or comment block',
             "{{ '<script>x</script><style>.a{}</style>b<!-- c > d -->e' | strip_html }}",

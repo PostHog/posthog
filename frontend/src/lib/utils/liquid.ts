@@ -120,7 +120,8 @@ const STRIPPED_BLOCKS: [opener: string, closer: string][] = [
 
 function stripHtml(value: unknown): string {
     const text = Array.isArray(value) ? value.join('') : String(value ?? '')
-    const lower = text.toLowerCase()
+    // ASCII only, so every offset in `lower` points at the same character in `text`.
+    const lower = text.replace(/[A-Z]/g, (char) => char.toLowerCase())
     const missingClosers = new Set<string>()
     let out = ''
     let cursor = 0
