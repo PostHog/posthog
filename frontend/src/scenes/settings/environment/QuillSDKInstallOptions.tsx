@@ -36,17 +36,22 @@ export function QuillSDKInstallOptions({
                     <WizardCommandBlock />
                 </CardContent>
             </Card>
-            <Card size="sm" className="py-1">
-                <Collapsible open={showManualSetup} onOpenChange={onShowManualSetupChange}>
-                    <div className="px-1">
+            <Card size="sm" className="gap-0 py-0">
+                {/* The default collapsible tints itself and its trigger when open, which reads as a selected list row inside a card. */}
+                <Collapsible
+                    open={showManualSetup}
+                    onOpenChange={onShowManualSetupChange}
+                    className="hover:bg-transparent data-[open]:bg-transparent"
+                >
+                    <div className="p-1">
                         <CollapsibleTrigger
-                            className="w-full justify-between font-semibold"
+                            className="w-full justify-between font-semibold aria-expanded:bg-transparent"
                             data-attr="sdk-setup-manual-toggle"
                         >
                             Set up manually
                         </CollapsibleTrigger>
                     </div>
-                    <CollapsibleContent className="px-3 pt-2 pb-2">
+                    <CollapsibleContent className="border-t border-border p-3">
                         <SDKSetupInstructions />
                     </CollapsibleContent>
                 </Collapsible>
