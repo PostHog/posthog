@@ -185,6 +185,11 @@ const teamReport = {
     ],
 }
 
+// Jest reports file paths relative to the frontend directory, such as ../products/x/frontend/y.test.ts.
+export const selectorOf = ({ test }) => ({
+    selector: `${(test.file || '').replace(/^(\.{1,2}\/)+/, '')}::${test.name}`,
+})
+
 async function main() {
     if (!TRUNK_API_KEY || COLLECTION_IDS.length === 0) {
         console.warn(
@@ -201,7 +206,6 @@ async function main() {
     if (flagged.length === 0) {
         return
     }
-    const selectorOf = ({ test }) => ({ selector: `${test.file || ''}::${test.name}` })
     const ownerFor = resolveOwners(flagged.map(selectorOf), repoPathResolver(), OWNERS_PRODUCER)
     const owned = flagged.map((item) => ({ ...item, ...ownerFor(selectorOf(item)) }))
     const entries = owned.map((item) => ({ owner: item.owner, slack: item.slack, row: item }))
@@ -226,6 +230,8 @@ async function main() {
     }
     const digest = await postToSlack(blocks, 'Stale test quarantines')
     for (const page of pages.slice(1)) {
+        // Slack allows about one message per second per channel.
+        await new Promise((resolve) => setTimeout(resolve, 1100))
         await postToSlack([table(page, true)], 'Stale test quarantines', { threadTs: digest.ts })
     }
     console.info(`Posted the stale quarantine report to ${SLACK_CHANNEL}.`)

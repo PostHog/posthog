@@ -7,6 +7,7 @@ import {
     MIN_RUNS,
     pagesOf,
     ROWS_PER_TABLE,
+    selectorOf,
     table,
     WINDOW_DAYS,
 } from './stale-quarantine-report.mjs'
@@ -72,5 +73,13 @@ describe('stale quarantine report', () => {
         const tableRows = pages.map((page) => table(page).rows.length)
         assert.deepEqual(tableRows, [100, 100, 2])
         assert.equal(pages.flat().length, items.length)
+    })
+
+    it('builds an owner selector from the repo-relative path', () => {
+        const selectorFor = (file) => selectorOf({ test: { file, name: 't' } }).selector
+        assert.equal(selectorFor('../products/pulse/frontend/a.test.ts'), 'products/pulse/frontend/a.test.ts::t')
+        assert.equal(selectorFor('./a/b.py'), 'a/b.py::t')
+        assert.equal(selectorFor('posthog/api/test/test_x.py'), 'posthog/api/test/test_x.py::t')
+        assert.equal(selectorFor(undefined), '::t')
     })
 })
